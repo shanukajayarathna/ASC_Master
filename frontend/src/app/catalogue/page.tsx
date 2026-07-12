@@ -1,19 +1,41 @@
 "use client";
 
 import CatalogueGrid from "@/components/catalogue/CatalogueGrid";
+import FilterPanel from "@/components/catalogue/FilterPanel";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
+import {
+  emptyColumnFilter,
+  filterLots,
+  isColumnFilterActive,
+  type ColumnFilterState,
+  type TicketStatus,
+} from "@/lib/lotFilters";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
+import Badge from "@mui/material/Badge";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
 import ListItemText from "@mui/material/ListItemText";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
-import { useCallback, useEffect, useRef, useState } from "react";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const CLASSIFICATION_LABELS: Record<string, string> = {
+  Best: "Best",
+  BelowBest: "Below Best",
+  Poor: "Poor",
+  Unclassified: "Unclassified",
+};
+const STATUS_LABELS: Record<string, string> = {
+  full: "Ticket complete",
+  partial: "In progress",
+  empty: "Not started",
+};
 
 const LARGE_PAGE_SIZE = 5000;
 
@@ -29,6 +51,10 @@ export default function CataloguePage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState<HTMLElement | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
+  const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
+  const [classificationFilter, setClassificationFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadLots = useCallback(async () => {
@@ -53,12 +79,15 @@ export default function CataloguePage() {
   }, [loadLots]);
 
   useEffect(() => {
-    // Resets column visibility to the catalogue's defaults whenever the active catalogue changes.
+    // Resets column visibility and all filters to defaults whenever the active catalogue changes.
     const meta = activeCatalogue?.columnMeta;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHiddenColumns(
       meta ? new Set(Object.entries(meta).filter(([, m]) => !m.defaultVisible).map(([h]) => h)) : new Set()
     );
+    setColumnFilters({});
+    setStatusFilter("");
+    setClassificationFilter("");
   }, [activeCatalogue?.id, activeCatalogue?.columnMeta]);
 
   const toggleColumn = (header: string) => {
@@ -69,6 +98,59 @@ export default function CataloguePage() {
       return next;
     });
   };
+
+  const setColumnFilter = (header: string, value: ColumnFilterState) => {
+    setColumnFilters((prev) => ({ ...prev, [header]: value }));
+  };
+
+  const clearAllFilters = () => {
+    setColumnFilters({});
+    setStatusFilter("");
+    setClassificationFilter("");
+    setSearch("");
+  };
+
+  const filteredLots = useMemo(
+    () =>
+      filterLots(lots, {
+        search,
+        columnFilters,
+        status: statusFilter,
+        classification: classificationFilter,
+      }),
+    [lots, search, columnFilters, statusFilter, classificationFilter]
+  );
+
+  const activeFilterChips = useMemo(() => {
+    const chips: { key: string; label: string; onRemove: () => void }[] = [];
+    Object.entries(columnFilters).forEach(([header, f]) => {
+      if (!isColumnFilterActive(f)) return;
+      const label =
+        f.kind === "categorical"
+          ? `${header}: ${f.values.join(", ")}`
+          : f.kind === "numeric"
+            ? `${header}: ${f.min || "…"}–${f.max || "…"}`
+            : `${header}: "${f.value}"`;
+      chips.push({
+        key: `col-${header}`,
+        label,
+        onRemove: () => setColumnFilters((prev) => ({ ...prev, [header]: emptyColumnFilter(activeCatalogue?.columnMeta[header]) })),
+      });
+    });
+    if (statusFilter) {
+      chips.push({ key: "status", label: `Status: ${STATUS_LABELS[statusFilter]}`, onRemove: () => setStatusFilter("") });
+    }
+    if (classificationFilter) {
+      chips.push({
+        key: "classification",
+        label: `Classification: ${CLASSIFICATION_LABELS[classificationFilter]}`,
+        onRemove: () => setClassificationFilter(""),
+      });
+    }
+    return chips;
+  }, [columnFilters, statusFilter, classificationFilter, activeCatalogue?.columnMeta]);
+
+  const activeFilterCount = activeFilterChips.length;
 
   const handleFile = async (file: File) => {
     setImportError(null);
@@ -200,14 +282,51 @@ export default function CataloguePage() {
         </Menu>
       </div>
 
-      <TextField
-        placeholder="Search across every column…"
-        size="small"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="mb-3"
-        sx={{ width: 340 }}
-      />
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <TextField
+          placeholder="Search across every column…"
+          size="small"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          sx={{ width: 340 }}
+        />
+        <Badge badgeContent={activeFilterCount} color="error" invisible={activeFilterCount === 0}>
+          <Button
+            variant={filtersOpen ? "contained" : "outlined"}
+            size="small"
+            color={filtersOpen ? "primary" : undefined}
+            startIcon={<FilterListIcon fontSize="small" />}
+            onClick={() => setFiltersOpen((o) => !o)}
+          >
+            Filters
+          </Button>
+        </Badge>
+        <span className="text-[12.5px] text-text-muted font-mono ml-auto">
+          {filteredLots.length.toLocaleString()} of {lots.length.toLocaleString()} lots
+        </span>
+      </div>
+
+      {filtersOpen && activeCatalogue && (
+        <FilterPanel
+          headers={activeCatalogue.headers}
+          columnMeta={activeCatalogue.columnMeta}
+          columnFilters={columnFilters}
+          onColumnFilterChange={setColumnFilter}
+          status={statusFilter}
+          onStatusChange={setStatusFilter}
+          classification={classificationFilter}
+          onClassificationChange={setClassificationFilter}
+          onClearAll={clearAllFilters}
+        />
+      )}
+
+      {activeFilterChips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {activeFilterChips.map((chip) => (
+            <Chip key={chip.key} label={chip.label} size="small" onDelete={chip.onRemove} />
+          ))}
+        </div>
+      )}
 
       {selected.length > 0 && (
         <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-md bg-ink-900 text-white mb-3 flex-wrap">
@@ -240,13 +359,12 @@ export default function CataloguePage() {
         <p className="text-text-muted text-sm">Loading lots…</p>
       ) : activeCatalogue ? (
         <CatalogueGrid
-          lots={lots}
+          lots={filteredLots}
           headers={activeCatalogue.headers}
           columnMeta={activeCatalogue.columnMeta}
           hiddenColumns={hiddenColumns}
           onOpenTicket={openTicket}
           onSelectionChanged={setSelected}
-          quickFilterText={search}
         />
       ) : null}
 

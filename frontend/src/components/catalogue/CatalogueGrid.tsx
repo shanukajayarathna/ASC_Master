@@ -30,7 +30,6 @@ export default function CatalogueGrid({
   hiddenColumns,
   onOpenTicket,
   onSelectionChanged,
-  quickFilterText,
 }: {
   lots: Lot[];
   headers: string[];
@@ -38,7 +37,6 @@ export default function CatalogueGrid({
   hiddenColumns: Set<string>;
   onOpenTicket: (lot: Lot) => void;
   onSelectionChanged: (lots: Lot[]) => void;
-  quickFilterText?: string;
 }) {
   const gridRef = useRef<AgGridReact>(null);
 
@@ -140,7 +138,6 @@ export default function CatalogueGrid({
         theme={ascGridTheme}
         rowData={rowData}
         columnDefs={columnDefs}
-        quickFilterText={quickFilterText}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
         onSelectionChanged={handleSelectionChanged}
         onGridReady={handleGridReady}
@@ -149,7 +146,7 @@ export default function CatalogueGrid({
         paginationPageSize={50}
         paginationPageSizeSelector={[25, 50, 100, 250]}
         animateRows
-        defaultColDef={{ sortable: true, filter: true, resizable: true, floatingFilter: true }}
+        defaultColDef={{ sortable: true, filter: true, resizable: true }}
       />
     </div>
   );
