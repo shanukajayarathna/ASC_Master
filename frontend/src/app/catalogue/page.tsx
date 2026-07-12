@@ -2,7 +2,10 @@
 
 import CatalogueGrid from "@/components/catalogue/CatalogueGrid";
 import FilterPanel from "@/components/catalogue/FilterPanel";
+import LotViewDialog from "@/components/catalogue/LotViewDialog";
+import QuickFillDialog, { type QuickFillField } from "@/components/catalogue/QuickFillDialog";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
+import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import {
@@ -23,7 +26,12 @@ import Checkbox from "@mui/material/Checkbox";
 import ListItemText from "@mui/material/ListItemText";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import BoltIcon from "@mui/icons-material/Bolt";
+import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const VALUATION_HANDOFF_KEY = "asc:valuation:pending";
 
 const CLASSIFICATION_LABELS: Record<string, string> = {
   Best: "Best",
@@ -40,6 +48,7 @@ const STATUS_LABELS: Record<string, string> = {
 const LARGE_PAGE_SIZE = 5000;
 
 export default function CataloguePage() {
+  const router = useRouter();
   const { activeCatalogueId, activeCatalogue, importFile, loading: catalogueLoading, error: catalogueError } = useCatalogue();
   const [lots, setLots] = useState<Lot[]>([]);
   const [loadingLots, setLoadingLots] = useState(false);
@@ -47,6 +56,10 @@ export default function CataloguePage() {
   const [selected, setSelected] = useState<Lot[]>([]);
   const [drawerLot, setDrawerLot] = useState<Lot | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [viewLot, setViewLot] = useState<Lot | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [quickFillOpen, setQuickFillOpen] = useState(false);
+  const [quickFillField, setQuickFillField] = useState<QuickFillField>("valuation");
   const [dragOver, setDragOver] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -161,14 +174,37 @@ export default function CataloguePage() {
     }
   };
 
-  const openTicket = (lot: Lot) => {
+  const editLot = (lot: Lot) => {
     setDrawerLot(lot);
     setDrawerOpen(true);
+  };
+
+  const viewLotDetails = (lot: Lot) => {
+    setViewLot(lot);
+    setViewOpen(true);
   };
 
   const handleSaved = (updated: Lot) => {
     setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     setDrawerOpen(false);
+  };
+
+  const handleQuickFillUpdated = (updated: Lot) => {
+    setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+  };
+
+  const openQuickFill = (fieldToOpen: QuickFillField) => {
+    setQuickFillField(fieldToOpen);
+    setQuickFillOpen(true);
+  };
+
+  const openValuationCentre = () => {
+    if (!activeCatalogueId || selected.length === 0) return;
+    window.sessionStorage.setItem(
+      VALUATION_HANDOFF_KEY,
+      JSON.stringify({ catalogueId: activeCatalogueId, lotIds: selected.map((l) => l.id) })
+    );
+    router.push("/valuation");
   };
 
   const bulkClassify = async (classification: ClassificationValue) => {
@@ -249,6 +285,11 @@ export default function CataloguePage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <ExportShareMenu
+            catalogueId={activeCatalogueId}
+            catalogueName={activeCatalogue?.sourceName ?? "Catalogue"}
+            lots={filteredLots}
+          />
           <Button
             variant="outlined"
             size="small"
@@ -336,18 +377,39 @@ export default function CataloguePage() {
             sx={{ bgcolor: "rgba(217,182,92,0.18)", color: "var(--brass-light)", fontFamily: "var(--font-mono)" }}
           />
           <div className="flex gap-1.5 ml-auto flex-wrap">
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              startIcon={<PaidOutlinedIcon fontSize="small" />}
+              onClick={openValuationCentre}
+            >
+              Valuation…
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              startIcon={<BoltIcon fontSize="small" />}
+              onClick={() => openQuickFill("valuation")}
+            >
+              Quick Fill…
+            </Button>
+            <span className="w-px self-stretch bg-white/15 mx-0.5" />
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("Best")}>
-              Mark Best
+              Mark all Best
             </Button>
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("BelowBest")}>
-              Mark Below Best
+              Mark all Below Best
             </Button>
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("Poor")}>
-              Mark Poor
+              Mark all Poor
             </Button>
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={bulkClearNotes}>
               Clear notes
             </Button>
+            <span className="w-px self-stretch bg-white/15 mx-0.5" />
+            <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={selected} dark />
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setSelected([])}>
               Deselect
             </Button>
@@ -363,12 +425,31 @@ export default function CataloguePage() {
           headers={activeCatalogue.headers}
           columnMeta={activeCatalogue.columnMeta}
           hiddenColumns={hiddenColumns}
-          onOpenTicket={openTicket}
+          onViewLot={viewLotDetails}
+          onEditLot={editLot}
           onSelectionChanged={setSelected}
         />
       ) : null}
 
       <ValuationDrawer lot={drawerLot} open={drawerOpen} onClose={() => setDrawerOpen(false)} onSaved={handleSaved} />
+
+      <LotViewDialog
+        lot={viewLot}
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        onEdit={() => {
+          setViewOpen(false);
+          if (viewLot) editLot(viewLot);
+        }}
+      />
+
+      <QuickFillDialog
+        open={quickFillOpen}
+        lots={selected}
+        initialField={quickFillField}
+        onClose={() => setQuickFillOpen(false)}
+        onLotUpdated={handleQuickFillUpdated}
+      />
     </div>
   );
 }

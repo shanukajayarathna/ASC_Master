@@ -4,9 +4,11 @@ import "./agGridSetup";
 import { formatCurrency } from "@/lib/format";
 import type { ColumnMeta, Lot } from "@/types/api";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, GridReadyEvent, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
+import type { ColDef, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
 import { useEffect, useMemo, useRef } from "react";
 import { ascGridTheme } from "./agGridTheme";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
 const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
   Best: { label: "Best", bg: "var(--sage-light)", fg: "var(--sage-dark)" },
@@ -28,14 +30,16 @@ export default function CatalogueGrid({
   headers,
   columnMeta,
   hiddenColumns,
-  onOpenTicket,
+  onViewLot,
+  onEditLot,
   onSelectionChanged,
 }: {
   lots: Lot[];
   headers: string[];
   columnMeta: Record<string, ColumnMeta>;
   hiddenColumns: Set<string>;
-  onOpenTicket: (lot: Lot) => void;
+  onViewLot: (lot: Lot) => void;
+  onEditLot: (lot: Lot) => void;
   onSelectionChanged: (lots: Lot[]) => void;
 }) {
   const gridRef = useRef<AgGridReact>(null);
@@ -56,7 +60,9 @@ export default function CatalogueGrid({
         hide: hiddenColumns.has(h),
         filter: meta?.categorical ? "agSetColumnFilter" : meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
         type: meta?.numeric ? "numericColumn" : undefined,
-        minWidth: 130,
+        minWidth: 100,
+        maxWidth: 260,
+        tooltipField: h,
         editable: true,
       });
     });
@@ -94,20 +100,30 @@ export default function CatalogueGrid({
 
     cols.push({
       headerName: "",
-      colId: "openTicket",
+      colId: "actions",
       pinned: "right",
-      width: 130,
+      width: 84,
       sortable: false,
       filter: false,
       cellRenderer: (p: ICellRendererParams) => {
         const lot = (p.data as { __lot: Lot }).__lot;
         return (
-          <button
-            onClick={() => onOpenTicket(lot)}
-            className="border border-border rounded-full px-3 py-1 text-[11.5px] text-text hover:border-liquor hover:text-liquor bg-surface"
-          >
-            Open ticket →
-          </button>
+          <div className="flex items-center gap-1 h-full">
+            <button
+              title="View lot details"
+              onClick={() => onViewLot(lot)}
+              className="w-7 h-7 flex items-center justify-center rounded-full border border-border text-text-muted hover:border-liquor hover:text-liquor bg-surface"
+            >
+              <VisibilityOutlinedIcon sx={{ fontSize: 16 }} />
+            </button>
+            <button
+              title="Edit valuation"
+              onClick={() => onEditLot(lot)}
+              className="w-7 h-7 flex items-center justify-center rounded-full border border-border text-text-muted hover:border-brass hover:text-liquor bg-surface"
+            >
+              <EditOutlinedIcon sx={{ fontSize: 16 }} />
+            </button>
+          </div>
         );
       },
     });
@@ -121,15 +137,17 @@ export default function CatalogueGrid({
     onSelectionChanged(rows.map((r) => r.__lot));
   };
 
-  const handleGridReady = (e: GridReadyEvent) => {
-    e.api.sizeColumnsToFit();
-  };
+  // sizeColumnsToFit resizes every displayed (non-pinned) column proportionally so their total
+  // width exactly equals the center viewport width — this is what makes the grid fill the full
+  // page AND guarantees zero gap before the pinned Valuation/Classification/Actions columns
+  // (unlike a fixed per-column width, which leaves a gap when there are too few columns to fill
+  // the space). The per-column min/maxWidth above stop that stretch from making any single
+  // column absurdly wide when only a few are visible.
+  const fitColumns = () => gridRef.current?.api?.sizeColumnsToFit();
 
-  // Re-fit whenever which columns are visible changes (sizeColumnsToFit only runs once on
-  // ready otherwise, so newly shown/hidden columns would leave the same gap again).
-  useEffect(() => {
-    gridRef.current?.api?.sizeColumnsToFit();
-  }, [columnDefs]);
+  const handleGridReady = () => fitColumns();
+
+  useEffect(fitColumns, [columnDefs]);
 
   return (
     <div style={{ height: "64vh", width: "100%" }}>
@@ -141,11 +159,12 @@ export default function CatalogueGrid({
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
         onSelectionChanged={handleSelectionChanged}
         onGridReady={handleGridReady}
-        onGridSizeChanged={(e) => e.api.sizeColumnsToFit()}
+        onGridSizeChanged={fitColumns}
         pagination
         paginationPageSize={50}
         paginationPageSizeSelector={[25, 50, 100, 250]}
         animateRows
+        tooltipShowDelay={300}
         defaultColDef={{ sortable: true, filter: true, resizable: true }}
       />
     </div>

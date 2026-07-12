@@ -208,11 +208,23 @@ public class CatalogueImportService
         return new ParsedCatalogue { Headers = headers, Rows = data };
     }
 
+    private static readonly Regex[] VisibleByDefault = new string[]
+    {
+        "lot", "grade", "garden", "mark", "categ", "broker", "net.?weight", "chest", "valuat", "class", "remark", "updated",
+    }
+        .Select(p => new Regex(p, RegexOptions.IgnoreCase)).ToArray();
+
+    private static readonly Regex[] HiddenByDefault = new string[]
+    {
+        "sale.?no", "sale.?year", "^year$", "invoice", "gross.?weight", "stored", "warehouse", "elevat", "region", "date",
+    }
+        .Select(p => new Regex(p, RegexOptions.IgnoreCase)).ToArray();
+
+    private static bool IsDefaultVisible(string header) =>
+        VisibleByDefault.Any(re => re.IsMatch(header)) && !HiddenByDefault.Any(re => re.IsMatch(header));
+
     public Dictionary<string, ColumnMeta> BuildColumnMeta(List<string> headers, List<Dictionary<string, string>> data)
     {
-        var visibleByDefault = new[] { "lot", "grade", "garden", "valuat", "class", "remark", "updated" }.Select(p => new Regex(p, RegexOptions.IgnoreCase)).ToList();
-        var hiddenByDefault = new[] { "broker", "sale.?no", "sale.?year", "^year$", "mark", "invoice", "net.?weight", "gross.?weight", "categ", "stored", "warehouse", "elevat", "region", "date" }.Select(p => new Regex(p, RegexOptions.IgnoreCase)).ToList();
-
         var result = new Dictionary<string, ColumnMeta>();
         foreach (var h in headers)
         {
@@ -226,10 +238,22 @@ public class CatalogueImportService
                 Numeric = numeric,
                 Categorical = categorical,
                 Options = categorical ? uniq.OrderBy(x => x).ToList() : new List<string>(),
-                DefaultVisible = visibleByDefault.Any(re => re.IsMatch(h)) && !hiddenByDefault.Any(re => re.IsMatch(h))
+                DefaultVisible = IsDefaultVisible(h)
             };
         }
         return result;
+    }
+
+    /// <summary>
+    /// Re-applies the current default-visible-column heuristic to an already-imported
+    /// catalogue's stored column metadata, so refinements to that heuristic take effect on
+    /// existing catalogues without requiring a re-import.
+    /// </summary>
+    public Dictionary<string, ColumnMeta> RefreshDefaultVisibility(Dictionary<string, ColumnMeta> meta)
+    {
+        foreach (var (header, columnMeta) in meta)
+            columnMeta.DefaultVisible = IsDefaultVisible(header);
+        return meta;
     }
 
     public Lot BuildLot(Guid catalogueId, List<string> headers, Dictionary<string, string> row)

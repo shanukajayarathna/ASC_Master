@@ -89,4 +89,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ lotIds }),
     }),
+
+  exportExcel: async (catalogueId: string, lotIds: string[]): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/catalogues/${catalogueId}/export/excel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lotIds }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Export failed");
+    }
+    return res.blob();
+  },
 };

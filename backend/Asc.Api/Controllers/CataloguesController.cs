@@ -23,7 +23,8 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
     {
         var c = await db.Catalogues.Find(x => x.Id == id).FirstOrDefaultAsync();
         if (c is null) return NotFound();
-        return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, c.ColumnMeta, c.RowCount, c.ImportedAt));
+        var columnMeta = importer.RefreshDefaultVisibility(c.ColumnMeta);
+        return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt));
     }
 
     [HttpDelete("{id:guid}")]
