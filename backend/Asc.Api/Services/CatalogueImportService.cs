@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 using Asc.Api.Models;
-using ClosedXML.Excel;
+using NPOI.SS.UserModel;
 
 namespace Asc.Api.Services;
 
@@ -29,7 +29,7 @@ public class CatalogueImportService
         ("Region", new Regex("region", RegexOptions.IgnoreCase), null),
         ("Warehouse", new Regex("warehouse", RegexOptions.IgnoreCase), null),
         ("Mark", new Regex("mark", RegexOptions.IgnoreCase), new Regex("selling", RegexOptions.IgnoreCase)),
-        ("SaleNo", new Regex("sale.?no", RegexOptions.IgnoreCase), null),
+        ("SaleNo", new Regex("sale.?(no|number)", RegexOptions.IgnoreCase), null),
         ("SaleYear", new Regex("year", RegexOptions.IgnoreCase), null),
         ("InvoiceNo", new Regex("invoice", RegexOptions.IgnoreCase), null),
         ("NetWeight", new Regex("net.?(weight|wt)", RegexOptions.IgnoreCase), null),
@@ -43,21 +43,87 @@ public class CatalogueImportService
         return ExtractTable(rows);
     }
 
+    /// <summary>
+    /// Reads the first worksheet of an .xlsx (OOXML) or legacy .xls (BIFF/OLE2 — e.g. Crystal
+    /// Reports exports) file. NPOI's WorkbookFactory auto-detects the format from the file's
+    /// binary signature, so both work through the same code path.
+    /// </summary>
     private List<List<string>> ParseExcel(Stream stream)
     {
-        using var wb = new XLWorkbook(stream);
-        var ws = wb.Worksheets.First();
-        var used = ws.RangeUsed();
+        using var wb = WorkbookFactory.Create(stream);
+        var sheet = wb.GetSheetAt(0);
         var result = new List<List<string>>();
-        if (used is null) return result;
-        foreach (var row in used.RowsUsed())
+        if (sheet is null || sheet.PhysicalNumberOfRows == 0) return result;
+
+        var evaluator = wb.GetCreationHelper().CreateFormulaEvaluator();
+
+        int maxCols = 0;
+        for (int r = sheet.FirstRowNum; r <= sheet.LastRowNum; r++)
         {
-            var cells = new List<string>();
-            foreach (var cell in row.Cells(1, used.ColumnCount()))
-                cells.Add(cell.GetFormattedString().Trim());
+            var row = sheet.GetRow(r);
+            if (row is not null) maxCols = Math.Max(maxCols, row.LastCellNum);
+        }
+        if (maxCols <= 0) return result;
+
+        for (int r = sheet.FirstRowNum; r <= sheet.LastRowNum; r++)
+        {
+            var row = sheet.GetRow(r);
+            var cells = new List<string>(maxCols);
+            for (int c = 0; c < maxCols; c++)
+            {
+                var cell = row?.GetCell(c, MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                cells.Add(CellToString(cell, evaluator).Trim());
+            }
             result.Add(cells);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Reads a cell's value as plain text without NPOI's DataFormatter — that path pulls in a
+    /// font-metrics dependency (SkiaSharp) that isn't bundled for cell-value-only parsing and
+    /// throws FileNotFoundException on some cell formats. This covers the same cell types
+    /// (blank/numeric/string/boolean/formula) using only the cell's raw typed value.
+    /// </summary>
+    private static string CellToString(ICell? cell, IFormulaEvaluator evaluator)
+    {
+        if (cell is null || cell.CellType == CellType.Blank) return string.Empty;
+        try
+        {
+            if (cell.CellType == CellType.Formula)
+            {
+                var result = evaluator.Evaluate(cell);
+                return result.CellType switch
+                {
+                    CellType.Numeric => FormatNumeric(cell, result.NumberValue),
+                    CellType.String => result.StringValue ?? string.Empty,
+                    CellType.Boolean => result.BooleanValue.ToString(),
+                    _ => string.Empty,
+                };
+            }
+            return cell.CellType switch
+            {
+                CellType.Numeric => FormatNumeric(cell, cell.NumericCellValue),
+                CellType.String => cell.StringCellValue,
+                CellType.Boolean => cell.BooleanCellValue.ToString(),
+                _ => cell.ToString() ?? string.Empty,
+            };
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string FormatNumeric(ICell cell, double value)
+    {
+        if (DateUtil.IsCellDateFormatted(cell))
+            return DateUtil.GetJavaDate(value).ToString("yyyy-MM-dd");
+
+        // Whole numbers print without a trailing ".0", matching how Excel displays plain numeric cells.
+        return value == Math.Floor(value) && !double.IsInfinity(value)
+            ? ((long)value).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private List<List<string>> ParseCsv(Stream stream)

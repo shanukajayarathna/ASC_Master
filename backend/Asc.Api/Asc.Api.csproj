@@ -5,12 +5,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>64602874-1221-4e66-b3f6-a5fb853997ab</UserSecretsId>
+    <!-- NPOI's OOXML module bundles the OSMF-licensed font used for some rendering paths (not used by our
+         cell-value-only parsing, but the build needs this acknowledged either way). -->
+    <AcceptNPOIOSMFLicense>true</AcceptNPOIOSMFLicense>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.17" />
     <PackageReference Include="MongoDB.Driver" Version="3.10.0" />
+    <PackageReference Include="NPOI" Version="2.8.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
   </ItemGroup>
 
