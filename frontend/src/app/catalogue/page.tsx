@@ -8,6 +8,11 @@ import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Checkbox from "@mui/material/Checkbox";
+import ListItemText from "@mui/material/ListItemText";
+import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const LARGE_PAGE_SIZE = 5000;
@@ -22,6 +27,8 @@ export default function CataloguePage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [columnsMenuAnchor, setColumnsMenuAnchor] = useState<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadLots = useCallback(async () => {
@@ -44,6 +51,24 @@ export default function CataloguePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadLots();
   }, [loadLots]);
+
+  useEffect(() => {
+    // Resets column visibility to the catalogue's defaults whenever the active catalogue changes.
+    const meta = activeCatalogue?.columnMeta;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHiddenColumns(
+      meta ? new Set(Object.entries(meta).filter(([, m]) => !m.defaultVisible).map(([h]) => h)) : new Set()
+    );
+  }, [activeCatalogue?.id, activeCatalogue?.columnMeta]);
+
+  const toggleColumn = (header: string) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(header)) next.delete(header);
+      else next.add(header);
+      return next;
+    });
+  };
 
   const handleFile = async (file: File) => {
     setImportError(null);
@@ -141,9 +166,19 @@ export default function CataloguePage() {
             {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots · {activeCatalogue?.headers.length} columns
           </p>
         </div>
-        <Button variant="outlined" size="small" onClick={() => fileInputRef.current?.click()}>
-          Load a different file
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<ViewColumnIcon fontSize="small" />}
+            onClick={(e) => setColumnsMenuAnchor(e.currentTarget)}
+          >
+            Columns
+          </Button>
+          <Button variant="outlined" size="small" onClick={() => fileInputRef.current?.click()}>
+            Load a different file
+          </Button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -155,6 +190,14 @@ export default function CataloguePage() {
             e.target.value = "";
           }}
         />
+        <Menu anchorEl={columnsMenuAnchor} open={!!columnsMenuAnchor} onClose={() => setColumnsMenuAnchor(null)}>
+          {activeCatalogue?.headers.map((h) => (
+            <MenuItem key={h} onClick={() => toggleColumn(h)} dense>
+              <Checkbox checked={!hiddenColumns.has(h)} size="small" />
+              <ListItemText primary={h} />
+            </MenuItem>
+          ))}
+        </Menu>
       </div>
 
       <TextField
@@ -200,6 +243,7 @@ export default function CataloguePage() {
           lots={lots}
           headers={activeCatalogue.headers}
           columnMeta={activeCatalogue.columnMeta}
+          hiddenColumns={hiddenColumns}
           onOpenTicket={openTicket}
           onSelectionChanged={setSelected}
           quickFilterText={search}

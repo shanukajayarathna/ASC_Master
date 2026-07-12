@@ -4,8 +4,8 @@ import "./agGridSetup";
 import { formatCurrency } from "@/lib/format";
 import type { ColumnMeta, Lot } from "@/types/api";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
-import { useMemo, useRef } from "react";
+import type { ColDef, GridReadyEvent, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
+import { useEffect, useMemo, useRef } from "react";
 import { ascGridTheme } from "./agGridTheme";
 
 const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -27,6 +27,7 @@ export default function CatalogueGrid({
   lots,
   headers,
   columnMeta,
+  hiddenColumns,
   onOpenTicket,
   onSelectionChanged,
   quickFilterText,
@@ -34,6 +35,7 @@ export default function CatalogueGrid({
   lots: Lot[];
   headers: string[];
   columnMeta: Record<string, ColumnMeta>;
+  hiddenColumns: Set<string>;
   onOpenTicket: (lot: Lot) => void;
   onSelectionChanged: (lots: Lot[]) => void;
   quickFilterText?: string;
@@ -53,10 +55,10 @@ export default function CatalogueGrid({
       cols.push({
         field: h,
         headerName: h,
-        hide: meta ? !meta.defaultVisible : false,
+        hide: hiddenColumns.has(h),
         filter: meta?.categorical ? "agSetColumnFilter" : meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
         type: meta?.numeric ? "numericColumn" : undefined,
-        minWidth: 120,
+        minWidth: 130,
         editable: true,
       });
     });
@@ -114,12 +116,22 @@ export default function CatalogueGrid({
 
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headers, columnMeta]);
+  }, [headers, columnMeta, hiddenColumns]);
 
   const handleSelectionChanged = (e: SelectionChangedEvent) => {
     const rows = e.api.getSelectedRows() as { __lot: Lot }[];
     onSelectionChanged(rows.map((r) => r.__lot));
   };
+
+  const handleGridReady = (e: GridReadyEvent) => {
+    e.api.sizeColumnsToFit();
+  };
+
+  // Re-fit whenever which columns are visible changes (sizeColumnsToFit only runs once on
+  // ready otherwise, so newly shown/hidden columns would leave the same gap again).
+  useEffect(() => {
+    gridRef.current?.api?.sizeColumnsToFit();
+  }, [columnDefs]);
 
   return (
     <div style={{ height: "64vh", width: "100%" }}>
@@ -131,14 +143,13 @@ export default function CatalogueGrid({
         quickFilterText={quickFilterText}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
         onSelectionChanged={handleSelectionChanged}
+        onGridReady={handleGridReady}
+        onGridSizeChanged={(e) => e.api.sizeColumnsToFit()}
         pagination
         paginationPageSize={50}
         paginationPageSizeSelector={[25, 50, 100, 250]}
         animateRows
-        defaultColDef={{ sortable: true, filter: true, resizable: true }}
-        sideBar={{
-          toolPanels: ["columns", "filters"],
-        }}
+        defaultColDef={{ sortable: true, filter: true, resizable: true, floatingFilter: true }}
       />
     </div>
   );
