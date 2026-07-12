@@ -2,7 +2,7 @@ export default function HelpPage() {
   const faqs = [
     {
       q: "How do I import a catalogue?",
-      a: "Go to Catalogue Manager and drop an .xls, .xlsx or .csv file, or click Choose file. It's uploaded to the API, parsed and stored in PostgreSQL.",
+      a: "Go to Catalogue Manager and drop an .xls, .xlsx or .csv file, or click Choose file. It's uploaded to the API, parsed and stored in MongoDB.",
     },
     {
       q: "How do I value a lot?",

@@ -9,7 +9,7 @@ export default function DataImportPage() {
       <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Data Import</h1>
       <p className="text-[13px] text-text-muted mb-5">
         Bring lot catalogues into ASC. Files are uploaded to the ASP.NET Core API, parsed server-side (ClosedXML for
-        Excel, a built-in CSV parser for .csv) and stored in PostgreSQL.
+        Excel, a built-in CSV parser for .csv) and stored in MongoDB.
       </p>
       <div className="border border-border rounded-lg bg-surface p-7">
         <h2 className="font-display text-lg text-text-strong mb-2">Single-file import is live</h2>

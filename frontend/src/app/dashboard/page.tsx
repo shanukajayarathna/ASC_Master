@@ -39,7 +39,7 @@ export default function DashboardPage() {
       <div className="mb-5">
         <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Executive Dashboard</h1>
         <p className="text-[13px] text-text-muted m-0 max-w-xl">
-          A live overview of catalogue coverage, valuation and composition — powered by PostgreSQL via the ASP.NET Core API.
+          A live overview of catalogue coverage, valuation and composition — powered by MongoDB via the ASP.NET Core API.
         </p>
       </div>
 

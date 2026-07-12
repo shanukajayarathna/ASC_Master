@@ -105,7 +105,7 @@ export default function CataloguePage() {
         >
           <h2 className="font-display text-2xl text-text-strong mb-2">Drop your catalogue here</h2>
           <p className="text-[13.5px] text-text-muted mb-5">
-            Click to browse, or drag an Excel file in. Parsed and stored server-side in PostgreSQL via the ASP.NET Core API.
+            Click to browse, or drag an Excel file in. Parsed and stored server-side in MongoDB via the ASP.NET Core API.
           </p>
           <Button variant="contained" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>
             Choose file
