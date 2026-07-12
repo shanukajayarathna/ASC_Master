@@ -29,7 +29,7 @@ Also out of scope so far: authentication/roles (there is no login yet — anyone
 
 ### 1. MongoDB
 
-Needs a MongoDB server reachable at the connection string in `backend/Asc.Api/appsettings.json` (`ConnectionStrings:Mongo`, defaults to `mongodb://localhost:27017`, database name `asc_tea`). If you have MongoDB installed as a Windows service, just make sure it's running:
+Needs a MongoDB server reachable at the connection string in `backend/Asc.Api/appsettings.json` (`ConnectionStrings:Mongo`, defaults to `mongodb://localhost:27017`, database name `asc_tea`) — or override it locally with `dotnet user-secrets set "ConnectionStrings:Mongo" "..."` from `backend/Asc.Api` (e.g. to point at a MongoDB Atlas cluster instead; never put real credentials in `appsettings.json`, that file is committed). If you have MongoDB installed as a Windows service, just make sure it's running:
 
 ```powershell
 Get-Service -Name MongoDB | Start-Service   # if not already running
@@ -37,22 +37,32 @@ Get-Service -Name MongoDB | Start-Service   # if not already running
 
 No schema/migration step needed — collections and indexes are created on first write.
 
-### 2. Backend (ASP.NET Core API)
+### 2. One-time setup
 
 ```bash
-cd backend/Asc.Api
-dotnet run                  # http://localhost:5058
+npm install               # root — installs `concurrently`, used to run both dev servers together
+cd frontend && npm install && cd ..
+cp frontend/.env.local.example frontend/.env.local   # edit if your API isn't on localhost:5058
 ```
 
-Swagger UI is available at `http://localhost:5058/swagger` in Development.
+### 3. Run both frontend and backend together
 
-### 3. Frontend (Next.js)
+From the repo root:
 
 ```bash
-cd frontend
-npm install
-cp .env.local.example .env.local   # edit if your API isn't on localhost:5058
-npm run dev                        # http://localhost:3000
+npm run dev
+```
+
+This starts the ASP.NET Core API (`http://localhost:5058`, labeled `[API]`) and the Next.js dev server (`http://localhost:3000`, labeled `[WEB]`) together in one terminal, interleaved and color-coded. `Ctrl+C` stops both.
+
+To run them separately instead (e.g. in two terminals, or for debugging one in an IDE):
+
+```bash
+# terminal 1
+cd backend/Asc.Api && dotnet run          # http://localhost:5058, Swagger at /swagger
+
+# terminal 2
+cd frontend && npm run dev                # http://localhost:3000
 ```
 
 ### AG Grid Enterprise license
@@ -62,6 +72,8 @@ No license key is configured (I don't have one to give you — it's a paid produ
 ## Project layout
 
 ```
+package.json    root dev-orchestration only (`npm run dev` via `concurrently`) — not a workspace, each side has its own dependencies
+
 backend/
   Asc.Api/
     Models/        Catalogue, Lot (embeds Valuation), FilterPreset, ActualPrice, SavedReport
