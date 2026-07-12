@@ -1,0 +1,44 @@
+using Asc.Api.Data;
+using Asc.Api.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+    {
+        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    });
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "ASC Tea Auction API", Version = "v1" });
+});
+
+builder.Services.AddSingleton<MongoContext>();
+builder.Services.AddScoped<CatalogueImportService>();
+
+const string CorsPolicy = "FrontendDev";
+builder.Services.AddCors(opts =>
+{
+    opts.AddPolicy(CorsPolicy, policy =>
+    {
+        policy.WithOrigins("http://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseCors(CorsPolicy);
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();

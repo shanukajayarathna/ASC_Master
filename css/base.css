@@ -1,0 +1,82 @@
+/* ===================================================================
+   ASC Tea Auction Platform — Design Tokens & Base Reset
+   =================================================================== */
+:root{
+  --ink-900:#1B1712; --ink-800:#241F18; --ink-700:#332B22; --ink-600:#4A4030; --ink-muted:#8A7F6C;
+  --paper-0:#FFFFFF; --paper-50:#FAF6EC; --paper-100:#F1E9D6; --paper-200:#E7DCC2; --line:#DED2B4;
+  --liquor:#8C3B1B; --liquor-dark:#6E2C12; --liquor-light:#FBEAE6;
+  --brass:#AD7F27; --brass-light:#D9B65C; --brass-dim:rgba(173,127,39,0.12);
+  --sage:#5F7052; --sage-light:#EDF0E6; --sage-dark:#465438;
+  --danger:#A13B2E; --danger-light:#FBEAE6;
+  --info:#2F6690; --info-light:#E8F1F7;
+  --warn:#B8862E; --warn-light:#FBF1DE;
+
+  --surface:var(--paper-0); --surface-alt:var(--paper-50); --surface-sunken:var(--paper-100);
+  --border:var(--line); --text:var(--ink-800); --text-strong:var(--ink-900); --text-muted:var(--ink-muted);
+  --sidebar-bg:linear-gradient(180deg,var(--ink-900),var(--ink-800)); --sidebar-text:rgba(250,246,236,0.72);
+  --sidebar-text-active:#FFFFFF;
+
+  --shadow-lg:0 20px 50px -20px rgba(27,23,18,0.45); --shadow-md:0 10px 30px -12px rgba(27,23,18,0.25);
+  --shadow-sm:0 2px 8px rgba(27,23,18,0.08);
+  --radius-sm:4px; --radius:6px; --radius-lg:10px;
+  --font-display:'Fraunces',serif; --font-body:'IBM Plex Sans',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+
+  --sidebar-w:248px; --sidebar-w-collapsed:68px; --topbar-h:60px;
+
+  --best:#5F7052; --below-best:#AD7F27; --poor:#A13B2E;
+}
+
+:root[data-theme="dark"]{
+  --ink-900:#F4EEE0; --ink-800:#E8DFC9; --ink-700:#CBBFA0; --ink-600:#A99C7C; --ink-muted:#8C8168;
+  --paper-0:#1B1712; --paper-50:#211C15; --paper-100:#2A2419; --paper-200:#352E20; --line:#4A4030;
+  --liquor:#D9846A; --liquor-dark:#C46A4E; --liquor-light:#3A2119;
+  --brass:#D9B65C; --brass-light:#EBD08C; --brass-dim:rgba(217,182,92,0.14);
+  --sage:#8FA37E; --sage-light:#2A3323; --sage-dark:#A9BB99;
+  --danger:#E08976; --danger-light:#3A2119;
+  --info:#7FB3D9; --info-light:#1C2D38;
+  --warn:#E0B564; --warn-light:#332813;
+
+  --surface:#211C15; --surface-alt:#1B1712; --surface-sunken:#2A2419;
+  --border:#4A4030; --text:#E8DFC9; --text-strong:#F4EEE0; --text-muted:#8C8168;
+  --sidebar-bg:linear-gradient(180deg,#100D09,#17130E); --sidebar-text:rgba(244,238,224,0.65);
+  --sidebar-text-active:#FFFFFF;
+
+  --shadow-lg:0 20px 50px -20px rgba(0,0,0,0.7); --shadow-md:0 10px 30px -12px rgba(0,0,0,0.55);
+  --shadow-sm:0 2px 8px rgba(0,0,0,0.35);
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink-900:#F4EEE0; --ink-800:#E8DFC9; --ink-700:#CBBFA0; --ink-600:#A99C7C; --ink-muted:#8C8168;
+    --paper-0:#1B1712; --paper-50:#211C15; --paper-100:#2A2419; --paper-200:#352E20; --line:#4A4030;
+    --liquor:#D9846A; --liquor-dark:#C46A4E; --liquor-light:#3A2119;
+    --brass:#D9B65C; --brass-light:#EBD08C; --brass-dim:rgba(217,182,92,0.14);
+    --sage:#8FA37E; --sage-light:#2A3323; --sage-dark:#A9BB99;
+    --danger:#E08976; --danger-light:#3A2119;
+    --info:#7FB3D9; --info-light:#1C2D38;
+    --warn:#E0B564; --warn-light:#332813;
+    --surface:#211C15; --surface-alt:#1B1712; --surface-sunken:#2A2419;
+    --border:#4A4030; --text:#E8DFC9; --text-strong:#F4EEE0; --text-muted:#8C8168;
+    --sidebar-bg:linear-gradient(180deg,#100D09,#17130E); --sidebar-text:rgba(244,238,224,0.65);
+    --shadow-lg:0 20px 50px -20px rgba(0,0,0,0.7); --shadow-md:0 10px 30px -12px rgba(0,0,0,0.55);
+    --shadow-sm:0 2px 8px rgba(0,0,0,0.35);
+  }
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+html{font-size:15px;}
+body{background:var(--surface-alt); color:var(--text); font-family:var(--font-body); font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  min-height:100vh; transition:background .2s ease, color .2s ease;}
+::selection{background:var(--brass-light); color:var(--ink-900);}
+button{font-family:inherit; cursor:pointer;}
+input,textarea,select{font-family:inherit;}
+a{color:inherit; text-decoration:none;}
+svg{display:block;}
+::-webkit-scrollbar{width:10px; height:10px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border); border-radius:6px;}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-muted);}
+
+.visually-hidden{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;}
+.mono{font-family:var(--font-mono);}

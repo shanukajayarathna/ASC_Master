@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASC — Tea Auction Valuation &amp; Business Intelligence Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/table.css">
+</head>
+<body>
+
+<div class="app-shell" id="appShell">
+
+  <!-- ===================== sidebar ===================== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="seal">ASC</div>
+      <div class="txt">
+        <div class="name">Asia Siyaka</div>
+        <div class="tag">Commodities · Tea Auctions</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav" id="sidebarNav">
+      <div class="nav-section">
+        <div class="nav-section-label">Workspace</div>
+        <div class="nav-item active" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="lbl">Dashboard</span></div>
+        <div class="nav-item" data-page="catalogue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 9v11"/></svg><span class="lbl">Catalogue Manager</span></div>
+        <div class="nav-item" data-page="valuation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1.1 3 2.5-1.3 2-3 2.5-3 1.1-3 2.5 1.3 2.5 3 2.5 3-1.1 3-2.5"/></svg><span class="lbl">Valuation Centre</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Intelligence</div>
+        <div class="nav-item" data-page="analysis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg><span class="lbl">Analysis</span></div>
+        <div class="nav-item" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg><span class="lbl">Reports</span></div>
+        <div class="nav-item" data-page="broker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87M15 8a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M12 14a4 4 0 00-4 4v2h8v-2a4 4 0 00-4-4z"/></svg><span class="lbl">Broker Comparison</span></div>
+        <div class="nav-item" data-page="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg><span class="lbl">Market Intelligence</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Library</div>
+        <div class="nav-item" data-page="savedreports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg><span class="lbl">Saved Reports</span></div>
+        <div class="nav-item" data-page="savedfilters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg><span class="lbl">Saved Filters</span></div>
+        <div class="nav-item" data-page="dataimport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg><span class="lbl">Data Import</span></div>
+        <div class="nav-item" data-page="exports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M4 4h16"/></svg><span class="lbl">Exports</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">System</div>
+        <div class="nav-item" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 01-4 0v-.09A1.7 1.7 0 009 19.4a1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-1.55-1H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-1.55V3a2 2 0 014 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06A1.7 1.7 0 0019.4 9a1.7 1.7 0 001.55 1H21a2 2 0 010 4h-.09a1.7 1.7 0 00-1.55 1z"/></svg><span class="lbl">Settings</span></div>
+        <div class="nav-item" data-page="help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5"/><path d="M12 17.5h.01"/></svg><span class="lbl">Help</span></div>
+      </div>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="sidebar-collapse-btn" id="sidebarCollapseBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        <span class="lbl">Collapse</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ===================== topbar ===================== -->
+  <header class="topbar">
+    <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <div class="topbar-page-title" id="topbarPageTitle">Executive Dashboard</div>
+    <div class="topbar-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="globalSearchInput" placeholder="Search lots, brokers, grades, remarks…">
+      <span class="kbd-hint">/</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="themeToggleBtn" title="Toggle theme"></button>
+      <div class="dropdown">
+        <button class="icon-btn" id="notifBtn" title="Notifications"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span class="dot"></span></button>
+        <div class="dropdown-panel" id="notifPanel">
+          <div class="dd-head"><span>Notifications</span></div>
+          <div id="notifList"></div>
+        </div>
+      </div>
+      <div class="dropdown">
+        <button class="profile-chip" id="profileBtn">
+          <div class="profile-avatar">SJ</div>
+        </button>
+        <div class="dropdown-panel" id="profilePanel" style="width:240px;">
+          <div class="dd-head" style="display:block;">
+            <div style="font-weight:600; font-size:13px; color:var(--text-strong);">Broker workspace</div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">shanuka.jayarathna.work@gmail.com</div>
+          </div>
+          <div class="dd-item" style="cursor:pointer;" data-page-link="settings"><div class="dd-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg></div><div class="dd-title">Settings</div></div>
+          <div class="dd-item" style="cursor:pointer;" data-page-link="help"><div class="dd-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></div><div class="dd-title">Help &amp; Shortcuts</div></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== workspace ===================== -->
+  <main class="workspace">
+
+    <!-- ---------- Dashboard ---------- -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header">
+        <div><h1>Executive Dashboard</h1><p>A live snapshot of catalogue coverage, valuation progress and portfolio composition.</p></div>
+      </div>
+      <div id="dashboardEmpty" class="empty-state" style="display:none;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        <h3>No catalogue loaded yet</h3>
+        <p>Import a lot catalogue from Catalogue Manager to populate the dashboard.</p>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:14px;">Go to Catalogue Manager</button>
+      </div>
+      <div id="dashboardContent" style="display:none;">
+        <div class="kpi-grid" id="dashboardKpis"></div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px;">
+          <div class="card">
+            <div class="card-head"><h3>Recent Activity</h3></div>
+            <div id="dashboardActivity"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Recently Imported Catalogues</h3></div>
+            <div id="dashboardImports"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Quick Continue Working</h3></div>
+            <div id="dashboardContinue"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Catalogue Manager (also serves Valuation Centre) ---------- -->
+    <section class="page" id="page-catalogue">
+      <div class="page-header">
+        <div>
+          <h1>Catalogue Manager</h1>
+          <p id="catalogueMeta">Upload a lot catalogue to begin — search, filter, value and dictate remarks for every lot.</p>
+        </div>
+        <div class="page-header-actions" id="catalogueHeaderActions" style="display:none;">
+          <button class="btn ghost small" id="changeFileBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>
+            Load a different file
+          </button>
+          <button class="btn ghost small" id="columnChooserBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16"/><rect x="10" y="4" width="6" height="16"/><rect x="17" y="4" width="4" height="16"/></svg>
+            Columns
+          </button>
+          <div class="dropdown">
+            <button class="btn brass small" id="exportMenuBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+              Export<span style="font-size:10px; opacity:0.8;">▾</span>
+            </button>
+            <div class="dropdown-panel" id="exportMenuPanel" style="width:180px; right:0;">
+              <button type="button" class="dd-item" id="exportCsvBtn" style="width:100%; border:none; background:none; text-align:left; cursor:pointer;">
+                <div class="dd-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg></div>
+                <div class="dd-title">Export as CSV</div>
+              </button>
+              <button type="button" class="dd-item" id="exportExcelBtn" style="width:100%; border:none; background:none; text-align:left; cursor:pointer;">
+                <div class="dd-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg></div>
+                <div class="dd-title">Export as Excel</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- upload screen -->
+      <div class="upload-screen" id="uploadScreen">
+        <div class="dropzone" id="dropzone">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
+          <h2>Drop your catalogue here</h2>
+          <p>Click to browse, or drag an Excel file in. Any lot catalogue with a header row works — columns are<br>detected automatically, whatever broker or format it comes from.</p>
+          <button class="btn brass" type="button" id="browseBtn">Choose file</button>
+          <input type="file" id="fileInput" accept=".xls,.xlsx,.csv,.ods">
+          <p class="filetypes">.XLS · .XLSX · .CSV · .ODS</p>
+        </div>
+        <div class="err-banner" id="errBanner"></div>
+        <div class="upload-note">
+          <span>ⓘ</span>
+          <span>The file is read entirely in your browser — nothing is uploaded anywhere. Remarks and valuations you add are saved locally and reload automatically next time you open this catalogue.</span>
+        </div>
+      </div>
+
+      <!-- loaded catalogue workspace -->
+      <div id="catalogueWorkspace" style="display:none;">
+        <div class="toolbar" id="toolbar">
+          <div class="search-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input id="searchInput" type="text" placeholder="Search across every column…">
+          </div>
+          <select id="statusSelect" class="select-field">
+            <option value="">All remark status</option>
+            <option value="full">Ticket complete</option>
+            <option value="partial">In progress</option>
+            <option value="empty">Not started</option>
+          </select>
+          <button class="btn ghost small filters-toggle" id="toggleFiltersBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+            Filters<span class="filter-count" id="filterCount">0</span>
+          </button>
+        </div>
+
+        <div class="filter-panel" id="filterPanel">
+          <div class="filter-panel-inner">
+            <div class="filter-panel-head">
+              <h4>Filter by column</h4>
+              <div class="fp-actions">
+                <button type="button" class="link" id="savePresetBtn">Save as preset</button>
+                <button type="button" class="link" id="clearFiltersBtn">Clear all</button>
+                <button type="button" class="link" id="collapseFiltersBtn">Collapse</button>
+              </div>
+            </div>
+            <div class="filter-panel-grid" id="filterPanelGrid"></div>
+            <div class="filter-presets-row" id="filterPresetsRow"></div>
+          </div>
+        </div>
+
+        <div class="filter-bar-2" id="filterBar2">
+          <span class="grid-hint">💡 Double-click any cell to edit it · "Open ticket" adds valuation &amp; remarks</span>
+          <div class="active-filters" id="activeFilters"></div>
+          <div class="meta" id="filterMeta"></div>
+        </div>
+
+        <div class="bulk-toolbar" id="bulkToolbar">
+          <span class="bt-count" id="bulkCount">0 lots selected</span>
+          <div class="bt-actions">
+            <button class="btn ghost small" data-bulk-classify="best">Mark Best</button>
+            <button class="btn ghost small" data-bulk-classify="below-best">Mark Below Best</button>
+            <button class="btn ghost small" data-bulk-classify="poor">Mark Poor</button>
+            <button class="btn ghost small" id="bulkExportBtn">Export selected</button>
+            <button class="btn ghost small" id="bulkPrintBtn">Print</button>
+            <button class="btn ghost small" id="bulkDeleteNotesBtn">Clear notes</button>
+            <button class="btn ghost small" id="bulkClearBtn">Deselect</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr id="theadRow"></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+          <div class="empty-state" id="emptyState" style="display:none;">
+            <h3>No lots match this search</h3>
+            <p>Try clearing a filter or a column search box above.</p>
+          </div>
+        </div>
+        <div class="pagination">
+          <div class="p-info" id="pInfo"></div>
+          <div class="p-controls">
+            <select id="pageSizeSelect" class="select-field">
+              <option value="25">25 / page</option>
+              <option value="50" selected>50 / page</option>
+              <option value="100">100 / page</option>
+              <option value="250">250 / page</option>
+            </select>
+            <button class="p-btn" id="firstPage">«</button>
+            <button class="p-btn" id="prevPage">‹</button>
+            <span class="p-cur" id="pCur">1 / 1</span>
+            <button class="p-btn" id="nextPage">›</button>
+            <button class="p-btn" id="lastPage">»</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Coming soon modules ---------- -->
+    <section class="page" id="page-analysis">
+      <div class="page-header"><div><h1>Analysis</h1><p>Statistical analysis across every lot, broker, grade and garden — updates live as you value more lots.</p></div></div>
+
+      <div id="analysisEmpty" class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        <h3>No catalogue loaded yet</h3>
+        <p>Import a lot catalogue from Catalogue Manager to see statistics here.</p>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:14px;">Go to Catalogue Manager</button>
+      </div>
+
+      <div id="analysisContent" style="display:none;">
+        <div class="card" style="margin-bottom:18px;">
+          <div class="card-head"><h3>Valuation Overview</h3></div>
+          <div class="card-pad"><div class="kpi-grid compact" id="analysisOverview"></div></div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; margin-bottom:18px;">
+          <div class="card">
+            <div class="card-head">
+              <h3 id="analysisGroupTitle">Average Valuation by Broker</h3>
+              <select class="select-field" id="analysisGroupSelect" style="font-size:12px; padding:6px 9px;"></select>
+            </div>
+            <div class="card-pad"><div class="bar-list" id="analysisGroupBars"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Classification Distribution</h3></div>
+            <div class="card-pad"><div class="bar-list" id="analysisDistribution"></div></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px;">
+          <div class="card-head">
+            <h3>Top &amp; Bottom Lots</h3>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <div class="class-picker" id="analysisTopMode">
+                <button type="button" class="class-chip active" data-mode="top">Top</button>
+                <button type="button" class="class-chip" data-mode="bottom">Bottom</button>
+              </div>
+              <select class="select-field" id="analysisTopN" style="font-size:12px; padding:6px 9px;">
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </div>
+          </div>
+          <div class="card-pad" style="overflow-x:auto;" id="analysisTopBottomTable"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Data Quality</h3></div>
+          <div class="card-pad"><div class="dq-grid" id="analysisDataQuality"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-reports">
+      <div class="page-header">
+        <div><h1>Reports</h1><p>Generate a branded summary report, print it or save it as PDF, export the data, or archive it to Saved Reports.</p></div>
+      </div>
+      <div id="reportsEmpty" class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+        <h3>No catalogue loaded yet</h3>
+        <p>Import a lot catalogue from Catalogue Manager to generate reports.</p>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:14px;">Go to Catalogue Manager</button>
+      </div>
+      <div id="reportsContent" style="display:none;">
+        <div class="analysis-toolbar no-print">
+          <select class="select-field" id="reportTypeSelect"></select>
+          <button class="btn ghost small" id="reportExcelBtn">Export data (Excel)</button>
+          <button class="btn ghost small" id="reportSaveBtn">Save report</button>
+          <button class="btn brass small" id="reportPrintBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>
+            Print / Save as PDF
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-pad" id="reportPreview"></div>
+        </div>
+        <p style="font-size:11.5px; color:var(--text-muted); margin-top:10px;">Covers Executive, Broker, Grade, Category, Garden, Classification, Valuation and Custom (current filtered view) reports today. Daily/weekly/monthly period rollups and drag-and-drop layout design are on the roadmap.</p>
+      </div>
+    </section>
+
+    <section class="page" id="page-broker">
+      <div class="page-header"><div><h1>Broker Comparison</h1><p>Compare every broker on valuation, grade mix and market share.</p></div></div>
+      <div id="brokerEmpty" class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="9" cy="8" r="3"/><path d="M2 20a7 7 0 0114 0"/></svg>
+        <h3>No catalogue loaded yet</h3>
+        <p>Import a lot catalogue from Catalogue Manager to compare brokers.</p>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:14px;">Go to Catalogue Manager</button>
+      </div>
+      <div id="brokerNoColumn" class="empty-state" style="display:none;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="9" cy="8" r="3"/><path d="M2 20a7 7 0 0114 0"/></svg>
+        <h3>No Broker column in this catalogue</h3>
+        <p>Broker Comparison needs a column named something like "Broker" to group by. This catalogue doesn't have one.</p>
+      </div>
+      <div id="brokerContent" style="display:none;">
+        <div class="card" style="margin-bottom:14px;">
+          <div class="card-head"><h3>Broker Ranking</h3></div>
+          <div class="card-pad" style="overflow-x:auto;" id="brokerRankingTable"></div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px;">
+          <div class="card">
+            <div class="card-head"><h3>Market Share (by lot count)</h3></div>
+            <div class="card-pad"><div class="bar-list" id="brokerMarketShare"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Average Valuation by Broker</h3></div>
+            <div class="card-pad"><div class="bar-list" id="brokerGradeMix"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-market">
+      <div class="page-header">
+        <div><h1>Market Intelligence</h1><p>Import actual auction results after a sale closes and compare them against your valuations.</p></div>
+        <div class="page-header-actions">
+          <button class="btn brass small" id="marketImportBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
+            Import actual results
+          </button>
+          <input type="file" id="marketImportInput" accept=".xls,.xlsx,.csv,.ods" style="display:none;">
+        </div>
+      </div>
+      <div id="marketEmpty" class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 17l6-6 4 4 8-8"/></svg>
+        <h3>No catalogue loaded yet</h3>
+        <p>Import a lot catalogue from Catalogue Manager first.</p>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:14px;">Go to Catalogue Manager</button>
+      </div>
+      <div id="marketContent" style="display:none;">
+        <p id="marketImportMeta" style="font-size:12.5px; color:var(--text-muted); margin:-6px 0 16px;"></p>
+        <div id="marketNoPairs" class="empty-state" style="display:none;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 17l6-6 4 4 8-8"/></svg>
+          <h3>No matched lots yet</h3>
+          <p>Import a file with a lot number column and an actual/sold price column — matched against your valued lots' lot numbers — to see accuracy analysis here.</p>
+        </div>
+        <div id="marketResults">
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-head"><h3>Accuracy Overview</h3></div>
+            <div class="card-pad"><div class="kpi-grid compact" id="marketOverview"></div></div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-bottom:14px;">
+            <div class="card"><div class="card-head"><h3>Accuracy by Broker</h3></div><div class="card-pad"><div class="bar-list" id="marketAccuracy_broker"></div></div></div>
+            <div class="card"><div class="card-head"><h3>Accuracy by Grade</h3></div><div class="card-pad"><div class="bar-list" id="marketAccuracy_grade"></div></div></div>
+            <div class="card"><div class="card-head"><h3>Accuracy by Elevation</h3></div><div class="card-pad"><div class="bar-list" id="marketAccuracy_elevation"></div></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Insights</h3></div>
+            <div class="card-pad"><div class="cs-feature-grid" id="marketInsights"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-savedreports">
+      <div class="page-header"><div><h1>Saved Reports</h1><p>Reports you've generated and saved from the Report Builder.</p></div></div>
+      <div id="savedReportsEmpty" class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+        <h3>No saved reports yet</h3>
+        <p>Generate a report and click "Save report" to archive it here.</p>
+        <button class="btn brass small" data-page-link="reports" style="margin-top:14px;">Go to Reports</button>
+      </div>
+      <div id="savedReportsList" class="recent-imports" style="display:none;"></div>
+    </section>
+
+    <section class="page" id="page-savedfilters">
+      <div class="page-header"><div><h1>Saved Filters</h1><p>Every filter preset you've saved from Catalogue Manager, in one place.</p></div></div>
+      <div id="savedFiltersEmpty" class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>
+        <h3>No saved filter presets yet</h3>
+        <p>Open the Filters panel in Catalogue Manager and click "Save as preset" — it'll show up here too, ready to re-apply in one click.</p>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:14px;">Go to Catalogue Manager</button>
+      </div>
+      <div id="savedFiltersList" class="recent-imports" style="display:none;"></div>
+    </section>
+
+    <section class="page" id="page-dataimport">
+      <div class="page-header"><div><h1>Data Import</h1><p>Bring lot catalogues, and eventually actual auction results, into ASC.</p></div></div>
+      <div class="coming-soon">
+        <div class="cs-hero">
+          <div class="cs-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg></div>
+          <h2>Single-file import is live today</h2>
+          <p>Catalogue Manager already accepts .XLS, .XLSX, .CSV and .ODS files with automatic column detection — drag a file in or click Choose file there. Multi-file batch import, duplicate detection across files, and catalogue merge/compare are next.</p>
+        </div>
+        <div class="cs-feature-grid">
+          <div class="cs-feature"><span class="dot"></span>Multi-file batch import with drag &amp; drop</div>
+          <div class="cs-feature"><span class="dot"></span>Duplicate detection and catalogue merge / compare</div>
+          <div class="cs-feature"><span class="dot"></span>Automatic column-mapping suggestions across brokers</div>
+        </div>
+        <button class="btn brass small" data-page-link="catalogue" style="margin-top:18px;">Import a catalogue now</button>
+      </div>
+    </section>
+
+    <section class="page" id="page-exports">
+      <div class="page-header"><div><h1>Exports</h1><p>Every table, chart and report — exportable, wherever you're working.</p></div></div>
+      <div class="coming-soon">
+        <div class="cs-hero">
+          <div class="cs-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M4 4h16"/></svg></div>
+          <h2>CSV, Excel and PDF export are live today</h2>
+          <p>Use "Export" in Catalogue Manager's toolbar for CSV/Excel of the current filtered view, or select lots and use "Export selected" from the bulk toolbar. In Reports, "Print / Save as PDF" exports the generated report as a PDF via your browser's print dialog, and "Export data (Excel)" pulls out the underlying table. Standalone PNG/JPEG export for individual charts is still on the roadmap.</p>
+        </div>
+        <div class="cs-feature-grid">
+          <div class="cs-feature"><span class="dot"></span>CSV / Excel export from Catalogue Manager (full or filtered view, or selected lots)</div>
+          <div class="cs-feature"><span class="dot"></span>PDF export of any generated report via Print / Save as PDF</div>
+          <div class="cs-feature"><span class="dot"></span>Excel export of the data behind any report</div>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:18px;">
+          <button class="btn brass small" data-page-link="catalogue">Go to Catalogue Manager</button>
+          <button class="btn ghost small" data-page-link="reports">Go to Reports</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-settings">
+      <div class="page-header"><div><h1>Settings</h1><p>Appearance and workspace preferences.</p></div></div>
+      <div class="card" style="max-width:560px;">
+        <div class="card-head"><h3>Appearance</h3></div>
+        <div class="card-pad">
+          <label class="field-label">Theme</label>
+          <div style="display:flex; gap:8px; margin-top:6px;">
+            <button class="btn ghost small" data-set-theme="light">Light</button>
+            <button class="btn ghost small" data-set-theme="dark">Dark</button>
+            <button class="btn ghost small" data-set-theme="auto">Match system</button>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:12px; line-height:1.6;">Role-based permissions, authentication and audit logging are architected for but not yet enabled — this is currently a single-user, local-only workspace.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-help">
+      <div class="page-header"><div><h1>Help</h1><p>Keyboard shortcuts and quick reference.</p></div></div>
+      <div class="card" style="max-width:560px;">
+        <div class="card-head"><h3>Keyboard shortcuts</h3></div>
+        <div class="card-pad" style="display:flex; flex-direction:column; gap:10px; font-size:13px;">
+          <div style="display:flex; justify-content:space-between;"><span>Focus global search</span><kbd>/</kbd></div>
+          <div style="display:flex; justify-content:space-between;"><span>Close ticket drawer / dropdown</span><kbd>Esc</kbd></div>
+          <div style="display:flex; justify-content:space-between;"><span>Edit a table cell</span><span>Double-click cell</span></div>
+          <div style="display:flex; justify-content:space-between;"><span>Commit cell edit &amp; move to next</span><kbd>Tab</kbd></div>
+          <div style="display:flex; justify-content:space-between;"><span>Commit cell edit</span><kbd>Enter</kbd></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===================== valuation ticket drawer ===================== -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer">
+  <div class="ticket-head">
+    <button class="ticket-close" id="closeDrawer">✕</button>
+    <p class="lotno" id="tKicker">LOT</p>
+    <h2 id="tTitle"></h2>
+    <p class="sub2" id="tSubtitle"></p>
+  </div>
+  <div class="ticket-body">
+    <p class="section-label">Catalogue Data</p>
+    <div class="facts-grid" id="factsGrid"></div>
+
+    <p class="section-label">Valuation</p>
+    <div class="field">
+      <label>Estimated Value — Range</label>
+      <div class="range-row">
+        <div class="field-row" style="flex:1;"><span class="currency-prefix">Rs.</span><input type="number" id="fValuationFrom" placeholder="From" step="0.01" min="0"></div>
+        <span class="to-sep">to</span>
+        <div class="field-row" style="flex:1;"><span class="currency-prefix">Rs.</span><input type="number" id="fValuationTo" placeholder="To" step="0.01" min="0"></div>
+      </div>
+      <p class="field-warning" id="rangeWarning"></p>
+    </div>
+    <div class="field valuation">
+      <label for="fValuationSingle">Single Value <span style="font-weight:400; color:var(--text-muted);">(use instead of a range, if only one figure applies)</span></label>
+      <div class="field-row">
+        <span class="currency-prefix">Rs.</span>
+        <input type="number" id="fValuationSingle" placeholder="0.00" step="0.01" min="0">
+      </div>
+    </div>
+    <div class="field">
+      <label>Classification</label>
+      <div class="class-picker">
+        <button type="button" class="class-chip" data-cls="best">Best</button>
+        <button type="button" class="class-chip" data-cls="below-best">Below Best</button>
+        <button type="button" class="class-chip" data-cls="poor">Poor</button>
+      </div>
+    </div>
+
+    <p class="section-label">Taster's Remarks</p>
+    <div class="field">
+      <label for="fStandardData">Standard Data</label>
+      <div class="field-row">
+        <input type="text" id="fStandardData" placeholder="e.g. Well made, even, blackish">
+        <button class="mic-btn" data-target="fStandardData" title="Dictate">🎙</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fAdjectiveData">Adjective Data</label>
+      <div class="field-row">
+        <input type="text" id="fAdjectiveData" placeholder="e.g. Bright, brisk, tippy">
+        <button class="mic-btn" data-target="fAdjectiveData" title="Dictate">🎙</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fLiquorRemarks">Liquor Remarks</label>
+      <div class="field-row">
+        <textarea id="fLiquorRemarks" rows="3" placeholder="Tasting notes on the liquor…"></textarea>
+        <button class="mic-btn" data-target="fLiquorRemarks" title="Dictate">🎙</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fMusterReport">Muster Report</label>
+      <div class="field-row">
+        <textarea id="fMusterReport" rows="4" placeholder="Dictate or type the muster (bulk sample) report…"></textarea>
+        <button class="mic-btn" data-target="fMusterReport" title="Dictate">🎙</button>
+      </div>
+      <p class="voice-hint" id="voiceHint">Tap the mic and speak — your words are added to the field.</p>
+    </div>
+
+    <p class="section-label">Notes</p>
+    <div class="field">
+      <label for="fBrokerNotes">Broker Notes <span style="font-weight:400; color:var(--text-muted);">(visible on shared tickets)</span></label>
+      <div class="field-row"><textarea id="fBrokerNotes" rows="2"></textarea></div>
+    </div>
+    <div class="field">
+      <label for="fPrivateNotes">Private Notes <span style="font-weight:400; color:var(--text-muted);">(kept local, never exported by default)</span></label>
+      <div class="field-row"><textarea id="fPrivateNotes" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div class="ticket-footer">
+    <span class="updated" id="tUpdated"></span>
+    <span class="updated" id="autosaveIndicator"></span>
+    <button class="btn ghost small" id="cancelTicket">Close</button>
+    <button class="btn brass" id="saveTicket">Save Ticket</button>
+  </div>
+</aside>
+
+<!-- ===================== modals ===================== -->
+<div class="overlay" id="modalOverlay"></div>
+
+<div class="modal" id="colChooserModal" style="width:min(460px,92vw);">
+  <div class="modal-head"><h3>Column Chooser</h3><button class="modal-close" id="colChooserClose">✕</button></div>
+  <div class="modal-body">
+    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">Drag to reorder. Toggle to show or hide. Freeze pins a column to the left while scrolling. Your layout is saved automatically.</p>
+    <div class="col-chooser-list" id="colChooserList"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn ghost small" id="colChooserReset">Reset to default</button>
+    <button class="btn brass small" id="colChooserDone">Done</button>
+  </div>
+</div>
+
+<div class="modal" id="savePresetModal" style="width:min(400px,92vw);">
+  <div class="modal-head"><h3>Save filter preset</h3><button class="modal-close" id="presetModalCancelX">✕</button></div>
+  <div class="modal-body">
+    <label class="field-label">Preset name</label>
+    <input type="text" class="text-field" id="presetNameInput" style="width:100%;" placeholder="e.g. Pending High Grown lots">
+  </div>
+  <div class="modal-foot">
+    <button class="btn ghost small" id="presetModalCancel">Cancel</button>
+    <button class="btn brass small" id="presetModalSave">Save preset</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/utils.js"></script>
+<script src="js/state.js"></script>
+<script src="js/parsing.js"></script>
+<script src="js/columns.js"></script>
+<script src="js/filters.js"></script>
+<script src="js/table.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/drawer.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/broker.js"></script>
+<script src="js/market.js"></script>
+<script src="js/reports.js"></script>
+<script src="js/savedreports.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/router.js"></script>
+<script src="js/main.js"></script>
+<script>
+  document.querySelectorAll('[data-page-link]').forEach(el=>{
+    el.addEventListener('click', ()=> ASC.router.go(el.dataset.pageLink));
+  });
+  document.querySelectorAll('[data-set-theme]').forEach(el=>{
+    el.addEventListener('click', ()=> ASC.theme.set(el.dataset.setTheme));
+  });
+  document.getElementById('presetModalCancelX').addEventListener('click', ()=>{
+    document.getElementById('savePresetModal').classList.remove('show');
+    document.getElementById('modalOverlay').classList.remove('show');
+  });
+</script>
+</body>
+</html>

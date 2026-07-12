@@ -1,0 +1,13 @@
+# Backend (.NET)
+backend/**/bin/
+backend/**/obj/
+backend/.config/
+
+# Frontend (Next.js) — has its own .gitignore too, this covers repo-root tooling
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
