@@ -10,6 +10,7 @@ function effectiveValue(lot: Lot): number | null {
 }
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
+  SelectBest: "Select Best",
   Best: "Best",
   BelowBest: "Below Best",
   Poor: "Poor",

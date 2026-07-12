@@ -22,7 +22,7 @@ export interface CatalogueDetail {
   importedAt: string;
 }
 
-export type ClassificationValue = "Unclassified" | "Best" | "BelowBest" | "Poor";
+export type ClassificationValue = "Unclassified" | "SelectBest" | "Best" | "BelowBest" | "Poor";
 
 export interface Valuation {
   valuationFrom: number | null;

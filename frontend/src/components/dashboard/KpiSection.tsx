@@ -18,7 +18,7 @@ export default function KpiSection({
       <div
         className="grid gap-2.5"
         style={{
-          gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? "165px" : "190px"}, 1fr))`,
+          gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? "165px" : "190px"}, 1fr))`,
         }}
       >
         {children}

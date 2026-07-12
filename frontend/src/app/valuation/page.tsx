@@ -3,55 +3,34 @@
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/format";
+import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, valuationToText, weightPerChestOf } from "@/lib/lotDisplay";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
-import type { Lot } from "@/types/api";
+import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
-import Checkbox from "@mui/material/Checkbox";
-import TextField from "@mui/material/TextField";
+import Chip from "@mui/material/Chip";
 import LinearProgress from "@mui/material/LinearProgress";
+import Paper from "@mui/material/Paper";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlineOutlined";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const PENDING_KEY = "asc:valuation:pending";
-const RENDER_CAP = 300;
 
-// The dataset's own header spelling varies catalogue to catalogue (e.g. "SellingMark" vs
-// "Selling Mark"), and these three fields aren't promoted to typed Lot properties the way
-// LotNumber/Grade/Mark are — so look them up from rawData by fuzzy header match instead.
-function findRaw(lot: Lot, pattern: RegExp): string | null {
-  const entry = Object.entries(lot.rawData).find(([k]) => pattern.test(k));
-  return entry?.[1]?.trim() || null;
-}
-
-function sellingMarkOf(lot: Lot): string | null {
-  return findRaw(lot, /selling.?mark/i);
-}
-function noOfChestsOf(lot: Lot): string | null {
-  return findRaw(lot, /no.?of.?chests?|^chests?$/i);
-}
-function weightPerChestOf(lot: Lot): string | null {
-  return findRaw(lot, /weight.?per.?chest/i);
-}
-
-function lotLabel(lot: Lot): string {
-  return [lot.lotNumber ? `Lot ${lot.lotNumber}` : null, lot.grade, lot.mark].filter(Boolean).join(" · ") || lot.rowKey;
-}
-
-function lotMatches(lot: Lot, needle: string): boolean {
-  if (!needle) return true;
-  const n = needle.toLowerCase();
-  return (
-    (lot.lotNumber ?? "").toLowerCase().includes(n) ||
-    (lot.grade ?? "").toLowerCase().includes(n) ||
-    (lot.mark ?? "").toLowerCase().includes(n) ||
-    (lot.broker ?? "").toLowerCase().includes(n) ||
-    (lot.category ?? "").toLowerCase().includes(n) ||
-    (sellingMarkOf(lot) ?? "").toLowerCase().includes(n)
-  );
-}
+const CLASSIFICATION_STYLE: Record<ClassificationValue, { label: string; bg: string; fg: string }> = {
+  SelectBest: { label: "Select Best", bg: "var(--brass-dim)", fg: "var(--brass)" },
+  Best: { label: "Best", bg: "var(--sage-light)", fg: "var(--sage-dark)" },
+  BelowBest: { label: "Below Best", bg: "var(--warn-light)", fg: "var(--warn)" },
+  Poor: { label: "Poor", bg: "var(--danger-light)", fg: "var(--danger)" },
+  Unclassified: { label: "Unclassified", bg: "var(--surface-sunken)", fg: "var(--text-muted)" },
+};
 
 type ParsedValuation =
   | { kind: "clear" }
@@ -80,22 +59,12 @@ function parseValuationInput(raw: string): ParsedValuation {
   return { kind: "error", message: "Only numbers allowed — e.g. 1000 or 1000-1100" };
 }
 
-function valuationToText(lot: Lot): string {
-  const v = lot.valuation;
-  if (!v) return "";
-  if (v.valuationSingle != null) return v.valuationSingle.toString();
-  if (v.valuationFrom != null && v.valuationTo != null) return `${v.valuationFrom}-${v.valuationTo}`;
-  return "";
-}
-
 export default function ValuationCentrePage() {
   const router = useRouter();
   const { activeCatalogueId, activeCatalogue } = useCatalogue();
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<"select" | "enter">("select");
-  const [search, setSearch] = useState("");
-  const [orderedIds, setOrderedIds] = useState<string[]>([]);
+  const [handoffIds, setHandoffIds] = useState<Set<string>>(new Set());
   const [values, setValues] = useState<Record<string, string>>({});
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -117,8 +86,8 @@ export default function ValuationCentrePage() {
       .finally(() => setLoading(false));
   }, [activeCatalogueId]);
 
-  // Consume a one-shot handoff from the Catalogue Manager's "Valuation" button — if the user
-  // arrived here with a pre-made selection for this catalogue, skip straight to entry.
+  // Consume a one-shot handoff from the Catalogue Manager's "Valuation…" button — any lots
+  // selected there get added to this page's working set alongside whatever's already valued.
   useEffect(() => {
     if (!activeCatalogueId || lots.length === 0) return;
     const raw = window.sessionStorage.getItem(PENDING_KEY);
@@ -131,56 +100,49 @@ export default function ValuationCentrePage() {
       if (validIds.length === 0) return;
       // One-shot handoff consumed inside an effect by design — not derived state.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setOrderedIds(validIds);
-      setStep("enter");
+      setHandoffIds((prev) => new Set([...prev, ...validIds]));
     } catch {
       // ignore malformed handoff payload
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCatalogueId, lots.length]);
+  }, [activeCatalogueId, lots]);
 
-  const filteredLots = useMemo(() => lots.filter((l) => lotMatches(l, search)), [lots, search]);
-  const visibleLots = filteredLots.slice(0, RENDER_CAP);
-  const selectedSet = useMemo(() => new Set(orderedIds), [orderedIds]);
-
-  const toggleLot = (id: string) => {
-    setOrderedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
-  const selectAllVisible = () => {
-    setOrderedIds((prev) => Array.from(new Set([...prev, ...visibleLots.map((l) => l.id)])));
-  };
-
-  const selectAllFiltered = () => {
-    setOrderedIds((prev) => Array.from(new Set([...prev, ...filteredLots.map((l) => l.id)])));
-  };
-
-  const clearSelection = () => setOrderedIds([]);
-
-  const selectedLots = useMemo(
-    () => orderedIds.map((id) => lots.find((l) => l.id === id)).filter((l): l is Lot => !!l),
-    [orderedIds, lots]
+  // The working set is everything already valued, plus anything just handed off from the
+  // Catalogue Manager that still needs a value — in the catalogue's natural (lot) order.
+  const displayedLots = useMemo(
+    () => lots.filter((l) => hasValuation(l) || handoffIds.has(l.id)),
+    [lots, handoffIds]
   );
 
-  const beginEntry = () => {
-    const init: Record<string, string> = {};
-    const saved = new Set<string>();
-    selectedLots.forEach((l) => {
-      init[l.id] = valuationToText(l);
-      if (init[l.id]) saved.add(l.id);
+  // Seed the text field for any newly-displayed lot without clobbering one the user is
+  // already mid-edit on — an additive merge, not a full derive, so an effect is the right tool.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setValues((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      displayedLots.forEach((l) => {
+        if (next[l.id] === undefined) {
+          next[l.id] = valuationToText(l);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
     });
-    setValues(init);
-    setSavedIds(saved);
-    setErrors({});
-    setStep("enter");
-    setTimeout(() => {
-      const first = selectedLots.find((l) => !saved.has(l.id)) ?? selectedLots[0];
-      if (first) inputRefs.current[first.id]?.focus();
-    }, 50);
-  };
+    setSavedIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      displayedLots.forEach((l) => {
+        if (hasValuation(l) && !next.has(l.id)) {
+          next.add(l.id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [displayedLots]);
 
   const focusRow = (index: number) => {
-    const lot = selectedLots[index];
+    const lot = displayedLots[index];
     if (lot) inputRefs.current[lot.id]?.focus();
   };
 
@@ -208,7 +170,12 @@ export default function ValuationCentrePage() {
     try {
       const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      setSavedIds((s) => new Set(s).add(lot.id));
+      setSavedIds((s) => {
+        const next = new Set(s);
+        if (parsed.kind === "clear") next.delete(lot.id);
+        else next.add(lot.id);
+        return next;
+      });
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
       return;
@@ -231,162 +198,160 @@ export default function ValuationCentrePage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
         <div>
           <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Valuation Centre</h1>
           <p className="text-[13px] text-text-muted m-0">
-            {activeCatalogue?.sourceName} · {step === "select" ? "Step 1 — choose lots" : "Step 2 — enter valuations"}
+            {activeCatalogue?.sourceName} · {displayedLots.length.toLocaleString()} lot{displayedLots.length === 1 ? "" : "s"} ·
+            values in <strong>LKR</strong>
           </p>
         </div>
-        <Button variant="outlined" size="small" onClick={() => router.push("/catalogue")}>
-          Back to Catalogue Manager
-        </Button>
+        <div className="flex gap-2">
+          {activeCatalogueId && displayedLots.length > 0 && (
+            <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={displayedLots} />
+          )}
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddCircleOutlineIcon fontSize="small" />}
+            onClick={() => router.push("/catalogue")}
+          >
+            Add more lots
+          </Button>
+        </div>
       </div>
 
-      {loading && <p className="text-text-muted text-sm">Loading lots…</p>}
+      {loading && <p className="text-text-muted text-sm mt-4">Loading lots…</p>}
 
-      {!loading && step === "select" && (
-        <div>
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <TextField
-              placeholder="Search lot no, grade, mark, selling mark, broker, category…"
-              size="small"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              sx={{ width: 360 }}
-            />
-            <Button size="small" variant="outlined" onClick={selectAllVisible}>
-              Select shown ({visibleLots.length})
-            </Button>
-            {filteredLots.length > visibleLots.length && (
-              <Button size="small" variant="outlined" onClick={selectAllFiltered}>
-                Select all matching ({filteredLots.length})
-              </Button>
-            )}
-            <Button size="small" onClick={clearSelection} disabled={orderedIds.length === 0}>
-              Clear
-            </Button>
-            <span className="text-[12.5px] text-text-muted font-mono ml-auto">{orderedIds.length.toLocaleString()} selected</span>
-          </div>
-
-          <div className="flex flex-col gap-1 max-h-[55vh] overflow-y-auto border border-border rounded-md p-1.5 mb-4">
-            {visibleLots.map((lot) => (
-              <label
-                key={lot.id}
-                className="flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-surface-alt cursor-pointer"
-              >
-                <Checkbox checked={selectedSet.has(lot.id)} onChange={() => toggleLot(lot.id)} size="small" />
-                <span className="text-[13px] text-text">{lotLabel(lot)}</span>
-                {sellingMarkOf(lot) && <span className="text-[11px] text-text-muted">SM: {sellingMarkOf(lot)}</span>}
-                {noOfChestsOf(lot) && <span className="text-[11px] text-text-muted">Chests: {noOfChestsOf(lot)}</span>}
-                <span className="text-[11.5px] text-text-muted ml-auto font-mono">
-                  {formatCurrency(lot.valuation?.valuationSingle ?? lot.valuation?.valuationFrom ?? null)}
-                </span>
-              </label>
-            ))}
-            {filteredLots.length > RENDER_CAP && (
-              <p className="text-[11.5px] text-text-muted text-center py-2">
-                Showing first {RENDER_CAP} matches — refine your search to see more, or use &ldquo;Select all matching&rdquo;.
-              </p>
-            )}
-            {filteredLots.length === 0 && <p className="text-[12.5px] text-text-muted text-center py-6">No lots match your search.</p>}
-          </div>
-
-          <Button variant="contained" disabled={orderedIds.length === 0} onClick={beginEntry}>
-            Continue with {orderedIds.length} lot{orderedIds.length === 1 ? "" : "s"} →
+      {!loading && displayedLots.length === 0 && (
+        <div className="text-center py-16 text-text-muted">
+          <h3 className="font-display text-xl text-text mb-1">No lots valued yet</h3>
+          <p className="mb-4">Go to Catalogue Manager, select the lots you want to value, then use its &ldquo;Valuation…&rdquo; button.</p>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddCircleOutlineIcon fontSize="small" />}
+            onClick={() => router.push("/catalogue")}
+          >
+            Go to Catalogue Manager
           </Button>
         </div>
       )}
 
-      {!loading && step === "enter" && (
-        <div>
-          <div className="flex items-center gap-3 mb-3 flex-wrap">
-            <Button variant="text" size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setStep("select")}>
-              Change selection
-            </Button>
-            {activeCatalogueId && (
-              <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={selectedLots} />
-            )}
-            <span className="text-[12.5px] text-text-muted font-mono ml-auto">
-              {filledCount} / {selectedLots.length} filled
+      {!loading && displayedLots.length > 0 && (
+        <div className="mt-3">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-[12.5px] text-text-muted font-mono">
+              {filledCount} / {displayedLots.length} filled
             </span>
+            <LinearProgress
+              variant="determinate"
+              value={(filledCount / Math.max(displayedLots.length, 1)) * 100}
+              sx={{ flex: 1, height: 6, borderRadius: 3 }}
+            />
           </div>
-          <LinearProgress variant="determinate" value={(filledCount / Math.max(selectedLots.length, 1)) * 100} sx={{ mb: 2 }} />
           <p className="text-[12px] text-text-muted mb-3">
             Type a single value (e.g. <span className="font-mono">1000</span>) or a range (e.g.{" "}
-            <span className="font-mono">1000-1100</span>) — it&apos;s detected automatically. All values are in{" "}
-            <strong>LKR</strong>. Press <strong>Enter</strong> to save and move to the next lot; leave blank + Enter to
-            clear a value. Every entry auto-saves — safe to leave anytime.
+            <span className="font-mono">1000-1100</span>) — it&apos;s detected automatically, and the first number must be
+            less than the second. Press <strong>Enter</strong> to save and move to the next row; leave blank + Enter to
+            clear a value.
           </p>
 
-          <div className="flex flex-col gap-1.5 max-h-[60vh] overflow-y-auto pr-1">
-            {selectedLots.map((lot, index) => {
-              const saved = savedIds.has(lot.id);
-              const error = errors[lot.id];
-              const sellingMark = sellingMarkOf(lot);
-              const noOfChests = noOfChestsOf(lot);
-              const weightPerChest = weightPerChestOf(lot);
-              return (
-                <div
-                  key={lot.id}
-                  className="flex items-center gap-3 px-3 py-2 rounded border"
-                  style={{ borderColor: error ? "var(--danger)" : "var(--border)", background: "var(--surface)" }}
-                >
-                  <div className="w-8 flex justify-center shrink-0">
-                    {saved ? (
-                      <CheckCircleIcon sx={{ fontSize: 18, color: "var(--sage)" }} />
-                    ) : (
-                      <span className="text-[11px] text-text-muted font-mono">{index + 1}</span>
-                    )}
-                  </div>
-                  <div className="w-[220px] shrink-0 text-[12.5px] text-text truncate" title={lotLabel(lot)}>
-                    {lotLabel(lot)}
-                  </div>
-                  <div className="w-[220px] shrink-0 flex flex-col gap-0.5 text-[10.5px] text-text-muted leading-tight">
-                    {sellingMark && <span className="truncate" title={sellingMark}>Selling Mark: {sellingMark}</span>}
-                    {(noOfChests || weightPerChest) && (
-                      <span className="truncate">
-                        {noOfChests ? `Chests: ${noOfChests}` : ""}
-                        {noOfChests && weightPerChest ? " · " : ""}
-                        {weightPerChest ? `Wt/Chest: ${weightPerChest}` : ""}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1.5 flex-1">
-                    <span className="text-[11px] text-text-muted font-mono shrink-0">Rs.</span>
-                    <input
-                      ref={(el) => {
-                        inputRefs.current[lot.id] = el;
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ maxHeight: "68vh", borderColor: "var(--border)" }}
+          >
+            <Table stickyHeader size="small">
+              <TableHead>
+                <TableRow>
+                  {["#", "Lot", "Selling Mark", "Chests", "Wt/Chest (kg)", "Classification", "Valuation (LKR)", "Status"].map(
+                    (h) => (
+                      <TableCell
+                        key={h}
+                        sx={{
+                          bgcolor: "var(--liquor)",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: 11.5,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {h}
+                      </TableCell>
+                    )
+                  )}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {displayedLots.map((lot, index) => {
+                  const saved = savedIds.has(lot.id);
+                  const error = errors[lot.id];
+                  const cls = CLASSIFICATION_STYLE[lot.valuation?.classification ?? "Unclassified"];
+                  return (
+                    <TableRow
+                      key={lot.id}
+                      hover
+                      sx={{
+                        "&:nth-of-type(even)": { bgcolor: "var(--surface-alt)" },
+                        ...(error && { outline: "1.5px solid var(--danger)", outlineOffset: "-1.5px" }),
+                        ...(saved && !error && { borderLeft: "3px solid var(--sage)" }),
                       }}
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="1000 or 1000-1100"
-                      className="flex-1 max-w-[220px] px-2.5 py-1.5 rounded border text-[13px] bg-transparent font-mono"
-                      style={{ borderColor: "var(--border)", color: "var(--text)" }}
-                      value={values[lot.id] ?? ""}
-                      disabled={savingId === lot.id}
-                      onChange={(e) => setValues((v) => ({ ...v, [lot.id]: e.target.value }))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commit(lot, index);
-                        }
-                      }}
-                    />
-                  </div>
-
-                  {error && <span className="text-[11px] text-danger shrink-0">{error}</span>}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex justify-end mt-4">
-            <Button variant="contained" onClick={() => router.push("/catalogue")}>
-              Done — back to Catalogue
-            </Button>
-          </div>
+                    >
+                      <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-muted)" }}>
+                        {index + 1}
+                      </TableCell>
+                      <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{lotLabel(lot)}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5 }}>{sellingMarkOf(lot) ?? "—"}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{weightPerChestOf(lot) ?? "—"}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={cls.label}
+                          size="small"
+                          sx={{ bgcolor: cls.bg, color: cls.fg, fontWeight: 600, fontSize: 10.5 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-text-muted font-mono shrink-0">Rs.</span>
+                          <input
+                            ref={(el) => {
+                              inputRefs.current[lot.id] = el;
+                            }}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="1000 or 1000-1100"
+                            className="w-[160px] px-2.5 py-1.5 rounded border text-[13px] bg-transparent font-mono"
+                            style={{ borderColor: error ? "var(--danger)" : "var(--border)", color: "var(--text)" }}
+                            value={values[lot.id] ?? ""}
+                            disabled={savingId === lot.id}
+                            onChange={(e) => setValues((v) => ({ ...v, [lot.id]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                commit(lot, index);
+                              }
+                            }}
+                          />
+                        </div>
+                        {error && <span className="text-[10.5px] text-danger block mt-0.5">{error}</span>}
+                      </TableCell>
+                      <TableCell>
+                        {saved ? (
+                          <CheckCircleIcon sx={{ fontSize: 18, color: "var(--sage)" }} />
+                        ) : (
+                          <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </div>
       )}
     </div>

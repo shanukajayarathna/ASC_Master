@@ -3,7 +3,6 @@
 import CatalogueGrid from "@/components/catalogue/CatalogueGrid";
 import FilterPanel from "@/components/catalogue/FilterPanel";
 import LotViewDialog from "@/components/catalogue/LotViewDialog";
-import QuickFillDialog, { type QuickFillField } from "@/components/catalogue/QuickFillDialog";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import { useCatalogue } from "@/context/CatalogueContext";
@@ -27,13 +26,34 @@ import ListItemText from "@mui/material/ListItemText";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import BoltIcon from "@mui/icons-material/Bolt";
-import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const VALUATION_HANDOFF_KEY = "asc:valuation:pending";
+const WORKSHEET_HANDOFF_KEY = "asc:worksheet:pending";
+
+type WorksheetField =
+  | "classification"
+  | "standardData"
+  | "adjectiveData"
+  | "liquorRemarks"
+  | "musterReport"
+  | "brokerNotes"
+  | "privateNotes";
+
+const WORK_SECTIONS: { field: WorksheetField | "valuation"; label: string }[] = [
+  { field: "valuation", label: "Valuation" },
+  { field: "classification", label: "Classification" },
+  { field: "liquorRemarks", label: "Taster's Remarks" },
+  { field: "standardData", label: "Standard Data" },
+  { field: "adjectiveData", label: "Adjective Data" },
+  { field: "musterReport", label: "Muster Report" },
+  { field: "brokerNotes", label: "Broker Notes" },
+  { field: "privateNotes", label: "Private Notes" },
+];
 
 const CLASSIFICATION_LABELS: Record<string, string> = {
+  SelectBest: "Select Best",
   Best: "Best",
   BelowBest: "Below Best",
   Poor: "Poor",
@@ -58,8 +78,7 @@ export default function CataloguePage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [viewLot, setViewLot] = useState<Lot | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
-  const [quickFillOpen, setQuickFillOpen] = useState(false);
-  const [quickFillField, setQuickFillField] = useState<QuickFillField>("valuation");
+  const [workMenuAnchor, setWorkMenuAnchor] = useState<HTMLElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -189,22 +208,22 @@ export default function CataloguePage() {
     setDrawerOpen(false);
   };
 
-  const handleQuickFillUpdated = (updated: Lot) => {
-    setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-  };
-
-  const openQuickFill = (fieldToOpen: QuickFillField) => {
-    setQuickFillField(fieldToOpen);
-    setQuickFillOpen(true);
-  };
-
-  const openValuationCentre = () => {
+  // Hands the current selection off to the right workspace for the chosen section —
+  // Valuation has its own dedicated page; every other section shares the Lot Worksheet.
+  const openWorkSection = (section: WorksheetField | "valuation") => {
+    setWorkMenuAnchor(null);
     if (!activeCatalogueId || selected.length === 0) return;
-    window.sessionStorage.setItem(
-      VALUATION_HANDOFF_KEY,
-      JSON.stringify({ catalogueId: activeCatalogueId, lotIds: selected.map((l) => l.id) })
-    );
-    router.push("/valuation");
+    const lotIds = selected.map((l) => l.id);
+    if (section === "valuation") {
+      window.sessionStorage.setItem(VALUATION_HANDOFF_KEY, JSON.stringify({ catalogueId: activeCatalogueId, lotIds }));
+      router.push("/valuation");
+    } else {
+      window.sessionStorage.setItem(
+        WORKSHEET_HANDOFF_KEY,
+        JSON.stringify({ catalogueId: activeCatalogueId, lotIds, field: section })
+      );
+      router.push("/worksheet");
+    }
   };
 
   const bulkClassify = async (classification: ClassificationValue) => {
@@ -381,21 +400,22 @@ export default function CataloguePage() {
               size="small"
               variant="contained"
               color="primary"
-              startIcon={<PaidOutlinedIcon fontSize="small" />}
-              onClick={openValuationCentre}
-            >
-              Valuation…
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              color="primary"
               startIcon={<BoltIcon fontSize="small" />}
-              onClick={() => openQuickFill("valuation")}
+              onClick={(e) => setWorkMenuAnchor(e.currentTarget)}
             >
-              Quick Fill…
+              Work on selection…
             </Button>
+            <Menu anchorEl={workMenuAnchor} open={!!workMenuAnchor} onClose={() => setWorkMenuAnchor(null)}>
+              {WORK_SECTIONS.map((s) => (
+                <MenuItem key={s.field} dense onClick={() => openWorkSection(s.field)}>
+                  {s.label}
+                </MenuItem>
+              ))}
+            </Menu>
             <span className="w-px self-stretch bg-white/15 mx-0.5" />
+            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("SelectBest")}>
+              Mark all Select Best
+            </Button>
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("Best")}>
               Mark all Best
             </Button>
@@ -443,13 +463,6 @@ export default function CataloguePage() {
         }}
       />
 
-      <QuickFillDialog
-        open={quickFillOpen}
-        lots={selected}
-        initialField={quickFillField}
-        onClose={() => setQuickFillOpen(false)}
-        onLotUpdated={handleQuickFillUpdated}
-      />
     </div>
   );
 }

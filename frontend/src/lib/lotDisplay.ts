@@ -1,0 +1,38 @@
+import type { Lot } from "@/types/api";
+
+// The dataset's own header spelling varies catalogue to catalogue (e.g. "SellingMark" vs
+// "Selling Mark"), and these fields aren't promoted to typed Lot properties the way
+// LotNumber/Grade/Mark are — so look them up from rawData by fuzzy header match instead.
+function findRaw(lot: Lot, pattern: RegExp): string | null {
+  const entry = Object.entries(lot.rawData).find(([k]) => pattern.test(k));
+  return entry?.[1]?.trim() || null;
+}
+
+export function sellingMarkOf(lot: Lot): string | null {
+  return findRaw(lot, /selling.?mark/i);
+}
+
+export function noOfChestsOf(lot: Lot): string | null {
+  return findRaw(lot, /no.?of.?chests?|^chests?$/i);
+}
+
+export function weightPerChestOf(lot: Lot): string | null {
+  return findRaw(lot, /weight.?per.?chest/i);
+}
+
+export function lotLabel(lot: Lot): string {
+  return [lot.lotNumber ? `Lot ${lot.lotNumber}` : null, lot.grade, lot.mark].filter(Boolean).join(" · ") || lot.rowKey;
+}
+
+export function hasValuation(lot: Lot): boolean {
+  const v = lot.valuation;
+  return !!v && (v.valuationSingle != null || (v.valuationFrom != null && v.valuationTo != null));
+}
+
+export function valuationToText(lot: Lot): string {
+  const v = lot.valuation;
+  if (!v) return "";
+  if (v.valuationSingle != null) return v.valuationSingle.toString();
+  if (v.valuationFrom != null && v.valuationTo != null) return `${v.valuationFrom}-${v.valuationTo}`;
+  return "";
+}

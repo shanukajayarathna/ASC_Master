@@ -18,6 +18,7 @@ const STATUS_OPTIONS: { value: TicketStatus | ""; label: string }[] = [
 
 const CLASSIFICATION_OPTIONS = [
   { value: "", label: "All" },
+  { value: "SelectBest", label: "Select Best" },
   { value: "Best", label: "Best" },
   { value: "BelowBest", label: "Below Best" },
   { value: "Poor", label: "Poor" },

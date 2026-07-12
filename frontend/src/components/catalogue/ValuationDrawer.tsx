@@ -10,6 +10,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useState } from "react";
 
 const CLASSIFICATIONS: { value: ClassificationValue; label: string; color: string }[] = [
+  { value: "SelectBest", label: "Select Best", color: "var(--brass)" },
   { value: "Best", label: "Best", color: "var(--sage)" },
   { value: "BelowBest", label: "Below Best", color: "var(--warn)" },
   { value: "Poor", label: "Poor", color: "var(--danger)" },

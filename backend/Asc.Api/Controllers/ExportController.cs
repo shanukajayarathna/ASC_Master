@@ -113,7 +113,7 @@ public class ExportController(MongoContext db) : ControllerBase
             [
                 lot.LotNumber ?? "", lot.Broker ?? "", lot.Grade ?? "", lot.Garden ?? lot.Mark ?? "", lot.Category ?? "",
                 lot.NetWeight?.ToString("0.##") ?? "", lot.GrossWeight?.ToString("0.##") ?? "",
-                "", v?.Classification.ToString() ?? "Unclassified", v?.StandardData ?? "", v?.LiquorRemarks ?? ""
+                "", ClassificationLabel(v?.Classification), v?.StandardData ?? "", v?.LiquorRemarks ?? ""
             ];
 
             for (int c = 0; c < values.Length; c++)
@@ -142,6 +142,15 @@ public class ExportController(MongoContext db) : ControllerBase
         var fileName = $"{SanitizeFileName(catalogue.SourceName)}_lot_report.xlsx";
         return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
+
+    private static string ClassificationLabel(Classification? cls) => cls switch
+    {
+        Classification.SelectBest => "Select Best",
+        Classification.Best => "Best",
+        Classification.BelowBest => "Below Best",
+        Classification.Poor => "Poor",
+        _ => "Unclassified"
+    };
 
     private static string SanitizeFileName(string name)
     {

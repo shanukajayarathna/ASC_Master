@@ -11,6 +11,7 @@ import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
 const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
+  SelectBest: { label: "Select Best", bg: "var(--brass-dim)", fg: "var(--brass)" },
   Best: { label: "Best", bg: "var(--sage-light)", fg: "var(--sage-dark)" },
   BelowBest: { label: "Below Best", bg: "var(--warn-light)", fg: "var(--warn)" },
   Poor: { label: "Poor", bg: "var(--danger-light)", fg: "var(--danger)" },

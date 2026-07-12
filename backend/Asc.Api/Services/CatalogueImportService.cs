@@ -210,7 +210,7 @@ public class CatalogueImportService
 
     private static readonly Regex[] VisibleByDefault = new string[]
     {
-        "lot", "grade", "garden", "mark", "categ", "broker", "net.?weight", "chest", "valuat", "class", "remark", "updated",
+        "lot", "grade", "garden", "selling.?mark", "categ", "broker", "chest", "valuat", "class", "remark", "updated",
     }
         .Select(p => new Regex(p, RegexOptions.IgnoreCase)).ToArray();
 
