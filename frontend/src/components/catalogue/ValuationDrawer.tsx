@@ -1,11 +1,14 @@
 "use client";
 
 import { api } from "@/lib/api";
+import { valuationValueError, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Drawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CloseIcon from "@mui/icons-material/Close";
 import { useState } from "react";
 
@@ -16,7 +19,10 @@ const CLASSIFICATIONS: { value: ClassificationValue; label: string; color: strin
   { value: "Poor", label: "Poor", color: "var(--danger)" },
 ];
 
+type ValuationMode = "single" | "range";
+
 interface FormState {
+  mode: ValuationMode;
   valuationFrom: string;
   valuationTo: string;
   valuationSingle: string;
@@ -32,6 +38,7 @@ interface FormState {
 function formFromLot(lot: Lot): FormState {
   const v = lot.valuation;
   return {
+    mode: v?.valuationFrom != null || v?.valuationTo != null ? "range" : "single",
     valuationFrom: v?.valuationFrom?.toString() ?? "",
     valuationTo: v?.valuationTo?.toString() ?? "",
     valuationSingle: v?.valuationSingle?.toString() ?? "",
@@ -79,20 +86,34 @@ function ValuationDrawerContent({
   const [form, setForm] = useState<FormState>(() => formFromLot(lot));
   const [saving, setSaving] = useState(false);
 
-  const fromNum = parseFloat(form.valuationFrom);
-  const toNum = parseFloat(form.valuationTo);
-  const rangeError = !Number.isNaN(fromNum) && !Number.isNaN(toNum) && fromNum > toNum;
+  // Per-field validation: every entered value must be a whole 4-digit LKR value, and a
+  // range's first number must be strictly lower than its second. Empty fields are fine —
+  // that just means "no valuation yet" (or a cleared one).
+  const fieldError = (raw: string): string | null => (raw.trim() === "" ? null : valuationValueError(Number(raw)));
+  const singleError = form.mode === "single" ? fieldError(form.valuationSingle) : null;
+  const fromError = form.mode === "range" ? fieldError(form.valuationFrom) : null;
+  const toError = form.mode === "range" ? fieldError(form.valuationTo) : null;
+  const rangeHalfMissing =
+    form.mode === "range" && (form.valuationFrom.trim() === "") !== (form.valuationTo.trim() === "");
+  const rangeOrderError =
+    form.mode === "range" &&
+    !fromError &&
+    !toError &&
+    form.valuationFrom.trim() !== "" &&
+    form.valuationTo.trim() !== "" &&
+    Number(form.valuationFrom) >= Number(form.valuationTo);
+  const hasError = !!singleError || !!fromError || !!toError || rangeHalfMissing || rangeOrderError;
 
   const title = lot.mark || lot.lotNumber || "Lot";
 
   const save = async () => {
-    if (rangeError) return;
+    if (hasError) return;
     setSaving(true);
     try {
       const updated = await api.updateValuation(lot.id, {
-        valuationFrom: form.valuationFrom ? parseFloat(form.valuationFrom) : null,
-        valuationTo: form.valuationTo ? parseFloat(form.valuationTo) : null,
-        valuationSingle: form.valuationSingle ? parseFloat(form.valuationSingle) : null,
+        valuationFrom: form.mode === "range" && form.valuationFrom.trim() ? Number(form.valuationFrom) : null,
+        valuationTo: form.mode === "range" && form.valuationTo.trim() ? Number(form.valuationTo) : null,
+        valuationSingle: form.mode === "single" && form.valuationSingle.trim() ? Number(form.valuationSingle) : null,
         classification: form.classification,
         standardData: form.standardData || null,
         adjectiveData: form.adjectiveData || null,
@@ -135,39 +156,72 @@ function ValuationDrawerContent({
           ))}
         </div>
 
-        <p className="font-display text-[13.5px] font-semibold text-liquor mb-3">Valuation</p>
-        <div className="flex gap-2.5 mb-2">
-          <TextField
-            label="From"
-            size="small"
-            type="number"
-            fullWidth
-            value={form.valuationFrom}
-            error={rangeError}
-            onChange={(e) => setForm((f) => ({ ...f, valuationFrom: e.target.value }))}
-          />
-          <TextField
-            label="To"
-            size="small"
-            type="number"
-            fullWidth
-            value={form.valuationTo}
-            error={rangeError}
-            onChange={(e) => setForm((f) => ({ ...f, valuationTo: e.target.value }))}
-          />
-        </div>
-        {rangeError && (
-          <p className="text-danger text-[11.5px] mb-2">&quot;From&quot; must be less than or equal to &quot;To&quot;.</p>
-        )}
-        <TextField
-          label="Single value (if no range)"
+        <p className="font-display text-[13.5px] font-semibold text-liquor mb-1.5">Valuation</p>
+        <p className="text-[11.5px] text-text-muted mb-2.5">
+          Always a 4-digit value in LKR ({VALUATION_MIN}–{VALUATION_MAX}). Pick single value or a range.
+        </p>
+        <ToggleButtonGroup
+          exclusive
           size="small"
-          type="number"
-          fullWidth
-          className="!mb-4"
-          value={form.valuationSingle}
-          onChange={(e) => setForm((f) => ({ ...f, valuationSingle: e.target.value }))}
-        />
+          value={form.mode}
+          onChange={(_, mode: ValuationMode | null) => {
+            if (mode) setForm((f) => ({ ...f, mode }));
+          }}
+          className="!mb-3"
+          sx={{ "& .MuiToggleButton-root": { px: 2, py: 0.5, fontSize: 12, textTransform: "none" } }}
+        >
+          <ToggleButton value="single">Single value</ToggleButton>
+          <ToggleButton value="range">Range</ToggleButton>
+        </ToggleButtonGroup>
+
+        {form.mode === "single" ? (
+          <TextField
+            label="Value (Rs.)"
+            size="small"
+            fullWidth
+            className="!mb-4"
+            placeholder="e.g. 1250"
+            slotProps={{ htmlInput: { inputMode: "numeric" } }}
+            value={form.valuationSingle}
+            error={!!singleError}
+            helperText={singleError ?? " "}
+            onChange={(e) => setForm((f) => ({ ...f, valuationSingle: e.target.value }))}
+          />
+        ) : (
+          <>
+            <div className="flex gap-2.5">
+              <TextField
+                label="From (lower)"
+                size="small"
+                fullWidth
+                placeholder="e.g. 1200"
+                slotProps={{ htmlInput: { inputMode: "numeric" } }}
+                value={form.valuationFrom}
+                error={!!fromError || rangeOrderError || rangeHalfMissing}
+                helperText={fromError ?? " "}
+                onChange={(e) => setForm((f) => ({ ...f, valuationFrom: e.target.value }))}
+              />
+              <TextField
+                label="To (higher)"
+                size="small"
+                fullWidth
+                placeholder="e.g. 1350"
+                slotProps={{ htmlInput: { inputMode: "numeric" } }}
+                value={form.valuationTo}
+                error={!!toError || rangeOrderError || rangeHalfMissing}
+                helperText={toError ?? " "}
+                onChange={(e) => setForm((f) => ({ ...f, valuationTo: e.target.value }))}
+              />
+            </div>
+            {rangeOrderError && (
+              <p className="text-danger text-[11.5px] mb-2">The first number must be lower than the second.</p>
+            )}
+            {rangeHalfMissing && (
+              <p className="text-danger text-[11.5px] mb-2">Enter both ends of the range (or clear both).</p>
+            )}
+            <div className="mb-2" />
+          </>
+        )}
 
         <p className="font-display text-[13.5px] font-semibold text-liquor mb-2 mt-4">Classification</p>
         <div className="flex gap-1.5 mb-5 flex-wrap">
@@ -246,7 +300,7 @@ function ValuationDrawerContent({
         <Button variant="outlined" onClick={onClose}>
           Close
         </Button>
-        <Button variant="contained" onClick={save} disabled={saving || rangeError}>
+        <Button variant="contained" onClick={save} disabled={saving || hasError}>
           {saving ? "Saving…" : "Save Ticket"}
         </Button>
       </div>

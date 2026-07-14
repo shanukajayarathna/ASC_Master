@@ -90,13 +90,31 @@ public class LotsController(MongoContext db) : ControllerBase
         var lot = await db.Lots.Find(l => l.Id == id).FirstOrDefaultAsync();
         if (lot is null) return NotFound();
 
-        if (dto.ValuationFrom.HasValue && dto.ValuationTo.HasValue && dto.ValuationFrom > dto.ValuationTo)
-            return BadRequest("ValuationFrom must be less than or equal to ValuationTo.");
+        // Business rule: a valuation is always a whole 4-digit LKR value (1000–9999), and a
+        // range's first number is strictly lower than its second. Mirrored client-side in
+        // frontend/src/lib/valuationInput.ts — enforced here too so no caller can bypass it.
+        static bool IsInvalid(decimal v) => v < 1000 || v > 9999 || v != decimal.Truncate(v);
+        foreach (var value in new[] { dto.ValuationFrom, dto.ValuationTo, dto.ValuationSingle })
+            if (value.HasValue && IsInvalid(value.Value))
+                return BadRequest("Every valuation must be a whole 4-digit value between 1000 and 9999.");
+
+        if (dto.ValuationFrom.HasValue && dto.ValuationTo.HasValue && dto.ValuationFrom >= dto.ValuationTo)
+            return BadRequest("ValuationFrom must be lower than ValuationTo.");
+
+        // A lot holds either a single value or a full range, never both or half a range.
+        // Field-preserving patches built from legacy data can still carry the old shapes
+        // (both set, or a lone From/To) — normalize those rather than failing the save:
+        // the single wins over a range (matching EffectiveValue's precedence), and a lone
+        // range end becomes the single value.
+        var single = dto.ValuationSingle;
+        var (from, to) = (dto.ValuationFrom, dto.ValuationTo);
+        if (single.HasValue) (from, to) = (null, null);
+        else if (from.HasValue != to.HasValue) (single, from, to) = (from ?? to, null, null);
 
         lot.Valuation ??= new Valuation();
-        lot.Valuation.ValuationFrom = dto.ValuationFrom;
-        lot.Valuation.ValuationTo = dto.ValuationTo;
-        lot.Valuation.ValuationSingle = dto.ValuationSingle;
+        lot.Valuation.ValuationFrom = from;
+        lot.Valuation.ValuationTo = to;
+        lot.Valuation.ValuationSingle = single;
         if (dto.Classification is not null && Enum.TryParse<Classification>(dto.Classification, true, out var cls))
             lot.Valuation.Classification = cls;
         lot.Valuation.StandardData = dto.StandardData;

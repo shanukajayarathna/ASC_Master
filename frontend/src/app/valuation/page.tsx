@@ -5,9 +5,9 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, valuationToText, weightPerChestOf } from "@/lib/lotDisplay";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
+import { parseValuationInput, valuationTypingFeedback, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import LinearProgress from "@mui/material/LinearProgress";
 import Paper from "@mui/material/Paper";
 import Table from "@mui/material/Table";
@@ -24,40 +24,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const PENDING_KEY = "asc:valuation:pending";
 
-const CLASSIFICATION_STYLE: Record<ClassificationValue, { label: string; bg: string; fg: string }> = {
-  SelectBest: { label: "Select Best", bg: "var(--brass-dim)", fg: "var(--brass)" },
-  Best: { label: "Best", bg: "var(--sage-light)", fg: "var(--sage-dark)" },
-  BelowBest: { label: "Below Best", bg: "var(--warn-light)", fg: "var(--warn)" },
-  Poor: { label: "Poor", bg: "var(--danger-light)", fg: "var(--danger)" },
-  Unclassified: { label: "Unclassified", bg: "var(--surface-sunken)", fg: "var(--text-muted)" },
-};
-
-type ParsedValuation =
-  | { kind: "clear" }
-  | { kind: "single"; value: number }
-  | { kind: "range"; from: number; to: number }
-  | { kind: "error"; message: string };
-
-// Auto-detects whether the typed text is a single LKR value ("1000") or a range
-// ("1000-1100") — a dash between two numbers always means a range here since valuations
-// are never negative, so there's no ambiguity with a minus sign.
-function parseValuationInput(raw: string): ParsedValuation {
-  const trimmed = raw.trim().replace(/,/g, "");
-  if (trimmed === "") return { kind: "clear" };
-
-  const rangeMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
-  if (rangeMatch) {
-    const from = Number(rangeMatch[1]);
-    const to = Number(rangeMatch[2]);
-    if (from >= to) return { kind: "error", message: "First value must be less than the second" };
-    return { kind: "range", from, to };
-  }
-
-  const singleMatch = trimmed.match(/^\d+(?:\.\d+)?$/);
-  if (singleMatch) return { kind: "single", value: Number(trimmed) };
-
-  return { kind: "error", message: "Only numbers allowed — e.g. 1000 or 1000-1100" };
-}
+const CLASSIFICATIONS: { value: ClassificationValue; label: string; color: string }[] = [
+  { value: "SelectBest", label: "Select Best", color: "var(--brass)" },
+  { value: "Best", label: "Best", color: "var(--sage)" },
+  { value: "BelowBest", label: "Below Best", color: "var(--warn)" },
+  { value: "Poor", label: "Poor", color: "var(--danger)" },
+];
 
 export default function ValuationCentrePage() {
   const router = useRouter();
@@ -185,6 +157,21 @@ export default function ValuationCentrePage() {
     focusRow(index + 1);
   };
 
+  // Classification saves instantly on click — clicking the active tier again clears it.
+  const commitClassification = async (lot: Lot, value: ClassificationValue) => {
+    const current = lot.valuation?.classification ?? "Unclassified";
+    const next: ClassificationValue = current === value ? "Unclassified" : value;
+    setSavingId(lot.id);
+    try {
+      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
+      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    } catch {
+      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const filledCount = savedIds.size;
 
   if (!activeCatalogueId) {
@@ -251,10 +238,11 @@ export default function ValuationCentrePage() {
             />
           </div>
           <p className="text-[12px] text-text-muted mb-3">
-            Type a single value (e.g. <span className="font-mono">1000</span>) or a range (e.g.{" "}
-            <span className="font-mono">1000-1100</span>) — it&apos;s detected automatically, and the first number must be
-            less than the second. Press <strong>Enter</strong> to save and move to the next row; leave blank + Enter to
-            clear a value.
+            Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
+            <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are always
+            4-digit values (<span className="font-mono">{VALUATION_MIN}</span>–<span className="font-mono">{VALUATION_MAX}</span>),
+            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save and move to
+            the next row; leave blank + Enter to clear. Click a tier to classify — click it again to unset.
           </p>
 
           <TableContainer
@@ -289,7 +277,11 @@ export default function ValuationCentrePage() {
                 {displayedLots.map((lot, index) => {
                   const saved = savedIds.has(lot.id);
                   const error = errors[lot.id];
-                  const cls = CLASSIFICATION_STYLE[lot.valuation?.classification ?? "Unclassified"];
+                  const currentCls = lot.valuation?.classification ?? "Unclassified";
+                  const text = values[lot.id] ?? "";
+                  // Live feedback only while the text differs from what's already saved —
+                  // settled rows stay quiet.
+                  const feedback = !error && text !== valuationToText(lot) ? valuationTypingFeedback(text) : null;
                   return (
                     <TableRow
                       key={lot.id}
@@ -308,11 +300,25 @@ export default function ValuationCentrePage() {
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{weightPerChestOf(lot) ?? "—"}</TableCell>
                       <TableCell>
-                        <Chip
-                          label={cls.label}
-                          size="small"
-                          sx={{ bgcolor: cls.bg, color: cls.fg, fontWeight: 600, fontSize: 10.5 }}
-                        />
+                        <div className="flex gap-1 flex-wrap">
+                          {CLASSIFICATIONS.map((c) => (
+                            <button
+                              key={c.value}
+                              type="button"
+                              disabled={savingId === lot.id}
+                              onClick={() => commitClassification(lot, c.value)}
+                              title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label}`}
+                              className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
+                              style={{
+                                borderColor: currentCls === c.value ? c.color : "var(--border)",
+                                background: currentCls === c.value ? c.color : "transparent",
+                                color: currentCls === c.value ? "#fff" : "var(--text-muted)",
+                              }}
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">
@@ -322,11 +328,11 @@ export default function ValuationCentrePage() {
                               inputRefs.current[lot.id] = el;
                             }}
                             type="text"
-                            inputMode="decimal"
-                            placeholder="1000 or 1000-1100"
+                            inputMode="numeric"
+                            placeholder="1250 or 1200-1350"
                             className="w-[160px] px-2.5 py-1.5 rounded border text-[13px] bg-transparent font-mono"
                             style={{ borderColor: error ? "var(--danger)" : "var(--border)", color: "var(--text)" }}
-                            value={values[lot.id] ?? ""}
+                            value={text}
                             disabled={savingId === lot.id}
                             onChange={(e) => setValues((v) => ({ ...v, [lot.id]: e.target.value }))}
                             onKeyDown={(e) => {
@@ -338,6 +344,15 @@ export default function ValuationCentrePage() {
                           />
                         </div>
                         {error && <span className="text-[10.5px] text-danger block mt-0.5">{error}</span>}
+                        {feedback && feedback.tone !== "none" && (
+                          <span
+                            className="text-[10.5px] block mt-0.5"
+                            style={{ color: feedback.tone === "ok" ? "var(--sage-dark)" : "var(--text-muted)" }}
+                          >
+                            {feedback.tone === "ok" ? "✓ " : ""}
+                            {feedback.message}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {saved ? (

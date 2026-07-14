@@ -5,8 +5,12 @@ export default function HelpPage() {
       a: "Go to Catalogue Manager and drop an .xls, .xlsx or .csv file, or click Choose file. It's uploaded to the API, parsed and stored in MongoDB.",
     },
     {
-      q: "How do I value a lot?",
-      a: "Click \"Open ticket\" on any row in Catalogue Manager to open the Valuation drawer. Enter a From/To range or a single value, pick a classification, add remarks, then Save Ticket.",
+      q: "How do I value lots?",
+      a: "The fast way: in Catalogue Manager, tick the lots you want and choose \"Valuation\" — they open in the Valuation Centre as one list. On each row, type the value and press Enter (it saves and jumps to the next row), and click a tier chip to classify. For a single lot with full remarks, click \"Open ticket\" on its row instead to use the Valuation drawer.",
+    },
+    {
+      q: "What counts as a valid valuation?",
+      a: "A valuation is always a whole 4-digit value in LKR, from 1000 to 9999 — e.g. 1250. You can also give a range by typing both numbers with a dash, e.g. 1200-1350; the first number must be lower than the second. Anything else is rejected with a message telling you what to fix.",
     },
     {
       q: "Can I select and update multiple lots at once?",
