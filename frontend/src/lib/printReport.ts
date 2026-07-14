@@ -58,8 +58,8 @@ export function printLotsReport(lots: Lot[], catalogueName: string) {
   * { box-sizing: border-box; }
   body { font-family: Georgia, 'Times New Roman', serif; color: #1B1712; margin: 0; padding: 28px 32px; }
   .letterhead { border-bottom: 3px solid #AD7F27; padding-bottom: 14px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-end; }
-  .brand { font-size: 22px; font-weight: 700; color: #8C3B1B; }
-  .brand-sub { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #8A7F6C; margin-top: 2px; }
+  .logo { height: 52px; display: block; }
+  .brand-sub { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #8A7F6C; margin-top: 6px; }
   .meta { text-align: right; font-size: 11.5px; color: #8A7F6C; font-family: 'Courier New', monospace; }
   h1 { font-size: 16px; margin: 0 0 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
@@ -75,7 +75,7 @@ export function printLotsReport(lots: Lot[], catalogueName: string) {
 <body>
   <div class="letterhead">
     <div>
-      <div class="brand">Asia Siyaka Commodities</div>
+      <img class="logo" src="${window.location.origin}/brand/asia-siyaka.png" alt="Asia Siyaka Commodities PLC">
       <div class="brand-sub">Tea Auction Valuation &amp; Business Intelligence</div>
     </div>
     <div class="meta">
@@ -98,5 +98,22 @@ export function printLotsReport(lots: Lot[], catalogueName: string) {
 </html>`);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 300);
+  // Wait for the letterhead logo before printing (with a fallback so a failed image
+  // load can never block the dialog).
+  const logo = win.document.images[0];
+  const printOnce = (() => {
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      win.print();
+    };
+  })();
+  if (logo && !logo.complete) {
+    logo.addEventListener("load", () => setTimeout(printOnce, 50));
+    logo.addEventListener("error", printOnce);
+    setTimeout(printOnce, 1500);
+  } else {
+    setTimeout(printOnce, 300);
+  }
 }

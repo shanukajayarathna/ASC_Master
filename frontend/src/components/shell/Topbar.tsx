@@ -1,5 +1,6 @@
 "use client";
 
+import BrandLogo from "@/components/shell/BrandLogo";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
@@ -16,6 +17,8 @@ export default function Topbar() {
 
   return (
     <header className="h-[60px] flex items-center gap-3.5 px-5 border-b border-border bg-surface sticky top-0 z-20">
+      {/* The sidebar (and its logo) is hidden below md — keep the brand visible on mobile. */}
+      <BrandLogo height={30} onDark={mode === "dark"} className="md:!hidden shrink-0" />
       <div className="flex-1 min-w-0">
         <Select
           size="small"

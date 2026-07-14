@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Asia Siyaka favicon: the wordmark's gold S on ivory with the olive baseline rule -->
+  <rect width="64" height="64" rx="12" fill="#F7F3E8"/>
+  <text x="32" y="45" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="44" fill="#B8901E">S</text>
+  <rect x="14" y="50" width="12" height="3.5" fill="#B8901E"/>
+  <rect x="26" y="50" width="24" height="3.5" fill="#75832B"/>
+</svg>

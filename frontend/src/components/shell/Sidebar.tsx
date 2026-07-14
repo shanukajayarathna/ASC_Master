@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import BrandLogo from "./BrandLogo";
 import { NAV_ITEMS, NAV_SECTIONS } from "./nav";
 
 export default function Sidebar() {
@@ -12,15 +13,10 @@ export default function Sidebar() {
       className="hidden md:flex w-[248px] shrink-0 flex-col h-screen sticky top-0 text-white/80 border-r border-brass/20"
       style={{ background: "linear-gradient(180deg, var(--ink-900), var(--ink-800))" }}
     >
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-brass/20">
-        <div className="w-9 h-9 rounded-full border border-brass-light flex items-center justify-center font-display font-bold text-xs text-brass-light">
-          ASC
-        </div>
-        <div>
-          <div className="font-display font-bold text-sm text-white leading-tight">Asia Siyaka</div>
-          <div className="font-mono text-[9px] tracking-widest uppercase text-brass-light mt-0.5">
-            Commodities · Tea Auctions
-          </div>
+      <div className="flex flex-col gap-1.5 px-4 py-4 border-b border-brass/20">
+        <BrandLogo height={44} onDark />
+        <div className="font-mono text-[9px] tracking-widest uppercase text-brass-light">
+          Commodities · Tea Auctions
         </div>
       </div>
 
