@@ -326,11 +326,13 @@ export default function ValuationCentrePage() {
             Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
             <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are always
             4-digit values (<span className="font-mono">{VALUATION_MIN}</span>–<span className="font-mono">{VALUATION_MAX}</span>),
-            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save, then{" "}
-            <strong>classification is required</strong> — use <span className="font-mono">←</span>/
+            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save — or{" "}
+            <span className="font-mono">→</span> at the end of the value to hop straight to the tiers — then{" "}
+            <strong>classification is required</strong>: use <span className="font-mono">←</span>/
             <span className="font-mono">→</span> to highlight a tier and <strong>Enter</strong> to confirm (or press{" "}
             <span className="font-mono">1</span>–<span className="font-mono">4</span>, or click) and you&apos;ll jump to the
-            next lot automatically. Leave blank + Enter to clear a valuation.
+            next lot automatically. <span className="font-mono">←</span> from the first tier goes back to the value. Leave
+            blank + Enter to clear a valuation.
           </p>
           <div className="flex items-center gap-1.5 flex-wrap mb-3">
             <span className="text-[11px] text-text-muted font-semibold uppercase tracking-wide mr-1">
@@ -450,6 +452,15 @@ export default function ValuationCentrePage() {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 commit(lot, index);
+                              } else if (e.key === "ArrowRight") {
+                                // → with the caret at the end of the value hops to the tier chips,
+                                // saving first if the typed value hasn't been committed yet.
+                                const el = e.currentTarget;
+                                if (el.selectionStart === el.value.length && el.selectionEnd === el.value.length) {
+                                  e.preventDefault();
+                                  if (text !== valuationToText(lot)) commit(lot, index);
+                                  else clsRefs.current[lot.id]?.focus();
+                                }
                               }
                             }}
                           />
@@ -496,7 +507,9 @@ export default function ValuationCentrePage() {
                               setClsCursor({ lotId: lot.id, index: (cursor + 1) % CLASSIFICATIONS.length });
                             } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
                               e.preventDefault();
-                              setClsCursor({ lotId: lot.id, index: (cursor - 1 + CLASSIFICATIONS.length) % CLASSIFICATIONS.length });
+                              // ← past the first tier returns to the valuation input.
+                              if (cursor === 0) inputRefs.current[lot.id]?.focus();
+                              else setClsCursor({ lotId: lot.id, index: cursor - 1 });
                             } else if (e.key === "Enter") {
                               e.preventDefault();
                               const c = CLASSIFICATIONS[cursor];
