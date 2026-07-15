@@ -59,6 +59,8 @@ export default function ValuationCentrePage() {
   const [extraValues, setExtraValues] = useState<Record<string, string>>({});
   // Lot currently blocked from advancing because its classification is still unset.
   const [clsNeededId, setClsNeededId] = useState<string | null>(null);
+  // Arrow-key highlight inside the focused classification chip group (one group at a time).
+  const [clsCursor, setClsCursor] = useState<{ lotId: string; index: number } | null>(null);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const clsRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -325,9 +327,10 @@ export default function ValuationCentrePage() {
             <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are always
             4-digit values (<span className="font-mono">{VALUATION_MIN}</span>–<span className="font-mono">{VALUATION_MAX}</span>),
             and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save, then{" "}
-            <strong>classification is required</strong> — pick a tier (or press <span className="font-mono">1</span>–
-            <span className="font-mono">4</span>) and you&apos;ll jump to the next lot automatically. Leave blank + Enter to
-            clear a valuation.
+            <strong>classification is required</strong> — use <span className="font-mono">←</span>/
+            <span className="font-mono">→</span> to highlight a tier and <strong>Enter</strong> to confirm (or press{" "}
+            <span className="font-mono">1</span>–<span className="font-mono">4</span>, or click) and you&apos;ll jump to the
+            next lot automatically. Leave blank + Enter to clear a valuation.
           </p>
           <div className="flex items-center gap-1.5 flex-wrap mb-3">
             <span className="text-[11px] text-text-muted font-semibold uppercase tracking-wide mr-1">
@@ -468,34 +471,69 @@ export default function ValuationCentrePage() {
                             clsRefs.current[lot.id] = el;
                           }}
                           tabIndex={0}
+                          onFocus={() => {
+                            if (clsCursor?.lotId !== lot.id) {
+                              const at = CLASSIFICATIONS.findIndex((c) => c.value === currentCls);
+                              setClsCursor({ lotId: lot.id, index: at === -1 ? 0 : at });
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget as Node)) setClsCursor(null);
+                          }}
                           onKeyDown={(e) => {
                             const match = CLASSIFICATIONS.find((c) => c.key === e.key);
-                            if (match) commitClassification(lot, index, match.value);
+                            if (match) {
+                              e.preventDefault();
+                              commitClassification(lot, index, match.value);
+                              return;
+                            }
+                            const cursor =
+                              clsCursor?.lotId === lot.id
+                                ? clsCursor.index
+                                : Math.max(0, CLASSIFICATIONS.findIndex((c) => c.value === currentCls));
+                            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                              e.preventDefault();
+                              setClsCursor({ lotId: lot.id, index: (cursor + 1) % CLASSIFICATIONS.length });
+                            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                              e.preventDefault();
+                              setClsCursor({ lotId: lot.id, index: (cursor - 1 + CLASSIFICATIONS.length) % CLASSIFICATIONS.length });
+                            } else if (e.key === "Enter") {
+                              e.preventDefault();
+                              const c = CLASSIFICATIONS[cursor];
+                              // Enter on the already-set tier just moves on — no toggle-off.
+                              if (currentCls === c.value) advance(lot, index, "classification");
+                              else commitClassification(lot, index, c.value);
+                            }
                           }}
                           className="flex gap-1 flex-wrap rounded-lg outline-none"
                           style={clsNeeded ? { outline: "1.5px solid var(--warn)", outlineOffset: 2 } : undefined}
                         >
-                          {CLASSIFICATIONS.map((c) => (
-                            <button
-                              key={c.value}
-                              type="button"
-                              disabled={savingId === lot.id}
-                              onClick={() => commitClassification(lot, index, c.value)}
-                              title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`}
-                              className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
-                              style={{
-                                borderColor: currentCls === c.value ? c.color : "var(--border)",
-                                background: currentCls === c.value ? c.color : "transparent",
-                                color: currentCls === c.value ? "#fff" : "var(--text-muted)",
-                              }}
-                            >
-                              {c.label}
-                            </button>
-                          ))}
+                          {CLASSIFICATIONS.map((c, ci) => {
+                            const highlighted = clsCursor?.lotId === lot.id && clsCursor.index === ci;
+                            return (
+                              <button
+                                key={c.value}
+                                type="button"
+                                tabIndex={-1}
+                                disabled={savingId === lot.id}
+                                onClick={() => commitClassification(lot, index, c.value)}
+                                title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`}
+                                className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
+                                style={{
+                                  borderColor: currentCls === c.value ? c.color : "var(--border)",
+                                  background: currentCls === c.value ? c.color : "transparent",
+                                  color: currentCls === c.value ? "#fff" : "var(--text-muted)",
+                                  ...(highlighted && { boxShadow: `0 0 0 2px ${c.color}` }),
+                                }}
+                              >
+                                {c.label}
+                              </button>
+                            );
+                          })}
                         </div>
                         {clsNeeded && (
                           <span className="text-[10.5px] block mt-1" style={{ color: "var(--warn)" }}>
-                            Classification required — pick a tier (or press 1–4) to move on
+                            Classification required — ←/→ then Enter, press 1–4, or click a tier to move on
                           </span>
                         )}
                       </TableCell>

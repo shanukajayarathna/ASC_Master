@@ -6,7 +6,7 @@ export default function HelpPage() {
     },
     {
       q: "How do I value lots?",
-      a: "The fast way: in Catalogue Manager, tick the lots you want and choose \"Valuation\" — they open in the Valuation Centre as one list. On each row, type the value and press Enter to save, then classify: classification is required, so you can't move to the next lot until you pick a tier (click a chip or press 1-4) — once you do, focus jumps on automatically. Use the \"Also fill\" toggles to add extra columns like Taster's Remarks and work them in the same pass. For a single lot with full remarks, click \"Open ticket\" on its row instead to use the Valuation drawer.",
+      a: "The fast way: in Catalogue Manager, tick the lots you want and choose \"Valuation\" — they open in the Valuation Centre as one list. On each row, type the value and press Enter to save, then classify: classification is required, so you can't move to the next lot until you pick a tier — use the arrow keys to highlight one and Enter to confirm, press 1-4, or click a chip — once you do, focus jumps on automatically. Use the \"Also fill\" toggles to add extra columns like Taster's Remarks and work them in the same pass. For a single lot with full remarks, click \"Open ticket\" on its row instead to use the Valuation drawer.",
     },
     {
       q: "What counts as a valid valuation?",
