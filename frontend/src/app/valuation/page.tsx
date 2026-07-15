@@ -33,6 +33,8 @@ const CLASSIFICATIONS: { value: ClassificationValue; label: string; key: string;
 
 type ExtraField = "standardData" | "adjectiveData" | "liquorRemarks" | "musterReport" | "brokerNotes" | "privateNotes";
 
+type RowField = "valuation" | "classification" | ExtraField;
+
 const EXTRA_FIELDS: { value: ExtraField; label: string }[] = [
   { value: "liquorRemarks", label: "Taster's Remarks" },
   { value: "standardData", label: "Standard Data" },
@@ -157,10 +159,21 @@ export default function ValuationCentrePage() {
     });
   }, [displayedLots, enabledExtras]);
 
-  const focusRow = (index: number) => {
+  // Left-to-right field order within a row — the arrow-key navigation grid's columns.
+  const rowFields = useMemo<RowField[]>(
+    () => ["valuation", "classification", ...enabledExtras.map((f) => f.value)],
+    [enabledExtras]
+  );
+
+  const focusField = (index: number, field: RowField) => {
     const lot = displayedLots[index];
-    if (lot) inputRefs.current[lot.id]?.focus();
+    if (!lot) return;
+    if (field === "valuation") inputRefs.current[lot.id]?.focus();
+    else if (field === "classification") clsRefs.current[lot.id]?.focus();
+    else extraRefs.current[`${field}:${lot.id}`]?.focus();
   };
+
+  const focusRow = (index: number) => focusField(index, "valuation");
 
   // Move focus to the next step in the row flow: valuation → classification → extras → next lot.
   // Classification is the gate — focus never reaches the next lot while this one is unclassified.
@@ -177,8 +190,13 @@ export default function ValuationCentrePage() {
     else focusRow(index + 1);
   };
 
-  const commit = async (lot: Lot, index: number) => {
-    const parsed = parseValuationInput(values[lot.id] ?? "");
+  // Parse and save the typed value when it differs from what's stored. Returns the lot to
+  // continue navigating with (updated, or as-is when nothing changed), or null when the
+  // input is invalid or the save failed — callers keep focus in place on null.
+  const saveValuation = async (lot: Lot): Promise<Lot | null> => {
+    const text = values[lot.id] ?? "";
+    if (text === valuationToText(lot)) return lot;
+    const parsed = parseValuationInput(text);
     setErrors((e) => {
       const next = { ...e };
       delete next[lot.id];
@@ -187,7 +205,7 @@ export default function ValuationCentrePage() {
 
     if (parsed.kind === "error") {
       setErrors((e) => ({ ...e, [lot.id]: parsed.message }));
-      return;
+      return null;
     }
 
     const patch =
@@ -198,9 +216,8 @@ export default function ValuationCentrePage() {
           : { valuationSingle: null, valuationFrom: parsed.from, valuationTo: parsed.to };
 
     setSavingId(lot.id);
-    let updated: Lot;
     try {
-      updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
+      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setSavedIds((s) => {
         const next = new Set(s);
@@ -208,14 +225,20 @@ export default function ValuationCentrePage() {
         else next.add(lot.id);
         return next;
       });
+      return updated;
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
-      return;
+      return null;
     } finally {
       setSavingId(null);
     }
-    // Clearing abandons the row, so no classification gate applies.
-    if (parsed.kind === "clear") focusRow(index + 1);
+  };
+
+  const commit = async (lot: Lot, index: number) => {
+    const updated = await saveValuation(lot);
+    if (!updated) return;
+    // A cleared/blank row is being abandoned, so no classification gate applies.
+    if (!hasValuation(updated)) focusRow(index + 1);
     else advance(updated, index, "valuation");
   };
 
@@ -240,20 +263,26 @@ export default function ValuationCentrePage() {
     }
   };
 
-  const commitExtra = async (lot: Lot, index: number, field: ExtraField) => {
+  // Same contract as saveValuation: skips the API call when nothing changed, null on failure.
+  const saveExtra = async (lot: Lot, field: ExtraField): Promise<Lot | null> => {
     const raw = (extraValues[`${field}:${lot.id}`] ?? "").trim();
+    if (raw === (lot.valuation?.[field] ?? "").trim()) return lot;
     setSavingId(lot.id);
-    let updated: Lot;
     try {
-      updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { [field]: raw === "" ? null : raw }));
+      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { [field]: raw === "" ? null : raw }));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      return updated;
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
-      return;
+      return null;
     } finally {
       setSavingId(null);
     }
-    advance(updated, index, field);
+  };
+
+  const commitExtra = async (lot: Lot, index: number, field: ExtraField) => {
+    const updated = await saveExtra(lot, field);
+    if (updated) advance(updated, index, field);
   };
 
   // A lot only counts as done once it has both a valuation and a classification.
@@ -326,13 +355,14 @@ export default function ValuationCentrePage() {
             Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
             <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are always
             4-digit values (<span className="font-mono">{VALUATION_MIN}</span>–<span className="font-mono">{VALUATION_MAX}</span>),
-            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save — or{" "}
-            <span className="font-mono">→</span> at the end of the value to hop straight to the tiers — then{" "}
-            <strong>classification is required</strong>: use <span className="font-mono">←</span>/
-            <span className="font-mono">→</span> to highlight a tier and <strong>Enter</strong> to confirm (or press{" "}
+            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save, then{" "}
+            <strong>classification is required</strong>: highlight a tier with <span className="font-mono">←</span>/
+            <span className="font-mono">→</span> and <strong>Enter</strong> to confirm (or press{" "}
             <span className="font-mono">1</span>–<span className="font-mono">4</span>, or click) and you&apos;ll jump to the
-            next lot automatically. <span className="font-mono">←</span> from the first tier goes back to the value. Leave
-            blank + Enter to clear a valuation.
+            next lot automatically. The arrow keys move freely around the grid — <span className="font-mono">↑</span>/
+            <span className="font-mono">↓</span> between lots, <span className="font-mono">←</span>/
+            <span className="font-mono">→</span> across a row&apos;s fields — and anything you&apos;ve typed is saved on the
+            way out. Leave blank + Enter to clear a valuation.
           </p>
           <div className="flex items-center gap-1.5 flex-wrap mb-3">
             <span className="text-[11px] text-text-muted font-semibold uppercase tracking-wide mr-1">
@@ -452,15 +482,30 @@ export default function ValuationCentrePage() {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 commit(lot, index);
-                              } else if (e.key === "ArrowRight") {
-                                // → with the caret at the end of the value hops to the tier chips,
-                                // saving first if the typed value hasn't been committed yet.
-                                const el = e.currentTarget;
-                                if (el.selectionStart === el.value.length && el.selectionEnd === el.value.length) {
-                                  e.preventDefault();
-                                  if (text !== valuationToText(lot)) commit(lot, index);
-                                  else clsRefs.current[lot.id]?.focus();
-                                }
+                                return;
+                              }
+                              // Arrow navigation: ↑/↓ move between lots, →/← move across the row's
+                              // fields once the caret is at the value's edge. Any typed value is
+                              // saved on the way out; invalid input shows its error and stays put.
+                              const el = e.currentTarget;
+                              const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+                              const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+                              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                                e.preventDefault();
+                                const target = e.key === "ArrowUp" ? index - 1 : index + 1;
+                                saveValuation(lot).then((ok) => {
+                                  if (ok) focusField(target, "valuation");
+                                });
+                              } else if (e.key === "ArrowRight" && atEnd) {
+                                e.preventDefault();
+                                saveValuation(lot).then((ok) => {
+                                  if (ok) focusField(index, "classification");
+                                });
+                              } else if (e.key === "ArrowLeft" && atStart && index > 0) {
+                                e.preventDefault();
+                                saveValuation(lot).then((ok) => {
+                                  if (ok) focusField(index - 1, rowFields[rowFields.length - 1]);
+                                });
                               }
                             }}
                           />
@@ -502,14 +547,23 @@ export default function ValuationCentrePage() {
                               clsCursor?.lotId === lot.id
                                 ? clsCursor.index
                                 : Math.max(0, CLASSIFICATIONS.findIndex((c) => c.value === currentCls));
-                            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                            if (e.key === "ArrowRight") {
                               e.preventDefault();
-                              setClsCursor({ lotId: lot.id, index: (cursor + 1) % CLASSIFICATIONS.length });
-                            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                              // → past the last tier continues to the next field in the row
+                              // (first extra column), or on to the next lot's value.
+                              if (cursor === CLASSIFICATIONS.length - 1) {
+                                const nextField = rowFields[rowFields.indexOf("classification") + 1];
+                                if (nextField) focusField(index, nextField);
+                                else focusField(index + 1, "valuation");
+                              } else setClsCursor({ lotId: lot.id, index: cursor + 1 });
+                            } else if (e.key === "ArrowLeft") {
                               e.preventDefault();
                               // ← past the first tier returns to the valuation input.
-                              if (cursor === 0) inputRefs.current[lot.id]?.focus();
+                              if (cursor === 0) focusField(index, "valuation");
                               else setClsCursor({ lotId: lot.id, index: cursor - 1 });
+                            } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                              e.preventDefault();
+                              focusField(e.key === "ArrowUp" ? index - 1 : index + 1, "classification");
                             } else if (e.key === "Enter") {
                               e.preventDefault();
                               const c = CLASSIFICATIONS[cursor];
@@ -567,6 +621,32 @@ export default function ValuationCentrePage() {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 commitExtra(lot, index, f.value);
+                                return;
+                              }
+                              // Same grid navigation as the valuation input, saving on the way out.
+                              const el = e.currentTarget;
+                              const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+                              const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+                              const at = rowFields.indexOf(f.value);
+                              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                                e.preventDefault();
+                                const target = e.key === "ArrowUp" ? index - 1 : index + 1;
+                                saveExtra(lot, f.value).then((ok) => {
+                                  if (ok) focusField(target, f.value);
+                                });
+                              } else if (e.key === "ArrowRight" && atEnd) {
+                                e.preventDefault();
+                                saveExtra(lot, f.value).then((ok) => {
+                                  if (!ok) return;
+                                  const nextField = rowFields[at + 1];
+                                  if (nextField) focusField(index, nextField);
+                                  else focusField(index + 1, "valuation");
+                                });
+                              } else if (e.key === "ArrowLeft" && atStart) {
+                                e.preventDefault();
+                                saveExtra(lot, f.value).then((ok) => {
+                                  if (ok) focusField(index, rowFields[at - 1]);
+                                });
                               }
                             }}
                           />
