@@ -24,12 +24,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const PENDING_KEY = "asc:valuation:pending";
 
-const CLASSIFICATIONS: { value: ClassificationValue; label: string; color: string }[] = [
-  { value: "SelectBest", label: "Select Best", color: "var(--brass)" },
-  { value: "Best", label: "Best", color: "var(--sage)" },
-  { value: "BelowBest", label: "Below Best", color: "var(--warn)" },
-  { value: "Poor", label: "Poor", color: "var(--danger)" },
+const CLASSIFICATIONS: { value: ClassificationValue; label: string; key: string; color: string }[] = [
+  { value: "SelectBest", label: "Select Best", key: "1", color: "var(--brass)" },
+  { value: "Best", label: "Best", key: "2", color: "var(--sage)" },
+  { value: "BelowBest", label: "Below Best", key: "3", color: "var(--warn)" },
+  { value: "Poor", label: "Poor", key: "4", color: "var(--danger)" },
 ];
+
+type ExtraField = "standardData" | "adjectiveData" | "liquorRemarks" | "musterReport" | "brokerNotes" | "privateNotes";
+
+const EXTRA_FIELDS: { value: ExtraField; label: string }[] = [
+  { value: "liquorRemarks", label: "Taster's Remarks" },
+  { value: "standardData", label: "Standard Data" },
+  { value: "adjectiveData", label: "Adjective Data" },
+  { value: "musterReport", label: "Muster Report" },
+  { value: "brokerNotes", label: "Broker Notes" },
+  { value: "privateNotes", label: "Private Notes" },
+];
+
+const isClassified = (lot: Lot) => (lot.valuation?.classification ?? "Unclassified") !== "Unclassified";
 
 export default function ValuationCentrePage() {
   const router = useRouter();
@@ -41,7 +54,14 @@ export default function ValuationCentrePage() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  // Optional extra columns ("Also fill") worked in the same pass as the valuation.
+  const [extraOn, setExtraOn] = useState<Set<ExtraField>>(new Set());
+  const [extraValues, setExtraValues] = useState<Record<string, string>>({});
+  // Lot currently blocked from advancing because its classification is still unset.
+  const [clsNeededId, setClsNeededId] = useState<string | null>(null);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const clsRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     // Data-fetch-on-dependency-change effect (clears lots synchronously for the no-catalogue
@@ -113,9 +133,46 @@ export default function ValuationCentrePage() {
     });
   }, [displayedLots]);
 
+  const enabledExtras = useMemo(() => EXTRA_FIELDS.filter((f) => extraOn.has(f.value)), [extraOn]);
+
+  // Same additive seeding for any newly-enabled extra column.
+  useEffect(() => {
+    if (enabledExtras.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExtraValues((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      displayedLots.forEach((l) => {
+        enabledExtras.forEach((f) => {
+          const key = `${f.value}:${l.id}`;
+          if (next[key] === undefined) {
+            next[key] = l.valuation?.[f.value] ?? "";
+            changed = true;
+          }
+        });
+      });
+      return changed ? next : prev;
+    });
+  }, [displayedLots, enabledExtras]);
+
   const focusRow = (index: number) => {
     const lot = displayedLots[index];
     if (lot) inputRefs.current[lot.id]?.focus();
+  };
+
+  // Move focus to the next step in the row flow: valuation → classification → extras → next lot.
+  // Classification is the gate — focus never reaches the next lot while this one is unclassified.
+  const advance = (lot: Lot, index: number, from: "valuation" | "classification" | ExtraField) => {
+    if (!isClassified(lot)) {
+      setClsNeededId(lot.id);
+      clsRefs.current[lot.id]?.focus();
+      return;
+    }
+    const order = enabledExtras.map((f) => f.value);
+    const pos = from === "valuation" || from === "classification" ? 0 : order.indexOf(from) + 1;
+    const nextField = order[pos];
+    if (nextField) extraRefs.current[`${nextField}:${lot.id}`]?.focus();
+    else focusRow(index + 1);
   };
 
   const commit = async (lot: Lot, index: number) => {
@@ -139,8 +196,9 @@ export default function ValuationCentrePage() {
           : { valuationSingle: null, valuationFrom: parsed.from, valuationTo: parsed.to };
 
     setSavingId(lot.id);
+    let updated: Lot;
     try {
-      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
+      updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setSavedIds((s) => {
         const next = new Set(s);
@@ -154,25 +212,50 @@ export default function ValuationCentrePage() {
     } finally {
       setSavingId(null);
     }
-    focusRow(index + 1);
+    // Clearing abandons the row, so no classification gate applies.
+    if (parsed.kind === "clear") focusRow(index + 1);
+    else advance(updated, index, "valuation");
   };
 
   // Classification saves instantly on click — clicking the active tier again clears it.
-  const commitClassification = async (lot: Lot, value: ClassificationValue) => {
+  const commitClassification = async (lot: Lot, index: number, value: ClassificationValue) => {
     const current = lot.valuation?.classification ?? "Unclassified";
     const next: ClassificationValue = current === value ? "Unclassified" : value;
     setSavingId(lot.id);
+    let updated: Lot;
     try {
-      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
+      updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
+      return;
     } finally {
       setSavingId(null);
     }
+    if (next !== "Unclassified") {
+      setClsNeededId((id) => (id === lot.id ? null : id));
+      advance(updated, index, "classification");
+    }
   };
 
-  const filledCount = savedIds.size;
+  const commitExtra = async (lot: Lot, index: number, field: ExtraField) => {
+    const raw = (extraValues[`${field}:${lot.id}`] ?? "").trim();
+    setSavingId(lot.id);
+    let updated: Lot;
+    try {
+      updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { [field]: raw === "" ? null : raw }));
+      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    } catch {
+      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
+      return;
+    } finally {
+      setSavingId(null);
+    }
+    advance(updated, index, field);
+  };
+
+  // A lot only counts as done once it has both a valuation and a classification.
+  const filledCount = displayedLots.filter((l) => savedIds.has(l.id) && isClassified(l)).length;
 
   if (!activeCatalogueId) {
     return (
@@ -237,13 +320,46 @@ export default function ValuationCentrePage() {
               sx={{ flex: 1, height: 6, borderRadius: 3 }}
             />
           </div>
-          <p className="text-[12px] text-text-muted mb-3">
+          <p className="text-[12px] text-text-muted mb-2">
             Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
             <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are always
             4-digit values (<span className="font-mono">{VALUATION_MIN}</span>–<span className="font-mono">{VALUATION_MAX}</span>),
-            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save and move to
-            the next row; leave blank + Enter to clear. Click a tier to classify — click it again to unset.
+            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save, then{" "}
+            <strong>classification is required</strong> — pick a tier (or press <span className="font-mono">1</span>–
+            <span className="font-mono">4</span>) and you&apos;ll jump to the next lot automatically. Leave blank + Enter to
+            clear a valuation.
           </p>
+          <div className="flex items-center gap-1.5 flex-wrap mb-3">
+            <span className="text-[11px] text-text-muted font-semibold uppercase tracking-wide mr-1">
+              Also fill while valuing:
+            </span>
+            {EXTRA_FIELDS.map((f) => {
+              const on = extraOn.has(f.value);
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() =>
+                    setExtraOn((prev) => {
+                      const next = new Set(prev);
+                      if (on) next.delete(f.value);
+                      else next.add(f.value);
+                      return next;
+                    })
+                  }
+                  title={on ? `Hide the ${f.label} column` : `Add a ${f.label} column to the table`}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
+                  style={{
+                    borderColor: on ? "var(--liquor)" : "var(--border)",
+                    background: on ? "var(--liquor)" : "transparent",
+                    color: on ? "#fff" : "var(--text-muted)",
+                  }}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
 
           <TableContainer
             component={Paper}
@@ -253,7 +369,17 @@ export default function ValuationCentrePage() {
             <Table stickyHeader size="small">
               <TableHead>
                 <TableRow>
-                  {["#", "Lot", "Selling Mark", "Chests", "Wt/Chest (kg)", "Classification", "Valuation (LKR)", "Status"].map(
+                  {[
+                    "#",
+                    "Lot",
+                    "Selling Mark",
+                    "Chests",
+                    "Wt/Chest (kg)",
+                    "Valuation (LKR)",
+                    "Classification",
+                    ...enabledExtras.map((f) => f.label),
+                    "Status",
+                  ].map(
                     (h) => (
                       <TableCell
                         key={h}
@@ -276,6 +402,9 @@ export default function ValuationCentrePage() {
               <TableBody>
                 {displayedLots.map((lot, index) => {
                   const saved = savedIds.has(lot.id);
+                  const classified = isClassified(lot);
+                  const complete = saved && classified;
+                  const clsNeeded = clsNeededId === lot.id && !classified;
                   const error = errors[lot.id];
                   const currentCls = lot.valuation?.classification ?? "Unclassified";
                   const text = values[lot.id] ?? "";
@@ -289,7 +418,7 @@ export default function ValuationCentrePage() {
                       sx={{
                         "&:nth-of-type(even)": { bgcolor: "var(--surface-alt)" },
                         ...(error && { outline: "1.5px solid var(--danger)", outlineOffset: "-1.5px" }),
-                        ...(saved && !error && { borderLeft: "3px solid var(--sage)" }),
+                        ...(complete && !error && { borderLeft: "3px solid var(--sage)" }),
                       }}
                     >
                       <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-muted)" }}>
@@ -299,27 +428,6 @@ export default function ValuationCentrePage() {
                       <TableCell sx={{ fontSize: 12.5 }}>{sellingMarkOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{weightPerChestOf(lot) ?? "—"}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1 flex-wrap">
-                          {CLASSIFICATIONS.map((c) => (
-                            <button
-                              key={c.value}
-                              type="button"
-                              disabled={savingId === lot.id}
-                              onClick={() => commitClassification(lot, c.value)}
-                              title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label}`}
-                              className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
-                              style={{
-                                borderColor: currentCls === c.value ? c.color : "var(--border)",
-                                background: currentCls === c.value ? c.color : "transparent",
-                                color: currentCls === c.value ? "#fff" : "var(--text-muted)",
-                              }}
-                            >
-                              {c.label}
-                            </button>
-                          ))}
-                        </div>
-                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] text-text-muted font-mono shrink-0">Rs.</span>
@@ -355,8 +463,71 @@ export default function ValuationCentrePage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {saved ? (
+                        <div
+                          ref={(el) => {
+                            clsRefs.current[lot.id] = el;
+                          }}
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            const match = CLASSIFICATIONS.find((c) => c.key === e.key);
+                            if (match) commitClassification(lot, index, match.value);
+                          }}
+                          className="flex gap-1 flex-wrap rounded-lg outline-none"
+                          style={clsNeeded ? { outline: "1.5px solid var(--warn)", outlineOffset: 2 } : undefined}
+                        >
+                          {CLASSIFICATIONS.map((c) => (
+                            <button
+                              key={c.value}
+                              type="button"
+                              disabled={savingId === lot.id}
+                              onClick={() => commitClassification(lot, index, c.value)}
+                              title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`}
+                              className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
+                              style={{
+                                borderColor: currentCls === c.value ? c.color : "var(--border)",
+                                background: currentCls === c.value ? c.color : "transparent",
+                                color: currentCls === c.value ? "#fff" : "var(--text-muted)",
+                              }}
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                        {clsNeeded && (
+                          <span className="text-[10.5px] block mt-1" style={{ color: "var(--warn)" }}>
+                            Classification required — pick a tier (or press 1–4) to move on
+                          </span>
+                        )}
+                      </TableCell>
+                      {enabledExtras.map((f) => (
+                        <TableCell key={f.value}>
+                          <input
+                            ref={(el) => {
+                              extraRefs.current[`${f.value}:${lot.id}`] = el;
+                            }}
+                            type="text"
+                            placeholder={f.label}
+                            className="w-[200px] px-2.5 py-1.5 rounded border text-[13px] bg-transparent"
+                            style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                            value={extraValues[`${f.value}:${lot.id}`] ?? ""}
+                            disabled={savingId === lot.id}
+                            onChange={(e) => setExtraValues((v) => ({ ...v, [`${f.value}:${lot.id}`]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                commitExtra(lot, index, f.value);
+                              }
+                            }}
+                          />
+                        </TableCell>
+                      ))}
+                      <TableCell>
+                        {complete ? (
                           <CheckCircleIcon sx={{ fontSize: 18, color: "var(--sage)" }} />
+                        ) : saved ? (
+                          <span title="Valued — classification still needed">
+                            <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--warn)" }} />
+                          </span>
                         ) : (
                           <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} />
                         )}
