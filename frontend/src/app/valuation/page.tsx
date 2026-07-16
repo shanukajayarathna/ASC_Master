@@ -512,8 +512,8 @@ export default function ValuationCentrePage() {
           </div>
           <p className="text-[12px] text-text-muted mb-2">
             Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
-            <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are always
-            4-digit values (<span className="font-mono">{VALUATION_MIN}</span>–<span className="font-mono">{VALUATION_MAX}</span>),
+            <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are whole
+            values from <span className="font-mono">{VALUATION_MIN}</span> to <span className="font-mono">{VALUATION_MAX}</span>,
             and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save, then{" "}
             <strong>classification is required</strong>: highlight a tier with <span className="font-mono">←</span>/
             <span className="font-mono">→</span> and <strong>Enter</strong> to confirm (or press{" "}
@@ -611,7 +611,7 @@ export default function ValuationCentrePage() {
                   style={{
                     borderColor: on ? "var(--liquor)" : "var(--border)",
                     background: on ? "var(--liquor)" : "transparent",
-                    color: on ? "#fff" : "var(--text-muted)",
+                    color: on ? "var(--paper-0)" : "var(--text-muted)",
                   }}
                 >
                   {f.label}
@@ -653,7 +653,7 @@ export default function ValuationCentrePage() {
                         key={h}
                         sx={{
                           bgcolor: "var(--liquor)",
-                          color: "#fff",
+                          color: "var(--paper-0)",
                           fontWeight: 700,
                           fontSize: 11.5,
                           textTransform: "uppercase",
@@ -822,7 +822,7 @@ export default function ValuationCentrePage() {
                                 style={{
                                   borderColor: currentCls === c.value ? c.color : "var(--border)",
                                   background: currentCls === c.value ? c.color : "transparent",
-                                  color: currentCls === c.value ? "#fff" : "var(--text-muted)",
+                                  color: currentCls === c.value ? "var(--paper-0)" : "var(--text-muted)",
                                   ...(highlighted && { boxShadow: `0 0 0 2px ${c.color}` }),
                                 }}
                               >

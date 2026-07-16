@@ -2,13 +2,13 @@
 // the Valuation drawer, and anything else that accepts a typed valuation.
 //
 // Business rules (mirrored server-side in LotsController.UpdateValuation):
-//  - A valuation is always a whole 4-digit LKR value: 1000–9999.
-//  - A range is two 4-digit values where the first is strictly lower than the second.
+//  - A valuation is always a whole LKR value: 500–5000.
+//  - A range is two such values where the first is strictly lower than the second.
 
-export const VALUATION_MIN = 1000;
-export const VALUATION_MAX = 9999;
+export const VALUATION_MIN = 500;
+export const VALUATION_MAX = 5000;
 
-export const VALUATION_RULE_HINT = `4-digit value (${VALUATION_MIN}–${VALUATION_MAX})`;
+export const VALUATION_RULE_HINT = `whole value (${VALUATION_MIN}–${VALUATION_MAX})`;
 
 export type ParsedValuation =
   | { kind: "clear" }
@@ -20,7 +20,7 @@ export type ParsedValuation =
 export function valuationValueError(value: number): string | null {
   if (!Number.isInteger(value)) return `Whole numbers only — e.g. ${VALUATION_MIN + 200}`;
   if (value < VALUATION_MIN || value > VALUATION_MAX)
-    return `Must be a 4-digit value (${VALUATION_MIN}–${VALUATION_MAX})`;
+    return `Must be between ${VALUATION_MIN} and ${VALUATION_MAX}`;
   return null;
 }
 

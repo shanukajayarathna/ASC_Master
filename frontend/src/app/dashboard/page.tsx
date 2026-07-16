@@ -98,8 +98,8 @@ export default function DashboardPage() {
           </KpiSection>
 
           <p className="text-[11.5px] text-text-muted mt-2">
-            Source: {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots ·{" "}
-            {activeCatalogue?.headers.length} columns
+            {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots · from the ASC sales
+            database
           </p>
         </>
       )}

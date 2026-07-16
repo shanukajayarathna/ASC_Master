@@ -18,7 +18,7 @@ export default function HelpPage() {
     },
     {
       q: "What counts as a valid valuation?",
-      a: "A valuation is always a whole 4-digit value in LKR, from 1000 to 9999 — e.g. 1250. You can also give a range by typing both numbers with a dash, e.g. 1200-1350; the first number must be lower than the second. Anything else is rejected with a message telling you what to fix.",
+      a: "A valuation is always a whole value in LKR, from 500 to 5000 — e.g. 1250. You can also give a range by typing both numbers with a dash, e.g. 1200-1350; the first number must be lower than the second. Anything else is rejected with a message telling you what to fix.",
     },
     {
       q: "Can I select and update multiple lots at once?",

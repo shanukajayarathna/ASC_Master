@@ -86,7 +86,7 @@ function ValuationDrawerContent({
   const [form, setForm] = useState<FormState>(() => formFromLot(lot));
   const [saving, setSaving] = useState(false);
 
-  // Per-field validation: every entered value must be a whole 4-digit LKR value, and a
+  // Per-field validation: every entered value must be a whole LKR value in range, and a
   // range's first number must be strictly lower than its second. Empty fields are fine —
   // that just means "no valuation yet" (or a cleared one).
   const fieldError = (raw: string): string | null => (raw.trim() === "" ? null : valuationValueError(Number(raw)));
@@ -132,7 +132,7 @@ function ValuationDrawerContent({
     <div className="w-[min(560px,100vw)] h-full flex flex-col bg-surface-alt">
       <div
         className="px-6 pt-5 pb-4 text-white relative"
-        style={{ background: "linear-gradient(180deg, var(--ink-900), var(--ink-800))" }}
+        style={{ background: "linear-gradient(180deg, var(--ink-solid-900), var(--ink-solid-800))" }}
       >
         <IconButton onClick={onClose} size="small" className="!absolute !top-3.5 !right-3.5 !text-white">
           <CloseIcon fontSize="small" />
@@ -158,7 +158,7 @@ function ValuationDrawerContent({
 
         <p className="font-display text-[13.5px] font-semibold text-liquor mb-1.5">Valuation</p>
         <p className="text-[11.5px] text-text-muted mb-2.5">
-          Always a 4-digit value in LKR ({VALUATION_MIN}–{VALUATION_MAX}). Pick single value or a range.
+          Always a whole value in LKR ({VALUATION_MIN}–{VALUATION_MAX}). Pick single value or a range.
         </p>
         <ToggleButtonGroup
           exclusive
@@ -234,7 +234,7 @@ function ValuationDrawerContent({
               style={{
                 borderColor: form.classification === c.value ? c.color : "var(--border)",
                 background: form.classification === c.value ? c.color : "var(--surface)",
-                color: form.classification === c.value ? "#fff" : "var(--text-muted)",
+                color: form.classification === c.value ? "var(--paper-0)" : "var(--text-muted)",
               }}
             >
               {c.label}
