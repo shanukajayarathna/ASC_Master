@@ -20,6 +20,26 @@ export function weightPerChestOf(lot: Lot): string | null {
   return findRaw(lot, /weight.?per.?chest/i);
 }
 
+export function markCodeOf(lot: Lot): string | null {
+  return findRaw(lot, /mark.?code/i);
+}
+
+export function askingPriceOf(lot: Lot): string | null {
+  return findRaw(lot, /asking/i);
+}
+
+export function minimumLimitOf(lot: Lot): string | null {
+  return findRaw(lot, /min(imum)?[\s._-]*(limit|price)/i) ?? findRaw(lot, /^min(imum)?$/i);
+}
+
+export function catalogueRemarkOf(lot: Lot): string | null {
+  return findRaw(lot, /^remarks?$/i);
+}
+
+export function catalogueStandardOf(lot: Lot): string | null {
+  return findRaw(lot, /standard/i);
+}
+
 export function lotLabel(lot: Lot): string {
   return [lot.lotNumber ? `Lot ${lot.lotNumber}` : null, lot.grade, lot.mark].filter(Boolean).join(" · ") || lot.rowKey;
 }

@@ -1,35 +1,48 @@
 "use client";
 
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
+import FilterPanel from "@/components/catalogue/FilterPanel";
+import ValuationFocus from "@/components/valuation/ValuationFocus";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
+import { CLASSIFICATIONS } from "@/lib/classifications";
 import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, valuationToText, weightPerChestOf } from "@/lib/lotDisplay";
+import {
+  filterLots,
+  isColumnFilterActive,
+  type ColumnFilterState,
+  type TicketStatus,
+} from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
 import { parseValuationInput, valuationTypingFeedback, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
+import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
 import LinearProgress from "@mui/material/LinearProgress";
+import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
+import Select from "@mui/material/Select";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import SearchIcon from "@mui/icons-material/Search";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlineOutlined";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const PENDING_KEY = "asc:valuation:pending";
-
-const CLASSIFICATIONS: { value: ClassificationValue; label: string; key: string; color: string }[] = [
-  { value: "SelectBest", label: "Select Best", key: "1", color: "var(--brass)" },
-  { value: "Best", label: "Best", key: "2", color: "var(--sage)" },
-  { value: "BelowBest", label: "Below Best", key: "3", color: "var(--warn)" },
-  { value: "Poor", label: "Poor", key: "4", color: "var(--danger)" },
-];
 
 type ExtraField = "standardData" | "adjectiveData" | "liquorRemarks" | "musterReport" | "brokerNotes" | "privateNotes";
 
@@ -63,6 +76,27 @@ export default function ValuationCentrePage() {
   const [clsNeededId, setClsNeededId] = useState<string | null>(null);
   // Arrow-key highlight inside the focused classification chip group (one group at a time).
   const [clsCursor, setClsCursor] = useState<{ lotId: string; index: number } | null>(null);
+  // List filters — focus-mode navigation walks the filtered list too. Column filters,
+  // ticket status and classification use the exact same engine as Catalogue Manager.
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
+  const [ticketStatusFilter, setTicketStatusFilter] = useState<TicketStatus | "">("");
+  const [classificationFilter, setClassificationFilter] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Focus mode: one lot on screen with the tablet keypad; null = normal list view.
+  const [focusLotId, setFocusLotId] = useState<string | null>(null);
+
+  // Reset all filters whenever the active catalogue changes — its columns differ.
+  const catalogueId = activeCatalogue?.id;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSearch("");
+    setStatusFilter("all");
+    setColumnFilters({});
+    setTicketStatusFilter("");
+    setClassificationFilter("");
+  }, [catalogueId]);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const clsRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -108,6 +142,61 @@ export default function ValuationCentrePage() {
     () => lots.filter((l) => hasValuation(l) || handoffIds.has(l.id)),
     [lots, handoffIds]
   );
+
+  // The list actually on screen — universal search (every raw column), per-column
+  // filters, ticket status, classification and valuation progress all applied. Keyboard
+  // navigation and focus mode both walk this filtered list.
+  const visibleLots = useMemo(() => {
+    const base = filterLots(displayedLots, {
+      search,
+      columnFilters,
+      status: ticketStatusFilter,
+      classification: classificationFilter,
+    });
+    if (statusFilter === "all") return base;
+    return base.filter((l) => {
+      const valued = hasValuation(l);
+      const classified = isClassified(l);
+      if (statusFilter === "pending") return !(valued && classified);
+      if (statusFilter === "unvalued") return !valued;
+      if (statusFilter === "needs-classification") return valued && !classified;
+      return valued && classified; // complete
+    });
+  }, [displayedLots, search, statusFilter, columnFilters, ticketStatusFilter, classificationFilter]);
+
+  const columnFilterCount =
+    Object.values(columnFilters).filter(isColumnFilterActive).length +
+    (ticketStatusFilter ? 1 : 0) +
+    (classificationFilter ? 1 : 0);
+  const filtersActive = search.trim() !== "" || statusFilter !== "all" || columnFilterCount > 0;
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setColumnFilters({});
+    setTicketStatusFilter("");
+    setClassificationFilter("");
+  };
+
+  // Sync a lot saved from focus mode back into everything the list view derives from.
+  const applyUpdatedLot = (updated: Lot) => {
+    setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    setValues((v) => ({ ...v, [updated.id]: valuationToText(updated) }));
+    setSavedIds((prev) => {
+      const next = new Set(prev);
+      if (hasValuation(updated)) next.add(updated.id);
+      else next.delete(updated.id);
+      return next;
+    });
+    setExtraValues((prev) => {
+      const next = { ...prev };
+      EXTRA_FIELDS.forEach((f) => {
+        const key = `${f.value}:${updated.id}`;
+        if (next[key] !== undefined) next[key] = updated.valuation?.[f.value] ?? "";
+      });
+      return next;
+    });
+  };
 
   // Seed the text field for any newly-displayed lot without clobbering one the user is
   // already mid-edit on — an additive merge, not a full derive, so an effect is the right tool.
@@ -166,7 +255,7 @@ export default function ValuationCentrePage() {
   );
 
   const focusField = (index: number, field: RowField) => {
-    const lot = displayedLots[index];
+    const lot = visibleLots[index];
     if (!lot) return;
     if (field === "valuation") inputRefs.current[lot.id]?.focus();
     else if (field === "classification") clsRefs.current[lot.id]?.focus();
@@ -288,6 +377,33 @@ export default function ValuationCentrePage() {
   // A lot only counts as done once it has both a valuation and a classification.
   const filledCount = displayedLots.filter((l) => savedIds.has(l.id) && isClassified(l)).length;
 
+  // Resolve the focused lot. Navigation walks the filtered list; if the focused lot has
+  // dropped out of the current filter mid-edit, fall back to the full working list so the
+  // focus view doesn't vanish under the user.
+  let focusList = visibleLots;
+  let focusIndex = focusLotId ? visibleLots.findIndex((l) => l.id === focusLotId) : -1;
+  if (focusLotId && focusIndex === -1) {
+    focusList = displayedLots;
+    focusIndex = displayedLots.findIndex((l) => l.id === focusLotId);
+  }
+  const focusLot = focusIndex >= 0 ? focusList[focusIndex] : null;
+
+  // While in focus mode, searching/filtering jumps to the first matching lot as soon as
+  // the current one no longer matches — that's how the universal search "goes to" a row.
+  const focusOutOfFilter = !!focusLotId && visibleLots.length > 0 && !visibleLots.some((l) => l.id === focusLotId);
+  const firstVisibleId = visibleLots[0]?.id;
+  useEffect(() => {
+    if (!focusOutOfFilter || !firstVisibleId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFocusLotId(firstVisibleId);
+  }, [focusOutOfFilter, firstVisibleId]);
+
+  const enterFocus = () => {
+    // Start from the first lot that still needs something, else from the top.
+    const target = visibleLots.find((l) => !(hasValuation(l) && isClassified(l))) ?? visibleLots[0];
+    if (target) setFocusLotId(target.id);
+  };
+
   if (!activeCatalogueId) {
     return (
       <div>
@@ -308,6 +424,17 @@ export default function ValuationCentrePage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {!focusLot && displayedLots.length > 0 && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<CenterFocusStrongIcon fontSize="small" />}
+              onClick={enterFocus}
+              disabled={visibleLots.length === 0}
+            >
+              Focus mode
+            </Button>
+          )}
           {activeCatalogueId && displayedLots.length > 0 && (
             <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={displayedLots} />
           )}
@@ -339,7 +466,39 @@ export default function ValuationCentrePage() {
         </div>
       )}
 
-      {!loading && displayedLots.length > 0 && (
+      {!loading && focusLot && (
+        <ValuationFocus
+          lot={focusLot}
+          index={focusIndex}
+          total={focusList.length}
+          filters={{
+            search,
+            setSearch,
+            statusFilter,
+            setStatusFilter,
+            headers: activeCatalogue?.headers ?? [],
+            columnMeta: activeCatalogue?.columnMeta ?? {},
+            columnFilters,
+            onColumnFilterChange: (h, v) => setColumnFilters((prev) => ({ ...prev, [h]: v })),
+            ticketStatus: ticketStatusFilter,
+            setTicketStatus: setTicketStatusFilter,
+            classification: classificationFilter,
+            setClassification: setClassificationFilter,
+            columnFilterCount,
+            onClearAll: clearAllFilters,
+            matchLots: visibleLots,
+          }}
+          onJump={(id) => setFocusLotId(id)}
+          onNavigate={(i) => {
+            const next = focusList[i];
+            if (next) setFocusLotId(next.id);
+          }}
+          onExit={() => setFocusLotId(null)}
+          onLotUpdated={applyUpdatedLot}
+        />
+      )}
+
+      {!loading && !focusLot && displayedLots.length > 0 && (
         <div className="mt-3">
           <div className="flex items-center gap-3 mb-2">
             <span className="text-[12.5px] text-text-muted font-mono">
@@ -362,8 +521,73 @@ export default function ValuationCentrePage() {
             next lot automatically. The arrow keys move freely around the grid — <span className="font-mono">↑</span>/
             <span className="font-mono">↓</span> between lots, <span className="font-mono">←</span>/
             <span className="font-mono">→</span> across a row&apos;s fields — and anything you&apos;ve typed is saved on the
-            way out. Leave blank + Enter to clear a valuation.
+            way out. Leave blank + Enter to clear a valuation. On a tablet, use <strong>Focus mode</strong> (or the{" "}
+            <OpenInFullIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> button on a row) to work one lot at a time
+            with an on-screen keypad — the filters below choose which lots it walks through.
           </p>
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            <TextField
+              size="small"
+              placeholder="Search any lot data — lot no, mark, grade, any column…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ minWidth: 250 }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <Select
+              size="small"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              sx={{ minWidth: 190, fontSize: 13 }}
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <MenuItem key={o.value} value={o.value}>
+                  {o.label}
+                </MenuItem>
+              ))}
+            </Select>
+            <Button
+              size="small"
+              variant={filtersOpen ? "contained" : "outlined"}
+              startIcon={<FilterListIcon fontSize="small" />}
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              Filters{columnFilterCount > 0 ? ` (${columnFilterCount})` : ""}
+            </Button>
+            {filtersActive && (
+              <>
+                <span className="text-[12px] text-text-muted">
+                  {visibleLots.length.toLocaleString()} of {displayedLots.length.toLocaleString()} lots shown
+                </span>
+                <Button size="small" onClick={clearAllFilters}>
+                  Clear filters
+                </Button>
+              </>
+            )}
+          </div>
+
+          {filtersOpen && activeCatalogue && (
+            <FilterPanel
+              headers={activeCatalogue.headers}
+              columnMeta={activeCatalogue.columnMeta}
+              columnFilters={columnFilters}
+              onColumnFilterChange={(h, v) => setColumnFilters((prev) => ({ ...prev, [h]: v }))}
+              status={ticketStatusFilter}
+              onStatusChange={setTicketStatusFilter}
+              classification={classificationFilter}
+              onClassificationChange={setClassificationFilter}
+              onClearAll={clearAllFilters}
+            />
+          )}
+
           <div className="flex items-center gap-1.5 flex-wrap mb-3">
             <span className="text-[11px] text-text-muted font-semibold uppercase tracking-wide mr-1">
               Also fill while valuing:
@@ -396,6 +620,14 @@ export default function ValuationCentrePage() {
             })}
           </div>
 
+          {visibleLots.length === 0 && (
+            <div className="text-center py-12 text-text-muted border border-border rounded-md bg-surface">
+              <h3 className="font-display text-lg text-text mb-1">No lots match these filters</h3>
+              <p className="m-0 text-[13px]">Adjust the search or status filter above, or clear the filters.</p>
+            </div>
+          )}
+
+          {visibleLots.length > 0 && (
           <TableContainer
             component={Paper}
             variant="outlined"
@@ -414,6 +646,7 @@ export default function ValuationCentrePage() {
                     "Classification",
                     ...enabledExtras.map((f) => f.label),
                     "Status",
+                    "",
                   ].map(
                     (h) => (
                       <TableCell
@@ -435,7 +668,7 @@ export default function ValuationCentrePage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {displayedLots.map((lot, index) => {
+                {visibleLots.map((lot, index) => {
                   const saved = savedIds.has(lot.id);
                   const classified = isClassified(lot);
                   const complete = saved && classified;
@@ -663,12 +896,20 @@ export default function ValuationCentrePage() {
                           <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} />
                         )}
                       </TableCell>
+                      <TableCell sx={{ width: 40, p: 0.5 }}>
+                        <Tooltip title="Focus on this lot (full details + keypad)">
+                          <IconButton size="small" onClick={() => setFocusLotId(lot.id)} aria-label="Focus on this lot">
+                            <OpenInFullIcon sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
               </TableBody>
             </Table>
           </TableContainer>
+          )}
         </div>
       )}
     </div>
