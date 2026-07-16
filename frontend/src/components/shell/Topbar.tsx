@@ -5,20 +5,36 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import MenuIcon from "@mui/icons-material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import Avatar from "@mui/material/Avatar";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 
-export default function Topbar() {
+interface TopbarProps {
+  sidebarCollapsed: boolean;
+  onMenuClick: () => void;
+}
+
+export default function Topbar({ sidebarCollapsed, onMenuClick }: TopbarProps) {
   const { mode, toggle } = useThemeMode();
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
 
   return (
     <header className="h-[60px] flex items-center gap-3.5 px-5 border-b border-border bg-surface sticky top-0 z-20">
-      {/* The sidebar (and its logo) is hidden below md — keep the brand visible on mobile. */}
-      <BrandLogo height={30} onDark={mode === "dark"} className="md:!hidden shrink-0" />
+      <Tooltip title="Toggle sidebar">
+        <IconButton onClick={onMenuClick} size="small" edge="start" aria-label="Toggle sidebar">
+          <MenuIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {/* Brand stays visible whenever the sidebar (and its logo) is out of view:
+          always on mobile, and on desktop while the sidebar is collapsed. */}
+      <BrandLogo
+        height={30}
+        onDark={mode === "dark"}
+        className={`shrink-0 ${sidebarCollapsed ? "" : "md:!hidden"}`}
+      />
       <div className="flex-1 min-w-0">
         <Select
           size="small"
