@@ -6,7 +6,10 @@ export function buildTheme(mode: "light" | "dark") {
   return createTheme({
     palette: {
       mode,
-      primary: { main: t.brass, dark: t.liquorDark, contrastText: t.ink900 },
+      // contrastText must stay dark ink in BOTH modes: dark-mode ink900 flips to light
+      // cream, which is unreadable on the light-gold dark-mode brass. Dark-mode paper0
+      // is the same dark ink as light-mode ink900, so this pins it correctly.
+      primary: { main: t.brass, dark: t.liquorDark, contrastText: mode === "dark" ? t.paper0 : t.ink900 },
       secondary: { main: t.liquor },
       error: { main: t.danger },
       success: { main: t.sage },

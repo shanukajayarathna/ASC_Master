@@ -428,11 +428,11 @@ export default function ValuationFocus({
                 style={{
                   borderColor: isCurrent ? "var(--liquor)" : "var(--border)",
                   background: isCurrent ? "var(--liquor)" : "var(--surface)",
-                  color: isCurrent ? "#fff" : "var(--text)",
+                  color: isCurrent ? "var(--paper-0)" : "var(--text)",
                 }}
               >
                 {done && (
-                  <CheckCircleIcon sx={{ fontSize: 13, color: isCurrent ? "#fff" : "var(--sage)" }} />
+                  <CheckCircleIcon sx={{ fontSize: 13, color: isCurrent ? "var(--paper-0)" : "var(--sage)" }} />
                 )}
                 {l.lotNumber ?? l.rowKey}
                 {sellingMarkOf(l) && (
@@ -504,7 +504,7 @@ export default function ValuationFocus({
                   style={{
                     borderColor: c.color,
                     background: active ? c.color : "var(--surface)",
-                    color: active ? "#fff" : c.color,
+                    color: active ? "var(--paper-0)" : c.color,
                   }}
                 >
                   {active ? "✓ " : ""}
@@ -619,8 +619,8 @@ export default function ValuationFocus({
                   type="button"
                   disabled={saving}
                   onClick={saveAndNext}
-                  className="min-h-[48px] col-span-2 rounded-lg text-[14px] font-bold text-white cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
-                  style={{ background: "var(--liquor)" }}
+                  className="min-h-[48px] col-span-2 rounded-lg text-[14px] font-bold cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
+                  style={{ background: "var(--liquor)", color: "var(--paper-0)" }}
                 >
                   {saving ? "Saving…" : "Save & Next ⏎"}
                 </button>

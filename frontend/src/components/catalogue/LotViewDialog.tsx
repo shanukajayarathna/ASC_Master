@@ -43,7 +43,7 @@ export default function LotViewDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <div className="px-6 pt-5 pb-4 relative" style={{ background: "linear-gradient(180deg, var(--ink-900), var(--ink-800))" }}>
+      <div className="px-6 pt-5 pb-4 relative" style={{ background: "linear-gradient(180deg, var(--ink-solid-900), var(--ink-solid-800))" }}>
         <IconButton onClick={onClose} size="small" className="!absolute !top-3.5 !right-3.5 !text-white">
           <CloseIcon fontSize="small" />
         </IconButton>

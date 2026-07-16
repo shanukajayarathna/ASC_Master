@@ -272,7 +272,7 @@ export default function WorksheetPage() {
                       key={h}
                       sx={{
                         bgcolor: "var(--liquor)",
-                        color: "#fff",
+                        color: "var(--paper-0)",
                         fontWeight: 700,
                         fontSize: 11.5,
                         textTransform: "uppercase",
@@ -334,7 +334,7 @@ export default function WorksheetPage() {
                                 style={{
                                   borderColor: current === c.value ? c.color : "var(--border)",
                                   background: current === c.value ? c.color : "transparent",
-                                  color: current === c.value ? "#fff" : "var(--text-muted)",
+                                  color: current === c.value ? "var(--paper-0)" : "var(--text-muted)",
                                 }}
                               >
                                 {c.label}

@@ -63,7 +63,9 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
-const SIDEBAR_BG = { background: "linear-gradient(180deg, var(--ink-900), var(--ink-800))" };
+// Always-dark inks — the sidebar keeps its dark look in both themes, so it must not
+// use the flipping --ink-* text scale (which turns light in dark mode) as background.
+const SIDEBAR_BG = { background: "linear-gradient(180deg, var(--ink-solid-900), var(--ink-solid-800))" };
 
 export default function Sidebar({ collapsed, mobileOpen, onClose }: SidebarProps) {
   return (

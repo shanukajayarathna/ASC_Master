@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
 :root {
+  /* Fixed always-dark inks for surfaces that stay dark in BOTH themes (sidebar, drawer
+     headers, bulk toolbar). Never overridden by the dark theme — the flipping --ink-*
+     scale below is for TEXT and must not be used as a dark background. */
+  --ink-solid-900: #1B1712; --ink-solid-800: #241F18;
+
   --ink-900: #1B1712; --ink-800: #241F18; --ink-700: #332B22; --ink-muted: #8A7F6C;
   --paper-0: #FFFFFF; --paper-50: #FAF6EC; --paper-100: #F1E9D6; --paper-200: #E7DCC2; --line: #DED2B4;
   --liquor: #8C3B1B; --liquor-dark: #6E2C12; --liquor-light: #FBEAE6;
@@ -33,6 +38,8 @@
   --font-body: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
 
+  --color-ink-solid-900: var(--ink-solid-900);
+  --color-ink-solid-800: var(--ink-solid-800);
   --color-ink-900: var(--ink-900);
   --color-ink-800: var(--ink-800);
   --color-ink-700: var(--ink-700);
@@ -72,7 +79,7 @@ body {
   font-family: var(--font-body), sans-serif;
 }
 
-::selection { background: var(--brass-light); color: var(--ink-900); }
+::selection { background: var(--brass-light); color: var(--ink-solid-900); }
 
 .ag-theme-asc {
   --ag-background-color: var(--surface);

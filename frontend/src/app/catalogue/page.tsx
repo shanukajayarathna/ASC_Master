@@ -389,7 +389,7 @@ export default function CataloguePage() {
       )}
 
       {selected.length > 0 && (
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-md bg-ink-900 text-white mb-3 flex-wrap">
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-md bg-ink-solid-900 text-white mb-3 flex-wrap">
           <Chip
             label={`${selected.length} lot${selected.length === 1 ? "" : "s"} selected`}
             size="small"
