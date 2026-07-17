@@ -18,11 +18,11 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
 
   return (
     <>
-      <div className="flex flex-col gap-1.5 px-4 py-4 border-b border-brass/20">
-        <BrandLogo height={44} onDark />
-        <div className="font-mono text-[9px] tracking-widest uppercase text-brass-light">
-          Commodities · Tea Auctions
-        </div>
+      {/* The whole header band takes the logo's own light surface (fixed ivory in both
+          themes) — the artwork was drawn for light backgrounds, and a full-width band
+          reads as deliberate branding where a small tile looked like a stray rectangle. */}
+      <div className="flex justify-center px-4 py-4 border-b border-brass/20" style={{ background: "#F7F3E8" }}>
+        <BrandLogo height={60} />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2.5 py-2.5">

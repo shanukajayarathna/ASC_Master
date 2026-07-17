@@ -5,11 +5,14 @@ import Image from "next/image";
  * same mark the company uses everywhere), served from /public/brand/asia-siyaka.png.
  *
  * The artwork is olive/gold on a transparent background, drawn for light surfaces. On dark
- * surfaces (`onDark`) it sits on a soft ivory tile — the standard way to keep a logo's exact
- * colors untouched on a dark background — rather than recoloring or brightening the image.
+ * surfaces (`onDark`) it keeps its brand hues but is lifted with a brightness/saturation
+ * boost so the dark-olive lettering stays legible — no tile behind it (a light rectangle
+ * jars badly in dark mode), no recolored silhouette.
  */
-const LOGO_W = 310;
-const LOGO_H = 90;
+// Trimmed artwork dimensions — the canvas is cropped tight to the visible mark
+// (no transparent padding), so centering the image centers the wordmark itself.
+const LOGO_W = 166;
+const LOGO_H = 86;
 
 export default function BrandLogo({
   height = 40,
@@ -21,25 +24,21 @@ export default function BrandLogo({
   onDark?: boolean;
   className?: string;
 }) {
-  const img = (
-    <Image
-      src="/brand/asia-siyaka.png"
-      alt="Asia Siyaka Commodities PLC"
-      width={Math.round((height * LOGO_W) / LOGO_H)}
-      height={height}
-      priority
-      style={{ display: "block", width: "auto", height }}
-    />
-  );
-
-  if (!onDark) return <span className={`inline-flex ${className ?? ""}`}>{img}</span>;
-
   return (
-    <span
-      className={`inline-flex ${className ?? ""}`}
-      style={{ background: "#F7F3E8", borderRadius: 8, padding: `${Math.round(height * 0.16)}px ${Math.round(height * 0.24)}px` }}
-    >
-      {img}
+    <span className={`inline-flex ${className ?? ""}`}>
+      <Image
+        src="/brand/asia-siyaka.png"
+        alt="Asia Siyaka Commodities PLC"
+        width={Math.round((height * LOGO_W) / LOGO_H)}
+        height={height}
+        priority
+        style={{
+          display: "block",
+          width: "auto",
+          height,
+          ...(onDark && { filter: "brightness(1.65) saturate(1.1)" }),
+        }}
+      />
     </span>
   );
 }
