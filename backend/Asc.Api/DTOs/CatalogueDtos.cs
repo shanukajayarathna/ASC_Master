@@ -66,6 +66,14 @@ public record PagedLotsDto(List<LotDto> Rows, int Total, int Page, int PageSize)
 public record BulkClassifyDto(List<Guid> LotIds, string Classification);
 public record BulkDeleteNotesDto(List<Guid> LotIds);
 
+/// <summary>One classification tier's track record for a grade in a previous sale.</summary>
+public record GradeTierStatsDto(string Classification, int Count, double Percent, decimal Min, decimal Max, decimal Avg);
+
+/// <summary>How one grade was classified in the most recent previous sale that offered it.</summary>
+public record GradeStatsDto(string SaleName, int Total, List<GradeTierStatsDto> Tiers);
+
+public record PreviousGradeStatsDto(Dictionary<string, GradeStatsDto> Grades);
+
 public record DashboardStatsDto(
     int Total,
     int Completed,

@@ -14,12 +14,20 @@ import {
   valuationToText,
   weightPerChestOf,
 } from "@/lib/lotDisplay";
-import { parseValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
+import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
 import type { ColumnFilterState, TicketStatus } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
+import {
+  effectiveOfParsed,
+  effectiveValuationOf,
+  formatTierRange,
+  suggestTier,
+  tierStatsFor,
+  tierSummary,
+} from "@/lib/previousSale";
 import FilterPanel from "@/components/catalogue/FilterPanel";
-import type { ClassificationValue, ColumnMeta, Lot, ValuationUpdate } from "@/types/api";
+import type { ClassificationValue, ColumnMeta, GradeStats, Lot, ValuationUpdate } from "@/types/api";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import BackspaceOutlinedIcon from "@mui/icons-material/BackspaceOutlined";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -62,6 +70,8 @@ export interface FocusFilters {
 
 interface ValuationFocusProps {
   lot: Lot;
+  /** Previous-sale classification history for this lot's grade — null when there is none. */
+  gradeStats: GradeStats | null;
   /** 0-based position within the navigation list. */
   index: number;
   total: number;
@@ -110,6 +120,7 @@ const KEYPAD_ROWS: string[][] = [
 
 export default function ValuationFocus({
   lot,
+  gradeStats,
   index,
   total,
   filters,
@@ -123,6 +134,10 @@ export default function ValuationFocus({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [clsNeeded, setClsNeeded] = useState(false);
+  // Current classification was auto-picked from the previous sale (labels the hint line).
+  const [autoCls, setAutoCls] = useState(false);
+  // Auto-classification ran but this grade has no previous-sale history.
+  const [noPrevData, setNoPrevData] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -143,6 +158,8 @@ export default function ValuationFocus({
     setFieldText(seedFields(lot));
     setError(null);
     setClsNeeded(false);
+    setAutoCls(false);
+    setNoPrevData(false);
     // Give the keypad input focus — but never steal it while the user is typing in
     // another field (the search bar / a filter / a remark box), or searching would be
     // interrupted the moment the first match changes the focused lot.
@@ -171,10 +188,19 @@ export default function ValuationFocus({
   const valuationDirty = text !== valuationToText(lot);
   const fieldDirty = (f: FocusTextField) => fieldText[f].trim() !== (v?.[f] ?? "").trim();
   const feedback = !error && valuationDirty ? valuationTypingFeedback(text) : null;
+  // While the typed value is valid and the tier isn't hand-picked, the previous sale's
+  // suggestion previews as selected — it's saved together with the value.
+  const liveParsed = valuationDirty ? parseValuationInput(text) : null;
+  const liveValue = liveParsed ? effectiveOfParsed(liveParsed) : null;
+  const mayAuto = currentCls === "Unclassified" || autoCls;
+  const liveTier = mayAuto && liveValue !== null && gradeStats ? suggestTier(gradeStats, liveValue) : null;
+  const displayCls = liveTier ?? currentCls;
 
+  // All text paths (typing, paste, keypad) funnel through here — the sanitizer keeps
+  // the field to digits and a single range dash no matter how input arrives.
   const edit = (updater: (prev: string) => string) => {
     setError(null);
-    setText(updater);
+    setText((prev) => sanitizeValuationInput(updater(prev)));
   };
 
   const pressKey = (key: string) => {
@@ -190,6 +216,8 @@ export default function ValuationFocus({
    */
   const saveAll = async (extra?: Partial<ValuationUpdate>): Promise<Lot | null> => {
     const patch: Partial<ValuationUpdate> = { ...extra };
+    // null = the auto flag is untouched by this save; true/false = set/cleared.
+    let autoApplied: boolean | null = null;
     if (valuationDirty) {
       const parsed = parseValuationInput(text);
       if (parsed.kind === "error") {
@@ -209,6 +237,21 @@ export default function ValuationFocus({
         patch.valuationFrom = parsed.from;
         patch.valuationTo = parsed.to;
       }
+      // Live auto-classification rides along with a new value while the tier is unset
+      // or was itself auto-picked — an explicit tier in `extra` (a tap) always wins,
+      // and a hand-picked tier is never touched.
+      if (patch.classification === undefined && (currentCls === "Unclassified" || autoCls)) {
+        const liveValue = effectiveOfParsed(parsed);
+        const tier = gradeStats && liveValue !== null ? suggestTier(gradeStats, liveValue) : null;
+        if (tier) {
+          patch.classification = tier;
+          autoApplied = true;
+        } else if (parsed.kind === "clear" && autoCls) {
+          // The value is gone — the auto-picked tier goes with it.
+          patch.classification = "Unclassified";
+          autoApplied = false;
+        }
+      }
     }
     FOCUS_TEXT_FIELDS.forEach((f) => {
       if (fieldDirty(f.value)) {
@@ -223,6 +266,30 @@ export default function ValuationFocus({
       const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
       onLotUpdated(updated);
       setError(null);
+      if (autoApplied !== null) setAutoCls(autoApplied);
+      return updated;
+    } catch {
+      setError("Save failed — try again");
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Auto-pick a classification from the previous sale's record for this grade.
+  // Returns the updated lot, or null when there's no usable history / the save failed.
+  const autoClassify = async (l: Lot): Promise<Lot | null> => {
+    const value = effectiveValuationOf(l);
+    const tier = gradeStats && value !== null ? suggestTier(gradeStats, value) : null;
+    if (!tier) {
+      setNoPrevData(true);
+      return null;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.updateValuation(l.id, buildValuationUpdate(l, { classification: tier }));
+      onLotUpdated(updated);
+      setAutoCls(true);
       return updated;
     } catch {
       setError("Save failed — try again");
@@ -237,7 +304,10 @@ export default function ValuationFocus({
     const updated = await saveAll();
     if (!updated) return;
     if (hasValuation(updated) && !isClassified(updated)) {
-      setClsNeeded(true);
+      // Try the previous sale's suggestion first. Either way stay on this lot so the
+      // tier can be reviewed or overridden — Save & Next again moves on.
+      const auto = await autoClassify(updated);
+      if (!auto) setClsNeeded(true);
       return;
     }
     if (index + 1 < total) onNavigate(index + 1);
@@ -265,6 +335,9 @@ export default function ValuationFocus({
     const next: ClassificationValue = currentCls === value ? "Unclassified" : value;
     const updated = await saveAll({ classification: next });
     if (!updated) return;
+    // A hand-picked tier is an override — drop the auto-selected label and no-data note.
+    setAutoCls(false);
+    setNoPrevData(false);
     if (next !== "Unclassified") setClsNeeded(false);
   };
 
@@ -492,7 +565,8 @@ export default function ValuationFocus({
             style={clsNeeded ? { outline: "2px solid var(--warn)", outlineOffset: 3 } : undefined}
           >
             {CLASSIFICATIONS.map((c) => {
-              const active = currentCls === c.value;
+              const active = displayCls === c.value;
+              const tierInfo = tierStatsFor(gradeStats, c.value);
               return (
                 <button
                   key={c.value}
@@ -500,23 +574,49 @@ export default function ValuationFocus({
                   disabled={saving}
                   onClick={() => commitClassification(c.value)}
                   title={active ? "Tap again to unset" : `Mark as ${c.label}`}
-                  className="min-h-[52px] rounded-lg border-2 text-[15px] font-bold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
+                  className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5"
                   style={{
                     borderColor: c.color,
                     background: active ? c.color : "var(--surface)",
                     color: active ? "var(--paper-0)" : c.color,
                   }}
                 >
-                  {active ? "✓ " : ""}
-                  {c.label}
+                  <span className="block text-[15px] font-bold leading-tight">
+                    {active ? "✓ " : ""}
+                    {c.label}
+                  </span>
+                  {/* This tier's record for the lot's grade in the previous sale. */}
+                  {gradeStats && (
+                    <span className="block text-[10.5px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
+                      {tierInfo
+                        ? `${formatTierRange(tierInfo)} · ${Math.round(tierInfo.percent)}%`
+                        : "no lots last sale"}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
           <div className="min-h-[20px] mb-1.5">
+            {liveTier && gradeStats && (
+              <span className="text-[11.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
+                Auto-selects on save · {tierSummary(lot.grade, gradeStats, liveTier)} — tap another tier to override
+              </span>
+            )}
+            {!liveTier && autoCls && gradeStats && currentCls !== "Unclassified" && (
+              <span className="text-[11.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
+                Auto-selected · {tierSummary(lot.grade, gradeStats, currentCls)} — tap another tier to override
+              </span>
+            )}
+            {mayAuto && liveValue !== null && !gradeStats && (
+              <span className="text-[11.5px] font-semibold text-text-muted">
+                No previous-sale data for {lot.grade ?? "this grade"} — tap a tier manually
+              </span>
+            )}
             {clsNeeded && (
               <span className="text-[11.5px] font-semibold" style={{ color: "var(--warn)" }}>
-                Classification required — tap a tier, then Save &amp; Next to move on
+                {noPrevData ? `No previous-sale data for ${lot.grade ?? "this grade"} — ` : "Classification required — "}
+                tap a tier, then Save &amp; Next to move on
               </span>
             )}
           </div>

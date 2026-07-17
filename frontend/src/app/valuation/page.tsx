@@ -14,9 +14,24 @@ import {
   type TicketStatus,
 } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
-import { parseValuationInput, valuationTypingFeedback, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
+import {
+  parseValuationInput,
+  sanitizeValuationInput,
+  valuationTypingFeedback,
+  VALUATION_MAX,
+  VALUATION_MIN,
+} from "@/lib/valuationInput";
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
-import type { ClassificationValue, Lot } from "@/types/api";
+import {
+  effectiveOfParsed,
+  effectiveValuationOf,
+  formatTierRange,
+  gradeStatsFor,
+  suggestTier,
+  tierStatsFor,
+  tierSummary,
+} from "@/lib/previousSale";
+import type { ClassificationValue, Lot, PreviousGradeStats, ValuationUpdate } from "@/types/api";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -76,6 +91,16 @@ export default function ValuationCentrePage() {
   const [clsNeededId, setClsNeededId] = useState<string | null>(null);
   // Arrow-key highlight inside the focused classification chip group (one group at a time).
   const [clsCursor, setClsCursor] = useState<{ lotId: string; index: number } | null>(null);
+  // Per-grade classification history from the previous sale — drives auto-classification.
+  const [prevStats, setPrevStats] = useState<PreviousGradeStats | null>(null);
+  // Lots whose current classification was auto-picked from the previous sale (labels the hint).
+  const [autoClsIds, setAutoClsIds] = useState<Set<string>>(new Set());
+  // Lot whose auto-classification found no previous-sale data for its grade.
+  const [noPrevDataId, setNoPrevDataId] = useState<string | null>(null);
+  // Tier chip under the mouse — previews that tier's previous-sale values.
+  const [clsHover, setClsHover] = useState<{ lotId: string; tier: ClassificationValue } | null>(null);
+  // Row whose valuation input has focus — that row shows its grade's previous-sale band strip.
+  const [activeValLotId, setActiveValLotId] = useState<string | null>(null);
   // List filters — focus-mode navigation walks the filtered list too. Column filters,
   // ticket status and classification use the exact same engine as Catalogue Manager.
   const [search, setSearch] = useState("");
@@ -96,6 +121,8 @@ export default function ValuationCentrePage() {
     setColumnFilters({});
     setTicketStatusFilter("");
     setClassificationFilter("");
+    setAutoClsIds(new Set());
+    setNoPrevDataId(null);
   }, [catalogueId]);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const clsRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -114,6 +141,24 @@ export default function ValuationCentrePage() {
       .getLots(activeCatalogueId, { pageSize: 5000 })
       .then((paged) => setLots(paged.rows))
       .finally(() => setLoading(false));
+  }, [activeCatalogueId]);
+
+  // Previous-sale classification history for auto-classification. Best-effort: without
+  // it the page simply falls back to fully manual classification.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrevStats(null);
+    if (!activeCatalogueId) return;
+    let cancelled = false;
+    api
+      .getPreviousGradeStats(activeCatalogueId)
+      .then((s) => {
+        if (!cancelled) setPrevStats(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [activeCatalogueId]);
 
   // Consume a one-shot handoff from the Catalogue Manager's "Valuation…" button — any lots
@@ -279,9 +324,11 @@ export default function ValuationCentrePage() {
     else focusRow(index + 1);
   };
 
-  // Parse and save the typed value when it differs from what's stored. Returns the lot to
-  // continue navigating with (updated, or as-is when nothing changed), or null when the
-  // input is invalid or the save failed — callers keep focus in place on null.
+  // Parse and save the typed value when it differs from what's stored. While the tier is
+  // unset (or was itself auto-picked), the previous sale's suggested classification for
+  // the new value rides along in the same call — a hand-picked tier is never touched.
+  // Returns the lot to continue navigating with (updated, or as-is when nothing changed),
+  // or null when the input is invalid or the save failed — callers keep focus in place on null.
   const saveValuation = async (lot: Lot): Promise<Lot | null> => {
     const text = values[lot.id] ?? "";
     if (text === valuationToText(lot)) return lot;
@@ -297,12 +344,23 @@ export default function ValuationCentrePage() {
       return null;
     }
 
-    const patch =
+    const patch: Partial<ValuationUpdate> =
       parsed.kind === "clear"
         ? { valuationSingle: null, valuationFrom: null, valuationTo: null }
         : parsed.kind === "single"
           ? { valuationSingle: parsed.value, valuationFrom: null, valuationTo: null }
           : { valuationSingle: null, valuationFrom: parsed.from, valuationTo: parsed.to };
+
+    const currentCls = lot.valuation?.classification ?? "Unclassified";
+    let autoTier: ClassificationValue | null = null;
+    if (currentCls === "Unclassified" || autoClsIds.has(lot.id)) {
+      const stats = gradeStatsFor(prevStats, lot.grade);
+      const liveValue = effectiveOfParsed(parsed);
+      autoTier = stats && liveValue !== null ? suggestTier(stats, liveValue) : null;
+      if (autoTier) patch.classification = autoTier;
+      // The value is gone — an auto-picked tier goes with it (hand-picked ones stay).
+      else if (parsed.kind === "clear" && autoClsIds.has(lot.id)) patch.classification = "Unclassified";
+    }
 
     setSavingId(lot.id);
     try {
@@ -314,6 +372,39 @@ export default function ValuationCentrePage() {
         else next.add(lot.id);
         return next;
       });
+      setAutoClsIds((prev) => {
+        if (!!autoTier === prev.has(lot.id)) return prev;
+        const next = new Set(prev);
+        if (autoTier) next.add(lot.id);
+        else next.delete(lot.id);
+        return next;
+      });
+      return updated;
+    } catch {
+      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
+      return null;
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  // Auto-pick a classification from the previous sale's record for this lot's grade.
+  // Returns the updated lot, or null when there's no usable history (callers fall back
+  // to the manual classification gate).
+  const autoClassify = async (lot: Lot): Promise<Lot | null> => {
+    const stats = gradeStatsFor(prevStats, lot.grade);
+    const value = effectiveValuationOf(lot);
+    const tier = stats && value !== null ? suggestTier(stats, value) : null;
+    if (!tier) {
+      setNoPrevDataId(lot.id);
+      return null;
+    }
+    setSavingId(lot.id);
+    try {
+      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: tier }));
+      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      setAutoClsIds((prev) => new Set(prev).add(lot.id));
+      setNoPrevDataId((id) => (id === lot.id ? null : id));
       return updated;
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
@@ -327,8 +418,22 @@ export default function ValuationCentrePage() {
     const updated = await saveValuation(lot);
     if (!updated) return;
     // A cleared/blank row is being abandoned, so no classification gate applies.
-    if (!hasValuation(updated)) focusRow(index + 1);
-    else advance(updated, index, "valuation");
+    if (!hasValuation(updated)) {
+      focusRow(index + 1);
+      return;
+    }
+    // Fresh valuation on an unclassified lot: auto-select the tier the previous sale
+    // suggests, then hold focus on the chips so Enter accepts it or the user overrides.
+    if (!isClassified(updated)) {
+      const auto = await autoClassify(updated);
+      if (auto) {
+        const at = CLASSIFICATIONS.findIndex((c) => c.value === auto.valuation?.classification);
+        clsRefs.current[auto.id]?.focus();
+        setClsCursor({ lotId: auto.id, index: Math.max(0, at) });
+        return;
+      }
+    }
+    advance(updated, index, "valuation");
   };
 
   // Classification saves instantly on click — clicking the active tier again clears it.
@@ -340,6 +445,14 @@ export default function ValuationCentrePage() {
     try {
       updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      // A hand-picked tier is an override — drop the "auto-selected" label and no-data note.
+      setAutoClsIds((prev) => {
+        if (!prev.has(lot.id)) return prev;
+        const n = new Set(prev);
+        n.delete(lot.id);
+        return n;
+      });
+      setNoPrevDataId((id) => (id === lot.id ? null : id));
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
       return;
@@ -469,6 +582,7 @@ export default function ValuationCentrePage() {
       {!loading && focusLot && (
         <ValuationFocus
           lot={focusLot}
+          gradeStats={gradeStatsFor(prevStats, focusLot.grade)}
           index={focusIndex}
           total={focusList.length}
           filters={{
@@ -514,11 +628,14 @@ export default function ValuationCentrePage() {
             Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
             <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are whole
             values from <span className="font-mono">{VALUATION_MIN}</span> to <span className="font-mono">{VALUATION_MAX}</span>,
-            and in a range the first number must be lower than the second. Press <strong>Enter</strong> to save, then{" "}
-            <strong>classification is required</strong>: highlight a tier with <span className="font-mono">←</span>/
-            <span className="font-mono">→</span> and <strong>Enter</strong> to confirm (or press{" "}
-            <span className="font-mono">1</span>–<span className="font-mono">4</span>, or click) and you&apos;ll jump to the
-            next lot automatically. The arrow keys move freely around the grid — <span className="font-mono">↑</span>/
+            and in a range the first number must be lower than the second (the field only accepts digits and a dash).
+            As soon as the value is valid, the classification{" "}
+            <strong>auto-selects from the previous sale&apos;s record for that grade</strong>, with a note showing the
+            grade&apos;s previous values for that tier (hover or highlight any tier to see its own). Press{" "}
+            <strong>Enter</strong> and the value and classification save together — you jump straight to the next lot.
+            Override any time: press <span className="font-mono">1</span>–<span className="font-mono">4</span>, click a
+            tier, or highlight one with <span className="font-mono">←</span>/<span className="font-mono">→</span> and{" "}
+            <strong>Enter</strong>. A grade with no previous-sale history still needs a manual classification. The arrow keys move freely around the grid — <span className="font-mono">↑</span>/
             <span className="font-mono">↓</span> between lots, <span className="font-mono">←</span>/
             <span className="font-mono">→</span> across a row&apos;s fields — and anything you&apos;ve typed is saved on the
             way out. Leave blank + Enter to clear a valuation. On a tablet, use <strong>Focus mode</strong> (or the{" "}
@@ -679,6 +796,52 @@ export default function ValuationCentrePage() {
                   // Live feedback only while the text differs from what's already saved —
                   // settled rows stay quiet.
                   const feedback = !error && text !== valuationToText(lot) ? valuationTypingFeedback(text) : null;
+                  // Previous-sale context for this grade. While the typed value is valid and
+                  // the tier isn't hand-picked, the previous sale's suggestion previews as
+                  // selected — it will be saved together with the value. Hover / arrow
+                  // highlight preview other tiers' history.
+                  const gradeStats = gradeStatsFor(prevStats, lot.grade);
+                  const wasAuto = autoClsIds.has(lot.id);
+                  const liveParsed = text !== valuationToText(lot) ? parseValuationInput(text) : null;
+                  const liveValue = liveParsed ? effectiveOfParsed(liveParsed) : null;
+                  const mayAuto = currentCls === "Unclassified" || wasAuto;
+                  const liveTier =
+                    mayAuto && liveValue !== null && gradeStats ? suggestTier(gradeStats, liveValue) : null;
+                  const displayCls = liveTier ?? currentCls;
+                  const previewTier: ClassificationValue | null =
+                    clsHover?.lotId === lot.id
+                      ? clsHover.tier
+                      : clsCursor?.lotId === lot.id
+                        ? (CLASSIFICATIONS[clsCursor.index]?.value ?? null)
+                        : (liveTier ?? (wasAuto && currentCls !== "Unclassified" ? currentCls : null));
+                  let prevMsg: string | null = null;
+                  let prevMsgColor = "var(--text-muted)";
+                  if (previewTier) {
+                    const tierLabel = CLASSIFICATIONS.find((c) => c.value === previewTier)?.label ?? previewTier;
+                    prevMsg = gradeStats
+                      ? (tierSummary(lot.grade, gradeStats, previewTier) ??
+                        `${gradeStats.saleName}: no ${lot.grade ?? ""} lots were ${tierLabel}`)
+                      : `No previous-sale data for ${lot.grade ?? "this grade"}`;
+                    if (liveTier && previewTier === liveTier) {
+                      prevMsg = `Auto-selects on save — ${prevMsg}`;
+                      prevMsgColor = "var(--sage-dark)";
+                    } else if (wasAuto && previewTier === currentCls) {
+                      prevMsg = `Auto-selected — ${prevMsg}`;
+                      prevMsgColor = "var(--sage-dark)";
+                    }
+                  } else if (mayAuto && liveValue !== null && !gradeStats) {
+                    prevMsg = `No previous-sale data for ${lot.grade ?? "this grade"} — pick a tier manually`;
+                  } else if (noPrevDataId === lot.id && !classified) {
+                    prevMsg = `No previous-sale data for ${lot.grade ?? "this grade"} — pick a tier manually`;
+                  }
+                  // While this row is being worked, show how the previous sale split this
+                  // grade across the four tiers (range + share per tier).
+                  const rowActive =
+                    activeValLotId === lot.id ||
+                    clsCursor?.lotId === lot.id ||
+                    clsHover?.lotId === lot.id ||
+                    clsNeededId === lot.id ||
+                    liveTier !== null;
                   return (
                     <TableRow
                       key={lot.id}
@@ -710,7 +873,11 @@ export default function ValuationCentrePage() {
                             style={{ borderColor: error ? "var(--danger)" : "var(--border)", color: "var(--text)" }}
                             value={text}
                             disabled={savingId === lot.id}
-                            onChange={(e) => setValues((v) => ({ ...v, [lot.id]: e.target.value }))}
+                            onFocus={() => setActiveValLotId(lot.id)}
+                            onBlur={() => setActiveValLotId((id) => (id === lot.id ? null : id))}
+                            onChange={(e) =>
+                              setValues((v) => ({ ...v, [lot.id]: sanitizeValuationInput(e.target.value) }))
+                            }
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
@@ -810,6 +977,7 @@ export default function ValuationCentrePage() {
                         >
                           {CLASSIFICATIONS.map((c, ci) => {
                             const highlighted = clsCursor?.lotId === lot.id && clsCursor.index === ci;
+                            const tierInfo = tierStatsFor(gradeStats, c.value);
                             return (
                               <button
                                 key={c.value}
@@ -817,12 +985,21 @@ export default function ValuationCentrePage() {
                                 tabIndex={-1}
                                 disabled={savingId === lot.id}
                                 onClick={() => commitClassification(lot, index, c.value)}
-                                title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`}
+                                onMouseEnter={() => setClsHover({ lotId: lot.id, tier: c.value })}
+                                onMouseLeave={() =>
+                                  setClsHover((h) => (h?.lotId === lot.id && h.tier === c.value ? null : h))
+                                }
+                                title={
+                                  (currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`) +
+                                  (tierInfo && gradeStats
+                                    ? ` — ${gradeStats.saleName}: ${formatTierRange(tierInfo)} (${Math.round(tierInfo.percent)}%)`
+                                    : "")
+                                }
                                 className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
                                 style={{
-                                  borderColor: currentCls === c.value ? c.color : "var(--border)",
-                                  background: currentCls === c.value ? c.color : "transparent",
-                                  color: currentCls === c.value ? "var(--paper-0)" : "var(--text-muted)",
+                                  borderColor: displayCls === c.value ? c.color : "var(--border)",
+                                  background: displayCls === c.value ? c.color : "transparent",
+                                  color: displayCls === c.value ? "var(--paper-0)" : "var(--text-muted)",
                                   ...(highlighted && { boxShadow: `0 0 0 2px ${c.color}` }),
                                 }}
                               >
@@ -831,6 +1008,31 @@ export default function ValuationCentrePage() {
                             );
                           })}
                         </div>
+                        {rowActive && gradeStats && (
+                          <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-1">
+                            <span className="text-[10px] text-text-muted font-mono whitespace-nowrap">
+                              {gradeStats.saleName} · {lot.grade}:
+                            </span>
+                            {CLASSIFICATIONS.map((c) => {
+                              const t = tierStatsFor(gradeStats, c.value);
+                              if (!t) return null;
+                              return (
+                                <span
+                                  key={c.value}
+                                  className="text-[10px] font-mono font-semibold whitespace-nowrap"
+                                  style={{ color: c.color }}
+                                >
+                                  {c.short} {formatTierRange(t, false)} ({Math.round(t.percent)}%)
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {prevMsg && (
+                          <span className="text-[10.5px] block mt-1" style={{ color: prevMsgColor }}>
+                            {prevMsg}
+                          </span>
+                        )}
                         {clsNeeded && (
                           <span className="text-[10.5px] block mt-1" style={{ color: "var(--warn)" }}>
                             Classification required — ←/→ then Enter, press 1–4, or click a tier to move on

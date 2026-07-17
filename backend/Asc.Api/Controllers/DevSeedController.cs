@@ -110,7 +110,7 @@ public class DevSeedController(MongoContext db, CatalogueImportService importer,
             var lots = rows.Select(row =>
             {
                 var lot = importer.BuildLot(catalogue.Id, Headers.ToList(), row);
-                lot.Valuation = BuildValuation(rng, importedAt);
+                lot.Valuation = BuildValuation(rng, importedAt, row["Grade"]);
                 return lot;
             }).ToList();
             await db.Lots.InsertManyAsync(lots);
@@ -160,17 +160,21 @@ public class DevSeedController(MongoContext db, CatalogueImportService importer,
         return rows;
     }
 
-    /// <summary>Valuation in 500–5000: ~85% single values, ~15% ranges. Classification set;
-    /// every remark field left null so the columns stay available but empty.</summary>
-    private static Valuation BuildValuation(Random rng, DateTime importedAt)
+    /// <summary>Valuation drawn from the grade's own price window, ~85% single values and
+    /// ~15% ranges, quoted the way the trade does — in multiples of 50 (usually) or 20.
+    /// Classification set from the grade's contiguous cutoffs; every remark field left
+    /// null so the columns stay available but empty.</summary>
+    private static Valuation BuildValuation(Random rng, DateTime importedAt, string grade)
     {
-        int baseValue = rng.Next(50, 501) * 10; // 500..5000 in round tens
+        var bands = BandsFor(grade);
+        int step = rng.NextDouble() < 0.7 ? 50 : 20;
+        int baseValue = rng.Next(bands.Low / step, bands.High / step + 1) * step;
         decimal? single = null, from = null, to = null;
         int effective;
         if (rng.NextDouble() < 0.15)
         {
-            int span = new[] { 50, 100, 150, 200 }[rng.Next(4)];
-            int f = Math.Max(500, Math.Min(baseValue, 5000 - span));
+            int span = step * rng.Next(1, 5); // 50..200 or 20..80, keeping both ends on the step
+            int f = Math.Max(bands.Low, Math.Min(baseValue, bands.High - span));
             from = f;
             to = f + span;
             effective = f + span / 2;
@@ -186,19 +190,43 @@ public class DevSeedController(MongoContext db, CatalogueImportService importer,
             ValuationSingle = single,
             ValuationFrom = from,
             ValuationTo = to,
-            Classification = ClassificationFor(rng, effective),
+            Classification = ClassificationFor(bands, effective),
             UpdatedAt = importedAt.AddHours(rng.Next(4, 41)).AddMinutes(rng.Next(60)),
         };
     }
 
-    /// <summary>Higher-valued teas skew toward better tiers, like a real valuation book.</summary>
-    private static Classification ClassificationFor(Random rng, int value)
+    /// <summary>A grade's price window and its three tier cutoffs.</summary>
+    private readonly record struct GradeBands(int Low, int High, int PoorTop, int BelowTop, int BestTop);
+
+    /// <summary>
+    /// Each grade trades in its own price neighbourhood (not the full 500–5000), and its
+    /// window splits into four *contiguous* classification bands — Poor | BelowBest |
+    /// Best | SelectBest with shared cutoffs and no gaps, the way a taster's scale works
+    /// (e.g. Poor below 800, BelowBest 800–1200, Best 1200–1600, SelectBest above).
+    /// Derived from a stable per-grade hash (string.GetHashCode is randomized per
+    /// process) so re-seeding reproduces identical windows.
+    /// </summary>
+    private static GradeBands BandsFor(string grade)
     {
-        double q = (value - 500) / 4500.0;
-        double r = rng.NextDouble();
-        if (q > 0.75) return r < 0.45 ? Classification.SelectBest : Classification.Best;
-        if (q > 0.45) return r < 0.65 ? Classification.Best : r < 0.92 ? Classification.BelowBest : Classification.SelectBest;
-        if (q > 0.2) return r < 0.6 ? Classification.BelowBest : r < 0.85 ? Classification.Best : Classification.Poor;
-        return r < 0.55 ? Classification.Poor : Classification.BelowBest;
+        int h = 17;
+        foreach (var ch in grade) h = unchecked(h * 31 + ch);
+        h = Math.Abs(h);
+
+        int low = 500 + h % 12 * 250;                              // 500..3250
+        int high = Math.Min(low + 1200 + h / 12 % 5 * 300, 5000);  // 1200..2400 wide
+        int span = high - low;
+
+        int poorTop = RoundTo50(low + span * 25 / 100);
+        int belowTop = RoundTo50(low + span * 55 / 100);
+        int bestTop = RoundTo50(low + span * 80 / 100);
+        return new(low, high, poorTop, belowTop, bestTop);
     }
+
+    private static int RoundTo50(int v) => (int)Math.Round(v / 50.0) * 50;
+
+    private static Classification ClassificationFor(GradeBands b, int value) =>
+        value <= b.PoorTop ? Classification.Poor
+        : value <= b.BelowTop ? Classification.BelowBest
+        : value <= b.BestTop ? Classification.Best
+        : Classification.SelectBest;
 }

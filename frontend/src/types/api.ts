@@ -51,6 +51,27 @@ export interface ValuationUpdate {
   privateNotes: string | null;
 }
 
+/** One classification tier's track record for a grade in a previous sale. */
+export interface GradeTierStats {
+  classification: ClassificationValue;
+  count: number;
+  percent: number;
+  min: number;
+  max: number;
+  avg: number;
+}
+
+/** How one grade was classified in the most recent previous sale that offered it. */
+export interface GradeStats {
+  saleName: string;
+  total: number;
+  tiers: GradeTierStats[];
+}
+
+export interface PreviousGradeStats {
+  grades: Record<string, GradeStats>;
+}
+
 export interface Lot {
   id: string;
   rowKey: string;

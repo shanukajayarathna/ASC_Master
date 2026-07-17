@@ -4,6 +4,7 @@ import type {
   DashboardStats,
   Lot,
   PagedLots,
+  PreviousGradeStats,
   ValuationUpdate,
 } from "@/types/api";
 
@@ -71,6 +72,9 @@ export const api = {
 
   getDashboardStats: (catalogueId: string) =>
     request<DashboardStats>(`/api/catalogues/${catalogueId}/dashboard`),
+
+  getPreviousGradeStats: (catalogueId: string) =>
+    request<PreviousGradeStats>(`/api/catalogues/${catalogueId}/previous-grade-stats`),
 
   updateValuation: (lotId: string, dto: ValuationUpdate) =>
     request<Lot>(`/api/lots/${lotId}/valuation`, {

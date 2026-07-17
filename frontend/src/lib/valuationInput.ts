@@ -16,6 +16,20 @@ export type ParsedValuation =
   | { kind: "range"; from: number; to: number }
   | { kind: "error"; message: string };
 
+/**
+ * Keep only what a valuation can contain — digits and a single range dash. Applied on
+ * every keystroke so stray characters never land in the field: en/em dashes become "-",
+ * everything non-numeric is dropped, extra dashes collapse into the first one, and a
+ * leading dash is discarded (a range needs its left side first).
+ */
+export function sanitizeValuationInput(raw: string): string {
+  const cleaned = raw.replace(/[–—]/g, "-").replace(/[^0-9-]/g, "");
+  const [head, ...rest] = cleaned.split("-");
+  if (rest.length === 0) return cleaned;
+  const tail = rest.join("");
+  return head === "" ? tail : `${head}-${tail}`;
+}
+
 /** Validates one standalone value; returns an error message or null if OK. */
 export function valuationValueError(value: number): string | null {
   if (!Number.isInteger(value)) return `Whole numbers only — e.g. ${VALUATION_MIN + 200}`;
