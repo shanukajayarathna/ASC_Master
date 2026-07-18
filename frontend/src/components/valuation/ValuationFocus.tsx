@@ -55,12 +55,16 @@ export interface FocusFilters {
   setStatusFilter: (v: StatusFilter) => void;
   headers: string[];
   columnMeta: Record<string, ColumnMeta>;
+  /** The working set the filters act on — FilterPanel derives its dropdown options from these. */
+  lots: Lot[];
   columnFilters: Record<string, ColumnFilterState>;
   onColumnFilterChange: (header: string, value: ColumnFilterState) => void;
   ticketStatus: TicketStatus | "";
   setTicketStatus: (v: TicketStatus | "") => void;
   classification: string;
   setClassification: (v: string) => void;
+  year: string;
+  setYear: (v: string) => void;
   /** Active column/ticket/classification filter count (excludes search + progress). */
   columnFilterCount: number;
   onClearAll: () => void;
@@ -466,12 +470,15 @@ export default function ValuationFocus({
           <FilterPanel
             headers={filters.headers}
             columnMeta={filters.columnMeta}
+            lots={filters.lots}
             columnFilters={filters.columnFilters}
             onColumnFilterChange={filters.onColumnFilterChange}
             status={filters.ticketStatus}
             onStatusChange={filters.setTicketStatus}
             classification={filters.classification}
             onClassificationChange={filters.setClassification}
+            year={filters.year}
+            onYearChange={filters.setYear}
             onClearAll={filters.onClearAll}
           />
         </div>

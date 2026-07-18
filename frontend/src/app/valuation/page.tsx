@@ -108,6 +108,7 @@ export default function ValuationCentrePage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
   const [ticketStatusFilter, setTicketStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Focus mode: one lot on screen with the tablet keypad; null = normal list view.
   const [focusLotId, setFocusLotId] = useState<string | null>(null);
@@ -121,6 +122,7 @@ export default function ValuationCentrePage() {
     setColumnFilters({});
     setTicketStatusFilter("");
     setClassificationFilter("");
+    setYearFilter("");
     setAutoClsIds(new Set());
     setNoPrevDataId(null);
   }, [catalogueId]);
@@ -197,6 +199,7 @@ export default function ValuationCentrePage() {
       columnFilters,
       status: ticketStatusFilter,
       classification: classificationFilter,
+      year: yearFilter,
     });
     if (statusFilter === "all") return base;
     return base.filter((l) => {
@@ -207,12 +210,13 @@ export default function ValuationCentrePage() {
       if (statusFilter === "needs-classification") return valued && !classified;
       return valued && classified; // complete
     });
-  }, [displayedLots, search, statusFilter, columnFilters, ticketStatusFilter, classificationFilter]);
+  }, [displayedLots, search, statusFilter, columnFilters, ticketStatusFilter, classificationFilter, yearFilter]);
 
   const columnFilterCount =
     Object.values(columnFilters).filter(isColumnFilterActive).length +
     (ticketStatusFilter ? 1 : 0) +
-    (classificationFilter ? 1 : 0);
+    (classificationFilter ? 1 : 0) +
+    (yearFilter ? 1 : 0);
   const filtersActive = search.trim() !== "" || statusFilter !== "all" || columnFilterCount > 0;
 
   const clearAllFilters = () => {
@@ -221,6 +225,7 @@ export default function ValuationCentrePage() {
     setColumnFilters({});
     setTicketStatusFilter("");
     setClassificationFilter("");
+    setYearFilter("");
   };
 
   // Sync a lot saved from focus mode back into everything the list view derives from.
@@ -592,12 +597,15 @@ export default function ValuationCentrePage() {
             setStatusFilter,
             headers: activeCatalogue?.headers ?? [],
             columnMeta: activeCatalogue?.columnMeta ?? {},
+            lots: displayedLots,
             columnFilters,
             onColumnFilterChange: (h, v) => setColumnFilters((prev) => ({ ...prev, [h]: v })),
             ticketStatus: ticketStatusFilter,
             setTicketStatus: setTicketStatusFilter,
             classification: classificationFilter,
             setClassification: setClassificationFilter,
+            year: yearFilter,
+            setYear: setYearFilter,
             columnFilterCount,
             onClearAll: clearAllFilters,
             matchLots: visibleLots,
@@ -695,12 +703,15 @@ export default function ValuationCentrePage() {
             <FilterPanel
               headers={activeCatalogue.headers}
               columnMeta={activeCatalogue.columnMeta}
+              lots={displayedLots}
               columnFilters={columnFilters}
               onColumnFilterChange={(h, v) => setColumnFilters((prev) => ({ ...prev, [h]: v }))}
               status={ticketStatusFilter}
               onStatusChange={setTicketStatusFilter}
               classification={classificationFilter}
               onClassificationChange={setClassificationFilter}
+              year={yearFilter}
+              onYearChange={setYearFilter}
               onClearAll={clearAllFilters}
             />
           )}

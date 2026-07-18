@@ -35,6 +35,8 @@ export interface FilterOptions {
   columnFilters: Record<string, ColumnFilterState>;
   status: TicketStatus | "";
   classification: string;
+  /** Sale year (typed lot field, not a raw column) — "" means all years. */
+  year?: string;
 }
 
 export function filterLots(lots: Lot[], opts: FilterOptions): Lot[] {
@@ -62,6 +64,7 @@ export function filterLots(lots: Lot[], opts: FilterOptions): Lot[] {
 
     if (opts.status && getTicketStatus(lot) !== opts.status) return false;
     if (opts.classification && (lot.valuation?.classification ?? "Unclassified") !== opts.classification) return false;
+    if (opts.year && (lot.saleYear ?? "") !== opts.year) return false;
 
     return true;
   });

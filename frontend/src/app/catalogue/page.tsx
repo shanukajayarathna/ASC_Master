@@ -87,6 +87,7 @@ export default function CataloguePage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadLots = useCallback(async () => {
@@ -120,6 +121,7 @@ export default function CataloguePage() {
     setColumnFilters({});
     setStatusFilter("");
     setClassificationFilter("");
+    setYearFilter("");
   }, [activeCatalogue?.id, activeCatalogue?.columnMeta]);
 
   const toggleColumn = (header: string) => {
@@ -139,6 +141,7 @@ export default function CataloguePage() {
     setColumnFilters({});
     setStatusFilter("");
     setClassificationFilter("");
+    setYearFilter("");
     setSearch("");
   };
 
@@ -149,8 +152,9 @@ export default function CataloguePage() {
         columnFilters,
         status: statusFilter,
         classification: classificationFilter,
+        year: yearFilter,
       }),
-    [lots, search, columnFilters, statusFilter, classificationFilter]
+    [lots, search, columnFilters, statusFilter, classificationFilter, yearFilter]
   );
 
   const activeFilterChips = useMemo(() => {
@@ -179,8 +183,11 @@ export default function CataloguePage() {
         onRemove: () => setClassificationFilter(""),
       });
     }
+    if (yearFilter) {
+      chips.push({ key: "year", label: `Year: ${yearFilter}`, onRemove: () => setYearFilter("") });
+    }
     return chips;
-  }, [columnFilters, statusFilter, classificationFilter, activeCatalogue?.columnMeta]);
+  }, [columnFilters, statusFilter, classificationFilter, yearFilter, activeCatalogue?.columnMeta]);
 
   const activeFilterCount = activeFilterChips.length;
 
@@ -370,12 +377,15 @@ export default function CataloguePage() {
         <FilterPanel
           headers={activeCatalogue.headers}
           columnMeta={activeCatalogue.columnMeta}
+          lots={lots}
           columnFilters={columnFilters}
           onColumnFilterChange={setColumnFilter}
           status={statusFilter}
           onStatusChange={setStatusFilter}
           classification={classificationFilter}
           onClassificationChange={setClassificationFilter}
+          year={yearFilter}
+          onYearChange={setYearFilter}
           onClearAll={clearAllFilters}
         />
       )}
