@@ -138,7 +138,7 @@ export default function ValuationCentrePage() {
     }
     setLoading(true);
     api
-      .getLots(activeCatalogueId, { pageSize: 5000 })
+      .getLots(activeCatalogueId, { pageSize: 20000 })
       .then((paged) => setLots(paged.rows))
       .finally(() => setLoading(false));
   }, [activeCatalogueId]);
@@ -757,8 +757,8 @@ export default function ValuationCentrePage() {
                     "#",
                     "Lot",
                     "Selling Mark",
-                    "Chests",
-                    "Wt/Chest (kg)",
+                    "Bags",
+                    "Wt/Bag (kg)",
                     "Valuation (LKR)",
                     "Classification",
                     ...enabledExtras.map((f) => f.label),

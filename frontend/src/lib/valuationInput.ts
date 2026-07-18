@@ -2,11 +2,11 @@
 // the Valuation drawer, and anything else that accepts a typed valuation.
 //
 // Business rules (mirrored server-side in LotsController.UpdateValuation):
-//  - A valuation is always a whole LKR value: 500–5000.
+//  - A valuation is always a whole LKR value: 50–10000 (real sales have quoted 60 up to 7,703).
 //  - A range is two such values where the first is strictly lower than the second.
 
-export const VALUATION_MIN = 500;
-export const VALUATION_MAX = 5000;
+export const VALUATION_MIN = 50;
+export const VALUATION_MAX = 10000;
 
 export const VALUATION_RULE_HINT = `whole value (${VALUATION_MIN}–${VALUATION_MAX})`;
 

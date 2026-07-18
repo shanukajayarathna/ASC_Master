@@ -92,7 +92,7 @@ export default function WorksheetPage() {
     }
     setLoading(true);
     api
-      .getLots(activeCatalogueId, { pageSize: 5000 })
+      .getLots(activeCatalogueId, { pageSize: 20000 })
       .then((paged) => setLots(paged.rows))
       .finally(() => setLoading(false));
   }, [activeCatalogueId]);

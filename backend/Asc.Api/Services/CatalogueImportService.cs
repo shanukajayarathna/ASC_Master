@@ -18,22 +18,26 @@ public class ParsedCatalogue
 /// </summary>
 public class CatalogueImportService
 {
-    private static readonly (string Field, Regex Match, Regex? Exclude)[] FieldPatterns =
+    // Each typed Lot field maps from the first header matching any of its patterns, tried
+    // in order — so a preferred alias wins when a file carries both (the real weekly-sale
+    // files have a per-bag "Net Weight" AND the lot's "Total Weight"; the total is what
+    // the NetWeight field means, with the bare net pattern as fallback for older formats).
+    private static readonly (string Field, Regex[] Matches, Regex? Exclude)[] FieldPatterns =
     [
-        ("LotNumber", new Regex("lot", RegexOptions.IgnoreCase), new Regex("selling", RegexOptions.IgnoreCase)),
-        ("Broker", new Regex("broker", RegexOptions.IgnoreCase), null),
-        ("Grade", new Regex("grade", RegexOptions.IgnoreCase), null),
-        ("Garden", new Regex("garden", RegexOptions.IgnoreCase), null),
-        ("Category", new Regex("categ", RegexOptions.IgnoreCase), null),
-        ("Elevation", new Regex("elevat", RegexOptions.IgnoreCase), null),
-        ("Region", new Regex("region", RegexOptions.IgnoreCase), null),
-        ("Warehouse", new Regex("warehouse", RegexOptions.IgnoreCase), null),
-        ("Mark", new Regex("mark", RegexOptions.IgnoreCase), new Regex("selling", RegexOptions.IgnoreCase)),
-        ("SaleNo", new Regex("sale.?(no|number)", RegexOptions.IgnoreCase), null),
-        ("SaleYear", new Regex("year", RegexOptions.IgnoreCase), null),
-        ("InvoiceNo", new Regex("invoice", RegexOptions.IgnoreCase), null),
-        ("NetWeight", new Regex("net.?(weight|wt)", RegexOptions.IgnoreCase), null),
-        ("GrossWeight", new Regex("gross.?(weight|wt)", RegexOptions.IgnoreCase), null),
+        ("LotNumber", [new Regex("lot", RegexOptions.IgnoreCase)], new Regex("selling|outlot", RegexOptions.IgnoreCase)),
+        ("Broker", [new Regex("broker", RegexOptions.IgnoreCase)], null),
+        ("Grade", [new Regex("grade", RegexOptions.IgnoreCase)], null),
+        ("Garden", [new Regex("garden", RegexOptions.IgnoreCase)], null),
+        ("Category", [new Regex("categ", RegexOptions.IgnoreCase)], null),
+        ("Elevation", [new Regex("elevat", RegexOptions.IgnoreCase)], null),
+        ("Region", [new Regex("region", RegexOptions.IgnoreCase)], null),
+        ("Warehouse", [new Regex("warehouse", RegexOptions.IgnoreCase)], null),
+        ("Mark", [new Regex("mark", RegexOptions.IgnoreCase)], new Regex("selling", RegexOptions.IgnoreCase)),
+        ("SaleNo", [new Regex("sale.?(no|number)", RegexOptions.IgnoreCase)], null),
+        ("SaleYear", [new Regex("year", RegexOptions.IgnoreCase)], null),
+        ("InvoiceNo", [new Regex("invoice", RegexOptions.IgnoreCase)], null),
+        ("NetWeight", [new Regex("(total|nett).?(weight|wt)", RegexOptions.IgnoreCase), new Regex("net.?(weight|wt)", RegexOptions.IgnoreCase)], null),
+        ("GrossWeight", [new Regex("gross.?(weight|wt)", RegexOptions.IgnoreCase)], null),
     ];
 
     public ParsedCatalogue ParseFile(Stream stream, string fileName)
@@ -261,8 +265,12 @@ public class CatalogueImportService
         string? Find(string field)
         {
             var pattern = FieldPatterns.First(p => p.Field == field);
-            var header = headers.FirstOrDefault(h => pattern.Match.IsMatch(h) && (pattern.Exclude is null || !pattern.Exclude.IsMatch(h)));
-            return header is null ? null : row.GetValueOrDefault(header);
+            foreach (var match in pattern.Matches)
+            {
+                var header = headers.FirstOrDefault(h => match.IsMatch(h) && (pattern.Exclude is null || !pattern.Exclude.IsMatch(h)));
+                if (header is not null) return row.GetValueOrDefault(header);
+            }
+            return null;
         }
 
         decimal? FindDecimal(string field)
@@ -294,7 +302,10 @@ public class CatalogueImportService
             InvoiceNo = invoiceNo,
             NetWeight = FindDecimal("NetWeight"),
             GrossWeight = FindDecimal("GrossWeight"),
-            RawData = row
+            // Empty cells are dropped rather than stored — real market catalogues carry
+            // ~50 columns, most sparse, and every consumer already treats a missing key
+            // as blank. Cuts stored size dramatically at ~12k lots per weekly sale.
+            RawData = row.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
         };
     }
 

@@ -11,6 +11,10 @@ frontend/.env.local
 # Root dev-orchestration (concurrently)
 node_modules/
 
+# Real weekly-sale Excel files (confidential market data, ~35MB each) — local import
+# inputs for POST /api/dev/import-sales, never committed.
+data/
+
 # OS
 .DS_Store
 Thumbs.db

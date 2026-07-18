@@ -60,7 +60,9 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
         var grades = new Dictionary<string, GradeStatsDto>(StringComparer.OrdinalIgnoreCase);
         foreach (var sale in previous)
         {
-            var lots = await db.Lots.Find(l => l.CatalogueId == sale.Id).ToListAsync();
+            // Only valued lots matter here, and real market catalogues run ~12k lots per
+            // sale of which ~15% carry a valuation — filter server-side, not in memory.
+            var lots = await db.Lots.Find(l => l.CatalogueId == sale.Id && l.Valuation != null).ToListAsync();
             var usable = lots.Where(l =>
                 !string.IsNullOrWhiteSpace(l.Grade) &&
                 l.Valuation is { Classification: not Classification.Unclassified } &&

@@ -13,11 +13,14 @@ export function sellingMarkOf(lot: Lot): string | null {
 }
 
 export function noOfChestsOf(lot: Lot): string | null {
-  return findRaw(lot, /no.?of.?chests?|^chests?$/i);
+  // The real weekly-sale files call the chest count "Bags".
+  return findRaw(lot, /no.?of.?chests?|^chests?$|^bags?$/i);
 }
 
 export function weightPerChestOf(lot: Lot): string | null {
-  return findRaw(lot, /weight.?per.?chest/i);
+  // In the real files the per-bag weight is "Net Weight" (the lot total is "Total
+  // Weight") — the exact-match pattern deliberately misses legacy "NettWeight" totals.
+  return findRaw(lot, /weight.?per.?chest/i) ?? findRaw(lot, /^net\s?weight$/i);
 }
 
 export function markCodeOf(lot: Lot): string | null {
@@ -29,7 +32,8 @@ export function askingPriceOf(lot: Lot): string | null {
 }
 
 export function minimumLimitOf(lot: Lot): string | null {
-  return findRaw(lot, /min(imum)?[\s._-]*(limit|price)/i) ?? findRaw(lot, /^min(imum)?$/i);
+  // "Baseline Price" is the reserve/minimum in the real weekly-sale files.
+  return findRaw(lot, /min(imum)?[\s._-]*(limit|price)/i) ?? findRaw(lot, /^min(imum)?$/i) ?? findRaw(lot, /baseline/i);
 }
 
 export function catalogueRemarkOf(lot: Lot): string | null {

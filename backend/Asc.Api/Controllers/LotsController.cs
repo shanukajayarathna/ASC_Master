@@ -90,13 +90,14 @@ public class LotsController(MongoContext db) : ControllerBase
         var lot = await db.Lots.Find(l => l.Id == id).FirstOrDefaultAsync();
         if (lot is null) return NotFound();
 
-        // Business rule: a valuation is always a whole LKR value between 500 and 5000, and a
-        // range's first number is strictly lower than its second. Mirrored client-side in
-        // frontend/src/lib/valuationInput.ts — enforced here too so no caller can bypass it.
-        static bool IsInvalid(decimal v) => v < 500 || v > 5000 || v != decimal.Truncate(v);
+        // Business rule: a valuation is always a whole LKR value between 50 and 10000 (real
+        // sales have quoted 60 up to 7,703), and a range's first number is strictly lower
+        // than its second. Mirrored client-side in frontend/src/lib/valuationInput.ts —
+        // enforced here too so no caller can bypass it.
+        static bool IsInvalid(decimal v) => v < 50 || v > 10000 || v != decimal.Truncate(v);
         foreach (var value in new[] { dto.ValuationFrom, dto.ValuationTo, dto.ValuationSingle })
             if (value.HasValue && IsInvalid(value.Value))
-                return BadRequest("Every valuation must be a whole value between 500 and 5000.");
+                return BadRequest("Every valuation must be a whole value between 50 and 10000.");
 
         if (dto.ValuationFrom.HasValue && dto.ValuationTo.HasValue && dto.ValuationFrom >= dto.ValuationTo)
             return BadRequest("ValuationFrom must be lower than ValuationTo.");
