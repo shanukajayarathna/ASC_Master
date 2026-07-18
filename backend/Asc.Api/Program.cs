@@ -22,6 +22,9 @@ builder.Services.AddSingleton<CatalogueImportService>();
 // this seam — swap the implementation to move catalogues into a database (e.g. Azure).
 builder.Services.AddSingleton<SaleFileStore>();
 builder.Services.AddSingleton<ICatalogueSource>(sp => sp.GetRequiredService<SaleFileStore>());
+// Warm every sale's row count/headers at startup so no sale lists as "0 lots" just
+// because it hasn't been opened since the meta cache was last written.
+builder.Services.AddHostedService<SaleMetaWarmer>();
 
 const string CorsPolicy = "FrontendDev";
 builder.Services.AddCors(opts =>

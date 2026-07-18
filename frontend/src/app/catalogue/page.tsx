@@ -29,7 +29,6 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const VALUATION_HANDOFF_KEY = "asc:valuation:pending";
 const WORKSHEET_HANDOFF_KEY = "asc:worksheet:pending";
 
 type WorksheetField =
@@ -65,7 +64,9 @@ const STATUS_LABELS: Record<string, string> = {
   empty: "Not started",
 };
 
-const LARGE_PAGE_SIZE = 5000;
+// Big enough to hold a full weekly sale (~12k lots) in one fetch, same as the
+// Valuation Centre and Worksheet pages.
+const LARGE_PAGE_SIZE = 20000;
 
 export default function CataloguePage() {
   const router = useRouter();
@@ -166,7 +167,9 @@ export default function CataloguePage() {
           ? `${header}: ${f.values.join(", ")}`
           : f.kind === "numeric"
             ? `${header}: ${f.min || "…"}–${f.max || "…"}`
-            : `${header}: "${f.value}"`;
+            : f.kind === "lot"
+              ? `${header}: ${[f.min || f.max ? `${f.min || "…"}–${f.max || "…"}` : "", f.values.join(", ")].filter(Boolean).join(" + ")}`
+              : `${header}: "${f.value}"`;
       chips.push({
         key: `col-${header}`,
         label,
@@ -216,13 +219,13 @@ export default function CataloguePage() {
   };
 
   // Hands the current selection off to the right workspace for the chosen section —
-  // Valuation has its own dedicated page; every other section shares the Lot Worksheet.
+  // Valuation has its own dedicated page (it always shows the whole sale, so no lot
+  // handoff is needed); every other section shares the Lot Worksheet.
   const openWorkSection = (section: WorksheetField | "valuation") => {
     setWorkMenuAnchor(null);
     if (!activeCatalogueId || selected.length === 0) return;
     const lotIds = selected.map((l) => l.id);
     if (section === "valuation") {
-      window.sessionStorage.setItem(VALUATION_HANDOFF_KEY, JSON.stringify({ catalogueId: activeCatalogueId, lotIds }));
       router.push("/valuation");
     } else {
       window.sessionStorage.setItem(

@@ -175,6 +175,34 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         return rows;
     }
 
+    /// <summary>
+    /// The warm pass the listing comment promises: load every sale whose row count/headers
+    /// aren't known yet (cached sales in ~1–2s, brand-new files via a full parse), so no
+    /// sale sits in the list showing 0 lots. Runs in the background at startup; the small
+    /// LRU keeps memory bounded while it walks the folder.
+    /// </summary>
+    public void WarmMeta(CancellationToken ct = default)
+    {
+        EnsureMetaLoaded();
+        foreach (var file in ScanFiles())
+        {
+            if (ct.IsCancellationRequested) return;
+            bool known;
+            lock (_mapLock)
+                known = _meta.TryGetValue(file.SaleNo, out var m) && m.Sig == file.Sig;
+            if (known) continue;
+            try
+            {
+                LoadSale(file);
+            }
+            catch
+            {
+                // One unreadable file shouldn't stop the rest of the pass; the sale just
+                // lists bare until its file is fixed.
+            }
+        }
+    }
+
     // ---- loading ---------------------------------------------------------------------
 
     private LoadedSale? LoadByCatalogueId(Guid catalogueId)
@@ -365,6 +393,10 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
     private void RecordMeta(SaleFile file, Catalogue catalogue)
     {
+        // Merge with the meta already on disk before writing — this used to skip the load,
+        // so the first sale opened after a restart rewrote meta.json with only itself and
+        // every other sale listed as 0 lots until re-opened.
+        EnsureMetaLoaded();
         _meta[file.SaleNo] = (file.Sig, new SaleMeta { RowCount = catalogue.RowCount, Headers = catalogue.Headers });
         try
         {
@@ -458,4 +490,12 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             // Cache is an optimization — never fail a request because it couldn't be written.
         }
     }
+}
+
+/// <summary>Runs the store's warm pass in the background at startup so every sale lists
+/// with its real lot count instead of 0 while never having been opened.</summary>
+public class SaleMetaWarmer(SaleFileStore store) : BackgroundService
+{
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.Run(() => store.WarmMeta(stoppingToken), stoppingToken);
 }

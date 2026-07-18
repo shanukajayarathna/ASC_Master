@@ -105,9 +105,15 @@ const FOCUS_TEXT_FIELDS: { value: FocusTextField; label: string; placeholder: st
 function Fact({ label, value, strong }: { label: string; value: string | null | undefined; strong?: boolean }) {
   return (
     <div className="min-w-0">
-      <div className="font-mono text-[9.5px] tracking-widest uppercase text-text-muted mb-0.5">{label}</div>
+      <div className="font-mono text-[9.5px] tracking-widest uppercase text-text-muted mb-0.5 truncate" title={label}>
+        {label}
+      </div>
       <div
         className={`text-[13px] leading-snug break-words ${strong ? "font-semibold text-text-strong" : "text-text"}`}
+        // Long remark-style values clamp to two lines (full text on the tooltip) so the
+        // details box stays a fixed, compact height and the buttons below stay reachable.
+        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+        title={value?.trim() || undefined}
       >
         {value?.trim() ? value : "—"}
       </div>
@@ -347,6 +353,7 @@ export default function ValuationFocus({
 
   const facts: { label: string; value: string | null | undefined; strong?: boolean }[] = [
     { label: "Lot No", value: lot.lotNumber, strong: true },
+    { label: "Broker", value: lot.broker, strong: true },
     { label: "Selling Mark", value: sellingMarkOf(lot), strong: true },
     { label: "Mark Code", value: markCodeOf(lot) ?? lot.mark },
     { label: "Grade", value: lot.grade, strong: true },
@@ -468,6 +475,7 @@ export default function ValuationFocus({
           style={{ background: "var(--surface)" }}
         >
           <FilterPanel
+            variant="valuation"
             headers={filters.headers}
             columnMeta={filters.columnMeta}
             lots={filters.lots}
@@ -559,10 +567,17 @@ export default function ValuationFocus({
                 )}
               </span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-5 gap-y-3.5 px-4 py-3.5">
-              {facts.map((f) => (
-                <Fact key={f.label} {...f} />
-              ))}
+            <div
+              className="grid gap-x-4 gap-y-2.5 px-4 py-2.5"
+              // Auto-fit columns + empty facts skipped keeps this to at most ~2 rows on a
+              // tablet, so the tier buttons and keypad below stay reachable without scrolling.
+              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}
+            >
+              {facts
+                .filter((f) => f.value?.trim())
+                .map((f) => (
+                  <Fact key={f.label} {...f} />
+                ))}
             </div>
           </Paper>
 

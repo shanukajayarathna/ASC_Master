@@ -2,6 +2,7 @@
 
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import FilterPanel from "@/components/catalogue/FilterPanel";
+import LotViewDialog from "@/components/catalogue/LotViewDialog";
 import ValuationFocus from "@/components/valuation/ValuationFocus";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
@@ -53,11 +54,14 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SearchIcon from "@mui/icons-material/Search";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlineOutlined";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const PENDING_KEY = "asc:valuation:pending";
+// The plain table below has no virtualization, so a ~12k-lot sale renders in chunks —
+// more rows stream in as the list scrolls (or when keyboard navigation walks past the end).
+const RENDER_CHUNK = 250;
 
 type ExtraField = "standardData" | "adjectiveData" | "liquorRemarks" | "musterReport" | "brokerNotes" | "privateNotes";
 
@@ -79,7 +83,6 @@ export default function ValuationCentrePage() {
   const { activeCatalogueId, activeCatalogue } = useCatalogue();
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [handoffIds, setHandoffIds] = useState<Set<string>>(new Set());
   const [values, setValues] = useState<Record<string, string>>({});
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -97,8 +100,6 @@ export default function ValuationCentrePage() {
   const [autoClsIds, setAutoClsIds] = useState<Set<string>>(new Set());
   // Lot whose auto-classification found no previous-sale data for its grade.
   const [noPrevDataId, setNoPrevDataId] = useState<string | null>(null);
-  // Tier chip under the mouse — previews that tier's previous-sale values.
-  const [clsHover, setClsHover] = useState<{ lotId: string; tier: ClassificationValue } | null>(null);
   // Row whose valuation input has focus — that row shows its grade's previous-sale band strip.
   const [activeValLotId, setActiveValLotId] = useState<string | null>(null);
   // List filters — focus-mode navigation walks the filtered list too. Column filters,
@@ -112,6 +113,13 @@ export default function ValuationCentrePage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Focus mode: one lot on screen with the tablet keypad; null = normal list view.
   const [focusLotId, setFocusLotId] = useState<string | null>(null);
+  // Read-only full-details dialog for one lot (every catalogue column + remarks).
+  const [viewLot, setViewLot] = useState<Lot | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  // Chunked rendering of the (unvirtualized) table: how many filtered rows are mounted.
+  const [renderLimit, setRenderLimit] = useState(RENDER_CHUNK);
+  // A row past the mounted chunk that keyboard navigation wants — focused once it renders.
+  const [pendingFocus, setPendingFocus] = useState<{ index: number; field: RowField } | null>(null);
 
   // Reset all filters whenever the active catalogue changes — its columns differ.
   const catalogueId = activeCatalogue?.id;
@@ -126,6 +134,12 @@ export default function ValuationCentrePage() {
     setAutoClsIds(new Set());
     setNoPrevDataId(null);
   }, [catalogueId]);
+
+  // Start over with a small mounted chunk whenever the list being walked changes shape.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRenderLimit(RENDER_CHUNK);
+  }, [catalogueId, search, statusFilter, columnFilters, ticketStatusFilter, classificationFilter, yearFilter]);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const clsRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -163,32 +177,10 @@ export default function ValuationCentrePage() {
     };
   }, [activeCatalogueId]);
 
-  // Consume a one-shot handoff from the Catalogue Manager's "Valuation…" button — any lots
-  // selected there get added to this page's working set alongside whatever's already valued.
-  useEffect(() => {
-    if (!activeCatalogueId || lots.length === 0) return;
-    const raw = window.sessionStorage.getItem(PENDING_KEY);
-    if (!raw) return;
-    window.sessionStorage.removeItem(PENDING_KEY);
-    try {
-      const pending = JSON.parse(raw) as { catalogueId: string; lotIds: string[] };
-      if (pending.catalogueId !== activeCatalogueId) return;
-      const validIds = pending.lotIds.filter((id) => lots.some((l) => l.id === id));
-      if (validIds.length === 0) return;
-      // One-shot handoff consumed inside an effect by design — not derived state.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHandoffIds((prev) => new Set([...prev, ...validIds]));
-    } catch {
-      // ignore malformed handoff payload
-    }
-  }, [activeCatalogueId, lots]);
-
-  // The working set is everything already valued, plus anything just handed off from the
-  // Catalogue Manager that still needs a value — in the catalogue's natural (lot) order.
-  const displayedLots = useMemo(
-    () => lots.filter((l) => hasValuation(l) || handoffIds.has(l.id)),
-    [lots, handoffIds]
-  );
+  // The working set is the whole selected sale — every lot from every broker, valued or
+  // not, in the catalogue's natural (lot) order. Anything still unvalued is always on the
+  // list; the status filter narrows it down when wanted.
+  const displayedLots = lots;
 
   // The list actually on screen — universal search (every raw column), per-column
   // filters, ticket status, classification and valuation progress all applied. Keyboard
@@ -307,10 +299,26 @@ export default function ValuationCentrePage() {
   const focusField = (index: number, field: RowField) => {
     const lot = visibleLots[index];
     if (!lot) return;
+    // Walking past the mounted chunk: mount up to that row first, focus it after render.
+    if (index >= renderLimit) {
+      setRenderLimit(index + RENDER_CHUNK);
+      setPendingFocus({ index, field });
+      return;
+    }
     if (field === "valuation") inputRefs.current[lot.id]?.focus();
     else if (field === "classification") clsRefs.current[lot.id]?.focus();
     else extraRefs.current[`${field}:${lot.id}`]?.focus();
   };
+
+  // Complete a deferred focus once the requested row is mounted — a DOM focus side
+  // effect (plus clearing its one-shot request), not derived state.
+  useEffect(() => {
+    if (!pendingFocus || pendingFocus.index >= renderLimit) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    focusField(pendingFocus.index, pendingFocus.field);
+    setPendingFocus(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFocus, renderLimit]);
 
   const focusRow = (index: number) => focusField(index, "valuation");
 
@@ -522,6 +530,9 @@ export default function ValuationCentrePage() {
     if (target) setFocusLotId(target.id);
   };
 
+  // The details dialog reads its lot fresh from state so saves made after opening still show.
+  const viewLotLive = viewLot ? (lots.find((l) => l.id === viewLot.id) ?? viewLot) : null;
+
   if (!activeCatalogueId) {
     return (
       <div>
@@ -562,7 +573,7 @@ export default function ValuationCentrePage() {
             startIcon={<AddCircleOutlineIcon fontSize="small" />}
             onClick={() => router.push("/catalogue")}
           >
-            Add more lots
+            Catalogue Manager
           </Button>
         </div>
       </div>
@@ -571,8 +582,8 @@ export default function ValuationCentrePage() {
 
       {!loading && displayedLots.length === 0 && (
         <div className="text-center py-16 text-text-muted">
-          <h3 className="font-display text-xl text-text mb-1">No lots valued yet</h3>
-          <p className="mb-4">Go to Catalogue Manager, select the lots you want to value, then use its &ldquo;Valuation…&rdquo; button.</p>
+          <h3 className="font-display text-xl text-text mb-1">This sale has no lots</h3>
+          <p className="mb-4">Pick a different sale in Catalogue Manager — every lot of the selected sale shows here automatically.</p>
           <Button
             variant="contained"
             color="primary"
@@ -639,7 +650,9 @@ export default function ValuationCentrePage() {
             and in a range the first number must be lower than the second (the field only accepts digits and a dash).
             As soon as the value is valid, the classification{" "}
             <strong>auto-selects from the previous sale&apos;s record for that grade</strong>, with a note showing the
-            grade&apos;s previous values for that tier (hover or highlight any tier to see its own). Press{" "}
+            grade&apos;s previous values for that tier (highlight any tier with{" "}
+            <span className="font-mono">←</span>/<span className="font-mono">→</span> to see its own — the full
+            per-tier history is also in each lot&apos;s details view). Press{" "}
             <strong>Enter</strong> and the value and classification save together — you jump straight to the next lot.
             Override any time: press <span className="font-mono">1</span>–<span className="font-mono">4</span>, click a
             tier, or highlight one with <span className="font-mono">←</span>/<span className="font-mono">→</span> and{" "}
@@ -701,6 +714,7 @@ export default function ValuationCentrePage() {
 
           {filtersOpen && activeCatalogue && (
             <FilterPanel
+              variant="valuation"
               headers={activeCatalogue.headers}
               columnMeta={activeCatalogue.columnMeta}
               lots={displayedLots}
@@ -760,6 +774,12 @@ export default function ValuationCentrePage() {
             component={Paper}
             variant="outlined"
             sx={{ maxHeight: "68vh", borderColor: "var(--border)" }}
+            onScroll={(e) => {
+              // Nearing the bottom of the mounted rows mounts the next chunk.
+              const el = e.currentTarget;
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 600)
+                setRenderLimit((l) => (l < visibleLots.length ? l + RENDER_CHUNK : l));
+            }}
           >
             <Table stickyHeader size="small">
               <TableHead>
@@ -767,6 +787,7 @@ export default function ValuationCentrePage() {
                   {[
                     "#",
                     "Lot",
+                    "Broker",
                     "Selling Mark",
                     "Bags",
                     "Wt/Bag (kg)",
@@ -796,7 +817,7 @@ export default function ValuationCentrePage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {visibleLots.map((lot, index) => {
+                {visibleLots.slice(0, renderLimit).map((lot, index) => {
                   const saved = savedIds.has(lot.id);
                   const classified = isClassified(lot);
                   const complete = saved && classified;
@@ -809,8 +830,8 @@ export default function ValuationCentrePage() {
                   const feedback = !error && text !== valuationToText(lot) ? valuationTypingFeedback(text) : null;
                   // Previous-sale context for this grade. While the typed value is valid and
                   // the tier isn't hand-picked, the previous sale's suggestion previews as
-                  // selected — it will be saved together with the value. Hover / arrow
-                  // highlight preview other tiers' history.
+                  // selected — it will be saved together with the value. Arrow highlight
+                  // previews other tiers' history.
                   const gradeStats = gradeStatsFor(prevStats, lot.grade);
                   const wasAuto = autoClsIds.has(lot.id);
                   const liveParsed = text !== valuationToText(lot) ? parseValuationInput(text) : null;
@@ -820,11 +841,9 @@ export default function ValuationCentrePage() {
                     mayAuto && liveValue !== null && gradeStats ? suggestTier(gradeStats, liveValue) : null;
                   const displayCls = liveTier ?? currentCls;
                   const previewTier: ClassificationValue | null =
-                    clsHover?.lotId === lot.id
-                      ? clsHover.tier
-                      : clsCursor?.lotId === lot.id
-                        ? (CLASSIFICATIONS[clsCursor.index]?.value ?? null)
-                        : (liveTier ?? (wasAuto && currentCls !== "Unclassified" ? currentCls : null));
+                    clsCursor?.lotId === lot.id
+                      ? (CLASSIFICATIONS[clsCursor.index]?.value ?? null)
+                      : (liveTier ?? (wasAuto && currentCls !== "Unclassified" ? currentCls : null));
                   let prevMsg: string | null = null;
                   let prevMsgColor = "var(--text-muted)";
                   if (previewTier) {
@@ -850,7 +869,6 @@ export default function ValuationCentrePage() {
                   const rowActive =
                     activeValLotId === lot.id ||
                     clsCursor?.lotId === lot.id ||
-                    clsHover?.lotId === lot.id ||
                     clsNeededId === lot.id ||
                     liveTier !== null;
                   return (
@@ -867,6 +885,7 @@ export default function ValuationCentrePage() {
                         {index + 1}
                       </TableCell>
                       <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{lotLabel(lot)}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{lot.broker || "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5 }}>{sellingMarkOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{weightPerChestOf(lot) ?? "—"}</TableCell>
@@ -988,7 +1007,6 @@ export default function ValuationCentrePage() {
                         >
                           {CLASSIFICATIONS.map((c, ci) => {
                             const highlighted = clsCursor?.lotId === lot.id && clsCursor.index === ci;
-                            const tierInfo = tierStatsFor(gradeStats, c.value);
                             return (
                               <button
                                 key={c.value}
@@ -996,16 +1014,7 @@ export default function ValuationCentrePage() {
                                 tabIndex={-1}
                                 disabled={savingId === lot.id}
                                 onClick={() => commitClassification(lot, index, c.value)}
-                                onMouseEnter={() => setClsHover({ lotId: lot.id, tier: c.value })}
-                                onMouseLeave={() =>
-                                  setClsHover((h) => (h?.lotId === lot.id && h.tier === c.value ? null : h))
-                                }
-                                title={
-                                  (currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`) +
-                                  (tierInfo && gradeStats
-                                    ? ` — ${gradeStats.saleName}: ${formatTierRange(tierInfo)} (${Math.round(tierInfo.percent)}%)`
-                                    : "")
-                                }
+                                title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`}
                                 className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
                                 style={{
                                   borderColor: displayCls === c.value ? c.color : "var(--border)",
@@ -1109,7 +1118,19 @@ export default function ValuationCentrePage() {
                           <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} />
                         )}
                       </TableCell>
-                      <TableCell sx={{ width: 40, p: 0.5 }}>
+                      <TableCell sx={{ width: 72, p: 0.5, whiteSpace: "nowrap" }}>
+                        <Tooltip title="Full lot details (every catalogue column)">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setViewLot(lot);
+                              setViewOpen(true);
+                            }}
+                            aria-label="Show full lot details"
+                          >
+                            <VisibilityOutlinedIcon sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Focus on this lot (full details + keypad)">
                           <IconButton size="small" onClick={() => setFocusLotId(lot.id)} aria-label="Focus on this lot">
                             <OpenInFullIcon sx={{ fontSize: 15 }} />
@@ -1121,10 +1142,29 @@ export default function ValuationCentrePage() {
                 })}
               </TableBody>
             </Table>
+            {renderLimit < visibleLots.length && (
+              <div className="text-center py-2 text-[12px] text-text-muted">
+                Showing {Math.min(renderLimit, visibleLots.length).toLocaleString()} of{" "}
+                {visibleLots.length.toLocaleString()} lots — scroll for more
+              </div>
+            )}
           </TableContainer>
           )}
         </div>
       )}
+
+      <LotViewDialog
+        // Read the lot fresh from state so saves made after opening still show.
+        lot={viewLotLive}
+        open={viewOpen}
+        gradeStats={gradeStatsFor(prevStats, viewLotLive?.grade ?? null)}
+        onClose={() => setViewOpen(false)}
+        onEdit={() => {
+          // "Edit" from the details dialog drops into this page's focus mode for the lot.
+          setViewOpen(false);
+          if (viewLot) setFocusLotId(viewLot.id);
+        }}
+      />
     </div>
   );
 }

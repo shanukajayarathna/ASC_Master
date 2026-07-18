@@ -3,7 +3,10 @@ import type { ColumnMeta, Lot } from "@/types/api";
 export type ColumnFilterState =
   | { kind: "categorical"; values: string[] }
   | { kind: "numeric"; min: string; max: string }
-  | { kind: "text"; value: string };
+  | { kind: "text"; value: string }
+  /** Lot-number filter: a contiguous range and/or hand-picked lots from anywhere in the
+   *  sale — a lot matches if it's in the range or among the picked values. */
+  | { kind: "lot"; values: string[]; min: string; max: string };
 
 export type TicketStatus = "empty" | "partial" | "full";
 
@@ -27,6 +30,7 @@ export function isColumnFilterActive(f: ColumnFilterState | undefined): boolean 
   if (!f) return false;
   if (f.kind === "categorical") return f.values.length > 0;
   if (f.kind === "numeric") return f.min !== "" || f.max !== "";
+  if (f.kind === "lot") return f.values.length > 0 || f.min !== "" || f.max !== "";
   return f.value.trim() !== "";
 }
 
@@ -57,6 +61,17 @@ export function filterLots(lots: Lot[], opts: FilterOptions): Lot[] {
         const num = parseFloat(raw.replace(/,/g, ""));
         if (f.min !== "" && !(num >= parseFloat(f.min))) return false;
         if (f.max !== "" && !(num <= parseFloat(f.max))) return false;
+      } else if (f.kind === "lot") {
+        const picked = f.values.includes(raw);
+        let inRange = false;
+        if (f.min !== "" || f.max !== "") {
+          const num = parseFloat(raw.replace(/,/g, ""));
+          inRange =
+            !Number.isNaN(num) &&
+            (f.min === "" || num >= parseFloat(f.min)) &&
+            (f.max === "" || num <= parseFloat(f.max));
+        }
+        if (!picked && !inRange) return false;
       } else {
         if (!raw.toLowerCase().includes(f.value.trim().toLowerCase())) return false;
       }

@@ -1,7 +1,9 @@
 "use client";
 
+import { CLASSIFICATIONS } from "@/lib/classifications";
 import { formatCurrency } from "@/lib/format";
-import type { Lot } from "@/types/api";
+import { formatTierRange, tierStatsFor } from "@/lib/previousSale";
+import type { GradeStats, Lot } from "@/types/api";
 import Dialog from "@mui/material/Dialog";
 import IconButton from "@mui/material/IconButton";
 import Button from "@mui/material/Button";
@@ -30,11 +32,14 @@ export default function LotViewDialog({
   open,
   onClose,
   onEdit,
+  gradeStats,
 }: {
   lot: Lot | null;
   open: boolean;
   onClose: () => void;
   onEdit: () => void;
+  /** Previous-sale classification history for this lot's grade — shown when provided. */
+  gradeStats?: GradeStats | null;
 }) {
   if (!lot) return null;
   const v = lot.valuation;
@@ -85,6 +90,35 @@ export default function LotViewDialog({
         <p className="text-[11px] text-text-muted mt-2">
           {v?.updatedAt ? `Last saved ${new Date(v.updatedAt).toLocaleString()}` : "Not yet saved"}
         </p>
+
+        {gradeStats && (
+          <>
+            <p className="font-display text-[13.5px] font-semibold text-liquor mt-5 mb-1 pt-4 border-t border-dashed border-border">
+              Previous Sale · {gradeStats.saleName}
+            </p>
+            <p className="text-[11px] text-text-muted mb-3">
+              How {lot.grade ?? "this grade"} classified and sold in the previous sale.
+            </p>
+            {CLASSIFICATIONS.map((c) => {
+              const t = tierStatsFor(gradeStats, c.value);
+              if (!t) return null;
+              return (
+                <div key={c.value} className="flex items-center gap-2.5 mb-1.5 flex-wrap">
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold whitespace-nowrap"
+                    style={{ background: c.color, color: "var(--paper-0)" }}
+                  >
+                    {c.label}
+                  </span>
+                  <span className="font-mono text-[12.5px] font-semibold text-text">{formatTierRange(t)}</span>
+                  <span className="text-[11px] text-text-muted">
+                    {t.count} of {gradeStats.total} lot{gradeStats.total === 1 ? "" : "s"} ({Math.round(t.percent)}%)
+                  </span>
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
 
       <div className="px-6 py-3.5 border-t border-border flex justify-end gap-2.5">
