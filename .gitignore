@@ -12,8 +12,9 @@ frontend/.env.local
 node_modules/
 
 # Real weekly-sale Excel files (confidential market data, ~35MB each) — local import
-# inputs for POST /api/dev/import-sales, never committed.
-data/
+# inputs for POST /api/dev/import-sales, never committed. Anchored to the repo root so
+# it can't swallow source folders like backend/Asc.Api/Data.
+/data/
 
 # OS
 .DS_Store

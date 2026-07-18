@@ -27,6 +27,16 @@ public class DevSeedController(MongoContext db, CatalogueImportService importer,
     /// parser and reports row counts, valuation formats/ranges, grades and a sample valued
     /// row — used to design and sanity-check the header mapping. Reads only.
     /// </summary>
+    /// <summary>Quick DB diagnostics: lot count and the indexes actually present.</summary>
+    [HttpGet("db-info")]
+    public IActionResult DbInfo()
+    {
+        if (!env.IsDevelopment()) return NotFound();
+        var indexes = db.Lots.Indexes.List().ToList().Select(i => i.ToString()).ToList();
+        var count = db.Lots.CountDocuments(MongoDB.Driver.Builders<Lot>.Filter.Empty);
+        return Ok(new { count, indexes });
+    }
+
     [HttpGet("inspect-sales")]
     public IActionResult InspectSales()
     {
@@ -187,17 +197,68 @@ public class DevSeedController(MongoContext db, CatalogueImportService importer,
         foreach (var grade in valued.GroupBy(l => l.Grade!.Trim(), StringComparer.OrdinalIgnoreCase))
         {
             var ordered = grade.OrderBy(l => l.Valuation!.EffectiveValue).ToList();
-            for (int i = 0; i < ordered.Count; i++)
+            // Equal values must land on the same tier (splitting a tie across tiers makes
+            // two tiers share the same price) — walk groups of identical value, with each
+            // group's tier chosen by its midpoint position in the grade.
+            int done = 0;
+            foreach (var group in ordered.GroupBy(l => l.Valuation!.EffectiveValue))
             {
-                double pos = (i + 0.5) / ordered.Count;
-                ordered[i].Valuation!.Classification =
-                    pos < 0.25 ? Classification.Poor
-                    : pos < 0.55 ? Classification.BelowBest
-                    : pos < 0.80 ? Classification.Best
-                    : Classification.SelectBest;
-                classified++;
+                int size = group.Count();
+                var tier = TierFor((done + size / 2.0) / ordered.Count);
+                foreach (var lot in group) lot.Valuation!.Classification = tier;
+                done += size;
+                classified += size;
             }
         }
         return classified;
+    }
+
+    /// <summary>The 25/55/80 percentile cutoffs shared by backfill and re-backfill.</summary>
+    private static Classification TierFor(double pos) =>
+        pos < 0.25 ? Classification.Poor
+        : pos < 0.55 ? Classification.BelowBest
+        : pos < 0.80 ? Classification.Best
+        : Classification.SelectBest;
+
+    /// <summary>
+    /// Recomputes the backfilled classifications for every already-imported sale in place
+    /// (same per-grade percentile split as import), writing only the lots whose tier
+    /// changes. Lets backfill refinements land without re-importing ~350k lots.
+    /// </summary>
+    [HttpPost("rebackfill-classifications")]
+    public async Task<IActionResult> RebackfillClassifications()
+    {
+        if (!env.IsDevelopment()) return NotFound();
+
+        var summaries = new List<object>();
+        var catalogues = await db.Catalogues.Find(_ => true).SortBy(c => c.ImportedAt).ToListAsync();
+        foreach (var cat in catalogues)
+        {
+            var slim = await db.Lots
+                .Find(Builders<Lot>.Filter.Eq(l => l.CatalogueId, cat.Id) & Builders<Lot>.Filter.Ne(l => l.Valuation, null))
+                .Project(l => new { l.Id, l.Grade, l.Valuation })
+                .ToListAsync();
+
+            var writes = new List<WriteModel<Lot>>();
+            var valued = slim.Where(l => l.Valuation?.EffectiveValue is not null && !string.IsNullOrWhiteSpace(l.Grade));
+            foreach (var grade in valued.GroupBy(l => l.Grade!.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                var ordered = grade.OrderBy(l => l.Valuation!.EffectiveValue).ToList();
+                int done = 0;
+                foreach (var group in ordered.GroupBy(l => l.Valuation!.EffectiveValue))
+                {
+                    int size = group.Count();
+                    var tier = TierFor((done + size / 2.0) / ordered.Count);
+                    foreach (var lot in group.Where(l => l.Valuation!.Classification != tier))
+                        writes.Add(new UpdateOneModel<Lot>(
+                            Builders<Lot>.Filter.Eq(l => l.Id, lot.Id),
+                            Builders<Lot>.Update.Set("Valuation.Classification", tier)));
+                    done += size;
+                }
+            }
+            if (writes.Count > 0) await db.Lots.BulkWriteAsync(writes);
+            summaries.Add(new { cat.SourceName, Updated = writes.Count });
+        }
+        return Ok(summaries);
     }
 }

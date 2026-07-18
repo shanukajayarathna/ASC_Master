@@ -3,6 +3,7 @@ using Asc.Api.DTOs;
 using Asc.Api.Models;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using MongoDB.Driver;
 
 namespace Asc.Api.Controllers;
@@ -36,10 +37,16 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
     /// immediately previous sale fall back to the nearest earlier sale that has them.
     /// </summary>
     [HttpGet("{id:guid}/previous-grade-stats")]
-    public async Task<ActionResult<PreviousGradeStatsDto>> PreviousGradeStats(Guid id)
+    public async Task<ActionResult<PreviousGradeStatsDto>> PreviousGradeStats(Guid id, [FromServices] IMemoryCache cache)
     {
         var current = await db.Catalogues.Find(x => x.Id == id).FirstOrDefaultAsync();
         if (current is null) return NotFound();
+
+        // Previous sales are finished history — their stats don't change under a sale
+        // being valued, so a short cache makes every page load after the first instant.
+        var cacheKey = $"prev-grade-stats:{id}";
+        if (cache.TryGetValue<PreviousGradeStatsDto>(cacheKey, out var cached) && cached is not null)
+            return Ok(cached);
 
         // Previous sales = catalogues imported before this one, newest first.
         var previous = await db.Catalogues
@@ -57,13 +64,21 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
             _ => 1,
         };
 
+        // One slim query covers every previous sale: only ~15% of a real ~12k-lot market
+        // catalogue carries a valuation and only three fields matter here, so a projected
+        // $in fetch (~46k tiny rows) replaces 29 full-document catalogue reads that cost
+        // seconds each at real data volumes.
+        var slim = await db.Lots
+            .Find(Builders<Lot>.Filter.In(l => l.CatalogueId, previous.Select(c => c.Id)) &
+                  Builders<Lot>.Filter.Ne(l => l.Valuation, null))
+            .Project(l => new { l.CatalogueId, l.Grade, l.Valuation })
+            .ToListAsync();
+        var bySale = slim.ToLookup(l => l.CatalogueId);
+
         var grades = new Dictionary<string, GradeStatsDto>(StringComparer.OrdinalIgnoreCase);
         foreach (var sale in previous)
         {
-            // Only valued lots matter here, and real market catalogues run ~12k lots per
-            // sale of which ~15% carry a valuation — filter server-side, not in memory.
-            var lots = await db.Lots.Find(l => l.CatalogueId == sale.Id && l.Valuation != null).ToListAsync();
-            var usable = lots.Where(l =>
+            var usable = bySale[sale.Id].Where(l =>
                 !string.IsNullOrWhiteSpace(l.Grade) &&
                 l.Valuation is { Classification: not Classification.Unclassified } &&
                 l.Valuation.EffectiveValue.HasValue);
@@ -120,7 +135,9 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
             }
         }
 
-        return Ok(new PreviousGradeStatsDto(grades));
+        var dto = new PreviousGradeStatsDto(grades);
+        cache.Set(cacheKey, dto, TimeSpan.FromMinutes(10));
+        return Ok(dto);
     }
 
     [HttpDelete("{id:guid}")]

@@ -15,6 +15,7 @@ builder.Services.AddSwaggerGen(c =>
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "ASC Tea Auction API", Version = "v1" });
 });
 
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<MongoContext>();
 builder.Services.AddScoped<CatalogueImportService>();
 
