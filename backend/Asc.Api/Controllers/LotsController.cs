@@ -1,14 +1,20 @@
 using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
+using Asc.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 
 namespace Asc.Api.Controllers;
 
+/// <summary>
+/// Lots come from the file-backed catalogue source; the database contributes only the
+/// user-entered valuation overlay, which always wins over a valuation derived from the
+/// sale file (the company's Valuation column + backfilled classification).
+/// </summary>
 [ApiController]
 [Route("api")]
-public class LotsController(MongoContext db) : ControllerBase
+public class LotsController(ICatalogueSource source, MongoContext db) : ControllerBase
 {
     [HttpGet("catalogues/{catalogueId:guid}/lots")]
     public async Task<ActionResult<PagedLotsDto>> GetLots(
@@ -24,57 +30,44 @@ public class LotsController(MongoContext db) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
-        var filterBuilder = Builders<Lot>.Filter;
-        var filter = filterBuilder.Eq(l => l.CatalogueId, catalogueId);
+        var lots = source.GetLots(catalogueId);
+        if (lots is null) return NotFound();
+        var overrides = await OverridesFor(catalogueId);
+
+        IEnumerable<(Lot Lot, Valuation? Val)> matched = lots.Select(l => (l, Merged(l, overrides)));
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var regex = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(search), "i");
-            filter &= filterBuilder.Or(
-                filterBuilder.Regex(l => l.LotNumber, regex),
-                filterBuilder.Regex(l => l.Broker, regex),
-                filterBuilder.Regex(l => l.Grade, regex),
-                filterBuilder.Regex(l => l.Garden, regex),
-                filterBuilder.Regex(l => l.Category, regex),
-                filterBuilder.Regex(l => l.Mark, regex),
-                filterBuilder.Regex(l => l.InvoiceNo, regex));
+            bool Hit(string? s) => s is not null && s.Contains(search, StringComparison.OrdinalIgnoreCase);
+            matched = matched.Where(x =>
+                Hit(x.Lot.LotNumber) || Hit(x.Lot.Broker) || Hit(x.Lot.Grade) || Hit(x.Lot.Garden) ||
+                Hit(x.Lot.Category) || Hit(x.Lot.Mark) || Hit(x.Lot.InvoiceNo));
         }
-        if (!string.IsNullOrWhiteSpace(broker)) filter &= filterBuilder.Eq(l => l.Broker, broker);
-        if (!string.IsNullOrWhiteSpace(grade)) filter &= filterBuilder.Eq(l => l.Grade, grade);
-        if (!string.IsNullOrWhiteSpace(category)) filter &= filterBuilder.Eq(l => l.Category, category);
-        if (!string.IsNullOrWhiteSpace(garden)) filter &= filterBuilder.Eq(l => l.Garden, garden);
+        if (!string.IsNullOrWhiteSpace(broker)) matched = matched.Where(x => x.Lot.Broker == broker);
+        if (!string.IsNullOrWhiteSpace(grade)) matched = matched.Where(x => x.Lot.Grade == grade);
+        if (!string.IsNullOrWhiteSpace(category)) matched = matched.Where(x => x.Lot.Category == category);
+        if (!string.IsNullOrWhiteSpace(garden)) matched = matched.Where(x => x.Lot.Garden == garden);
+        if (!string.IsNullOrWhiteSpace(status)) matched = matched.Where(x => TicketStatus(x.Val) == status);
 
-        // Fetched then filtered/sorted/paged in-memory: simpler and less error-prone than
-        // translating the "ticket status" and sort logic into Mongo query operators, and
-        // fine for the data volumes this is meant to handle.
-        var matched = await db.Lots.Find(filter).ToListAsync();
-
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            matched = matched.Where(l => TicketStatus(l) == status).ToList();
-        }
-
+        var list = matched.ToList();
         bool desc = sortDir < 0;
-        IEnumerable<Lot> sorted = sortKey switch
+        IEnumerable<(Lot Lot, Valuation? Val)> sorted = sortKey switch
         {
-            "Broker" => desc ? matched.OrderByDescending(l => l.Broker) : matched.OrderBy(l => l.Broker),
-            "Grade" => desc ? matched.OrderByDescending(l => l.Grade) : matched.OrderBy(l => l.Grade),
-            "Garden" => desc ? matched.OrderByDescending(l => l.Garden) : matched.OrderBy(l => l.Garden),
+            "Broker" => desc ? list.OrderByDescending(x => x.Lot.Broker) : list.OrderBy(x => x.Lot.Broker),
+            "Grade" => desc ? list.OrderByDescending(x => x.Lot.Grade) : list.OrderBy(x => x.Lot.Grade),
+            "Garden" => desc ? list.OrderByDescending(x => x.Lot.Garden) : list.OrderBy(x => x.Lot.Garden),
             "Valuation" => desc
-                ? matched.OrderByDescending(l => l.Valuation?.EffectiveValue)
-                : matched.OrderBy(l => l.Valuation?.EffectiveValue),
-            _ => desc ? matched.OrderByDescending(l => l.LotNumber) : matched.OrderBy(l => l.LotNumber)
+                ? list.OrderByDescending(x => x.Val?.EffectiveValue)
+                : list.OrderBy(x => x.Val?.EffectiveValue),
+            _ => desc ? list.OrderByDescending(x => x.Lot.LotNumber) : list.OrderBy(x => x.Lot.LotNumber)
         };
 
-        var total = matched.Count;
-        var rows = sorted.Skip((page - 1) * pageSize).Take(pageSize).Select(ToDto).ToList();
-
-        return Ok(new PagedLotsDto(rows, total, page, pageSize));
+        var rows = sorted.Skip((page - 1) * pageSize).Take(pageSize).Select(x => ToDto(x.Lot, x.Val)).ToList();
+        return Ok(new PagedLotsDto(rows, list.Count, page, pageSize));
     }
 
-    private static string TicketStatus(Lot l)
+    private static string TicketStatus(Valuation? v)
     {
-        var v = l.Valuation;
         if (v is null) return "empty";
         var hasValue = v.ValuationSingle != null || v.ValuationFrom != null;
         var hasText = !string.IsNullOrEmpty(v.StandardData) || !string.IsNullOrEmpty(v.AdjectiveData) ||
@@ -87,13 +80,13 @@ public class LotsController(MongoContext db) : ControllerBase
     [HttpPatch("lots/{id:guid}/valuation")]
     public async Task<ActionResult<LotDto>> UpdateValuation(Guid id, ValuationUpdateDto dto)
     {
-        var lot = await db.Lots.Find(l => l.Id == id).FirstOrDefaultAsync();
-        if (lot is null) return NotFound();
+        var hit = source.FindLot(id);
+        if (hit is null) return NotFound();
+        var (lot, catalogue) = hit.Value;
 
-        // Business rule: a valuation is always a whole LKR value between 50 and 10000 (real
-        // sales have quoted 60 up to 7,703), and a range's first number is strictly lower
-        // than its second. Mirrored client-side in frontend/src/lib/valuationInput.ts —
-        // enforced here too so no caller can bypass it.
+        // Business rule: a valuation is always a whole LKR value between 50 and 10000, and
+        // a range's first number is strictly lower than its second. Mirrored client-side in
+        // frontend/src/lib/valuationInput.ts — enforced here too so no caller can bypass it.
         static bool IsInvalid(decimal v) => v < 50 || v > 10000 || v != decimal.Truncate(v);
         foreach (var value in new[] { dto.ValuationFrom, dto.ValuationTo, dto.ValuationSingle })
             if (value.HasValue && IsInvalid(value.Value))
@@ -102,32 +95,32 @@ public class LotsController(MongoContext db) : ControllerBase
         if (dto.ValuationFrom.HasValue && dto.ValuationTo.HasValue && dto.ValuationFrom >= dto.ValuationTo)
             return BadRequest("ValuationFrom must be lower than ValuationTo.");
 
-        // A lot holds either a single value or a full range, never both or half a range.
-        // Field-preserving patches built from legacy data can still carry the old shapes
-        // (both set, or a lone From/To) — normalize those rather than failing the save:
-        // the single wins over a range (matching EffectiveValue's precedence), and a lone
-        // range end becomes the single value.
+        // A lot holds either a single value or a full range, never both or half a range —
+        // normalize legacy shapes rather than failing the save.
         var single = dto.ValuationSingle;
         var (from, to) = (dto.ValuationFrom, dto.ValuationTo);
         if (single.HasValue) (from, to) = (null, null);
         else if (from.HasValue != to.HasValue) (single, from, to) = (from ?? to, null, null);
 
-        lot.Valuation ??= new Valuation();
-        lot.Valuation.ValuationFrom = from;
-        lot.Valuation.ValuationTo = to;
-        lot.Valuation.ValuationSingle = single;
+        var stored = await db.Valuations.Find(v => v.LotId == id).FirstOrDefaultAsync();
+        // Start from what the user currently sees (their override, else the file-derived
+        // valuation) so an omitted Classification keeps its current tier.
+        var val = (stored?.Valuation ?? lot.Valuation)?.Clone() ?? new Valuation();
+        val.ValuationFrom = from;
+        val.ValuationTo = to;
+        val.ValuationSingle = single;
         if (dto.Classification is not null && Enum.TryParse<Classification>(dto.Classification, true, out var cls))
-            lot.Valuation.Classification = cls;
-        lot.Valuation.StandardData = dto.StandardData;
-        lot.Valuation.AdjectiveData = dto.AdjectiveData;
-        lot.Valuation.LiquorRemarks = dto.LiquorRemarks;
-        lot.Valuation.MusterReport = dto.MusterReport;
-        lot.Valuation.BrokerNotes = dto.BrokerNotes;
-        lot.Valuation.PrivateNotes = dto.PrivateNotes;
-        lot.Valuation.UpdatedAt = DateTime.UtcNow;
+            val.Classification = cls;
+        val.StandardData = dto.StandardData;
+        val.AdjectiveData = dto.AdjectiveData;
+        val.LiquorRemarks = dto.LiquorRemarks;
+        val.MusterReport = dto.MusterReport;
+        val.BrokerNotes = dto.BrokerNotes;
+        val.PrivateNotes = dto.PrivateNotes;
+        val.UpdatedAt = DateTime.UtcNow;
 
-        await db.Lots.ReplaceOneAsync(l => l.Id == id, lot);
-        return Ok(ToDto(lot));
+        await UpsertValuation(lot, catalogue.Id, val);
+        return Ok(ToDto(lot, val));
     }
 
     [HttpPost("lots/bulk-classify")]
@@ -136,42 +129,68 @@ public class LotsController(MongoContext db) : ControllerBase
         if (!Enum.TryParse<Classification>(dto.Classification, true, out var cls))
             return BadRequest("Invalid classification.");
 
-        var lots = await db.Lots.Find(l => dto.LotIds.Contains(l.Id)).ToListAsync();
-        foreach (var lot in lots)
+        int updated = 0;
+        foreach (var lotId in dto.LotIds)
         {
-            lot.Valuation ??= new Valuation();
-            lot.Valuation.Classification = cls;
-            lot.Valuation.UpdatedAt = DateTime.UtcNow;
-            await db.Lots.ReplaceOneAsync(l => l.Id == lot.Id, lot);
+            var hit = source.FindLot(lotId);
+            if (hit is null) continue;
+            var (lot, catalogue) = hit.Value;
+            var stored = await db.Valuations.Find(v => v.LotId == lotId).FirstOrDefaultAsync();
+            var val = (stored?.Valuation ?? lot.Valuation)?.Clone() ?? new Valuation();
+            val.Classification = cls;
+            val.UpdatedAt = DateTime.UtcNow;
+            await UpsertValuation(lot, catalogue.Id, val);
+            updated++;
         }
-        return Ok(new { updated = lots.Count });
+        return Ok(new { updated });
     }
 
     [HttpPost("lots/bulk-clear-notes")]
     public async Task<IActionResult> BulkClearNotes(BulkDeleteNotesDto dto)
     {
-        var lots = await db.Lots.Find(l => dto.LotIds.Contains(l.Id)).ToListAsync();
-        foreach (var lot in lots.Where(l => l.Valuation is not null))
+        int updated = 0;
+        foreach (var lotId in dto.LotIds)
         {
-            lot.Valuation!.StandardData = null;
-            lot.Valuation.AdjectiveData = null;
-            lot.Valuation.LiquorRemarks = null;
-            lot.Valuation.MusterReport = null;
-            lot.Valuation.BrokerNotes = null;
-            lot.Valuation.PrivateNotes = null;
-            lot.Valuation.UpdatedAt = DateTime.UtcNow;
-            await db.Lots.ReplaceOneAsync(l => l.Id == lot.Id, lot);
+            var hit = source.FindLot(lotId);
+            if (hit is null) continue;
+            var (lot, catalogue) = hit.Value;
+            var stored = await db.Valuations.Find(v => v.LotId == lotId).FirstOrDefaultAsync();
+            var current = stored?.Valuation ?? lot.Valuation;
+            if (current is null) continue;
+            var val = current.Clone();
+            val.StandardData = null;
+            val.AdjectiveData = null;
+            val.LiquorRemarks = null;
+            val.MusterReport = null;
+            val.BrokerNotes = null;
+            val.PrivateNotes = null;
+            val.UpdatedAt = DateTime.UtcNow;
+            await UpsertValuation(lot, catalogue.Id, val);
+            updated++;
         }
-        return Ok(new { updated = lots.Count });
+        return Ok(new { updated });
     }
 
-    private static LotDto ToDto(Lot l) => new(
+    private async Task UpsertValuation(Lot lot, Guid catalogueId, Valuation val) =>
+        await db.Valuations.ReplaceOneAsync(
+            v => v.LotId == lot.Id,
+            new StoredValuation { LotId = lot.Id, CatalogueId = catalogueId, RowKey = lot.RowKey, Valuation = val },
+            new ReplaceOptions { IsUpsert = true });
+
+    private async Task<Dictionary<Guid, Valuation>> OverridesFor(Guid catalogueId) =>
+        (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync())
+            .ToDictionary(v => v.LotId, v => v.Valuation);
+
+    private static Valuation? Merged(Lot lot, Dictionary<Guid, Valuation> overrides) =>
+        overrides.TryGetValue(lot.Id, out var v) ? v : lot.Valuation;
+
+    internal static LotDto ToDto(Lot l, Valuation? v) => new(
         l.Id, l.RowKey, l.LotNumber, l.Broker, l.Grade, l.Garden, l.Category, l.Elevation, l.Region,
         l.Warehouse, l.Mark, l.SaleNo, l.SaleYear, l.InvoiceNo, l.NetWeight, l.GrossWeight, l.RawData,
-        l.Valuation is null ? null : new ValuationDto(
-            l.Valuation.ValuationFrom, l.Valuation.ValuationTo, l.Valuation.ValuationSingle,
-            l.Valuation.Classification.ToString(), l.Valuation.StandardData, l.Valuation.AdjectiveData,
-            l.Valuation.LiquorRemarks, l.Valuation.MusterReport, l.Valuation.BrokerNotes, l.Valuation.PrivateNotes,
-            l.Valuation.UpdatedAt)
+        v is null ? null : new ValuationDto(
+            v.ValuationFrom, v.ValuationTo, v.ValuationSingle,
+            v.Classification.ToString(), v.StandardData, v.AdjectiveData,
+            v.LiquorRemarks, v.MusterReport, v.BrokerNotes, v.PrivateNotes,
+            v.UpdatedAt)
     );
 }

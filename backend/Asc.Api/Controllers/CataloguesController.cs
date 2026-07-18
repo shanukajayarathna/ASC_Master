@@ -8,24 +8,67 @@ using MongoDB.Driver;
 
 namespace Asc.Api.Controllers;
 
+/// <summary>
+/// Catalogues are file-backed: the weekly-sale Excel files in data/sales ARE the store
+/// (see SaleFileStore), auto-discovered on every listing. Uploading a new sale through
+/// the app simply saves the file into that folder.
+/// </summary>
 [ApiController]
 [Route("api/catalogues")]
-public class CataloguesController(MongoContext db, CatalogueImportService importer) : ControllerBase
+public class CataloguesController(ICatalogueSource source, SaleFileStore fileStore, MongoContext db, CatalogueImportService importer) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<List<CatalogueSummaryDto>>> List()
+    public ActionResult<List<CatalogueSummaryDto>> List()
     {
-        var items = await db.Catalogues.Find(_ => true).SortByDescending(c => c.ImportedAt).ToListAsync();
+        var items = source.ListCatalogues();
         return Ok(items.Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt)).ToList());
     }
 
     [HttpGet("{id:guid}")]
-    public async Task<ActionResult<CatalogueDetailDto>> Get(Guid id)
+    public ActionResult<CatalogueDetailDto> Get(Guid id)
     {
-        var c = await db.Catalogues.Find(x => x.Id == id).FirstOrDefaultAsync();
+        var c = source.GetCatalogue(id);
         if (c is null) return NotFound();
         var columnMeta = importer.RefreshDefaultVisibility(c.ColumnMeta);
         return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt));
+    }
+
+    [HttpDelete("{id:guid}")]
+    public IActionResult Delete(Guid id)
+    {
+        // Catalogues mirror the files on disk — deleting one through the app would mean
+        // deleting a source data file, which stays a deliberate manual act.
+        return BadRequest("Catalogues are file-backed: remove the sale's Excel file from data/sales instead.");
+    }
+
+    /// <summary>
+    /// "Import" = save the uploaded weekly-sale file into data/sales. The filename must
+    /// carry the sale number (e.g. 31.xlsx), matching the files already there; the sale
+    /// then loads like any other. Re-uploading a sale's file replaces it.
+    /// </summary>
+    [HttpPost("import")]
+    [RequestSizeLimit(100_000_000)]
+    public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file)
+    {
+        if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext is not (".xlsx" or ".xls"))
+            return BadRequest("Weekly sale files are Excel files (.xlsx or .xls).");
+
+        var digits = new string(Path.GetFileNameWithoutExtension(file.FileName).Where(char.IsDigit).ToArray());
+        if (digits.Length is 0 or > 3 || !int.TryParse(digits, out var saleNo))
+            return BadRequest("Name the file by its sale number (e.g. 31.xlsx) so it slots into the weekly sequence.");
+
+        Directory.CreateDirectory(fileStore.SalesDir);
+        var target = Path.Combine(fileStore.SalesDir, $"{saleNo:00}{ext}");
+        await using (var stream = System.IO.File.Create(target))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        var catalogue = source.GetCatalogue(SaleFileStore.CatalogueIdFor(saleNo));
+        if (catalogue is null) return BadRequest("The uploaded file couldn't be parsed as a sale catalogue.");
+        return Ok(new CatalogueDetailDto(catalogue.Id, catalogue.SourceName, catalogue.Headers, catalogue.ColumnMeta, catalogue.RowCount, catalogue.ImportedAt));
     }
 
     /// <summary>
@@ -39,7 +82,7 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
     [HttpGet("{id:guid}/previous-grade-stats")]
     public async Task<ActionResult<PreviousGradeStatsDto>> PreviousGradeStats(Guid id, [FromServices] IMemoryCache cache)
     {
-        var current = await db.Catalogues.Find(x => x.Id == id).FirstOrDefaultAsync();
+        var current = source.GetCatalogue(id);
         if (current is null) return NotFound();
 
         // Previous sales are finished history — their stats don't change under a sale
@@ -48,11 +91,16 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
         if (cache.TryGetValue<PreviousGradeStatsDto>(cacheKey, out var cached) && cached is not null)
             return Ok(cached);
 
-        // Previous sales = catalogues imported before this one, newest first.
-        var previous = await db.Catalogues
-            .Find(c => c.Id != id && c.ImportedAt < current.ImportedAt)
-            .SortByDescending(c => c.ImportedAt)
-            .ToListAsync();
+        // Previous sales = catalogues dated before this one, newest first.
+        var previous = source.ListCatalogues()
+            .Where(c => c.Id != id && c.ImportedAt < current.ImportedAt)
+            .OrderByDescending(c => c.ImportedAt)
+            .ToList();
+
+        // User-entered valuations override the file-derived history they refine.
+        var previousIds = previous.Select(c => c.Id).ToList();
+        var overrides = (await db.Valuations.Find(v => previousIds.Contains(v.CatalogueId)).ToListAsync())
+            .ToLookup(v => v.CatalogueId);
 
         // Quality rank for display order: the enum's numeric values aren't ranked
         // (SelectBest is 4 for storage-compat reasons but sits above Best).
@@ -64,24 +112,16 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
             _ => 1,
         };
 
-        // One slim query covers every previous sale: only ~15% of a real ~12k-lot market
-        // catalogue carries a valuation and only three fields matter here, so a projected
-        // $in fetch (~46k tiny rows) replaces 29 full-document catalogue reads that cost
-        // seconds each at real data volumes.
-        var slim = await db.Lots
-            .Find(Builders<Lot>.Filter.In(l => l.CatalogueId, previous.Select(c => c.Id)) &
-                  Builders<Lot>.Filter.Ne(l => l.Valuation, null))
-            .Project(l => new { l.CatalogueId, l.Grade, l.Valuation })
-            .ToListAsync();
-        var bySale = slim.ToLookup(l => l.CatalogueId);
-
         var grades = new Dictionary<string, GradeStatsDto>(StringComparer.OrdinalIgnoreCase);
         foreach (var sale in previous)
         {
-            var usable = bySale[sale.Id].Where(l =>
-                !string.IsNullOrWhiteSpace(l.Grade) &&
-                l.Valuation is { Classification: not Classification.Unclassified } &&
-                l.Valuation.EffectiveValue.HasValue);
+            var ovs = overrides[sale.Id].ToDictionary(v => v.LotId, v => v.Valuation);
+            var usable = source.GetValuedSlim(sale.Id)
+                .Select(l => (l.Grade, Valuation: ovs.GetValueOrDefault(l.LotId, l.Valuation)))
+                .Where(l =>
+                    !string.IsNullOrWhiteSpace(l.Grade) &&
+                    l.Valuation is { Classification: not Classification.Unclassified } &&
+                    l.Valuation.EffectiveValue.HasValue);
 
             foreach (var grade in usable.GroupBy(l => l.Grade!.Trim(), StringComparer.OrdinalIgnoreCase))
             {
@@ -138,45 +178,5 @@ public class CataloguesController(MongoContext db, CatalogueImportService import
         var dto = new PreviousGradeStatsDto(grades);
         cache.Set(cacheKey, dto, TimeSpan.FromMinutes(10));
         return Ok(dto);
-    }
-
-    [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id)
-    {
-        var result = await db.Catalogues.DeleteOneAsync(c => c.Id == id);
-        if (result.DeletedCount == 0) return NotFound();
-
-        // Mongo has no cascading delete — clean up dependent collections explicitly.
-        await db.Lots.DeleteManyAsync(l => l.CatalogueId == id);
-        await db.FilterPresets.DeleteManyAsync(p => p.CatalogueId == id);
-        await db.ActualPrices.DeleteManyAsync(a => a.CatalogueId == id);
-
-        return NoContent();
-    }
-
-    [HttpPost("import")]
-    [RequestSizeLimit(100_000_000)]
-    public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file)
-    {
-        if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
-
-        await using var stream = file.OpenReadStream();
-        var parsed = importer.ParseFile(stream, file.FileName);
-        if (parsed.Rows.Count == 0)
-            return BadRequest("Couldn't find a usable table with a header row in this file.");
-
-        var catalogue = new Catalogue
-        {
-            SourceName = file.FileName,
-            Headers = parsed.Headers,
-            RowCount = parsed.Rows.Count,
-            ColumnMeta = importer.BuildColumnMeta(parsed.Headers, parsed.Rows)
-        };
-        await db.Catalogues.InsertOneAsync(catalogue);
-
-        var lots = parsed.Rows.Select(row => importer.BuildLot(catalogue.Id, parsed.Headers, row)).ToList();
-        if (lots.Count > 0) await db.Lots.InsertManyAsync(lots);
-
-        return Ok(new CatalogueDetailDto(catalogue.Id, catalogue.SourceName, catalogue.Headers, catalogue.ColumnMeta, catalogue.RowCount, catalogue.ImportedAt));
     }
 }

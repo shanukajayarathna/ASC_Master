@@ -17,7 +17,11 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<MongoContext>();
-builder.Services.AddScoped<CatalogueImportService>();
+builder.Services.AddSingleton<CatalogueImportService>();
+// Catalogue data is served straight from the weekly-sale Excel files (data/sales) via
+// this seam — swap the implementation to move catalogues into a database (e.g. Azure).
+builder.Services.AddSingleton<SaleFileStore>();
+builder.Services.AddSingleton<ICatalogueSource>(sp => sp.GetRequiredService<SaleFileStore>());
 
 const string CorsPolicy = "FrontendDev";
 builder.Services.AddCors(opts =>

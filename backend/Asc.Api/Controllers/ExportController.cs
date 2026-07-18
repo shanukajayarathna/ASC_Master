@@ -1,5 +1,6 @@
 using Asc.Api.Data;
 using Asc.Api.Models;
+using Asc.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using NPOI.SS.UserModel;
@@ -10,7 +11,7 @@ namespace Asc.Api.Controllers;
 
 [ApiController]
 [Route("api/catalogues/{catalogueId:guid}/export")]
-public class ExportController(MongoContext db) : ControllerBase
+public class ExportController(ICatalogueSource source, MongoContext db) : ControllerBase
 {
     public record ExportRequest(List<Guid> LotIds);
 
@@ -23,11 +24,30 @@ public class ExportController(MongoContext db) : ControllerBase
     [HttpPost("excel")]
     public async Task<IActionResult> ExportExcel(Guid catalogueId, ExportRequest req)
     {
-        var catalogue = await db.Catalogues.Find(c => c.Id == catalogueId).FirstOrDefaultAsync();
+        var catalogue = source.GetCatalogue(catalogueId);
         if (catalogue is null) return NotFound();
 
-        var lots = await db.Lots.Find(l => l.CatalogueId == catalogueId && req.LotIds.Contains(l.Id)).ToListAsync();
-        lots = lots.OrderBy(l => l.LotNumber, StringComparer.OrdinalIgnoreCase).ToList();
+        // File-backed lots merged with the user-entered valuation overlay (which wins).
+        var wanted = new HashSet<Guid>(req.LotIds);
+        var overrides = (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync())
+            .ToDictionary(v => v.LotId, v => v.Valuation);
+        var lots = (source.GetLots(catalogueId) ?? Array.Empty<Lot>())
+            .Where(l => wanted.Contains(l.Id))
+            .Select(l =>
+            {
+                if (!overrides.TryGetValue(l.Id, out var v)) return l;
+                var copy = new Lot
+                {
+                    Id = l.Id, CatalogueId = l.CatalogueId, RowKey = l.RowKey, LotNumber = l.LotNumber,
+                    Broker = l.Broker, Grade = l.Grade, Garden = l.Garden, Category = l.Category,
+                    Elevation = l.Elevation, Region = l.Region, Warehouse = l.Warehouse, Mark = l.Mark,
+                    SaleNo = l.SaleNo, SaleYear = l.SaleYear, InvoiceNo = l.InvoiceNo,
+                    NetWeight = l.NetWeight, GrossWeight = l.GrossWeight, RawData = l.RawData, Valuation = v,
+                };
+                return copy;
+            })
+            .OrderBy(l => l.LotNumber, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         using var wb = new XSSFWorkbook();
         var sheet = wb.CreateSheet("Lot Report");

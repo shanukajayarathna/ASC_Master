@@ -14,18 +14,24 @@ public class MongoContext
         var client = new MongoClient(connectionString);
         Database = client.GetDatabase(databaseName);
 
-        // Real weekly sales put ~350k lots in the store and every lot query filters by
-        // catalogue — without this index each one is a full collection scan. CreateMany
-        // is idempotent, so declaring it at startup keeps the index in step with the code.
-        Lots.Indexes.CreateMany(
+        // Catalogue data is file-backed (SaleFileStore); the database keeps only small
+        // user-entered state. Valuations are fetched per catalogue on every merge, so
+        // keep that path indexed. CreateMany is idempotent.
+        Valuations.Indexes.CreateMany(
         [
-            new CreateIndexModel<Lot>(Builders<Lot>.IndexKeys.Ascending(l => l.CatalogueId)),
+            new CreateIndexModel<StoredValuation>(Builders<StoredValuation>.IndexKeys.Ascending(v => v.CatalogueId)),
         ]);
     }
 
-    public IMongoCollection<Catalogue> Catalogues => Database.GetCollection<Catalogue>("catalogues");
-    public IMongoCollection<Lot> Lots => Database.GetCollection<Lot>("lots");
+    /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
+    public IMongoCollection<StoredValuation> Valuations => Database.GetCollection<StoredValuation>("valuations");
+
     public IMongoCollection<FilterPreset> FilterPresets => Database.GetCollection<FilterPreset>("filterPresets");
     public IMongoCollection<ActualPrice> ActualPrices => Database.GetCollection<ActualPrice>("actualPrices");
     public IMongoCollection<SavedReport> SavedReports => Database.GetCollection<SavedReport>("savedReports");
+
+    // Legacy collections from the pre-file-store era — kept addressable only so the purge
+    // endpoint can drop them and reclaim the space.
+    public IMongoCollection<Catalogue> LegacyCatalogues => Database.GetCollection<Catalogue>("catalogues");
+    public IMongoCollection<Lot> LegacyLots => Database.GetCollection<Lot>("lots");
 }
