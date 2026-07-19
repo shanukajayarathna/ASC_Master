@@ -7,7 +7,16 @@ import ValuationFocus from "@/components/valuation/ValuationFocus";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { CLASSIFICATIONS } from "@/lib/classifications";
-import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, valuationToText, weightPerChestOf } from "@/lib/lotDisplay";
+import {
+  catalogueRemarkOf,
+  catalogueStandardOf,
+  hasValuation,
+  lotLabel,
+  noOfChestsOf,
+  sellingMarkOf,
+  valuationToText,
+  weightPerChestOf,
+} from "@/lib/lotDisplay";
 import {
   filterLots,
   isColumnFilterActive,
@@ -77,6 +86,15 @@ const EXTRA_FIELDS: { value: ExtraField; label: string }[] = [
 ];
 
 const isClassified = (lot: Lot) => (lot.valuation?.classification ?? "Unclassified") !== "Unclassified";
+
+// Falls back to the catalogue's own imported Standard/Remarks columns for the two fields
+// the broker's file already carries — Adjective/Liquor/Muster/Private have no catalogue
+// equivalent, so those stay blank until the taster enters something.
+function catalogueSeedFor(lot: Lot, field: ExtraField): string | null {
+  if (field === "standardData") return catalogueStandardOf(lot);
+  if (field === "brokerNotes") return catalogueRemarkOf(lot);
+  return null;
+}
 
 export default function ValuationCentrePage() {
   const router = useRouter();
@@ -234,7 +252,7 @@ export default function ValuationCentrePage() {
       const next = { ...prev };
       EXTRA_FIELDS.forEach((f) => {
         const key = `${f.value}:${updated.id}`;
-        if (next[key] !== undefined) next[key] = updated.valuation?.[f.value] ?? "";
+        if (next[key] !== undefined) next[key] = updated.valuation?.[f.value] ?? catalogueSeedFor(updated, f.value) ?? "";
       });
       return next;
     });
@@ -281,7 +299,7 @@ export default function ValuationCentrePage() {
         enabledExtras.forEach((f) => {
           const key = `${f.value}:${l.id}`;
           if (next[key] === undefined) {
-            next[key] = l.valuation?.[f.value] ?? "";
+            next[key] = l.valuation?.[f.value] ?? catalogueSeedFor(l, f.value) ?? "";
             changed = true;
           }
         });

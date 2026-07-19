@@ -18,6 +18,8 @@ import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } 
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
 import type { ColumnFilterState, TicketStatus } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
+import { toggleKeyword } from "@/lib/remarkKeywords";
+import KeywordChips from "@/components/valuation/KeywordChips";
 import {
   effectiveOfParsed,
   effectiveValuationOf,
@@ -95,10 +97,10 @@ type FocusTextField = "standardData" | "adjectiveData" | "brokerNotes" | "liquor
 // The four remark columns worked alongside the valuation, left to right; the
 // calculator keypad takes the fifth (right-most) container.
 const FOCUS_TEXT_FIELDS: { value: FocusTextField; label: string; placeholder: string }[] = [
-  { value: "standardData", label: "Standard", placeholder: "e.g. Well made, even, blackish" },
-  { value: "adjectiveData", label: "Adjectives", placeholder: "e.g. Bright, brisk, tippy" },
-  { value: "brokerNotes", label: "Remarks", placeholder: "General remarks for this lot…" },
-  { value: "liquorRemarks", label: "Liquor Remarks", placeholder: "Tasting notes on the liquor…" },
+  { value: "standardData", label: "Standard", placeholder: "Tap a term above, or type your own…" },
+  { value: "adjectiveData", label: "Adjectives", placeholder: "Tap a term above, or type your own…" },
+  { value: "brokerNotes", label: "Remarks", placeholder: "Tap a term above, or type your own…" },
+  { value: "liquorRemarks", label: "Liquor Remarks", placeholder: "Tap a term above, or type your own…" },
 ];
 
 /** One fact cell in the lot-details box. */
@@ -120,6 +122,16 @@ function Fact({ label, value, strong }: { label: string; value: string | null | 
     </div>
   );
 }
+
+// Fixed height for every card in the entry row (4 remark boxes + calculator) — a fixed
+// pixel value rather than relying on CSS grid row-stretch, which only equalizes heights
+// within the same grid row and falls apart the moment the responsive column count
+// changes how the 5 cards wrap into rows (e.g. tablet widths at 2 columns).
+const FOCUS_CARD_HEIGHT = 420;
+// Fixed (not just capped) height for the keyword-card row — every field gets the exact
+// same amount of space here regardless of how many terms it lists, so the remaining space
+// handed to the textarea below is identical across all four boxes too.
+const FOCUS_CHIPS_HEIGHT = 170;
 
 const KEYPAD_ROWS: string[][] = [
   ["7", "8", "9"],
@@ -153,9 +165,11 @@ export default function ValuationFocus({
 
   function seedFields(l: Lot): Record<FocusTextField, string> {
     return {
-      standardData: l.valuation?.standardData ?? "",
+      // Falls back to the catalogue's own imported Standard/Remarks columns — the broker's
+      // file already carries these for some lots, so show that instead of a blank box.
+      standardData: l.valuation?.standardData ?? catalogueStandardOf(l) ?? "",
       adjectiveData: l.valuation?.adjectiveData ?? "",
-      brokerNotes: l.valuation?.brokerNotes ?? "",
+      brokerNotes: l.valuation?.brokerNotes ?? catalogueRemarkOf(l) ?? "",
       liquorRemarks: l.valuation?.liquorRemarks ?? "",
     };
   }
@@ -284,6 +298,13 @@ export default function ValuationFocus({
     } finally {
       setSaving(false);
     }
+  };
+
+  // Tapping a keyword chip adds it to the field (or removes it, if already there) — same
+  // local-only edit as typing in the box. Nothing hits the server until the lot is left
+  // (Save & Next / arrow / jump), same as every other field here — see saveAll.
+  const toggleFieldKeyword = (field: FocusTextField, keyword: string) => {
+    setFieldText((prev) => ({ ...prev, [field]: toggleKeyword(prev[field], keyword) }));
   };
 
   // Auto-pick a classification from the previous sale's record for this grade.
@@ -581,43 +602,71 @@ export default function ValuationFocus({
             </div>
           </Paper>
 
-          {/* classification tiers */}
-          <div
-            className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-1 rounded-xl"
-            style={clsNeeded ? { outline: "2px solid var(--warn)", outlineOffset: 3 } : undefined}
-          >
-            {CLASSIFICATIONS.map((c) => {
-              const active = displayCls === c.value;
-              const tierInfo = tierStatsFor(gradeStats, c.value);
-              return (
-                <button
-                  key={c.value}
-                  type="button"
-                  disabled={saving}
-                  onClick={() => commitClassification(c.value)}
-                  title={active ? "Tap again to unset" : `Mark as ${c.label}`}
-                  className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5"
-                  style={{
-                    borderColor: c.color,
-                    background: active ? c.color : "var(--surface)",
-                    color: active ? "var(--paper-0)" : c.color,
-                  }}
-                >
-                  <span className="block text-[15px] font-bold leading-tight">
-                    {active ? "✓ " : ""}
-                    {c.label}
-                  </span>
-                  {/* This tier's record for the lot's grade in the previous sale. */}
-                  {gradeStats && (
-                    <span className="block text-[10.5px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
-                      {tierInfo
-                        ? `${formatTierRange(tierInfo)} · ${Math.round(tierInfo.percent)}%`
-                        : "no lots last sale"}
+          {/* classification tiers, flanked by big tap-friendly previous/next-lot buttons —
+              a tablet-sized alternative to the small chevrons up in the top bar. Reuses
+              goTo, so leaving the lot saves everything first exactly like those do. */}
+          <div className="flex items-stretch gap-2 mb-1">
+            <button
+              type="button"
+              disabled={index === 0 || saving}
+              onClick={() => goTo(index - 1)}
+              aria-label="Previous lot"
+              title="Previous lot"
+              className="shrink-0 w-14 sm:w-16 rounded-xl border-2 cursor-pointer touch-manipulation active:scale-[0.97] transition-transform flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-strong)" }}
+            >
+              <ChevronLeftIcon sx={{ fontSize: 30 }} />
+            </button>
+
+            <div
+              className="grid grid-cols-2 md:grid-cols-4 gap-2 rounded-xl flex-1"
+              style={clsNeeded ? { outline: "2px solid var(--warn)", outlineOffset: 3 } : undefined}
+            >
+              {CLASSIFICATIONS.map((c) => {
+                const active = displayCls === c.value;
+                const tierInfo = tierStatsFor(gradeStats, c.value);
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => commitClassification(c.value)}
+                    title={active ? "Tap again to unset" : `Mark as ${c.label}`}
+                    className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5"
+                    style={{
+                      borderColor: c.color,
+                      background: active ? c.color : "var(--surface)",
+                      color: active ? "var(--paper-0)" : c.color,
+                    }}
+                  >
+                    <span className="block text-[15px] font-bold leading-tight">
+                      {active ? "✓ " : ""}
+                      {c.label}
                     </span>
-                  )}
-                </button>
-              );
-            })}
+                    {/* This tier's record for the lot's grade in the previous sale. */}
+                    {gradeStats && (
+                      <span className="block text-[10.5px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
+                        {tierInfo
+                          ? `${formatTierRange(tierInfo)} · ${Math.round(tierInfo.percent)}%`
+                          : "no lots last sale"}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              disabled={index + 1 >= total || saving}
+              onClick={() => goTo(index + 1)}
+              aria-label="Next lot"
+              title="Next lot"
+              className="shrink-0 w-14 sm:w-16 rounded-xl border-2 cursor-pointer touch-manipulation active:scale-[0.97] transition-transform flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ borderColor: "var(--liquor)", background: "var(--liquor)", color: "var(--paper-0)" }}
+            >
+              <ChevronRightIcon sx={{ fontSize: 30 }} />
+            </button>
           </div>
           <div className="min-h-[20px] mb-1.5">
             {liveTier && gradeStats && (
@@ -649,27 +698,34 @@ export default function ValuationFocus({
               <Paper
                 key={f.value}
                 variant="outlined"
-                sx={{ borderColor: "var(--border)", p: 1.5, display: "flex", flexDirection: "column" }}
+                sx={{ borderColor: "var(--border)", p: 1.5, display: "flex", flexDirection: "column", height: FOCUS_CARD_HEIGHT }}
               >
                 <div className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-1.5">
                   {f.label}
                 </div>
+                <KeywordChips
+                  field={f.value}
+                  value={fieldText[f.value]}
+                  disabled={saving}
+                  fixedHeight={FOCUS_CHIPS_HEIGHT}
+                  onToggle={(keyword) => toggleFieldKeyword(f.value, keyword)}
+                />
                 <textarea
                   value={fieldText[f.value]}
                   placeholder={f.placeholder}
                   disabled={saving}
                   onChange={(e) => setFieldText((prev) => ({ ...prev, [f.value]: e.target.value }))}
-                  onBlur={() => {
-                    if (fieldDirty(f.value)) saveAll();
-                  }}
-                  className="flex-1 w-full resize-none bg-transparent border border-border rounded-md px-2.5 py-2 text-[13px] leading-relaxed outline-none min-h-[150px] xl:min-h-0"
+                  className="flex-1 w-full resize-none bg-transparent border border-border rounded-md px-2.5 py-2 text-[13px] leading-relaxed outline-none min-h-0"
                   style={{ color: "var(--text)" }}
                 />
               </Paper>
             ))}
 
             {/* calculator container — most right */}
-            <Paper variant="outlined" sx={{ borderColor: "var(--brass)", p: 1.5, display: "flex", flexDirection: "column" }}>
+            <Paper
+              variant="outlined"
+              sx={{ borderColor: "var(--brass)", p: 1.5, display: "flex", flexDirection: "column", height: FOCUS_CARD_HEIGHT }}
+            >
               <div className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-1.5">
                 Valuation (LKR) — 1250 or 1200-1350
               </div>

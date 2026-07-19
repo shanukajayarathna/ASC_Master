@@ -2,6 +2,9 @@
 
 import { api } from "@/lib/api";
 import { valuationValueError, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
+import { toggleKeyword, type RemarkKeywordField } from "@/lib/remarkKeywords";
+import { catalogueRemarkOf, catalogueStandardOf } from "@/lib/lotDisplay";
+import KeywordChips from "@/components/valuation/KeywordChips";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Drawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
@@ -43,11 +46,13 @@ function formFromLot(lot: Lot): FormState {
     valuationTo: v?.valuationTo?.toString() ?? "",
     valuationSingle: v?.valuationSingle?.toString() ?? "",
     classification: v?.classification ?? "Unclassified",
-    standardData: v?.standardData ?? "",
+    // Falls back to the catalogue's own imported Standard/Remarks columns — the broker's
+    // file already carries these for some lots, so show that instead of a blank field.
+    standardData: v?.standardData ?? catalogueStandardOf(lot) ?? "",
     adjectiveData: v?.adjectiveData ?? "",
     liquorRemarks: v?.liquorRemarks ?? "",
     musterReport: v?.musterReport ?? "",
-    brokerNotes: v?.brokerNotes ?? "",
+    brokerNotes: v?.brokerNotes ?? catalogueRemarkOf(lot) ?? "",
     privateNotes: v?.privateNotes ?? "",
   };
 }
@@ -85,6 +90,13 @@ function ValuationDrawerContent({
 }) {
   const [form, setForm] = useState<FormState>(() => formFromLot(lot));
   const [saving, setSaving] = useState(false);
+
+  // Tapping a keyword chip adds it to that field (or removes it, if already there) —
+  // same master list the taster's reference sheets define, just local to the form until
+  // Save Ticket commits it like any other edit here.
+  const toggleFieldKeyword = (field: RemarkKeywordField, keyword: string) => {
+    setForm((f) => ({ ...f, [field]: toggleKeyword(f[field], keyword).trim() }));
+  };
 
   // Per-field validation: every entered value must be a whole LKR value in range, and a
   // range's first number must be strictly lower than its second. Empty fields are fine —
@@ -244,29 +256,50 @@ function ValuationDrawerContent({
 
         <p className="font-display text-[13.5px] font-semibold text-liquor mb-3">Taster&apos;s Remarks</p>
         <div className="flex flex-col gap-3.5 mb-2">
-          <TextField
-            label="Standard Data"
-            size="small"
-            fullWidth
-            value={form.standardData}
-            onChange={(e) => setForm((f) => ({ ...f, standardData: e.target.value }))}
-          />
-          <TextField
-            label="Adjective Data"
-            size="small"
-            fullWidth
-            value={form.adjectiveData}
-            onChange={(e) => setForm((f) => ({ ...f, adjectiveData: e.target.value }))}
-          />
-          <TextField
-            label="Liquor Remarks"
-            size="small"
-            fullWidth
-            multiline
-            minRows={2}
-            value={form.liquorRemarks}
-            onChange={(e) => setForm((f) => ({ ...f, liquorRemarks: e.target.value }))}
-          />
+          <div>
+            <KeywordChips
+              field="standardData"
+              value={form.standardData}
+              onToggle={(keyword) => toggleFieldKeyword("standardData", keyword)}
+            />
+            <TextField
+              label="Standard Data"
+              size="small"
+              fullWidth
+              value={form.standardData}
+              onChange={(e) => setForm((f) => ({ ...f, standardData: e.target.value }))}
+            />
+          </div>
+          <div>
+            <KeywordChips
+              field="adjectiveData"
+              value={form.adjectiveData}
+              onToggle={(keyword) => toggleFieldKeyword("adjectiveData", keyword)}
+            />
+            <TextField
+              label="Adjective Data"
+              size="small"
+              fullWidth
+              value={form.adjectiveData}
+              onChange={(e) => setForm((f) => ({ ...f, adjectiveData: e.target.value }))}
+            />
+          </div>
+          <div>
+            <KeywordChips
+              field="liquorRemarks"
+              value={form.liquorRemarks}
+              onToggle={(keyword) => toggleFieldKeyword("liquorRemarks", keyword)}
+            />
+            <TextField
+              label="Liquor Remarks"
+              size="small"
+              fullWidth
+              multiline
+              minRows={2}
+              value={form.liquorRemarks}
+              onChange={(e) => setForm((f) => ({ ...f, liquorRemarks: e.target.value }))}
+            />
+          </div>
           <TextField
             label="Muster Report"
             size="small"
@@ -276,13 +309,20 @@ function ValuationDrawerContent({
             value={form.musterReport}
             onChange={(e) => setForm((f) => ({ ...f, musterReport: e.target.value }))}
           />
-          <TextField
-            label="Broker Notes"
-            size="small"
-            fullWidth
-            value={form.brokerNotes}
-            onChange={(e) => setForm((f) => ({ ...f, brokerNotes: e.target.value }))}
-          />
+          <div>
+            <KeywordChips
+              field="brokerNotes"
+              value={form.brokerNotes}
+              onToggle={(keyword) => toggleFieldKeyword("brokerNotes", keyword)}
+            />
+            <TextField
+              label="Broker Notes"
+              size="small"
+              fullWidth
+              value={form.brokerNotes}
+              onChange={(e) => setForm((f) => ({ ...f, brokerNotes: e.target.value }))}
+            />
+          </div>
           <TextField
             label="Private Notes"
             size="small"
