@@ -48,9 +48,23 @@ export function lotLabel(lot: Lot): string {
   return [lot.lotNumber ? `Lot ${lot.lotNumber}` : null, lot.grade, lot.mark].filter(Boolean).join(" · ") || lot.rowKey;
 }
 
+/** The rest of lotLabel, for tables that already carry a lot-number column of their own. */
+export function gradeAndMark(lot: Lot): string {
+  return [lot.grade, lot.mark].filter(Boolean).join(" · ") || "—";
+}
+
 export function hasValuation(lot: Lot): boolean {
   const v = lot.valuation;
   return !!v && (v.valuationSingle != null || (v.valuationFrom != null && v.valuationTo != null));
+}
+
+/** The saved valuation split into the two lines the focus-mode calculator edits. */
+export function valuationPairOf(lot: Lot): { from: string; to: string } {
+  const v = lot.valuation;
+  if (v?.valuationSingle != null) return { from: String(v.valuationSingle), to: "" };
+  if (v?.valuationFrom != null && v.valuationTo != null)
+    return { from: String(v.valuationFrom), to: String(v.valuationTo) };
+  return { from: "", to: "" };
 }
 
 export function valuationToText(lot: Lot): string {

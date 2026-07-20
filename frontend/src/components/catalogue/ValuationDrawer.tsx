@@ -116,6 +116,15 @@ function ValuationDrawerContent({
     Number(form.valuationFrom) >= Number(form.valuationTo);
   const hasError = !!singleError || !!fromError || !!toError || rangeHalfMissing || rangeOrderError;
 
+  // A classification grades a valuation, so the tiers only apply once this ticket holds a
+  // value — and a ticket saved without one always stores as Unclassified (the API enforces
+  // the same rule, so a stale tier can't slip through).
+  const hasValue =
+    form.mode === "single"
+      ? form.valuationSingle.trim() !== ""
+      : form.valuationFrom.trim() !== "" && form.valuationTo.trim() !== "";
+  const activeCls: ClassificationValue = hasValue ? form.classification : "Unclassified";
+
   const title = lot.mark || lot.lotNumber || "Lot";
 
   const save = async () => {
@@ -126,7 +135,7 @@ function ValuationDrawerContent({
         valuationFrom: form.mode === "range" && form.valuationFrom.trim() ? Number(form.valuationFrom) : null,
         valuationTo: form.mode === "range" && form.valuationTo.trim() ? Number(form.valuationTo) : null,
         valuationSingle: form.mode === "single" && form.valuationSingle.trim() ? Number(form.valuationSingle) : null,
-        classification: form.classification,
+        classification: activeCls,
         standardData: form.standardData || null,
         adjectiveData: form.adjectiveData || null,
         liquorRemarks: form.liquorRemarks || null,
@@ -236,17 +245,25 @@ function ValuationDrawerContent({
         )}
 
         <p className="font-display text-[13.5px] font-semibold text-liquor mb-2 mt-4">Classification</p>
+        {!hasValue && (
+          <p className="text-[11.5px] text-text-muted mb-2">
+            Enter a valuation above first — a lot with no value carries no classification.
+          </p>
+        )}
         <div className="flex gap-1.5 mb-5 flex-wrap">
           {CLASSIFICATIONS.map((c) => (
             <button
               key={c.value}
               type="button"
+              disabled={!hasValue}
+              title={hasValue ? undefined : "Enter a valuation first"}
               onClick={() => setForm((f) => ({ ...f, classification: f.classification === c.value ? "Unclassified" : c.value }))}
-              className="px-3.5 py-1.5 rounded-full text-xs font-semibold border-[1.5px] transition-colors"
+              className="px-3.5 py-1.5 rounded-full text-xs font-semibold border-[1.5px] transition-colors disabled:cursor-not-allowed"
               style={{
-                borderColor: form.classification === c.value ? c.color : "var(--border)",
-                background: form.classification === c.value ? c.color : "var(--surface)",
-                color: form.classification === c.value ? "var(--paper-0)" : "var(--text-muted)",
+                borderColor: activeCls === c.value ? c.color : "var(--border)",
+                background: activeCls === c.value ? c.color : "var(--surface)",
+                color: activeCls === c.value ? "var(--paper-0)" : "var(--text-muted)",
+                opacity: hasValue ? 1 : 0.45,
               }}
             >
               {c.label}

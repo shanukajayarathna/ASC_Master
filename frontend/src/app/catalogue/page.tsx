@@ -14,6 +14,7 @@ import {
   type ColumnFilterState,
   type TicketStatus,
 } from "@/lib/lotFilters";
+import { sortForDisplay } from "@/lib/ourBroker";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -86,6 +87,8 @@ export default function CataloguePage() {
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState<HTMLElement | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
+  // Outcome of the last bulk classify, shown only when some lots were left unclassified.
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
@@ -99,7 +102,8 @@ export default function CataloguePage() {
     setLoadingLots(true);
     try {
       const paged = await api.getLots(activeCatalogueId, { pageSize: LARGE_PAGE_SIZE });
-      setLots(paged.rows);
+      // Our own broker's lots first, ascending by lot number — an ordering, not a filter.
+      setLots(sortForDisplay(paged.rows));
     } finally {
       setLoadingLots(false);
     }
@@ -238,7 +242,12 @@ export default function CataloguePage() {
 
   const bulkClassify = async (classification: ClassificationValue) => {
     if (selected.length === 0) return;
-    await api.bulkClassify(selected.map((l) => l.id), classification);
+    const { updated, skipped } = await api.bulkClassify(selected.map((l) => l.id), classification);
+    setBulkNotice(
+      skipped > 0
+        ? `Classified ${updated.toLocaleString()} lot${updated === 1 ? "" : "s"} — ${skipped.toLocaleString()} skipped with no valuation yet.`
+        : null
+    );
     await loadLots();
     setSelected([]);
   };
@@ -447,6 +456,20 @@ export default function CataloguePage() {
               Deselect
             </Button>
           </div>
+        </div>
+      )}
+
+      {bulkNotice && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-warn-light text-[12.5px]" style={{ color: "var(--warn)" }}>
+          {bulkNotice}
+          <button
+            type="button"
+            onClick={() => setBulkNotice(null)}
+            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
+            style={{ color: "var(--warn)" }}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

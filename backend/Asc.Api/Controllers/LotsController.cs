@@ -84,13 +84,14 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         if (hit is null) return NotFound();
         var (lot, catalogue) = hit.Value;
 
-        // Business rule: a valuation is always a whole LKR value between 50 and 10000, and
-        // a range's first number is strictly lower than its second. Mirrored client-side in
-        // frontend/src/lib/valuationInput.ts — enforced here too so no caller can bypass it.
-        static bool IsInvalid(decimal v) => v < 50 || v > 10000 || v != decimal.Truncate(v);
+        // Business rule: a valuation is always a whole LKR value of at most four digits —
+        // between 50 and 9999 — and a range's first number is strictly lower than its
+        // second. Mirrored client-side in frontend/src/lib/valuationInput.ts (where the
+        // entry fields stop at four digits) — enforced here too so no caller can bypass it.
+        static bool IsInvalid(decimal v) => v < 50 || v > 9999 || v != decimal.Truncate(v);
         foreach (var value in new[] { dto.ValuationFrom, dto.ValuationTo, dto.ValuationSingle })
             if (value.HasValue && IsInvalid(value.Value))
-                return BadRequest("Every valuation must be a whole value between 50 and 10000.");
+                return BadRequest("Every valuation must be a whole value between 50 and 9999.");
 
         if (dto.ValuationFrom.HasValue && dto.ValuationTo.HasValue && dto.ValuationFrom >= dto.ValuationTo)
             return BadRequest("ValuationFrom must be lower than ValuationTo.");
@@ -118,10 +119,24 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         val.BrokerNotes = dto.BrokerNotes;
         val.PrivateNotes = dto.PrivateNotes;
         val.UpdatedAt = DateTime.UtcNow;
+        DropTierWithoutValue(val);
 
         await UpsertValuation(lot, catalogue.Id, val);
         return Ok(ToDto(lot, val));
     }
+
+    /// <summary>
+    /// A classification grades a valuation, so a lot with no value can't carry a tier —
+    /// clearing the value clears the tier with it. Enforced on every write path so the two
+    /// can never be stored out of step, whatever a client sends.
+    /// </summary>
+    private static void DropTierWithoutValue(Valuation val)
+    {
+        if (!HasValue(val)) val.Classification = Classification.Unclassified;
+    }
+
+    private static bool HasValue(Valuation val) =>
+        val.ValuationSingle is not null || val.ValuationFrom is not null || val.ValuationTo is not null;
 
     [HttpPost("lots/bulk-classify")]
     public async Task<IActionResult> BulkClassify(BulkClassifyDto dto)
@@ -130,6 +145,7 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
             return BadRequest("Invalid classification.");
 
         int updated = 0;
+        int skipped = 0;
         foreach (var lotId in dto.LotIds)
         {
             var hit = source.FindLot(lotId);
@@ -137,12 +153,19 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
             var (lot, catalogue) = hit.Value;
             var stored = await db.Valuations.Find(v => v.LotId == lotId).FirstOrDefaultAsync();
             var val = (stored?.Valuation ?? lot.Valuation)?.Clone() ?? new Valuation();
+            // An unvalued lot can't be classified, so it's left alone entirely rather than
+            // having an empty valuation stored for it.
+            if (!HasValue(val))
+            {
+                skipped++;
+                continue;
+            }
             val.Classification = cls;
             val.UpdatedAt = DateTime.UtcNow;
             await UpsertValuation(lot, catalogue.Id, val);
             updated++;
         }
-        return Ok(new { updated });
+        return Ok(new { updated, skipped });
     }
 
     [HttpPost("lots/bulk-clear-notes")]

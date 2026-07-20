@@ -10,8 +10,8 @@ import { CLASSIFICATIONS } from "@/lib/classifications";
 import {
   catalogueRemarkOf,
   catalogueStandardOf,
+  gradeAndMark,
   hasValuation,
-  lotLabel,
   noOfChestsOf,
   sellingMarkOf,
   valuationToText,
@@ -24,13 +24,8 @@ import {
   type TicketStatus,
 } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
-import {
-  parseValuationInput,
-  sanitizeValuationInput,
-  valuationTypingFeedback,
-  VALUATION_MAX,
-  VALUATION_MIN,
-} from "@/lib/valuationInput";
+import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
+import { sortForDisplay } from "@/lib/ourBroker";
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
 import {
   effectiveOfParsed,
@@ -173,7 +168,9 @@ export default function ValuationCentrePage() {
     setLoading(true);
     api
       .getLots(activeCatalogueId, { pageSize: 20000 })
-      .then((paged) => setLots(paged.rows))
+      // Our own broker's lots first, ascending by lot number — an ordering, not a filter,
+      // so the rest of the sale is still on the list right below them.
+      .then((paged) => setLots(sortForDisplay(paged.rows)))
       .finally(() => setLoading(false));
   }, [activeCatalogueId]);
 
@@ -196,8 +193,8 @@ export default function ValuationCentrePage() {
   }, [activeCatalogueId]);
 
   // The working set is the whole selected sale — every lot from every broker, valued or
-  // not, in the catalogue's natural (lot) order. Anything still unvalued is always on the
-  // list; the status filter narrows it down when wanted.
+  // not, ordered by sortForDisplay (our own lots first, ascending by lot number). Anything
+  // still unvalued is always on the list; the status filter narrows it down when wanted.
   const displayedLots = lots;
 
   // The list actually on screen — universal search (every raw column), per-column
@@ -342,8 +339,9 @@ export default function ValuationCentrePage() {
 
   // Move focus to the next step in the row flow: valuation → classification → extras → next lot.
   // Classification is the gate — focus never reaches the next lot while this one is unclassified.
+  // A lot with no valuation has nothing to classify, so the gate doesn't apply to it.
   const advance = (lot: Lot, index: number, from: "valuation" | "classification" | ExtraField) => {
-    if (!isClassified(lot)) {
+    if (hasValuation(lot) && !isClassified(lot)) {
       setClsNeededId(lot.id);
       clsRefs.current[lot.id]?.focus();
       return;
@@ -384,13 +382,15 @@ export default function ValuationCentrePage() {
 
     const currentCls = lot.valuation?.classification ?? "Unclassified";
     let autoTier: ClassificationValue | null = null;
-    if (currentCls === "Unclassified" || autoClsIds.has(lot.id)) {
+    if (parsed.kind === "clear") {
+      // The value is gone, so the tier goes with it — hand-picked or not, a lot with no
+      // valuation carries no classification (the API enforces this too).
+      patch.classification = "Unclassified";
+    } else if (currentCls === "Unclassified" || autoClsIds.has(lot.id)) {
       const stats = gradeStatsFor(prevStats, lot.grade);
       const liveValue = effectiveOfParsed(parsed);
       autoTier = stats && liveValue !== null ? suggestTier(stats, liveValue) : null;
       if (autoTier) patch.classification = autoTier;
-      // The value is gone — an auto-picked tier goes with it (hand-picked ones stay).
-      else if (parsed.kind === "clear" && autoClsIds.has(lot.id)) patch.classification = "Unclassified";
     }
 
     setSavingId(lot.id);
@@ -468,7 +468,10 @@ export default function ValuationCentrePage() {
   };
 
   // Classification saves instantly on click — clicking the active tier again clears it.
+  // Only ever on a valued lot: a tier grades a valuation, so an unvalued row's chips are
+  // disabled and every keyboard path into here bounces off this guard.
   const commitClassification = async (lot: Lot, index: number, value: ClassificationValue) => {
+    if (!hasValuation(lot)) return;
     const current = lot.valuation?.classification ?? "Unclassified";
     const next: ClassificationValue = current === value ? "Unclassified" : value;
     setSavingId(lot.id);
@@ -661,26 +664,8 @@ export default function ValuationCentrePage() {
               sx={{ flex: 1, height: 6, borderRadius: 3 }}
             />
           </div>
-          <p className="text-[12px] text-text-muted mb-2">
-            Type a single value (e.g. <span className="font-mono">1250</span>) or a range (e.g.{" "}
-            <span className="font-mono">1200-1350</span>) — it&apos;s detected automatically. Valuations are whole
-            values from <span className="font-mono">{VALUATION_MIN}</span> to <span className="font-mono">{VALUATION_MAX}</span>,
-            and in a range the first number must be lower than the second (the field only accepts digits and a dash).
-            As soon as the value is valid, the classification{" "}
-            <strong>auto-selects from the previous sale&apos;s record for that grade</strong>, with a note showing the
-            grade&apos;s previous values for that tier (highlight any tier with{" "}
-            <span className="font-mono">←</span>/<span className="font-mono">→</span> to see its own — the full
-            per-tier history is also in each lot&apos;s details view). Press{" "}
-            <strong>Enter</strong> and the value and classification save together — you jump straight to the next lot.
-            Override any time: press <span className="font-mono">1</span>–<span className="font-mono">4</span>, click a
-            tier, or highlight one with <span className="font-mono">←</span>/<span className="font-mono">→</span> and{" "}
-            <strong>Enter</strong>. A grade with no previous-sale history still needs a manual classification. The arrow keys move freely around the grid — <span className="font-mono">↑</span>/
-            <span className="font-mono">↓</span> between lots, <span className="font-mono">←</span>/
-            <span className="font-mono">→</span> across a row&apos;s fields — and anything you&apos;ve typed is saved on the
-            way out. Leave blank + Enter to clear a valuation. On a tablet, use <strong>Focus mode</strong> (or the{" "}
-            <OpenInFullIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> button on a row) to work one lot at a time
-            with an on-screen keypad — the filters below choose which lots it walks through.
-          </p>
+          {/* The how-to-use paragraph that sat here is in Help — the entry rules show
+              themselves inline as you type (live feedback, tier hints, error messages). */}
           <div className="flex items-center gap-2 flex-wrap mb-3">
             <TextField
               size="small"
@@ -803,8 +788,8 @@ export default function ValuationCentrePage() {
               <TableHead>
                 <TableRow>
                   {[
-                    "#",
-                    "Lot",
+                    "Lot No",
+                    "Grade / Mark",
                     "Broker",
                     "Selling Mark",
                     "Bags",
@@ -837,6 +822,10 @@ export default function ValuationCentrePage() {
               <TableBody>
                 {visibleLots.slice(0, renderLimit).map((lot, index) => {
                   const saved = savedIds.has(lot.id);
+                  // A tier grades a saved valuation — until this row has one, its chips are
+                  // dead. (Unlike focus mode, clicking a chip here doesn't save the typed
+                  // value, so a half-typed number can't stand in for one.)
+                  const valued = hasValuation(lot);
                   const classified = isClassified(lot);
                   const complete = saved && classified;
                   const clsNeeded = clsNeededId === lot.id && !classified;
@@ -899,10 +888,10 @@ export default function ValuationCentrePage() {
                         ...(complete && !error && { borderLeft: "3px solid var(--sage)" }),
                       }}
                     >
-                      <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-muted)" }}>
-                        {index + 1}
+                      <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>
+                        {lot.lotNumber ?? "—"}
                       </TableCell>
-                      <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{lotLabel(lot)}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5 }}>{gradeAndMark(lot)}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{lot.broker || "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5 }}>{sellingMarkOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
@@ -1030,14 +1019,21 @@ export default function ValuationCentrePage() {
                                 key={c.value}
                                 type="button"
                                 tabIndex={-1}
-                                disabled={savingId === lot.id}
+                                disabled={savingId === lot.id || !valued}
                                 onClick={() => commitClassification(lot, index, c.value)}
-                                title={currentCls === c.value ? "Click again to unset" : `Mark as ${c.label} (press ${c.key})`}
-                                className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
+                                title={
+                                  !valued
+                                    ? "Save a valuation first — a classification grades a value"
+                                    : currentCls === c.value
+                                      ? "Click again to unset"
+                                      : `Mark as ${c.label} (press ${c.key})`
+                                }
+                                className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap disabled:cursor-not-allowed"
                                 style={{
                                   borderColor: displayCls === c.value ? c.color : "var(--border)",
                                   background: displayCls === c.value ? c.color : "transparent",
                                   color: displayCls === c.value ? "var(--paper-0)" : "var(--text-muted)",
+                                  opacity: valued || liveTier ? 1 : 0.45,
                                   ...(highlighted && { boxShadow: `0 0 0 2px ${c.color}` }),
                                 }}
                               >

@@ -82,8 +82,10 @@ export const api = {
       body: JSON.stringify(dto),
     }),
 
+  // `skipped` counts lots left alone because they have no valuation — a classification
+  // grades a value, so an unvalued lot can't take one.
   bulkClassify: (lotIds: string[], classification: string) =>
-    request<{ updated: number }>("/api/lots/bulk-classify", {
+    request<{ updated: number; skipped: number }>("/api/lots/bulk-classify", {
       method: "POST",
       body: JSON.stringify({ lotIds, classification }),
     }),

@@ -4,7 +4,7 @@ import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
-import { lotLabel, noOfChestsOf, sellingMarkOf, weightPerChestOf } from "@/lib/lotDisplay";
+import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, weightPerChestOf } from "@/lib/lotDisplay";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
@@ -177,7 +177,10 @@ export default function WorksheetPage() {
     saveLot(lot, { [field]: raw === "" ? null : raw }, index);
   };
 
+  // A tier grades a valuation, so a lot with no value can't take one — value it in the
+  // Valuation Centre first. The chips for such a row are disabled; this guards the keys.
   const commitClassification = (lot: Lot, index: number, value: ClassificationValue) => {
+    if (!hasValuation(lot)) return;
     saveLot(lot, { classification: value }, index);
   };
 
@@ -288,6 +291,7 @@ export default function WorksheetPage() {
               <TableBody>
                 {displayedLots.map((lot, index) => {
                   const saved = hasField(lot, field);
+                  const valued = hasValuation(lot);
                   const error = errors[lot.id];
                   const current = lot.valuation?.classification ?? "Unclassified";
                   return (
@@ -327,14 +331,15 @@ export default function WorksheetPage() {
                               <button
                                 key={c.value}
                                 type="button"
-                                disabled={savingId === lot.id}
+                                disabled={savingId === lot.id || !valued}
                                 onClick={() => commitClassification(lot, index, c.value)}
-                                title={`Press ${c.key}`}
-                                className="px-2.5 py-1 rounded-full text-[11px] font-semibold border-[1.5px] cursor-pointer"
+                                title={valued ? `Press ${c.key}` : "Value this lot first — a classification grades a value"}
+                                className="px-2.5 py-1 rounded-full text-[11px] font-semibold border-[1.5px] cursor-pointer disabled:cursor-not-allowed"
                                 style={{
                                   borderColor: current === c.value ? c.color : "var(--border)",
                                   background: current === c.value ? c.color : "transparent",
                                   color: current === c.value ? "var(--paper-0)" : "var(--text-muted)",
+                                  opacity: valued ? 1 : 0.45,
                                 }}
                               >
                                 {c.label}

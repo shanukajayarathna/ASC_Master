@@ -11,10 +11,15 @@ import {
   minimumLimitOf,
   noOfChestsOf,
   sellingMarkOf,
-  valuationToText,
+  valuationPairOf,
   weightPerChestOf,
 } from "@/lib/lotDisplay";
-import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
+import {
+  parseValuationPair,
+  sanitizeValuationSide,
+  valuationPairFeedback,
+  VALUATION_MAX_DIGITS,
+} from "@/lib/valuationInput";
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
 import type { ColumnFilterState, TicketStatus } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
@@ -127,17 +132,31 @@ function Fact({ label, value, strong }: { label: string; value: string | null | 
 // pixel value rather than relying on CSS grid row-stretch, which only equalizes heights
 // within the same grid row and falls apart the moment the responsive column count
 // changes how the 5 cards wrap into rows (e.g. tablet widths at 2 columns).
-const FOCUS_CARD_HEIGHT = 420;
+// (Raised from 420 when the calculator gained its second entry line — the keypad's five
+// 48px rows must still fit under both lines without the card clipping them.)
+const FOCUS_CARD_HEIGHT = 460;
 // Fixed (not just capped) height for the keyword-card row — every field gets the exact
 // same amount of space here regardless of how many terms it lists, so the remaining space
 // handed to the textarea below is identical across all four boxes too.
 const FOCUS_CHIPS_HEIGHT = 170;
 
+/** The two lines of the calculator: the value itself, and the optional upper end of a range. */
+type ValuationLine = "from" | "to";
+
+const VALUATION_LINES: { line: ValuationLine; prefix: string; label: string; placeholder: string }[] = [
+  { line: "from", prefix: "Rs.", label: "Valuation", placeholder: "e.g. 1250" },
+  { line: "to", prefix: "to", label: "Range upper value", placeholder: "only for a range" },
+];
+
+// The bottom-left key jumps to the second line instead of typing a range dash — on a
+// tablet, tapping "Range" and using the same keypad beats hunting for a "-" separator.
+const RANGE_KEY = "Range";
+
 const KEYPAD_ROWS: string[][] = [
   ["7", "8", "9"],
   ["4", "5", "6"],
   ["1", "2", "3"],
-  ["-", "0", "⌫"],
+  [RANGE_KEY, "0", "⌫"],
 ];
 
 export default function ValuationFocus({
@@ -151,7 +170,10 @@ export default function ValuationFocus({
   onExit,
   onLotUpdated,
 }: ValuationFocusProps) {
-  const [text, setText] = useState(() => valuationToText(lot));
+  // The valuation as the two entry lines hold it — `to` stays empty for a single value.
+  const [pair, setPair] = useState(() => valuationPairOf(lot));
+  // Which line the keypad types into.
+  const [activeLine, setActiveLine] = useState<ValuationLine>("from");
   const [fieldText, setFieldText] = useState<Record<FocusTextField, string>>(() => seedFields(lot));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -161,7 +183,7 @@ export default function ValuationFocus({
   // Auto-classification ran but this grade has no previous-sale history.
   const [noPrevData, setNoPrevData] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const lineRefs = useRef<Record<ValuationLine, HTMLInputElement | null>>({ from: null, to: null });
 
   function seedFields(l: Lot): Record<FocusTextField, string> {
     return {
@@ -178,21 +200,23 @@ export default function ValuationFocus({
   const lotId = lot.id;
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setText(valuationToText(lot));
+    setPair(valuationPairOf(lot));
+    setActiveLine("from");
     setFieldText(seedFields(lot));
     setError(null);
     setClsNeeded(false);
     setAutoCls(false);
     setNoPrevData(false);
-    // Give the keypad input focus — but never steal it while the user is typing in
+    // Give the value line focus — but never steal focus while the user is typing in
     // another field (the search bar / a filter / a remark box), or searching would be
     // interrupted the moment the first match changes the focused lot.
     const active = document.activeElement;
     const typingElsewhere =
       active instanceof HTMLElement &&
-      active !== inputRef.current &&
+      active !== lineRefs.current.from &&
+      active !== lineRefs.current.to &&
       (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.getAttribute("role") === "combobox");
-    if (!typingElsewhere) inputRef.current?.focus();
+    if (!typingElsewhere) lineRefs.current.from?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lotId]);
 
@@ -209,28 +233,56 @@ export default function ValuationFocus({
   const currentCls = v?.classification ?? "Unclassified";
   const saved = hasValuation(lot);
   const complete = saved && isClassified(lot);
-  const valuationDirty = text !== valuationToText(lot);
+  const savedPair = valuationPairOf(lot);
+  const valuationDirty = pair.from !== savedPair.from || pair.to !== savedPair.to;
   const fieldDirty = (f: FocusTextField) => fieldText[f].trim() !== (v?.[f] ?? "").trim();
-  const feedback = !error && valuationDirty ? valuationTypingFeedback(text) : null;
+  const feedback = !error && valuationDirty ? valuationPairFeedback(pair.from, pair.to) : null;
   // While the typed value is valid and the tier isn't hand-picked, the previous sale's
   // suggestion previews as selected — it's saved together with the value.
-  const liveParsed = valuationDirty ? parseValuationInput(text) : null;
+  const liveParsed = valuationDirty ? parseValuationPair(pair.from, pair.to) : null;
   const liveValue = liveParsed ? effectiveOfParsed(liveParsed) : null;
   const mayAuto = currentCls === "Unclassified" || autoCls;
   const liveTier = mayAuto && liveValue !== null && gradeStats ? suggestTier(gradeStats, liveValue) : null;
-  const displayCls = liveTier ?? currentCls;
+  // A tier grades a valuation, so the tiers are only live once this lot has one — already
+  // saved, or typed and valid, since tapping a tier saves the value along with it. Clearing
+  // the lines takes the tier with them (enforced server-side too).
+  const valuePresent = liveParsed ? liveParsed.kind === "single" || liveParsed.kind === "range" : saved;
+  const displayCls = valuePresent ? (liveTier ?? currentCls) : "Unclassified";
 
-  // All text paths (typing, paste, keypad) funnel through here — the sanitizer keeps
-  // the field to digits and a single range dash no matter how input arrives.
-  const edit = (updater: (prev: string) => string) => {
+  // A range's upper value has no meaning on its own, so the second line stays locked
+  // (and the keypad's Range key with it) until the first line has a value.
+  const rangeLineLocked = pair.from === "";
+
+  // All text paths (typing, paste, keypad) funnel through here — the sanitizer keeps each
+  // line to at most four digits no matter how the input arrives.
+  const edit = (line: ValuationLine, updater: (prev: string) => string) => {
     setError(null);
-    setText((prev) => sanitizeValuationInput(updater(prev)));
+    setPair((prev) => {
+      const next = { ...prev, [line]: sanitizeValuationSide(updater(prev[line])) };
+      // Emptying the value line takes the range with it — the second line is about to
+      // lock, and leaving a number stranded behind a disabled field would be a trap.
+      if (line === "from" && next.from === "") next.to = "";
+      return next;
+    });
+    if (line === "from") setActiveLine("from");
+  };
+
+  /** Move the keypad (and the caret) to a line. */
+  const goToLine = (line: ValuationLine) => {
+    setActiveLine(line);
+    lineRefs.current[line]?.focus();
   };
 
   const pressKey = (key: string) => {
-    if (key === "⌫") edit((t) => t.slice(0, -1));
-    else edit((t) => t + key);
-    inputRef.current?.focus();
+    if (key === RANGE_KEY) {
+      if (!rangeLineLocked) goToLine("to");
+      return;
+    }
+    // The locked second line can never be the keypad's target, whatever was active last.
+    const line = rangeLineLocked ? "from" : activeLine;
+    if (key === "⌫") edit(line, (t) => t.slice(0, -1));
+    else edit(line, (t) => t + key);
+    lineRefs.current[line]?.focus();
   };
 
   /**
@@ -243,7 +295,7 @@ export default function ValuationFocus({
     // null = the auto flag is untouched by this save; true/false = set/cleared.
     let autoApplied: boolean | null = null;
     if (valuationDirty) {
-      const parsed = parseValuationInput(text);
+      const parsed = parseValuationPair(pair.from, pair.to);
       if (parsed.kind === "error") {
         setError(parsed.message);
         return null;
@@ -261,19 +313,20 @@ export default function ValuationFocus({
         patch.valuationFrom = parsed.from;
         patch.valuationTo = parsed.to;
       }
-      // Live auto-classification rides along with a new value while the tier is unset
-      // or was itself auto-picked — an explicit tier in `extra` (a tap) always wins,
-      // and a hand-picked tier is never touched.
-      if (patch.classification === undefined && (currentCls === "Unclassified" || autoCls)) {
+      if (parsed.kind === "clear") {
+        // The value is gone, so the tier goes with it — hand-picked or not, a lot with no
+        // valuation carries no classification.
+        patch.classification = "Unclassified";
+        autoApplied = false;
+      } else if (patch.classification === undefined && (currentCls === "Unclassified" || autoCls)) {
+        // Live auto-classification rides along with a new value while the tier is unset
+        // or was itself auto-picked — an explicit tier in `extra` (a tap) always wins,
+        // and a hand-picked tier is never touched.
         const liveValue = effectiveOfParsed(parsed);
         const tier = gradeStats && liveValue !== null ? suggestTier(gradeStats, liveValue) : null;
         if (tier) {
           patch.classification = tier;
           autoApplied = true;
-        } else if (parsed.kind === "clear" && autoCls) {
-          // The value is gone — the auto-picked tier goes with it.
-          patch.classification = "Unclassified";
-          autoApplied = false;
         }
       }
     }
@@ -372,6 +425,10 @@ export default function ValuationFocus({
     if (next !== "Unclassified") setClsNeeded(false);
   };
 
+  // The details box shows the valuation live from the calculator, so what's on the keypad
+  // and what the lot's details say never disagree while a value is being entered.
+  const typedValuation = pair.to ? `${pair.from}-${pair.to}` : pair.from;
+
   const facts: { label: string; value: string | null | undefined; strong?: boolean }[] = [
     { label: "Lot No", value: lot.lotNumber, strong: true },
     { label: "Broker", value: lot.broker, strong: true },
@@ -383,7 +440,7 @@ export default function ValuationFocus({
     { label: "Standard", value: v?.standardData ?? catalogueStandardOf(lot) },
     { label: "Remark", value: catalogueRemarkOf(lot) ?? v?.adjectiveData },
     { label: "Liquor Remarks", value: v?.liquorRemarks },
-    { label: "Valuation", value: valuationToText(lot) || null, strong: true },
+    { label: valuationDirty ? "Valuation (unsaved)" : "Valuation", value: typedValuation || null, strong: true },
     { label: "Asking", value: askingPriceOf(lot) },
     { label: "Minimum Limit", value: minimumLimitOf(lot) },
   ];
@@ -396,13 +453,14 @@ export default function ValuationFocus({
       className="fixed inset-0 z-[60] flex flex-col"
       style={{ background: "var(--surface-alt)" }}
       onKeyDown={(e) => {
+        const onValuationLine = e.target === lineRefs.current.from || e.target === lineRefs.current.to;
         if (e.key === "Escape") {
           e.preventDefault();
           onExit();
-        } else if (e.key === "PageUp" || (e.key === "ArrowUp" && e.target === inputRef.current)) {
+        } else if (e.key === "PageUp" || (e.key === "ArrowUp" && onValuationLine)) {
           e.preventDefault();
           goTo(index - 1);
-        } else if (e.key === "PageDown" || (e.key === "ArrowDown" && e.target === inputRef.current)) {
+        } else if (e.key === "PageDown" || (e.key === "ArrowDown" && onValuationLine)) {
           e.preventDefault();
           goTo(index + 1);
         }
@@ -629,14 +687,21 @@ export default function ValuationFocus({
                   <button
                     key={c.value}
                     type="button"
-                    disabled={saving}
+                    disabled={saving || !valuePresent}
                     onClick={() => commitClassification(c.value)}
-                    title={active ? "Tap again to unset" : `Mark as ${c.label}`}
-                    className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5"
+                    title={
+                      !valuePresent
+                        ? "Enter a valuation first — a classification grades a value"
+                        : active
+                          ? "Tap again to unset"
+                          : `Mark as ${c.label}`
+                    }
+                    className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5 disabled:cursor-not-allowed"
                     style={{
                       borderColor: c.color,
                       background: active ? c.color : "var(--surface)",
                       color: active ? "var(--paper-0)" : c.color,
+                      opacity: valuePresent ? 1 : 0.4,
                     }}
                   >
                     <span className="block text-[15px] font-bold leading-tight">
@@ -669,17 +734,22 @@ export default function ValuationFocus({
             </button>
           </div>
           <div className="min-h-[20px] mb-1.5">
-            {liveTier && gradeStats && (
+            {!valuePresent && (
+              <span className="text-[11.5px] font-semibold text-text-muted">
+                Enter a valuation first — a lot with no value carries no classification
+              </span>
+            )}
+            {valuePresent && liveTier && gradeStats && (
               <span className="text-[11.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
                 Auto-selects on save · {tierSummary(lot.grade, gradeStats, liveTier)} — tap another tier to override
               </span>
             )}
-            {!liveTier && autoCls && gradeStats && currentCls !== "Unclassified" && (
+            {valuePresent && !liveTier && autoCls && gradeStats && currentCls !== "Unclassified" && (
               <span className="text-[11.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
                 Auto-selected · {tierSummary(lot.grade, gradeStats, currentCls)} — tap another tier to override
               </span>
             )}
-            {mayAuto && liveValue !== null && !gradeStats && (
+            {valuePresent && mayAuto && liveValue !== null && !gradeStats && (
               <span className="text-[11.5px] font-semibold text-text-muted">
                 No previous-sale data for {lot.grade ?? "this grade"} — tap a tier manually
               </span>
@@ -727,29 +797,55 @@ export default function ValuationFocus({
               sx={{ borderColor: "var(--brass)", p: 1.5, display: "flex", flexDirection: "column", height: FOCUS_CARD_HEIGHT }}
             >
               <div className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-1.5">
-                Valuation (LKR) — 1250 or 1200-1350
+                Valuation (LKR) — up to {VALUATION_MAX_DIGITS} digits
               </div>
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[12px] text-text-muted font-mono shrink-0">Rs.</span>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  inputMode="none"
-                  autoFocus
-                  placeholder="Keypad or type"
-                  className="w-full min-w-0 px-2.5 py-2 rounded-lg border-2 text-[20px] font-mono font-semibold bg-transparent tracking-wide"
-                  style={{ borderColor: error ? "var(--danger)" : "var(--brass)", color: "var(--text-strong)" }}
-                  value={text}
-                  disabled={saving}
-                  onChange={(e) => edit(() => e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      saveAndNext();
-                    }
-                  }}
-                />
-              </div>
+              {/* Two lines instead of one dash-separated field: fill the first alone for a
+                  single value, both for a range. The active line is what the keypad types
+                  into, and is outlined so it's obvious which one that is. */}
+              {VALUATION_LINES.map(({ line, prefix, label, placeholder }) => {
+                const locked = line === "to" && rangeLineLocked;
+                const active = activeLine === line && !locked;
+                return (
+                  <div key={line} className="flex items-center gap-1.5 mb-1">
+                    <span
+                      className="text-[11px] font-mono shrink-0 w-[26px] text-right"
+                      style={{ color: locked ? "var(--border)" : "var(--text-muted)" }}
+                    >
+                      {prefix}
+                    </span>
+                    <input
+                      ref={(el) => {
+                        lineRefs.current[line] = el;
+                      }}
+                      type="text"
+                      inputMode="numeric"
+                      autoFocus={line === "from"}
+                      aria-label={label}
+                      placeholder={locked ? "enter the value first" : placeholder}
+                      title={locked ? "Type the value on the line above first" : undefined}
+                      className="w-full min-w-0 px-2.5 py-1.5 rounded-lg border-2 text-[19px] font-mono font-semibold bg-transparent tracking-wide disabled:cursor-not-allowed"
+                      style={{
+                        borderColor: error && !locked ? "var(--danger)" : active ? "var(--brass)" : "var(--border)",
+                        color: "var(--text-strong)",
+                        opacity: locked ? 0.45 : 1,
+                      }}
+                      value={pair[line]}
+                      disabled={saving || locked}
+                      onFocus={() => setActiveLine(line)}
+                      onChange={(e) => {
+                        setActiveLine(line);
+                        edit(line, () => e.target.value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveAndNext();
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              })}
               <div className="min-h-[16px] mb-1.5">
                 {error && <span className="text-[11px] text-danger">{error}</span>}
                 {!error && feedback && feedback.tone !== "none" && (
@@ -764,29 +860,46 @@ export default function ValuationFocus({
               </div>
 
               <div className="grid grid-cols-3 gap-1.5 select-none flex-1">
-                {KEYPAD_ROWS.flat().map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    disabled={saving}
-                    onClick={() => pressKey(key)}
-                    aria-label={key === "⌫" ? "Backspace" : key === "-" ? "Range dash" : key}
-                    className="min-h-[48px] rounded-lg border text-[19px] font-semibold font-mono cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
-                    style={{
-                      borderColor: "var(--border)",
-                      background: "var(--surface-alt)",
-                      color: key === "⌫" ? "var(--danger)" : "var(--text-strong)",
-                    }}
-                  >
-                    {key === "⌫" ? <BackspaceOutlinedIcon sx={{ fontSize: 20, verticalAlign: "middle" }} /> : key}
-                  </button>
-                ))}
+                {KEYPAD_ROWS.flat().map((key) => {
+                  const isRange = key === RANGE_KEY;
+                  // Locked in step with the second line itself — no range before a value.
+                  const rangeLocked = isRange && rangeLineLocked;
+                  const rangeArmed = isRange && activeLine === "to" && !rangeLineLocked;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={saving || rangeLocked}
+                      onClick={() => pressKey(key)}
+                      aria-label={key === "⌫" ? "Backspace" : isRange ? "Type the range's upper value" : key}
+                      title={
+                        isRange
+                          ? rangeLocked
+                            ? "Type the value first, then add its upper end"
+                            : "Enter an upper value — makes this a range"
+                          : undefined
+                      }
+                      className={`min-h-[48px] rounded-lg border font-semibold font-mono cursor-pointer touch-manipulation active:scale-[0.97] transition-transform disabled:cursor-not-allowed ${
+                        isRange ? "text-[12px]" : "text-[19px]"
+                      }`}
+                      style={{
+                        borderColor: rangeArmed ? "var(--brass)" : "var(--border)",
+                        background: rangeArmed ? "var(--brass-dim)" : "var(--surface-alt)",
+                        color: key === "⌫" ? "var(--danger)" : "var(--text-strong)",
+                        opacity: rangeLocked ? 0.4 : 1,
+                      }}
+                    >
+                      {key === "⌫" ? <BackspaceOutlinedIcon sx={{ fontSize: 20, verticalAlign: "middle" }} /> : key}
+                    </button>
+                  );
+                })}
                 <button
                   type="button"
                   disabled={saving}
                   onClick={() => {
-                    edit(() => "");
-                    inputRef.current?.focus();
+                    setError(null);
+                    setPair({ from: "", to: "" });
+                    goToLine("from");
                   }}
                   className="min-h-[48px] rounded-lg border text-[13px] font-semibold cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
                   style={{ borderColor: "var(--border)", background: "var(--surface-alt)", color: "var(--text-muted)" }}
