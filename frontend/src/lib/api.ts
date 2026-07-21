@@ -10,6 +10,12 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
 
+/** What media a lot currently has: a photo, and which remark fields carry a voice note. */
+export interface LotMedia {
+  photo: boolean;
+  voice: string[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -95,6 +101,66 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ lotIds }),
     }),
+
+  // ---- per-lot media (photo + voice notes) --------------------------------------
+  // Binaries are stored locally on the API (data/media) behind a DB-swappable seam; the
+  // browser sends the captured/recorded blob as a raw PUT body.
+
+  getLotMedia: (lotId: string) => request<LotMedia>(`/api/lots/${lotId}/media`),
+
+  /** <img>/<audio> src straight to the API. Pass `v` (a version/timestamp) to bust the
+   *  browser cache after a photo is replaced or deleted. */
+  photoUrl: (lotId: string, v?: number | string) =>
+    `${API_BASE}/api/lots/${lotId}/photo${v != null ? `?v=${v}` : ""}`,
+
+  voiceUrl: (lotId: string, field: string, v?: number | string) =>
+    `${API_BASE}/api/lots/${lotId}/voice/${field}${v != null ? `?v=${v}` : ""}`,
+
+  /** Load the stored photo as a blob (same-origin object URL) so it can be re-cropped
+   *  in a canvas without cross-origin taint. */
+  fetchPhotoBlob: async (lotId: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`);
+    if (!res.ok) throw new Error("Could not load the photo.");
+    return res.blob();
+  },
+
+  uploadPhoto: async (lotId: string, blob: Blob): Promise<LotMedia> => {
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
+      method: "PUT",
+      headers: { "Content-Type": blob.type || "image/jpeg" },
+      body: blob,
+    });
+    if (!res.ok) throw new Error((await res.text().catch(() => "")) || "Photo upload failed.");
+    return res.json();
+  },
+
+  deletePhoto: async (lotId: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Could not delete the photo.");
+  },
+
+  /** Load a stored voice note as a blob so it plays from a same-origin object URL — more
+   *  reliable across browsers than a cross-origin <audio src> with range requests. */
+  fetchVoiceBlob: async (lotId: string, field: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`);
+    if (!res.ok) throw new Error("Could not load the voice note.");
+    return res.blob();
+  },
+
+  uploadVoice: async (lotId: string, field: string, blob: Blob): Promise<LotMedia> => {
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
+      method: "PUT",
+      headers: { "Content-Type": blob.type || "audio/webm" },
+      body: blob,
+    });
+    if (!res.ok) throw new Error((await res.text().catch(() => "")) || "Voice upload failed.");
+    return res.json();
+  },
+
+  deleteVoice: async (lotId: string, field: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Could not delete the voice note.");
+  },
 
   exportExcel: async (catalogueId: string, lotIds: string[]): Promise<Blob> => {
     const res = await fetch(`${API_BASE}/api/catalogues/${catalogueId}/export/excel`, {

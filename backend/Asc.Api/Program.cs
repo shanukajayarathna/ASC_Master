@@ -22,6 +22,9 @@ builder.Services.AddSingleton<CatalogueImportService>();
 // this seam — swap the implementation to move catalogues into a database (e.g. Azure).
 builder.Services.AddSingleton<SaleFileStore>();
 builder.Services.AddSingleton<ICatalogueSource>(sp => sp.GetRequiredService<SaleFileStore>());
+// Per-lot photos and voice notes — disk-backed for now (data/media) behind a seam that a
+// database/blob store can take over later without touching the media controller.
+builder.Services.AddSingleton<ILotMediaStore, LocalLotMediaStore>();
 // Warm every sale's row count/headers at startup so no sale lists as "0 lots" just
 // because it hasn't been opened since the meta cache was last written.
 builder.Services.AddHostedService<SaleMetaWarmer>();

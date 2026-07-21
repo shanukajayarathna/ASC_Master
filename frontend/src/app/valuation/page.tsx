@@ -10,8 +10,8 @@ import { CLASSIFICATIONS } from "@/lib/classifications";
 import {
   catalogueRemarkOf,
   catalogueStandardOf,
-  gradeAndMark,
   hasValuation,
+  markCodeOf,
   noOfChestsOf,
   sellingMarkOf,
   valuationToText,
@@ -789,9 +789,9 @@ export default function ValuationCentrePage() {
                 <TableRow>
                   {[
                     "Lot No",
-                    "Grade / Mark",
+                    "Grade",
                     "Broker",
-                    "Selling Mark",
+                    "Selling Mark / Code",
                     "Bags",
                     "Wt/Bag (kg)",
                     "Valuation (LKR)",
@@ -831,6 +831,8 @@ export default function ValuationCentrePage() {
                   const clsNeeded = clsNeededId === lot.id && !classified;
                   const error = errors[lot.id];
                   const currentCls = lot.valuation?.classification ?? "Unclassified";
+                  // The garden mark code travels with the selling mark, not the grade.
+                  const markCode = markCodeOf(lot) ?? lot.mark;
                   const text = values[lot.id] ?? "";
                   // Live feedback only while the text differs from what's already saved —
                   // settled rows stay quiet.
@@ -891,9 +893,14 @@ export default function ValuationCentrePage() {
                       <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>
                         {lot.lotNumber ?? "—"}
                       </TableCell>
-                      <TableCell sx={{ fontSize: 12.5 }}>{gradeAndMark(lot)}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5 }}>{lot.grade || "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{lot.broker || "—"}</TableCell>
-                      <TableCell sx={{ fontSize: 12.5 }}>{sellingMarkOf(lot) ?? "—"}</TableCell>
+                      <TableCell sx={{ fontSize: 12.5 }}>
+                        {sellingMarkOf(lot) ?? "—"}
+                        {markCode && (
+                          <span className="block text-[11px] text-text-muted font-mono">{markCode}</span>
+                        )}
+                      </TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
                       <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{weightPerChestOf(lot) ?? "—"}</TableCell>
                       <TableCell>

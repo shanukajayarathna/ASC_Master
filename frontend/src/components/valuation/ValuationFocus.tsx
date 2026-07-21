@@ -1,7 +1,9 @@
 "use client";
 
 import { CLASSIFICATIONS } from "@/lib/classifications";
-import { api } from "@/lib/api";
+import { api, type LotMedia } from "@/lib/api";
+import LotPhoto from "@/components/valuation/LotPhoto";
+import VoiceRecorder from "@/components/valuation/VoiceRecorder";
 import {
   askingPriceOf,
   catalogueRemarkOf,
@@ -12,8 +14,11 @@ import {
   noOfChestsOf,
   sellingMarkOf,
   valuationPairOf,
+  valuationToText,
   weightPerChestOf,
 } from "@/lib/lotDisplay";
+import { OUR_BROKER } from "@/lib/ourBroker";
+import { buildSharingIndex, sharingsFor } from "@/lib/sharings";
 import {
   parseValuationPair,
   sanitizeValuationSide,
@@ -40,6 +45,7 @@ import BackspaceOutlinedIcon from "@mui/icons-material/BackspaceOutlined";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SearchIcon from "@mui/icons-material/Search";
@@ -50,7 +56,7 @@ import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /** Filter state lifted from the Valuation Centre page — the focus view edits the very
  *  same filters the list uses (identical to Catalogue Manager's per-column engine),
@@ -96,6 +102,11 @@ interface ValuationFocusProps {
 }
 
 const isClassified = (lot: Lot) => (lot.valuation?.classification ?? "Unclassified") !== "Unclassified";
+
+/** A short, human "Lot 3 · ROBGILL · BOP" label — names the lot in the Back button. */
+function shortLotLabel(l: Lot): string {
+  return [l.lotNumber ? `Lot ${l.lotNumber}` : null, sellingMarkOf(l), l.grade].filter(Boolean).join(" · ") || l.rowKey;
+}
 
 type FocusTextField = "standardData" | "adjectiveData" | "brokerNotes" | "liquorRemarks";
 
@@ -183,7 +194,47 @@ export default function ValuationFocus({
   // Auto-classification ran but this grade has no previous-sale history.
   const [noPrevData, setNoPrevData] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // "Sharings" comparison panel — other brokers' lots of this same mark + grade.
+  const [sharingsOpen, setSharingsOpen] = useState(false);
+  // The lot you left when you tapped a sharing — drives the one-tap "Back to your lot"
+  // banner so you can value a shared lot and return without hunting for where you were.
+  const [returnAnchor, setReturnAnchor] = useState<{ id: string; label: string } | null>(null);
   const lineRefs = useRef<Record<ValuationLine, HTMLInputElement | null>>({ from: null, to: null });
+
+  // Index the whole sale by mark+grade once, then pull this lot's sharings from it. The
+  // working set (filters.lots) is every lot in the sale, so the comparison spans all brokers.
+  const sharingIndex = useMemo(() => buildSharingIndex(filters.lots), [filters.lots]);
+  // A sharing is another broker's lot of this same mark + grade — our own lots (and this
+  // lot itself) are left out, so the panel shows only who else is offering it.
+  const sharings = useMemo(
+    () => sharingsFor(sharingIndex, lot).filter((l) => l.broker !== OUR_BROKER),
+    [sharingIndex, lot]
+  );
+
+  // Per-lot media (photo + per-field voice notes), loaded once per lot. `mediaVersion` busts
+  // the <img>/<audio> cache after a photo/voice is replaced or deleted for the same lot.
+  const [media, setMedia] = useState<LotMedia | null>(null);
+  const [mediaVersion, setMediaVersion] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMedia(null);
+    api
+      .getLotMedia(lot.id)
+      .then((m) => {
+        if (!cancelled) setMedia(m);
+      })
+      .catch(() => {
+        if (!cancelled) setMedia({ photo: false, voice: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lot.id]);
+  const refreshMedia = () => {
+    setMediaVersion((v) => v + 1);
+    api.getLotMedia(lot.id).then(setMedia).catch(() => {});
+  };
 
   function seedFields(l: Lot): Record<FocusTextField, string> {
     return {
@@ -394,7 +445,11 @@ export default function ValuationFocus({
       if (!auto) setClsNeeded(true);
       return;
     }
-    if (index + 1 < total) onNavigate(index + 1);
+    if (index + 1 < total) {
+      // Moving on in the normal flow leaves the sharing round-trip behind.
+      setReturnAnchor(null);
+      onNavigate(index + 1);
+    }
   };
 
   const goTo = async (target: number) => {
@@ -402,6 +457,7 @@ export default function ValuationFocus({
     const updated = await saveAll();
     if (!updated) return;
     if (target < 0 || target >= total) return;
+    setReturnAnchor(null);
     onNavigate(target);
   };
 
@@ -410,7 +466,29 @@ export default function ValuationFocus({
     if (id === lot.id) return;
     const updated = await saveAll();
     if (!updated) return;
+    setReturnAnchor(null);
     onJump(id);
+  };
+
+  // Open a shared lot to value it, remembering the lot we left so the Back banner can
+  // return here in one tap. Saves the current lot first (same as every move here does).
+  const openSharing = async (target: Lot) => {
+    if (target.id === lot.id) return;
+    const from = { id: lot.id, label: shortLotLabel(lot) };
+    const updated = await saveAll();
+    if (!updated) return;
+    setReturnAnchor(from);
+    onJump(target.id);
+  };
+
+  // The Back banner: save this (shared) lot, then hop back to where the comparison started.
+  const returnToAnchor = async () => {
+    if (!returnAnchor) return;
+    const backId = returnAnchor.id;
+    const updated = await saveAll();
+    if (!updated) return;
+    setReturnAnchor(null);
+    onJump(backId);
   };
 
   // Tapping a tier saves it but stays on this lot — moving on is always an explicit
@@ -428,6 +506,8 @@ export default function ValuationFocus({
   // The details box shows the valuation live from the calculator, so what's on the keypad
   // and what the lot's details say never disagree while a value is being entered.
   const typedValuation = pair.to ? `${pair.from}-${pair.to}` : pair.from;
+  // This lot's packing (net weight per bag) — a sharing on a different packing is flagged.
+  const currentWtBag = weightPerChestOf(lot);
 
   const facts: { label: string; value: string | null | undefined; strong?: boolean }[] = [
     { label: "Lot No", value: lot.lotNumber, strong: true },
@@ -547,6 +627,22 @@ export default function ValuationFocus({
         </div>
       </div>
 
+      {/* ---- "you jumped here to compare" return banner ---- */}
+      {returnAnchor && (
+        <button
+          type="button"
+          onClick={returnToAnchor}
+          title="Save this lot and go back to the lot you were valuing"
+          className="flex items-center gap-2 px-3 md:px-5 py-3 border-b-2 shrink-0 text-left cursor-pointer touch-manipulation active:opacity-90 w-full"
+          style={{ background: "var(--liquor)", color: "var(--paper-0)", borderColor: "var(--brass)" }}
+        >
+          <ArrowBackIcon sx={{ fontSize: 22 }} />
+          <span className="font-bold text-[14px]">Back to {returnAnchor.label}</span>
+          <span className="text-[12px] opacity-85 hidden sm:inline">— the lot you were valuing</span>
+          <span className="ml-auto text-[12px] font-semibold opacity-90 whitespace-nowrap">Tap to return ↩</span>
+        </button>
+      )}
+
       {/* ---- collapsible per-column filter panel (same engine as Catalogue Manager) ---- */}
       {filtersOpen && (
         <div
@@ -623,10 +719,27 @@ export default function ValuationFocus({
           {/* lot details box */}
           <Paper variant="outlined" sx={{ borderColor: "var(--border)", mb: 2 }}>
             <div
-              className="px-4 py-2 border-b border-border flex items-center gap-2"
+              className="px-4 py-2 border-b border-border flex flex-wrap items-center gap-x-2 gap-y-1"
               style={{ background: "var(--surface-sunken)" }}
             >
               <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">Lot Details</span>
+              <button
+                type="button"
+                onClick={() => setSharingsOpen((o) => !o)}
+                title="Show other brokers offering the same mark &amp; grade in this sale — compare packing and asking prices"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11.5px] font-semibold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
+                style={{
+                  borderColor: sharings.length ? "var(--brass)" : "var(--border)",
+                  background: sharingsOpen ? "var(--brass-dim)" : "transparent",
+                  color: sharings.length ? "var(--text-strong)" : "var(--text-muted)",
+                }}
+              >
+                <CompareArrowsIcon sx={{ fontSize: 16 }} />
+                Sharings ({sharings.length})
+              </button>
+              {media && (
+                <LotPhoto lotId={lot.id} has={media.photo} version={mediaVersion} onChanged={refreshMedia} />
+              )}
               <span className="ml-auto flex items-center gap-1.5 text-[11.5px] font-semibold">
                 {complete ? (
                   <>
@@ -658,6 +771,101 @@ export default function ValuationFocus({
                   <Fact key={f.label} {...f} />
                 ))}
             </div>
+
+            {/* ---- sharings: other brokers' lots of this same mark + grade ---- */}
+            {sharingsOpen && (
+              <div className="border-t border-border px-4 py-3" style={{ background: "var(--surface-sunken)" }}>
+                {sharings.length === 0 ? (
+                  <p className="text-[12.5px] text-text-muted m-0 leading-relaxed">
+                    No other broker is offering{" "}
+                    <strong style={{ color: "var(--text-strong)" }}>{sellingMarkOf(lot) ?? "this mark"}</strong>
+                    {lot.grade ? ` · ${lot.grade}` : ""} in this sale.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-text-muted m-0 mb-2 leading-snug">
+                      Same mark &amp; grade across brokers. Compare packing &amp; asking below, then tap another
+                      broker&apos;s row to open and value that lot — a{" "}
+                      <strong style={{ color: "var(--text-strong)" }}>Back</strong> bar then brings you straight here.
+                    </p>
+                    <div className="overflow-x-auto -mx-1 px-1">
+                      <table className="w-full border-collapse text-[12.5px]">
+                        <thead>
+                          <tr>
+                            {["Broker", "Lot", "Bags", "Wt/Bag", "Asking", "Valuation", "Go"].map((h) => (
+                              <th
+                                key={h}
+                                className="font-mono text-[9px] tracking-widest uppercase text-text-muted font-semibold px-2 py-1 text-left whitespace-nowrap"
+                              >
+                                {h === "Go" ? "" : h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sharings.map((l) => {
+                            const isAnchor = returnAnchor?.id === l.id;
+                            const wtBag = weightPerChestOf(l);
+                            const diffPacking = !!wtBag && !!currentWtBag && wtBag !== currentWtBag;
+                            const valText = valuationToText(l);
+                            return (
+                              <tr
+                                key={l.id}
+                                onClick={isAnchor ? () => returnToAnchor() : () => openSharing(l)}
+                                title={isAnchor ? "Go back to this lot" : "Open this lot to value it"}
+                                className="cursor-pointer touch-manipulation active:opacity-80"
+                                style={{
+                                  borderLeft: isAnchor ? "3px solid var(--brass)" : "3px solid transparent",
+                                }}
+                              >
+                                <td className="px-2 py-2 whitespace-nowrap font-semibold" style={{ color: "var(--text)" }}>
+                                  {l.broker || "—"}
+                                  {isAnchor && <span className="text-text-muted font-normal"> · you came from here</span>}
+                                </td>
+                                <td className="px-2 py-2 whitespace-nowrap font-mono">{l.lotNumber ?? "—"}</td>
+                                <td className="px-2 py-2 whitespace-nowrap font-mono">{noOfChestsOf(l) ?? "—"}</td>
+                                <td
+                                  className="px-2 py-2 whitespace-nowrap font-mono"
+                                  style={diffPacking ? { color: "var(--warn)", fontWeight: 700 } : undefined}
+                                  title={diffPacking ? "Different packing from your lot" : undefined}
+                                >
+                                  {wtBag ?? "—"}
+                                  {diffPacking ? " ≠" : ""}
+                                </td>
+                                <td className="px-2 py-2 whitespace-nowrap font-mono">{askingPriceOf(l) ?? "—"}</td>
+                                <td
+                                  className="px-2 py-2 whitespace-nowrap font-mono font-semibold"
+                                  style={{ color: valText ? "var(--text-strong)" : "var(--text-muted)" }}
+                                >
+                                  {valText || "—"}
+                                </td>
+                                <td className="px-2 py-2 whitespace-nowrap text-right">
+                                  {isAnchor ? (
+                                    <span
+                                      className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold"
+                                      style={{ background: "var(--liquor)", color: "var(--paper-0)" }}
+                                    >
+                                      ↩ Back
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border"
+                                      style={{ borderColor: "var(--liquor)", color: "var(--liquor)" }}
+                                    >
+                                      Open →
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </Paper>
 
           {/* classification tiers, flanked by big tap-friendly previous/next-lot buttons —
@@ -770,9 +978,20 @@ export default function ValuationFocus({
                 variant="outlined"
                 sx={{ borderColor: "var(--border)", p: 1.5, display: "flex", flexDirection: "column", height: FOCUS_CARD_HEIGHT }}
               >
-                <div className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-1.5">
-                  {f.label}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">{f.label}</span>
                 </div>
+                {media && (
+                  <div className="mb-1.5">
+                    <VoiceRecorder
+                      lotId={lot.id}
+                      field={f.value}
+                      has={media.voice.includes(f.value)}
+                      version={mediaVersion}
+                      onChanged={refreshMedia}
+                    />
+                  </div>
+                )}
                 <KeywordChips
                   field={f.value}
                   value={fieldText[f.value]}
