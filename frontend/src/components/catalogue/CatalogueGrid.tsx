@@ -2,6 +2,7 @@
 
 import "./agGridSetup";
 import { formatCurrency } from "@/lib/format";
+import { SALE_COLUMN_HEADER } from "@/lib/multiSale";
 import type { ColumnMeta, Lot } from "@/types/api";
 import { AgGridReact } from "ag-grid-react";
 import type { ColDef, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
@@ -55,16 +56,20 @@ export default function CatalogueGrid({
 
     headers.forEach((h) => {
       const meta = columnMeta[h];
+      // "Sale" is the synthetic column identifying each lot's sale in a multi-sale set —
+      // pinned so it stays in view while scrolling wide catalogues, and never editable.
+      const isSale = h === SALE_COLUMN_HEADER;
       cols.push({
         field: h,
         headerName: h,
         hide: hiddenColumns.has(h),
         filter: meta?.categorical ? "agSetColumnFilter" : meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
         type: meta?.numeric ? "numericColumn" : undefined,
-        minWidth: 100,
+        minWidth: isSale ? 120 : 100,
         maxWidth: 260,
         tooltipField: h,
-        editable: true,
+        editable: !isSale,
+        ...(isSale && { pinned: "left" as const, cellClass: "font-semibold" }),
       });
     });
 

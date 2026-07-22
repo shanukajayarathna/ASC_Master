@@ -19,7 +19,9 @@ interface CatalogueCtx {
   error: string | null;
   refreshList: () => Promise<void>;
   selectCatalogue: (id: string | null) => Promise<void>;
-  importFile: (file: File) => Promise<void>;
+  /** Import a sale file. Returns the new catalogue; pass `{ select: false }` to add it to the
+   *  list without switching the active sale (e.g. to fold it into a multi-sale selection). */
+  importFile: (file: File, options?: { select?: boolean }) => Promise<CatalogueDetail>;
   removeCatalogue: (id: string) => Promise<void>;
 }
 
@@ -75,13 +77,14 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const importFile = useCallback(
-    async (file: File) => {
+    async (file: File, options?: { select?: boolean }) => {
       setLoading(true);
       try {
         setError(null);
         const detail = await api.importCatalogue(file);
         await refreshList();
-        await selectCatalogue(detail.id);
+        if (options?.select !== false) await selectCatalogue(detail.id);
+        return detail;
       } catch (e) {
         setError(e instanceof Error ? e.message : "Import failed");
         throw e;

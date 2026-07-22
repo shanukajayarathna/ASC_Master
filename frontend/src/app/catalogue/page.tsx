@@ -7,6 +7,7 @@ import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
+import { buildExportColumns, defaultExportColumnIds } from "@/lib/exportColumns";
 import {
   emptyColumnFilter,
   filterLots,
@@ -14,18 +15,22 @@ import {
   type ColumnFilterState,
   type TicketStatus,
 } from "@/lib/lotFilters";
-import { sortForDisplay } from "@/lib/ourBroker";
+import { combineSales, SALE_COLUMN_HEADER, type CombinedCatalogue } from "@/lib/multiSale";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
 import Badge from "@mui/material/Badge";
+import Divider from "@mui/material/Divider";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
 import ListItemText from "@mui/material/ListItemText";
+import Tooltip from "@mui/material/Tooltip";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
+import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -69,11 +74,33 @@ const STATUS_LABELS: Record<string, string> = {
 // Valuation Centre and Worksheet pages.
 const LARGE_PAGE_SIZE = 20000;
 
+const EMPTY_COMBINED: CombinedCatalogue = {
+  lots: [],
+  headers: [],
+  columnMeta: {},
+  catalogueIdByLot: new Map(),
+  saleNames: [],
+};
+
 export default function CataloguePage() {
   const router = useRouter();
-  const { activeCatalogueId, activeCatalogue, importFile, loading: catalogueLoading, error: catalogueError } = useCatalogue();
-  const [lots, setLots] = useState<Lot[]>([]);
+  const {
+    catalogues,
+    activeCatalogueId,
+    selectCatalogue,
+    importFile,
+    loading: catalogueLoading,
+    error: catalogueError,
+  } = useCatalogue();
+
+  // Which sales are pooled into the working set. Seeded to the Topbar's active sale, then
+  // grown/narrowed with the in-page "Sales" picker. Always at least one sale.
+  const [selectedSaleIds, setSelectedSaleIds] = useState<string[]>([]);
+  const [salesMenuAnchor, setSalesMenuAnchor] = useState<HTMLElement | null>(null);
+
+  const [combined, setCombined] = useState<CombinedCatalogue>(EMPTY_COMBINED);
   const [loadingLots, setLoadingLots] = useState(false);
+
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Lot[]>([]);
   const [drawerLot, setDrawerLot] = useState<Lot | null>(null);
@@ -83,6 +110,7 @@ export default function CataloguePage() {
   const [workMenuAnchor, setWorkMenuAnchor] = useState<HTMLElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState<HTMLElement | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(true);
@@ -93,41 +121,76 @@ export default function CataloguePage() {
   const [classificationFilter, setClassificationFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Guards against a slow sale load overwriting a newer one when the selection changes fast.
+  const loadSeq = useRef(0);
 
-  const loadLots = useCallback(async () => {
-    if (!activeCatalogueId) {
-      setLots([]);
-      return;
-    }
-    setLoadingLots(true);
-    try {
-      const paged = await api.getLots(activeCatalogueId, { pageSize: LARGE_PAGE_SIZE });
-      // Our own broker's lots first, ascending by lot number — an ordering, not a filter.
-      setLots(sortForDisplay(paged.rows));
-    } finally {
-      setLoadingLots(false);
-    }
+  const multiSale = selectedSaleIds.length > 1;
+  const { lots, headers, columnMeta, catalogueIdByLot, saleNames } = combined;
+
+  // Fetch every selected sale (headers + lots) and pool them. `resetView` clears filters and
+  // column visibility to the pooled defaults — done when the sale selection changes, but not
+  // on a plain data refresh (e.g. after a bulk classify) so the current filters survive.
+  const loadCombined = useCallback(
+    async (resetView: boolean) => {
+      if (selectedSaleIds.length === 0) {
+        setCombined(EMPTY_COMBINED);
+        return;
+      }
+      const seq = ++loadSeq.current;
+      setLoadingLots(true);
+      try {
+        const entries = await Promise.all(
+          selectedSaleIds.map(async (id) => {
+            const [detail, paged] = await Promise.all([
+              api.getCatalogue(id),
+              api.getLots(id, { pageSize: LARGE_PAGE_SIZE }),
+            ]);
+            return { id, sourceName: detail.sourceName, detail, lots: paged.rows };
+          })
+        );
+        if (seq !== loadSeq.current) return; // a newer load superseded this one
+        const c = combineSales(entries, selectedSaleIds.length > 1);
+        setCombined(c);
+        if (resetView) {
+          setHiddenColumns(
+            new Set(Object.entries(c.columnMeta).filter(([, m]) => !m.defaultVisible).map(([h]) => h))
+          );
+          setColumnFilters({});
+          setStatusFilter("");
+          setClassificationFilter("");
+          setYearFilter("");
+          setSelected([]);
+        }
+      } finally {
+        if (seq === loadSeq.current) setLoadingLots(false);
+      }
+    },
+    [selectedSaleIds]
+  );
+
+  // Reload from scratch (reset view) whenever the pooled sale selection changes.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadCombined(true);
+  }, [loadCombined]);
+
+  // Picking a sale in the Topbar resets the page to that single sale — the in-page picker
+  // then grows the pool from there. Keeps the Topbar behaving exactly as before.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedSaleIds(activeCatalogueId ? [activeCatalogueId] : []);
   }, [activeCatalogueId]);
 
-  useEffect(() => {
-    // Data-fetch-on-dependency-change effect (loadLots synchronously clears lots for the
-    // no-catalogue case before its async fetch), not the derived-state anti-pattern the rule targets.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadLots();
-  }, [loadLots]);
+  const reload = useCallback(() => loadCombined(false), [loadCombined]);
 
-  useEffect(() => {
-    // Resets column visibility and all filters to defaults whenever the active catalogue changes.
-    const meta = activeCatalogue?.columnMeta;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHiddenColumns(
-      meta ? new Set(Object.entries(meta).filter(([, m]) => !m.defaultVisible).map(([h]) => h)) : new Set()
-    );
-    setColumnFilters({});
-    setStatusFilter("");
-    setClassificationFilter("");
-    setYearFilter("");
-  }, [activeCatalogue?.id, activeCatalogue?.columnMeta]);
+  const toggleSale = (id: string) => {
+    setSelectedSaleIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (next.length === 0) return prev; // keep at least one sale in the pool
+      // Order by the catalogue list (newest first) so sale blocks stay in a stable order.
+      return catalogues.filter((c) => next.includes(c.id)).map((c) => c.id);
+    });
+  };
 
   const toggleColumn = (header: string) => {
     setHiddenColumns((prev) => {
@@ -177,7 +240,7 @@ export default function CataloguePage() {
       chips.push({
         key: `col-${header}`,
         label,
-        onRemove: () => setColumnFilters((prev) => ({ ...prev, [header]: emptyColumnFilter(activeCatalogue?.columnMeta[header]) })),
+        onRemove: () => setColumnFilters((prev) => ({ ...prev, [header]: emptyColumnFilter(columnMeta[header]) })),
       });
     });
     if (statusFilter) {
@@ -194,14 +257,51 @@ export default function CataloguePage() {
       chips.push({ key: "year", label: `Year: ${yearFilter}`, onRemove: () => setYearFilter("") });
     }
     return chips;
-  }, [columnFilters, statusFilter, classificationFilter, yearFilter, activeCatalogue?.columnMeta]);
+  }, [columnFilters, statusFilter, classificationFilter, yearFilter, columnMeta]);
 
   const activeFilterCount = activeFilterChips.length;
 
+  // Export plumbing — the picker's available columns, and which are ticked by default (the
+  // grid's shown columns + valuation/classification, plus Sale when spanning sales).
+  const availableExportColumns = useMemo(() => buildExportColumns(headers, multiSale), [headers, multiSale]);
+  const exportDefaultColumnIds = useMemo(
+    () => defaultExportColumnIds(headers, hiddenColumns, multiSale),
+    [headers, hiddenColumns, multiSale]
+  );
+  const catalogueIdForLot = useCallback(
+    (l: Lot) => catalogueIdByLot.get(l.id) ?? activeCatalogueId ?? "",
+    [catalogueIdByLot, activeCatalogueId]
+  );
+  const reportTitle = saleNames.length === 1 ? saleNames[0] : `${saleNames.length} sales`;
+
+  // How many distinct sales the current selection spans — Valuation/Worksheet are per-sale,
+  // so those hand-offs only work when the selection sits inside a single sale.
+  const selectionSaleCount = useMemo(
+    () => new Set(selected.map((l) => catalogueIdByLot.get(l.id))).size,
+    [selected, catalogueIdByLot]
+  );
+  const workDisabled = selectionSaleCount !== 1;
+
+  // The first import (from the empty-state dropzone) — bring the file in and switch to it.
   const handleFile = async (file: File) => {
     setImportError(null);
     try {
       await importFile(file);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Import failed");
+    }
+  };
+
+  // Import an extra file into the working set: it joins the pooled sales (rather than
+  // replacing the view), so it's immediately filterable / exportable / valuable alongside
+  // the rest. Its columns union in with the others — the same layout mostly, so it just fits.
+  const handleImport = async (file: File) => {
+    setImportError(null);
+    setImportNotice(null);
+    try {
+      const detail = await importFile(file, { select: false });
+      setSelectedSaleIds((prev) => (prev.includes(detail.id) ? prev : [...prev, detail.id]));
+      setImportNotice(`Imported ${detail.sourceName} — added to your selected sales.`);
     } catch (e) {
       setImportError(e instanceof Error ? e.message : "Import failed");
     }
@@ -218,23 +318,28 @@ export default function CataloguePage() {
   };
 
   const handleSaved = (updated: Lot) => {
-    setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    setCombined((prev) => ({ ...prev, lots: prev.lots.map((l) => (l.id === updated.id ? updated : l)) }));
     setDrawerOpen(false);
   };
 
-  // Hands the current selection off to the right workspace for the chosen section —
-  // Valuation has its own dedicated page (it always shows the whole sale, so no lot
-  // handoff is needed); every other section shares the Lot Worksheet.
-  const openWorkSection = (section: WorksheetField | "valuation") => {
+  // Hands the current selection off to the right workspace for the chosen section. Valuation
+  // has its own page (it always shows the whole sale, so no lot hand-off is needed) — every
+  // other section shares the Lot Worksheet. Both are per-sale, so the selection must sit in
+  // one sale (the button is disabled otherwise); if that sale isn't the active one, switch to
+  // it first so the target page opens on the right catalogue.
+  const openWorkSection = async (section: WorksheetField | "valuation") => {
     setWorkMenuAnchor(null);
-    if (!activeCatalogueId || selected.length === 0) return;
+    if (selected.length === 0 || workDisabled) return;
+    const saleId = catalogueIdByLot.get(selected[0].id);
+    if (!saleId) return;
     const lotIds = selected.map((l) => l.id);
     if (section === "valuation") {
+      if (saleId !== activeCatalogueId) await selectCatalogue(saleId);
       router.push("/valuation");
     } else {
       window.sessionStorage.setItem(
         WORKSHEET_HANDOFF_KEY,
-        JSON.stringify({ catalogueId: activeCatalogueId, lotIds, field: section })
+        JSON.stringify({ catalogueId: saleId, lotIds, field: section })
       );
       router.push("/worksheet");
     }
@@ -248,14 +353,14 @@ export default function CataloguePage() {
         ? `Classified ${updated.toLocaleString()} lot${updated === 1 ? "" : "s"} — ${skipped.toLocaleString()} skipped with no valuation yet.`
         : null
     );
-    await loadLots();
+    await reload();
     setSelected([]);
   };
 
   const bulkClearNotes = async () => {
     if (selected.length === 0) return;
     await api.bulkClearNotes(selected.map((l) => l.id));
-    await loadLots();
+    await reload();
     setSelected([]);
   };
 
@@ -319,14 +424,26 @@ export default function CataloguePage() {
         <div>
           <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Catalogue Manager</h1>
           <p className="text-[13px] text-text-muted m-0">
-            {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots · {activeCatalogue?.headers.length} columns
+            {reportTitle} · {lots.length.toLocaleString()} lots · {headers.length} columns
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Badge badgeContent={multiSale ? selectedSaleIds.length : 0} color="primary" invisible={!multiSale}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<LayersOutlinedIcon fontSize="small" />}
+              onClick={(e) => setSalesMenuAnchor(e.currentTarget)}
+            >
+              Sales
+            </Button>
+          </Badge>
           <ExportShareMenu
-            catalogueId={activeCatalogueId}
-            catalogueName={activeCatalogue?.sourceName ?? "Catalogue"}
             lots={filteredLots}
+            reportTitle={reportTitle}
+            catalogueIdForLot={catalogueIdForLot}
+            availableColumns={availableExportColumns}
+            defaultColumnIds={exportDefaultColumnIds}
           />
           <Button
             variant="outlined"
@@ -336,8 +453,13 @@ export default function CataloguePage() {
           >
             Columns
           </Button>
-          <Button variant="outlined" size="small" onClick={() => fileInputRef.current?.click()}>
-            Load a different file
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<UploadFileOutlinedIcon fontSize="small" />}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Import file
           </Button>
         </div>
         <input
@@ -347,12 +469,37 @@ export default function CataloguePage() {
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) handleImport(f);
             e.target.value = "";
           }}
         />
+
+        {/* Multi-sale picker: pool several weekly sales into one filterable / exportable set. */}
+        <Menu anchorEl={salesMenuAnchor} open={!!salesMenuAnchor} onClose={() => setSalesMenuAnchor(null)}>
+          <div className="px-3.5 pt-1 pb-2 flex items-center gap-2">
+            <span className="text-[12px] text-text-muted font-mono">
+              {selectedSaleIds.length} of {catalogues.length} sales
+            </span>
+            <div className="ml-auto flex gap-1">
+              <Button size="small" onClick={() => setSelectedSaleIds(catalogues.map((c) => c.id))}>
+                All
+              </Button>
+              <Button size="small" onClick={() => activeCatalogueId && setSelectedSaleIds([activeCatalogueId])}>
+                One
+              </Button>
+            </div>
+          </div>
+          <Divider />
+          {catalogues.map((c) => (
+            <MenuItem key={c.id} onClick={() => toggleSale(c.id)} dense>
+              <Checkbox checked={selectedSaleIds.includes(c.id)} size="small" />
+              <ListItemText primary={c.sourceName} secondary={`${c.rowCount.toLocaleString()} lots`} />
+            </MenuItem>
+          ))}
+        </Menu>
+
         <Menu anchorEl={columnsMenuAnchor} open={!!columnsMenuAnchor} onClose={() => setColumnsMenuAnchor(null)}>
-          {activeCatalogue?.headers.map((h) => (
+          {headers.map((h) => (
             <MenuItem key={h} onClick={() => toggleColumn(h)} dense>
               <Checkbox checked={!hiddenColumns.has(h)} size="small" />
               <ListItemText primary={h} />
@@ -385,10 +532,10 @@ export default function CataloguePage() {
         </span>
       </div>
 
-      {filtersOpen && activeCatalogue && (
+      {filtersOpen && headers.length > 0 && (
         <FilterPanel
-          headers={activeCatalogue.headers}
-          columnMeta={activeCatalogue.columnMeta}
+          headers={headers}
+          columnMeta={columnMeta}
           lots={lots}
           columnFilters={columnFilters}
           onColumnFilterChange={setColumnFilter}
@@ -399,6 +546,7 @@ export default function CataloguePage() {
           year={yearFilter}
           onYearChange={setYearFilter}
           onClearAll={clearAllFilters}
+          extraCategoricalHeaders={multiSale ? [SALE_COLUMN_HEADER] : undefined}
         />
       )}
 
@@ -413,20 +561,27 @@ export default function CataloguePage() {
       {selected.length > 0 && (
         <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-md bg-ink-solid-900 text-white mb-3 flex-wrap">
           <Chip
-            label={`${selected.length} lot${selected.length === 1 ? "" : "s"} selected`}
+            label={`${selected.length} lot${selected.length === 1 ? "" : "s"} selected${
+              selectionSaleCount > 1 ? ` · ${selectionSaleCount} sales` : ""
+            }`}
             size="small"
             sx={{ bgcolor: "rgba(217,182,92,0.18)", color: "var(--brass-light)", fontFamily: "var(--font-mono)" }}
           />
           <div className="flex gap-1.5 ml-auto flex-wrap">
-            <Button
-              size="small"
-              variant="contained"
-              color="primary"
-              startIcon={<BoltIcon fontSize="small" />}
-              onClick={(e) => setWorkMenuAnchor(e.currentTarget)}
-            >
-              Work on selection…
-            </Button>
+            <Tooltip title={workDisabled ? "Narrow the selection to a single sale to value or worksheet it" : ""}>
+              <span>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  disabled={workDisabled}
+                  startIcon={<BoltIcon fontSize="small" />}
+                  onClick={(e) => setWorkMenuAnchor(e.currentTarget)}
+                >
+                  Work on selection…
+                </Button>
+              </span>
+            </Tooltip>
             <Menu anchorEl={workMenuAnchor} open={!!workMenuAnchor} onClose={() => setWorkMenuAnchor(null)}>
               {WORK_SECTIONS.map((s) => (
                 <MenuItem key={s.field} dense onClick={() => openWorkSection(s.field)}>
@@ -451,7 +606,14 @@ export default function CataloguePage() {
               Clear notes
             </Button>
             <span className="w-px self-stretch bg-white/15 mx-0.5" />
-            <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={selected} dark />
+            <ExportShareMenu
+              lots={selected}
+              reportTitle={reportTitle}
+              catalogueIdForLot={catalogueIdForLot}
+              availableColumns={availableExportColumns}
+              defaultColumnIds={exportDefaultColumnIds}
+              dark
+            />
             <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setSelected([])}>
               Deselect
             </Button>
@@ -473,13 +635,41 @@ export default function CataloguePage() {
         </div>
       )}
 
+      {importNotice && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+          {importNotice}
+          <button
+            type="button"
+            onClick={() => setImportNotice(null)}
+            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
+            style={{ color: "var(--sage-dark)" }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {importError && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-danger-light text-[12.5px]" style={{ color: "var(--danger)" }}>
+          {importError}
+          <button
+            type="button"
+            onClick={() => setImportError(null)}
+            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
+            style={{ color: "var(--danger)" }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {loadingLots ? (
         <p className="text-text-muted text-sm">Loading lots…</p>
-      ) : activeCatalogue ? (
+      ) : headers.length > 0 ? (
         <CatalogueGrid
           lots={filteredLots}
-          headers={activeCatalogue.headers}
-          columnMeta={activeCatalogue.columnMeta}
+          headers={headers}
+          columnMeta={columnMeta}
           hiddenColumns={hiddenColumns}
           onViewLot={viewLotDetails}
           onEditLot={editLot}

@@ -162,11 +162,19 @@ export const api = {
     if (!res.ok) throw new Error("Could not delete the voice note.");
   },
 
-  exportExcel: async (catalogueId: string, lotIds: string[]): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/catalogues/${catalogueId}/export/excel`, {
+  /**
+   * Excel export. Lots are (catalogue, lot) pairs so one workbook can span several sales
+   * at once; `columns` is the ordered set of columns to include (raw catalogue columns or
+   * the app's own valuation fields), so the file carries only what was asked for.
+   */
+  exportExcel: async (
+    lots: { catalogueId: string; lotId: string }[],
+    columns: { kind: string; key: string; label: string }[]
+  ): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/export/excel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lotIds }),
+      body: JSON.stringify({ lots, columns }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

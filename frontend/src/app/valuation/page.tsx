@@ -7,6 +7,7 @@ import ValuationFocus from "@/components/valuation/ValuationFocus";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { CLASSIFICATIONS } from "@/lib/classifications";
+import { buildExportColumns, defaultExportColumnIds, hiddenFromMeta } from "@/lib/exportColumns";
 import {
   catalogueRemarkOf,
   catalogueStandardOf,
@@ -586,7 +587,17 @@ export default function ValuationCentrePage() {
             </Button>
           )}
           {activeCatalogueId && displayedLots.length > 0 && (
-            <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={displayedLots} />
+            <ExportShareMenu
+              lots={displayedLots}
+              reportTitle={activeCatalogue?.sourceName ?? "Catalogue"}
+              catalogueIdForLot={() => activeCatalogueId}
+              availableColumns={buildExportColumns(activeCatalogue?.headers ?? [], false)}
+              defaultColumnIds={defaultExportColumnIds(
+                activeCatalogue?.headers ?? [],
+                hiddenFromMeta(activeCatalogue?.columnMeta ?? {}),
+                false
+              )}
+            />
           )}
           <Button
             variant="contained"

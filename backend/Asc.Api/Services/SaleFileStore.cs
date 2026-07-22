@@ -143,6 +143,15 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         return result.OrderByDescending(c => c.ImportedAt).ToList();
     }
 
+    /// <summary>The next unused sale number — the highest on disk + 1 (or 1 when the folder
+    /// is empty). Lets a file that isn't named by sale number still be imported: it slots in
+    /// as the next sale, keeping the deterministic-id / weekly-sequence identity intact.</summary>
+    public int NextSaleNumber()
+    {
+        var files = ScanFiles();
+        return files.Count == 0 ? 1 : files.Max(f => f.SaleNo) + 1;
+    }
+
     public Catalogue? GetCatalogue(Guid id) => LoadByCatalogueId(id)?.Catalogue;
 
     public IReadOnlyList<Lot>? GetLots(Guid catalogueId) => LoadByCatalogueId(catalogueId)?.Lots;

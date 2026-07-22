@@ -1,4 +1,5 @@
 import { formatCurrency } from "@/lib/format";
+import { SALE_COLUMN_HEADER } from "@/lib/multiSale";
 import type { Lot } from "@/types/api";
 
 function effectiveValue(lot: Lot): number | null {
@@ -31,10 +32,15 @@ export function printLotsReport(lots: Lot[], catalogueName: string) {
   const win = window.open("", "_blank", "noopener,noreferrer");
   if (!win) return;
 
+  // Show the Sale column only when the lots actually span several sales (the pooled set
+  // tags each lot with its sale in rawData).
+  const showSale = lots.some((l) => l.rawData[SALE_COLUMN_HEADER]);
+
   const rows = lots
     .map((l) => {
       const value = effectiveValue(l);
       return `<tr>
+        ${showSale ? `<td>${esc(l.rawData[SALE_COLUMN_HEADER])}</td>` : ""}
         <td class="mono">${esc(l.lotNumber)}</td>
         <td>${esc(l.broker)}</td>
         <td>${esc(l.grade)}</td>
@@ -87,6 +93,7 @@ export function printLotsReport(lots: Lot[], catalogueName: string) {
   <table>
     <thead>
       <tr>
+        ${showSale ? "<th>Sale</th>" : ""}
         <th class="mono">Lot No</th><th>Broker</th><th>Grade</th><th>Garden / Mark</th><th>Category</th>
         <th class="num">Net Wt (kg)</th><th class="num">Valuation</th><th>Classification</th><th>Standard Data</th><th>Liquor Remarks</th>
       </tr>

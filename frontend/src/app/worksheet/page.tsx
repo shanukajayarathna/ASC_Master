@@ -3,6 +3,7 @@
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
+import { buildExportColumns, defaultExportColumnIds, hiddenFromMeta } from "@/lib/exportColumns";
 import { formatCurrency } from "@/lib/format";
 import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, weightPerChestOf } from "@/lib/lotDisplay";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
@@ -207,7 +208,17 @@ export default function WorksheetPage() {
         </div>
         <div className="flex gap-2">
           {activeCatalogueId && displayedLots.length > 0 && (
-            <ExportShareMenu catalogueId={activeCatalogueId} catalogueName={activeCatalogue?.sourceName ?? "Catalogue"} lots={displayedLots} />
+            <ExportShareMenu
+              lots={displayedLots}
+              reportTitle={activeCatalogue?.sourceName ?? "Catalogue"}
+              catalogueIdForLot={() => activeCatalogueId}
+              availableColumns={buildExportColumns(activeCatalogue?.headers ?? [], false)}
+              defaultColumnIds={defaultExportColumnIds(
+                activeCatalogue?.headers ?? [],
+                hiddenFromMeta(activeCatalogue?.columnMeta ?? {}),
+                false
+              )}
+            />
           )}
           <Button
             variant="contained"

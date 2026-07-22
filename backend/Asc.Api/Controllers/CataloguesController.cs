@@ -42,9 +42,10 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     }
 
     /// <summary>
-    /// "Import" = save the uploaded weekly-sale file into data/sales. The filename must
-    /// carry the sale number (e.g. 31.xlsx), matching the files already there; the sale
-    /// then loads like any other. Re-uploading a sale's file replaces it.
+    /// "Import" = save the uploaded sale file into data/sales, where it loads like any other
+    /// sale. A filename numbered like the weekly files (e.g. 31.xlsx) slots into that exact
+    /// sale — re-uploading a number replaces it; any other name is imported as the next free
+    /// sale number so ad-hoc files still get a stable identity and appear alongside the rest.
     /// </summary>
     [HttpPost("import")]
     [RequestSizeLimit(100_000_000)]
@@ -53,11 +54,12 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
         if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (ext is not (".xlsx" or ".xls"))
-            return BadRequest("Weekly sale files are Excel files (.xlsx or .xls).");
+            return BadRequest("Sale files are Excel files (.xlsx or .xls).");
 
         var digits = new string(Path.GetFileNameWithoutExtension(file.FileName).Where(char.IsDigit).ToArray());
-        if (digits.Length is 0 or > 3 || !int.TryParse(digits, out var saleNo))
-            return BadRequest("Name the file by its sale number (e.g. 31.xlsx) so it slots into the weekly sequence.");
+        var saleNo = digits.Length is > 0 and <= 3 && int.TryParse(digits, out var parsed)
+            ? parsed
+            : fileStore.NextSaleNumber();
 
         Directory.CreateDirectory(fileStore.SalesDir);
         var target = Path.Combine(fileStore.SalesDir, $"{saleNo:00}{ext}");
