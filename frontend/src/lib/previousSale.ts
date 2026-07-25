@@ -1,4 +1,4 @@
-import { CLASSIFICATIONS } from "@/lib/classifications";
+import { CLASSIFICATIONS, SUB_GRADE_SUFFIXES, type SubGradeSuffix } from "@/lib/classifications";
 import type { ParsedValuation } from "@/lib/valuationInput";
 import type { ClassificationValue, GradeStats, GradeTierStats, Lot, PreviousGradeStats } from "@/types/api";
 
@@ -51,6 +51,28 @@ export function suggestTier(stats: GradeStats, value: number): ClassificationVal
     if (value < t.max) return t.classification;
   }
   return ordered[ordered.length - 1].classification;
+}
+
+/**
+ * The previous sale gives a tier one contiguous price band; the sub-grade splits that band
+ * into four equal quarters — top quarter "++" down to bottom quarter "--" — and picks the
+ * one the value lands in. Values off either end clamp to the nearest sub-band. Null when the
+ * band has no width to split (a single-price tier), where every sub-grade would be identical.
+ */
+export function suggestSubGrade(tier: GradeTierStats, value: number): SubGradeSuffix | null {
+  if (!(tier.max > tier.min)) return null;
+  const clamped = Math.min(Math.max(value, tier.min), tier.max);
+  const frac = (clamped - tier.min) / (tier.max - tier.min); // 0 (bottom) … 1 (top)
+  const fromTop = Math.min(3, Math.floor((1 - frac) * 4)); // 0 = top quarter … 3 = bottom
+  return SUB_GRADE_SUFFIXES[fromTop].suffix;
+}
+
+/** The price band one sub-grade covers within a tier's previous-sale band. */
+export function subBandRange(tier: GradeTierStats, suffix: SubGradeSuffix): { lo: number; hi: number } {
+  const idx = SUB_GRADE_SUFFIXES.findIndex((s) => s.suffix === suffix); // 0 = top … 3 = bottom
+  const step = (tier.max - tier.min) / 4;
+  const hi = tier.max - step * idx;
+  return { lo: hi - step, hi };
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString();

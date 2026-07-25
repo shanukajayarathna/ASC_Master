@@ -7,6 +7,8 @@ import type { GradeStats, Lot } from "@/types/api";
 import Dialog from "@mui/material/Dialog";
 import IconButton from "@mui/material/IconButton";
 import Button from "@mui/material/Button";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
 
@@ -41,14 +43,26 @@ export default function LotViewDialog({
   /** Previous-sale classification history for this lot's grade — shown when provided. */
   gradeStats?: GradeStats | null;
 }) {
+  // On phones the dialog fills the screen so its two-column catalogue grid and remarks have
+  // room; on tablet/desktop it stays a centred card.
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
   if (!lot) return null;
   const v = lot.valuation;
   const cls = CLASSIFICATION_STYLE[v?.classification ?? "Unclassified"];
   const value = v?.valuationSingle ?? (v?.valuationFrom != null && v?.valuationTo != null ? (v.valuationFrom + v.valuationTo) / 2 : v?.valuationFrom) ?? null;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <div className="px-6 pt-5 pb-4 relative" style={{ background: "linear-gradient(180deg, var(--ink-solid-900), var(--ink-solid-800))" }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={fullScreen}
+      sx={{ "& .MuiDialog-paper": { display: "flex", flexDirection: "column" } }}
+    >
+      <div className="px-6 pt-5 pb-4 relative shrink-0" style={{ background: "linear-gradient(180deg, var(--ink-solid-900), var(--ink-solid-800))" }}>
         <IconButton onClick={onClose} size="small" className="!absolute !top-3.5 !right-3.5 !text-white">
           <CloseIcon fontSize="small" />
         </IconButton>
@@ -60,7 +74,7 @@ export default function LotViewDialog({
         <p className="text-xs text-white/65 m-0">{[lot.broker, lot.grade, lot.garden].filter(Boolean).join(" · ")}</p>
       </div>
 
-      <div className="px-6 py-5 max-h-[65vh] overflow-y-auto">
+      <div className="px-6 py-5 overflow-y-auto flex-1 min-h-0 sm:flex-none sm:max-h-[65vh]">
         <p className="font-display text-[13.5px] font-semibold text-liquor mb-3">Catalogue Data</p>
         <div className="grid grid-cols-2 gap-x-3.5 gap-y-2 mb-5 pb-4 border-b border-dashed border-border">
           {Object.entries(lot.rawData).map(([k, val]) => (
@@ -121,7 +135,7 @@ export default function LotViewDialog({
         )}
       </div>
 
-      <div className="px-6 py-3.5 border-t border-border flex justify-end gap-2.5">
+      <div className="px-6 py-3.5 border-t border-border flex justify-end gap-2.5 shrink-0">
         <Button variant="outlined" onClick={onClose}>
           Close
         </Button>

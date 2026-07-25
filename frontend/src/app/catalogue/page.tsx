@@ -16,6 +16,7 @@ import {
   type TicketStatus,
 } from "@/lib/lotFilters";
 import { combineSales, SALE_COLUMN_HEADER, type CombinedCatalogue } from "@/lib/multiSale";
+import { invalidateSale, loadSale, patchCachedLot } from "@/lib/saleCache";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -69,10 +70,6 @@ const STATUS_LABELS: Record<string, string> = {
   partial: "In progress",
   empty: "Not started",
 };
-
-// Big enough to hold a full weekly sale (~12k lots) in one fetch, same as the
-// Valuation Centre and Worksheet pages.
-const LARGE_PAGE_SIZE = 20000;
 
 const EMPTY_COMBINED: CombinedCatalogue = {
   lots: [],
@@ -139,15 +136,9 @@ export default function CataloguePage() {
       const seq = ++loadSeq.current;
       setLoadingLots(true);
       try {
-        const entries = await Promise.all(
-          selectedSaleIds.map(async (id) => {
-            const [detail, paged] = await Promise.all([
-              api.getCatalogue(id),
-              api.getLots(id, { pageSize: LARGE_PAGE_SIZE }),
-            ]);
-            return { id, sourceName: detail.sourceName, detail, lots: paged.rows };
-          })
-        );
+        // Already-loaded sales come straight from the cache; only sales new to the pool hit
+        // the network, so growing/narrowing a multi-sale selection is near-instant.
+        const entries = await Promise.all(selectedSaleIds.map((id) => loadSale(id)));
         if (seq !== loadSeq.current) return; // a newer load superseded this one
         const c = combineSales(entries, selectedSaleIds.length > 1);
         setCombined(c);
@@ -319,8 +310,20 @@ export default function CataloguePage() {
 
   const handleSaved = (updated: Lot) => {
     setCombined((prev) => ({ ...prev, lots: prev.lots.map((l) => (l.id === updated.id ? updated : l)) }));
+    const saleId = catalogueIdByLot.get(updated.id);
+    if (saleId) patchCachedLot(saleId, updated); // keep the cache warm and in sync
     setDrawerOpen(false);
   };
+
+  // Drop the cache for every sale the given lots belong to — used after a bulk edit whose
+  // per-lot results aren't returned, so the follow-up reload refetches only those sales.
+  const invalidateLotSales = useCallback(
+    (ls: Lot[]) => {
+      new Set(ls.map((l) => catalogueIdByLot.get(l.id)))
+        .forEach((id) => id && invalidateSale(id));
+    },
+    [catalogueIdByLot]
+  );
 
   // Hands the current selection off to the right workspace for the chosen section. Valuation
   // has its own page (it always shows the whole sale, so no lot hand-off is needed) — every
@@ -353,6 +356,7 @@ export default function CataloguePage() {
         ? `Classified ${updated.toLocaleString()} lot${updated === 1 ? "" : "s"} — ${skipped.toLocaleString()} skipped with no valuation yet.`
         : null
     );
+    invalidateLotSales(selected);
     await reload();
     setSelected([]);
   };
@@ -360,6 +364,7 @@ export default function CataloguePage() {
   const bulkClearNotes = async () => {
     if (selected.length === 0) return;
     await api.bulkClearNotes(selected.map((l) => l.id));
+    invalidateLotSales(selected);
     await reload();
     setSelected([]);
   };
@@ -514,7 +519,8 @@ export default function CataloguePage() {
           size="small"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          sx={{ width: 340 }}
+          // Full width on phones (it gets its own wrapped row), fixed on larger screens.
+          sx={{ width: { xs: "100%", sm: 340 } }}
         />
         <Badge badgeContent={activeFilterCount} color="error" invisible={activeFilterCount === 0}>
           <Button
@@ -527,7 +533,13 @@ export default function CataloguePage() {
             Filters
           </Button>
         </Badge>
-        <span className="text-[12.5px] text-text-muted font-mono ml-auto">
+        <span className="text-[12.5px] text-text-muted font-mono ml-auto flex items-center gap-2">
+          {loadingLots && lots.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-brass">
+              <span className="w-1.5 h-1.5 rounded-full bg-brass animate-pulse" />
+              Updating…
+            </span>
+          )}
           {filteredLots.length.toLocaleString()} of {lots.length.toLocaleString()} lots
         </span>
       </div>
@@ -663,18 +675,22 @@ export default function CataloguePage() {
         </div>
       )}
 
-      {loadingLots ? (
+      {/* Keep the current grid on screen while a newer selection loads — only the true cold
+          start (no lots yet) shows the full loading state, so switching sales never blanks. */}
+      {loadingLots && lots.length === 0 ? (
         <p className="text-text-muted text-sm">Loading lots…</p>
       ) : headers.length > 0 ? (
-        <CatalogueGrid
-          lots={filteredLots}
-          headers={headers}
-          columnMeta={columnMeta}
-          hiddenColumns={hiddenColumns}
-          onViewLot={viewLotDetails}
-          onEditLot={editLot}
-          onSelectionChanged={setSelected}
-        />
+        <div className={loadingLots ? "opacity-60 transition-opacity pointer-events-none" : "transition-opacity"}>
+          <CatalogueGrid
+            lots={filteredLots}
+            headers={headers}
+            columnMeta={columnMeta}
+            hiddenColumns={hiddenColumns}
+            onViewLot={viewLotDetails}
+            onEditLot={editLot}
+            onSelectionChanged={setSelected}
+          />
+        </div>
       ) : null}
 
       <ValuationDrawer lot={drawerLot} open={drawerOpen} onClose={() => setDrawerOpen(false)} onSaved={handleSaved} />

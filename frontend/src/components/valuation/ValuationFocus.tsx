@@ -1,6 +1,12 @@
 "use client";
 
-import { CLASSIFICATIONS } from "@/lib/classifications";
+import {
+  CLASSIFICATIONS,
+  SUB_GRADE_SUFFIXES,
+  subGradeCode,
+  type SubGradeSuffix,
+} from "@/lib/classifications";
+import { subGradeCodeOf, subGradeEntryOf, withSubGrade } from "@/lib/subGrade";
 import { api, type LotMedia } from "@/lib/api";
 import LotPhoto from "@/components/valuation/LotPhoto";
 import VoiceRecorder from "@/components/valuation/VoiceRecorder";
@@ -34,6 +40,8 @@ import {
   effectiveOfParsed,
   effectiveValuationOf,
   formatTierRange,
+  subBandRange,
+  suggestSubGrade,
   suggestTier,
   tierStatsFor,
   tierSummary,
@@ -191,6 +199,8 @@ export default function ValuationFocus({
   const [clsNeeded, setClsNeeded] = useState(false);
   // Current classification was auto-picked from the previous sale (labels the hint line).
   const [autoCls, setAutoCls] = useState(false);
+  // The Standard sub-grade was auto-picked from the previous sale (so a tier change may re-pick it).
+  const [autoSub, setAutoSub] = useState(false);
   // Auto-classification ran but this grade has no previous-sale history.
   const [noPrevData, setNoPrevData] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -257,6 +267,7 @@ export default function ValuationFocus({
     setError(null);
     setClsNeeded(false);
     setAutoCls(false);
+    setAutoSub(false);
     setNoPrevData(false);
     // Give the value line focus — but never steal focus while the user is typing in
     // another field (the search bar / a filter / a remark box), or searching would be
@@ -299,6 +310,24 @@ export default function ValuationFocus({
   // the lines takes the tier with them (enforced server-side too).
   const valuePresent = liveParsed ? liveParsed.kind === "single" || liveParsed.kind === "range" : saved;
   const displayCls = valuePresent ? (liveTier ?? currentCls) : "Unclassified";
+
+  // ---- Standard sub-grade (the previous sale's tier band, split into four) ----
+  // The sub-grade nests under the currently shown main tier and lives as one token inside
+  // the Standard field, so the picker below and the Standard text box stay in sync.
+  const displayTier = CLASSIFICATIONS.find((c) => c.value === displayCls) ?? null;
+  const subTierStats = displayCls !== "Unclassified" ? tierStatsFor(gradeStats, displayCls) : null;
+  const currentSubEntry = subGradeEntryOf(fieldText.standardData);
+  const currentSubCode = currentSubEntry?.code ?? null;
+  // The value graded for the sub-band: the live typed value, else the saved one.
+  const subValue = liveValue ?? effectiveValuationOf(lot);
+  // Auto-pick the sub-grade while none is hand-set (or the set one belongs to another tier).
+  const mayAutoSub = !currentSubEntry || autoSub || currentSubEntry.tier !== displayCls;
+  const liveSubSuffix =
+    valuePresent && displayCls !== "Unclassified" && subTierStats && subValue !== null && mayAutoSub
+      ? suggestSubGrade(subTierStats, subValue)
+      : null;
+  const displaySubSuffix: SubGradeSuffix | null =
+    currentSubEntry && currentSubEntry.tier === displayCls ? currentSubEntry.suffix : liveSubSuffix;
 
   // A range's upper value has no meaning on its own, so the second line stays locked
   // (and the keypad's Range key with it) until the first line has a value.
@@ -345,6 +374,10 @@ export default function ValuationFocus({
     const patch: Partial<ValuationUpdate> = { ...extra };
     // null = the auto flag is untouched by this save; true/false = set/cleared.
     let autoApplied: boolean | null = null;
+    let subApplied: boolean | null = null;
+    // The value this save grades against — the freshly typed value when the lines changed,
+    // else the value already on the lot; null once the value is cleared.
+    let gradedValue: number | null = valuationDirty ? null : effectiveValuationOf(lot);
     if (valuationDirty) {
       const parsed = parseValuationPair(pair.from, pair.to);
       if (parsed.kind === "error") {
@@ -369,24 +402,59 @@ export default function ValuationFocus({
         // valuation carries no classification.
         patch.classification = "Unclassified";
         autoApplied = false;
-      } else if (patch.classification === undefined && (currentCls === "Unclassified" || autoCls)) {
-        // Live auto-classification rides along with a new value while the tier is unset
-        // or was itself auto-picked — an explicit tier in `extra` (a tap) always wins,
-        // and a hand-picked tier is never touched.
-        const liveValue = effectiveOfParsed(parsed);
-        const tier = gradeStats && liveValue !== null ? suggestTier(gradeStats, liveValue) : null;
-        if (tier) {
-          patch.classification = tier;
-          autoApplied = true;
+        gradedValue = null;
+      } else {
+        gradedValue = effectiveOfParsed(parsed);
+        if (patch.classification === undefined && (currentCls === "Unclassified" || autoCls)) {
+          // Live auto-classification rides along with a new value while the tier is unset
+          // or was itself auto-picked — an explicit tier in `extra` (a tap) always wins,
+          // and a hand-picked tier is never touched.
+          const tier = gradeStats && gradedValue !== null ? suggestTier(gradeStats, gradedValue) : null;
+          if (tier) {
+            patch.classification = tier;
+            autoApplied = true;
+          }
         }
       }
     }
+    // Every text field but Standard saves verbatim; Standard is handled below so the auto
+    // sub-grade can be folded into it.
     FOCUS_TEXT_FIELDS.forEach((f) => {
+      if (f.value === "standardData") return;
       if (fieldDirty(f.value)) {
         const trimmed = fieldText[f.value].trim();
         patch[f.value] = trimmed === "" ? null : trimmed;
       }
     });
+    // Standard field, with the previous-sale sub-grade folded in. An explicit standardData in
+    // `extra` (a sub-grade tap) is the final word; otherwise the sub-grade auto-fills under
+    // the tier this save settles on, while it's unset or was itself auto — the exact rule the
+    // main classification follows. No tier means no sub-grade.
+    {
+      const stdProvided = extra?.standardData !== undefined;
+      let stdOut = stdProvided ? (extra!.standardData ?? "") : fieldText.standardData;
+      if (!stdProvided) {
+        const tierAfter = (patch.classification ?? currentCls) as ClassificationValue;
+        if (tierAfter === "Unclassified") {
+          stdOut = withSubGrade(stdOut, null);
+          if (subGradeCodeOf(fieldText.standardData)) subApplied = false;
+        } else {
+          const existing = subGradeEntryOf(stdOut);
+          const canAutoSub = !existing || autoSub || existing.tier !== tierAfter;
+          if (canAutoSub && gradedValue !== null) {
+            const ts = tierStatsFor(gradeStats, tierAfter);
+            const suffix = ts ? suggestSubGrade(ts, gradedValue) : null;
+            if (suffix) {
+              stdOut = withSubGrade(stdOut, subGradeCode(tierAfter, suffix));
+              subApplied = true;
+            }
+          }
+        }
+      }
+      const savedStd = (v?.standardData ?? "").trim();
+      const outTrim = stdOut.trim();
+      if (outTrim !== savedStd) patch.standardData = outTrim === "" ? null : outTrim;
+    }
     if (Object.keys(patch).length === 0) return lot;
 
     setSaving(true);
@@ -395,6 +463,12 @@ export default function ValuationFocus({
       onLotUpdated(updated);
       setError(null);
       if (autoApplied !== null) setAutoCls(autoApplied);
+      if (subApplied !== null) setAutoSub(subApplied);
+      // Keep the local Standard text in step with what was actually saved, so the picker and
+      // the text box both reflect the folded-in sub-grade.
+      if (patch.standardData !== undefined) {
+        setFieldText((prev) => ({ ...prev, standardData: updated.valuation?.standardData ?? "" }));
+      }
       return updated;
     } catch {
       setError("Save failed — try again");
@@ -501,6 +575,22 @@ export default function ValuationFocus({
     setAutoCls(false);
     setNoPrevData(false);
     if (next !== "Unclassified") setClsNeeded(false);
+  };
+
+  // Tapping a sub-grade writes its code into the Standard field (tapping the active one
+  // clears it), staying on this lot like a tier tap does. A sub-grade needs a main tier, so
+  // when only a live tier is previewed it's committed along with the sub-grade.
+  const commitSubGrade = async (suffix: SubGradeSuffix) => {
+    if (displayCls === "Unclassified") return;
+    const code = subGradeCode(displayCls, suffix);
+    const clearing = currentSubCode === code;
+    const nextStd = withSubGrade(fieldText.standardData, clearing ? null : code);
+    const extra: Partial<ValuationUpdate> = { standardData: nextStd === "" ? null : nextStd };
+    // No saved tier yet, only the previewed one — commit it so the sub-grade has a home.
+    if (currentCls === "Unclassified") extra.classification = displayCls;
+    // A hand-picked sub-grade is an override — later tier changes won't silently re-pick it.
+    setAutoSub(false);
+    await saveAll(extra);
   };
 
   // The details box shows the valuation live from the calculator, so what's on the keypad
@@ -969,6 +1059,79 @@ export default function ValuationFocus({
               </span>
             )}
           </div>
+
+          {/* Standard sub-grade: the chosen tier's previous-sale band, split into four. Auto-
+              selects with the tier and writes into the Standard field — tap to override. */}
+          {valuePresent && displayTier && (
+            <div className="mb-2">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">
+                  Standard · {displayTier.label} sub-grade
+                </span>
+                {subTierStats ? (
+                  <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
+                    {displayTier.short} band {formatTierRange(subTierStats)} split four ways
+                  </span>
+                ) : (
+                  <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
+                    no {displayTier.label.toLowerCase()} lots last sale — pick a sub-grade manually
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {SUB_GRADE_SUFFIXES.map(({ suffix, label }) => {
+                  const code = subGradeCode(displayCls, suffix);
+                  const active = displaySubSuffix === suffix;
+                  const band = subTierStats ? subBandRange(subTierStats, suffix) : null;
+                  return (
+                    <button
+                      key={suffix}
+                      type="button"
+                      disabled={saving || !valuePresent}
+                      onClick={() => commitSubGrade(suffix)}
+                      title={
+                        active
+                          ? "Tap again to clear the sub-grade"
+                          : `Mark Standard as ${code} (${label}${
+                              band
+                                ? ` · Rs. ${Math.round(band.lo).toLocaleString()}–${Math.round(band.hi).toLocaleString()}`
+                                : ""
+                            })`
+                      }
+                      className="min-h-[46px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1 disabled:cursor-not-allowed"
+                      style={{
+                        borderColor: displayTier.color,
+                        background: active ? displayTier.color : "var(--surface)",
+                        color: active ? "var(--paper-0)" : displayTier.color,
+                      }}
+                    >
+                      <span className="block text-[15px] font-bold leading-tight">
+                        {active ? "✓ " : ""}
+                        {code}
+                      </span>
+                      {band && (
+                        <span className="block text-[10px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
+                          Rs. {Math.round(band.lo).toLocaleString()}–{Math.round(band.hi).toLocaleString()}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="min-h-[18px] mt-1">
+                {liveSubSuffix && subTierStats && (
+                  <span className="text-[11px] font-semibold" style={{ color: "var(--sage-dark)" }}>
+                    Auto-selects {subGradeCode(displayCls, liveSubSuffix)} on save — tap a sub-grade to override, or leave it
+                  </span>
+                )}
+                {!liveSubSuffix && currentSubEntry && currentSubEntry.tier === displayCls && (
+                  <span className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                    Standard set to {currentSubEntry.code} — tap it again to clear, or pick another
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* entry columns: four remark containers + the calculator on the far right */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 items-stretch pb-4">

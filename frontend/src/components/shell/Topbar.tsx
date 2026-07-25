@@ -41,7 +41,11 @@ export default function Topbar({ sidebarCollapsed, onMenuClick }: TopbarProps) {
           value={activeCatalogueId ?? ""}
           onChange={(e) => selectCatalogue(e.target.value || null)}
           displayEmpty
-          sx={{ minWidth: 260, fontSize: 13 }}
+          // Fluid, not a fixed 260px: on a phone the header holds a hamburger, brand,
+          // theme toggle and avatar too, so a hard min-width pushed the row wider than
+          // the screen and the whole page scrolled sideways. It now fills whatever space
+          // is left (truncating its label) and only caps out on wide screens.
+          sx={{ width: "100%", maxWidth: 340, minWidth: 0, fontSize: 13 }}
           renderValue={(v) => {
             if (!v) return <span className="text-text-muted">No catalogue loaded</span>;
             const c = catalogues.find((x) => x.id === v);

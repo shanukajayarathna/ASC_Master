@@ -7,6 +7,7 @@ import { buildExportColumns, defaultExportColumnIds, hiddenFromMeta } from "@/li
 import { formatCurrency } from "@/lib/format";
 import { hasValuation, lotLabel, noOfChestsOf, sellingMarkOf, weightPerChestOf } from "@/lib/lotDisplay";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
+import { loadSale, patchCachedLot } from "@/lib/saleCache";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Button from "@mui/material/Button";
 import LinearProgress from "@mui/material/LinearProgress";
@@ -92,10 +93,18 @@ export default function WorksheetPage() {
       return;
     }
     setLoading(true);
-    api
-      .getLots(activeCatalogueId, { pageSize: 20000 })
-      .then((paged) => setLots(paged.rows))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    loadSale(activeCatalogueId)
+      // Copy out of the cache: the page's own state must never be the cached array itself.
+      .then((entry) => {
+        if (!cancelled) setLots([...entry.lots]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeCatalogueId]);
 
   // Consume a one-shot handoff from the Catalogue Manager's "Work on selection…" menu — the
@@ -163,6 +172,7 @@ export default function WorksheetPage() {
     try {
       const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
       return;

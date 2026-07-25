@@ -26,6 +26,7 @@ import {
 } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
 import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
+import { loadSale, patchCachedLot } from "@/lib/saleCache";
 import { sortForDisplay } from "@/lib/ourBroker";
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
 import {
@@ -167,12 +168,19 @@ export default function ValuationCentrePage() {
       return;
     }
     setLoading(true);
-    api
-      .getLots(activeCatalogueId, { pageSize: 20000 })
+    let cancelled = false;
+    loadSale(activeCatalogueId)
       // Our own broker's lots first, ascending by lot number — an ordering, not a filter,
       // so the rest of the sale is still on the list right below them.
-      .then((paged) => setLots(sortForDisplay(paged.rows)))
-      .finally(() => setLoading(false));
+      .then((entry) => {
+        if (!cancelled) setLots(sortForDisplay(entry.lots));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeCatalogueId]);
 
   // Previous-sale classification history for auto-classification. Best-effort: without
@@ -239,6 +247,7 @@ export default function ValuationCentrePage() {
   // Sync a lot saved from focus mode back into everything the list view derives from.
   const applyUpdatedLot = (updated: Lot) => {
     setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
     setValues((v) => ({ ...v, [updated.id]: valuationToText(updated) }));
     setSavedIds((prev) => {
       const next = new Set(prev);
@@ -398,6 +407,7 @@ export default function ValuationCentrePage() {
     try {
       const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
       setSavedIds((s) => {
         const next = new Set(s);
         if (parsed.kind === "clear") next.delete(lot.id);
@@ -435,6 +445,7 @@ export default function ValuationCentrePage() {
     try {
       const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: tier }));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
       setAutoClsIds((prev) => new Set(prev).add(lot.id));
       setNoPrevDataId((id) => (id === lot.id ? null : id));
       return updated;
@@ -480,6 +491,7 @@ export default function ValuationCentrePage() {
     try {
       updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
       // A hand-picked tier is an override — drop the "auto-selected" label and no-data note.
       setAutoClsIds((prev) => {
         if (!prev.has(lot.id)) return prev;
@@ -508,6 +520,7 @@ export default function ValuationCentrePage() {
     try {
       const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { [field]: raw === "" ? null : raw }));
       setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
       return updated;
     } catch {
       setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
