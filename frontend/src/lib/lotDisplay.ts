@@ -40,8 +40,11 @@ export function catalogueRemarkOf(lot: Lot): string | null {
   return findRaw(lot, /^remarks?$/i);
 }
 
+/** The broker's own Standard column — read-only catalogue data, never our sub-grade. Real
+ *  sale files head it "Standard/Adjective"; anchored so a "Standard Price"-style column
+ *  added later can't be mistaken for it. */
 export function catalogueStandardOf(lot: Lot): string | null {
-  return findRaw(lot, /standard/i);
+  return findRaw(lot, /^standard(\s*\/\s*adjective)?$/i);
 }
 
 export function lotLabel(lot: Lot): string {

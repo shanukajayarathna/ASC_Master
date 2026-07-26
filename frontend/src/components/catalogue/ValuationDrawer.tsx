@@ -3,8 +3,9 @@
 import { api } from "@/lib/api";
 import { valuationValueError, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
 import { toggleKeyword, type RemarkKeywordField } from "@/lib/remarkKeywords";
-import { catalogueRemarkOf, catalogueStandardOf } from "@/lib/lotDisplay";
+import { catalogueRemarkOf } from "@/lib/lotDisplay";
 import KeywordChips from "@/components/valuation/KeywordChips";
+import SubGradeChips from "@/components/valuation/SubGradeChips";
 import type { ClassificationValue, Lot } from "@/types/api";
 import Drawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
@@ -46,12 +47,14 @@ function formFromLot(lot: Lot): FormState {
     valuationTo: v?.valuationTo?.toString() ?? "",
     valuationSingle: v?.valuationSingle?.toString() ?? "",
     classification: v?.classification ?? "Unclassified",
-    // Falls back to the catalogue's own imported Standard/Remarks columns — the broker's
-    // file already carries these for some lots, so show that instead of a blank field.
-    standardData: v?.standardData ?? catalogueStandardOf(lot) ?? "",
+    // Standard is ours alone — the broker's imported Standard column is read-only catalogue
+    // data (shown above with the rest of it) and never merges into our sub-grade.
+    standardData: v?.standardData ?? "",
     adjectiveData: v?.adjectiveData ?? "",
     liquorRemarks: v?.liquorRemarks ?? "",
     musterReport: v?.musterReport ?? "",
+    // Broker Notes still seeds from the catalogue's Remarks column — that one is free text
+    // the broker's file really does carry, with no picker of its own to conflict with.
     brokerNotes: v?.brokerNotes ?? catalogueRemarkOf(lot) ?? "",
     privateNotes: v?.privateNotes ?? "",
   };
@@ -274,10 +277,9 @@ function ValuationDrawerContent({
         <p className="font-display text-[13.5px] font-semibold text-liquor mb-3">Taster&apos;s Remarks</p>
         <div className="flex flex-col gap-3.5 mb-2">
           <div>
-            <KeywordChips
-              field="standardData"
+            <SubGradeChips
               value={form.standardData}
-              onToggle={(keyword) => toggleFieldKeyword("standardData", keyword)}
+              onChange={(next) => setForm((f) => ({ ...f, standardData: next }))}
             />
             <TextField
               label="Standard Data"

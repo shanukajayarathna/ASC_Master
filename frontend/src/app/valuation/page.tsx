@@ -10,7 +10,6 @@ import { CLASSIFICATIONS } from "@/lib/classifications";
 import { buildExportColumns, defaultExportColumnIds, hiddenFromMeta } from "@/lib/exportColumns";
 import {
   catalogueRemarkOf,
-  catalogueStandardOf,
   hasValuation,
   markCodeOf,
   noOfChestsOf,
@@ -84,11 +83,11 @@ const EXTRA_FIELDS: { value: ExtraField; label: string }[] = [
 
 const isClassified = (lot: Lot) => (lot.valuation?.classification ?? "Unclassified") !== "Unclassified";
 
-// Falls back to the catalogue's own imported Standard/Remarks columns for the two fields
-// the broker's file already carries — Adjective/Liquor/Muster/Private have no catalogue
-// equivalent, so those stay blank until the taster enters something.
+// Falls back to the catalogue's own imported Remarks column, the one field the broker's
+// file really carries — the rest have no catalogue equivalent and stay blank until the
+// taster enters something. Standard is excluded on purpose: it holds our sub-grade code,
+// and merging the broker's column into it is what used to leave two codes in one field.
 function catalogueSeedFor(lot: Lot, field: ExtraField): string | null {
-  if (field === "standardData") return catalogueStandardOf(lot);
   if (field === "brokerNotes") return catalogueRemarkOf(lot);
   return null;
 }

@@ -14,25 +14,24 @@ export default function KeywordChips({
   value,
   onToggle,
   disabled,
-  fixedHeight,
+  fill,
 }: {
   field: RemarkKeywordField;
   value: string;
   onToggle: (keyword: string) => void;
   disabled?: boolean;
-  /** Pins the card area to an exact height (scrolling internally if a field lists more
-   *  terms than fit) instead of sizing to content — a *cap* alone isn't enough, because a
-   *  field with fewer terms would then sit shorter than the rest and its remark box below
-   *  would grow to fill the difference. Every box needs the identical amount of space
-   *  taken here so the boxes come out the same size (e.g. Focus mode's side-by-side row). */
-  fixedHeight?: number;
+  /** Fill the height the parent hands us (scrolling internally when a field lists more
+   *  terms than fit) instead of sizing to content. Sizing to content isn't enough on a
+   *  side-by-side row: a field with fewer terms would sit shorter than the rest and its
+   *  remark box below would grow to fill the difference, so the boxes would come out
+   *  uneven. The parent gives every card the same slot, so they all match (Focus mode). */
+  fill?: boolean;
 }) {
   const keywords = REMARK_KEYWORDS[field];
   if (!keywords.length) return null;
   return (
     <div
-      className="flex flex-wrap content-start gap-2 mb-2"
-      style={fixedHeight ? { height: fixedHeight, overflowY: "auto" } : undefined}
+      className={`flex flex-wrap content-start gap-2 ${fill ? "h-full overflow-y-auto" : "mb-2"}`}
       role="group"
       aria-label="Tap a term to add it"
     >
@@ -45,7 +44,7 @@ export default function KeywordChips({
             disabled={disabled}
             title={k.description}
             onClick={() => onToggle(k.code)}
-            className="px-3.5 py-2.5 rounded-lg text-[14px] font-semibold border-2 cursor-pointer touch-manipulation transition-all duration-100 active:scale-[0.95]"
+            className="px-3.5 py-2.5 rounded-lg text-[15px] font-semibold border-2 cursor-pointer touch-manipulation transition-all duration-100 active:scale-[0.95] shrink-0"
             style={{
               borderColor: active ? "var(--liquor)" : "var(--border)",
               background: active ? "var(--liquor)" : "var(--surface)",

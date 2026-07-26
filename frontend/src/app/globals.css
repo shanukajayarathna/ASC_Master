@@ -1,42 +1,78 @@
 @import "tailwindcss";
 
 :root {
+  /* ---- Brand ----------------------------------------------------------------
+     Sampled straight from the Asia Siyaka Commodities mark (public/brand/asia-siyaka.png).
+     It is a flat two-colour logo: olive #717C21 ("Siyaka" + "COMMODITIES PLC.") and
+     gold #C1920C ("ASIA" + the swash). Everything below is built from that pair, so the
+     app reads as the company's rather than as generic warm-neutral chrome. */
+  --brand-olive: #717C21; --brand-olive-deep: #4E5715; --brand-olive-soft: #9AA455;
+  --brand-gold: #C1920C; --brand-gold-deep: #8F6C08; --brand-gold-soft: #E3B93F;
+
   /* Fixed always-dark inks for surfaces that stay dark in BOTH themes (sidebar, drawer
      headers, bulk toolbar). Never overridden by the dark theme — the flipping --ink-*
-     scale below is for TEXT and must not be used as a dark background. */
-  --ink-solid-900: #1B1712; --ink-solid-800: #241F18;
+     scale below is for TEXT and must not be used as a dark background.
+     Tinted toward the brand olive so the sidebar reads as deep olive-black, not brown. */
+  --ink-solid-900: #14180B; --ink-solid-800: #202612;
 
-  --ink-900: #1B1712; --ink-800: #241F18; --ink-700: #332B22; --ink-muted: #8A7F6C;
-  --paper-0: #FFFFFF; --paper-50: #FAF6EC; --paper-100: #F1E9D6; --paper-200: #E7DCC2; --line: #DED2B4;
-  --liquor: #8C3B1B; --liquor-dark: #6E2C12; --liquor-light: #FBEAE6;
-  --brass: #AD7F27; --brass-light: #D9B65C; --brass-dim: rgba(173,127,39,0.12);
-  --sage: #5F7052; --sage-light: #EDF0E6; --sage-dark: #465438;
-  --danger: #A13B2E; --danger-light: #FBEAE6;
-  --info: #2F6690; --info-light: #E8F1F7;
-  --warn: #B8862E; --warn-light: #FBF1DE;
+  --ink-900: #14180B; --ink-800: #272D18; --ink-700: #40472C; --ink-muted: #7B8066;
+  --paper-0: #FFFFFF; --paper-50: #FAF9EF; --paper-100: #F2F0DE; --paper-200: #E6E3C9; --line: #D7D3B4;
+  /* Tea liquor — the primary action colour. Deepened and given more chroma than before:
+     it has to sit beside olive and gold without turning muddy. */
+  --liquor: #8A3A16; --liquor-dark: #672A0E; --liquor-light: #FAEADF;
+  --brass: var(--brand-gold); --brass-light: var(--brand-gold-soft); --brass-dim: rgba(193,146,12,0.14);
+  --sage: var(--brand-olive); --sage-light: #EFF2DC; --sage-dark: var(--brand-olive-deep);
+  --danger: #A62F23; --danger-light: #FBE9E6;
+  --info: #26607F; --info-light: #E6F0F6;
+  /* Pushed toward orange so the Below Best tier stays readable next to the gold Select
+     Best tier — the old amber was near-identical to brass. */
+  --warn: #C2690F; --warn-light: #FBEFDD;
 
   --surface: var(--paper-0); --surface-alt: var(--paper-50); --surface-sunken: var(--paper-100);
   --border: var(--line); --text: var(--ink-800); --text-strong: var(--ink-900); --text-muted: var(--ink-muted);
+
+  /* Depth. The flat single-hairline look is what made every screen read the same weight —
+     these give headers, cards and the focus overlay an actual hierarchy. */
+  --shadow-sm: 0 1px 2px rgba(20,24,11,0.06), 0 1px 3px rgba(20,24,11,0.04);
+  --shadow-md: 0 2px 6px rgba(20,24,11,0.08), 0 6px 16px rgba(20,24,11,0.06);
+  --shadow-lg: 0 8px 28px rgba(20,24,11,0.14), 0 2px 8px rgba(20,24,11,0.08);
+  --brand-gradient: linear-gradient(135deg, var(--brand-olive-deep), var(--brand-olive) 58%, var(--brand-gold-deep));
+  --rule-brand: linear-gradient(90deg, var(--brand-olive), var(--brand-gold));
 }
 
 :root[data-theme="dark"] {
-  --ink-900: #F4EEE0; --ink-800: #E8DFC9; --ink-700: #CBBFA0; --ink-muted: #8C8168;
-  --paper-0: #1B1712; --paper-50: #211C15; --paper-100: #2A2419; --paper-200: #352E20; --line: #4A4030;
-  --liquor: #D9846A; --liquor-dark: #C46A4E; --liquor-light: #3A2119;
-  --brass: #D9B65C; --brass-light: #EBD08C; --brass-dim: rgba(217,182,92,0.14);
-  --sage: #8FA37E; --sage-light: #2A3323; --sage-dark: #A9BB99;
-  --danger: #E08976; --danger-light: #3A2119;
-  --info: #7FB3D9; --info-light: #1C2D38;
-  --warn: #E0B564; --warn-light: #332813;
+  /* The same two brand hues, lifted to carry on a dark ground. */
+  --brand-olive: #A8B45E; --brand-olive-deep: #7C8830; --brand-olive-soft: #C3CD86;
+  --brand-gold: #E0B23C; --brand-gold-deep: #B78D18; --brand-gold-soft: #EFCE74;
 
-  --surface: #211C15; --surface-alt: #1B1712; --surface-sunken: #2A2419;
-  --border: #4A4030; --text: #E8DFC9; --text-strong: #F4EEE0; --text-muted: #8C8168;
+  --ink-900: #F2F1E2; --ink-800: #E4E3CD; --ink-700: #C4C4A6; --ink-muted: #8B8E70;
+  --paper-0: #15180D; --paper-50: #1B1F11; --paper-100: #242817; --paper-200: #2F3420; --line: #454A2F;
+  --liquor: #DE8B62; --liquor-dark: #C87249; --liquor-light: #35200F;
+  --brass: var(--brand-gold); --brass-light: var(--brand-gold-soft); --brass-dim: rgba(224,178,60,0.16);
+  --sage: var(--brand-olive); --sage-light: #262C15; --sage-dark: var(--brand-olive-soft);
+  --danger: #E28874; --danger-light: #381D18;
+  --info: #7FB3D9; --info-light: #162934;
+  --warn: #E6A055; --warn-light: #33220F;
+
+  --surface: #1B1F11; --surface-alt: #15180D; --surface-sunken: #242817;
+  --border: #454A2F; --text: #E4E3CD; --text-strong: #F2F1E2; --text-muted: #8B8E70;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.45), 0 8px 20px rgba(0,0,0,0.35);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.4);
 }
 
 @theme inline {
   --font-display: var(--font-fraunces);
   --font-body: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
+
+  --color-brand-olive: var(--brand-olive);
+  --color-brand-olive-deep: var(--brand-olive-deep);
+  --color-brand-olive-soft: var(--brand-olive-soft);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-deep: var(--brand-gold-deep);
+  --color-brand-gold-soft: var(--brand-gold-soft);
 
   --color-ink-solid-900: var(--ink-solid-900);
   --color-ink-solid-800: var(--ink-solid-800);
@@ -79,7 +115,11 @@ body {
   font-family: var(--font-body), sans-serif;
 }
 
-::selection { background: var(--brass-light); color: var(--ink-solid-900); }
+::selection { background: var(--brand-gold-soft); color: var(--ink-solid-900); }
+
+/* The brand rule — a 3px olive→gold bar. Used to cap dark headers (sidebar, drawer,
+   focus mode) so the logo's two colours appear on every screen, not just the sidebar. */
+.brand-rule { background: var(--rule-brand); }
 
 .ag-theme-asc {
   --ag-background-color: var(--surface);

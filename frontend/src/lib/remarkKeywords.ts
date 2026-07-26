@@ -4,7 +4,15 @@
  * clickable chips wherever a lot's remarks are edited, so the same shorthand is used
  * everywhere instead of free-typed variants of the same term.
  */
-export type RemarkKeywordField = "standardData" | "adjectiveData" | "liquorRemarks" | "brokerNotes";
+/**
+ * `standardData` is deliberately absent: the Standard field holds exactly one sub-grade
+ * code (SB++ … P--), which the sub-grade picker owns everywhere it is edited. Offering
+ * those same codes as free-text chips here produced two writers for one field, disagreeing
+ * on the vocabulary (chips had no ++/-- forms, and bare "B" was not a recognised code at
+ * all, so auto-selection appended its own token and left "B++, B" behind). Keeping the
+ * field out of this union makes that combination un-writable rather than merely unused.
+ */
+export type RemarkKeywordField = "adjectiveData" | "liquorRemarks" | "brokerNotes";
 
 export interface RemarkKeyword {
   code: string;
@@ -12,20 +20,6 @@ export interface RemarkKeyword {
 }
 
 export const REMARK_KEYWORDS: Record<RemarkKeywordField, RemarkKeyword[]> = {
-  standardData: [
-    { code: "B", description: "Best - TOP" },
-    { code: "B+", description: "Best - Top" },
-    { code: "B-", description: "Best - Bottom" },
-    { code: "BB", description: "Below Best" },
-    { code: "BB+", description: "Below Best - Top" },
-    { code: "BB-", description: "Below Best - Bottom" },
-    { code: "P", description: "Poor" },
-    { code: "P+", description: "Poor - Top" },
-    { code: "P-", description: "Poor - Bottom" },
-    { code: "SB", description: "Select Best" },
-    { code: "SB+", description: "Select Best - Top" },
-    { code: "SB-", description: "Select Best - Bottom" },
-  ],
   adjectiveData: [
     { code: "-", description: "Inferior" },
     { code: "+", description: "Better" },

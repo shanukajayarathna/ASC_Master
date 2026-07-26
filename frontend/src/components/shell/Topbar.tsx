@@ -22,7 +22,10 @@ export default function Topbar({ sidebarCollapsed, onMenuClick }: TopbarProps) {
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
 
   return (
-    <header className="h-[60px] flex items-center gap-3.5 px-5 border-b border-border bg-surface sticky top-0 z-20">
+    <header
+      className="h-[60px] flex items-center gap-3.5 px-5 border-b border-border bg-surface sticky top-0 z-20"
+      style={{ boxShadow: "var(--shadow-sm)" }}
+    >
       <Tooltip title="Toggle sidebar">
         <IconButton onClick={onMenuClick} size="small" edge="start" aria-label="Toggle sidebar">
           <MenuIcon fontSize="small" />

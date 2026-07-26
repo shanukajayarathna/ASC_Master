@@ -54,6 +54,8 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SearchIcon from "@mui/icons-material/Search";
@@ -116,12 +118,12 @@ function shortLotLabel(l: Lot): string {
   return [l.lotNumber ? `Lot ${l.lotNumber}` : null, sellingMarkOf(l), l.grade].filter(Boolean).join(" · ") || l.rowKey;
 }
 
-type FocusTextField = "standardData" | "adjectiveData" | "brokerNotes" | "liquorRemarks";
+type FocusTextField = "adjectiveData" | "brokerNotes" | "liquorRemarks";
 
-// The four remark columns worked alongside the valuation, left to right; the
-// calculator keypad takes the fifth (right-most) container.
+// The three remark columns worked alongside the valuation, left to right; the calculator
+// keypad takes the fourth (right-most) container. Standard has no column of its own — it
+// holds a single sub-grade code, which the picker above this row owns outright.
 const FOCUS_TEXT_FIELDS: { value: FocusTextField; label: string; placeholder: string }[] = [
-  { value: "standardData", label: "Standard", placeholder: "Tap a term above, or type your own…" },
   { value: "adjectiveData", label: "Adjectives", placeholder: "Tap a term above, or type your own…" },
   { value: "brokerNotes", label: "Remarks", placeholder: "Tap a term above, or type your own…" },
   { value: "liquorRemarks", label: "Liquor Remarks", placeholder: "Tap a term above, or type your own…" },
@@ -131,11 +133,11 @@ const FOCUS_TEXT_FIELDS: { value: FocusTextField; label: string; placeholder: st
 function Fact({ label, value, strong }: { label: string; value: string | null | undefined; strong?: boolean }) {
   return (
     <div className="min-w-0">
-      <div className="font-mono text-[9.5px] tracking-widest uppercase text-text-muted mb-0.5 truncate" title={label}>
+      <div className="font-mono text-[10.5px] tracking-widest uppercase text-text-muted mb-0.5 truncate" title={label}>
         {label}
       </div>
       <div
-        className={`text-[13px] leading-snug break-words ${strong ? "font-semibold text-text-strong" : "text-text"}`}
+        className={`text-[15px] leading-snug break-words ${strong ? "font-bold text-text-strong" : "text-text"}`}
         // Long remark-style values clamp to two lines (full text on the tooltip) so the
         // details box stays a fixed, compact height and the buttons below stay reachable.
         style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
@@ -147,24 +149,23 @@ function Fact({ label, value, strong }: { label: string; value: string | null | 
   );
 }
 
-// Fixed height for every card in the entry row (4 remark boxes + calculator) — a fixed
-// pixel value rather than relying on CSS grid row-stretch, which only equalizes heights
-// within the same grid row and falls apart the moment the responsive column count
-// changes how the 5 cards wrap into rows (e.g. tablet widths at 2 columns).
-// (Raised from 420 when the calculator gained its second entry line — the keypad's five
-// 48px rows must still fit under both lines without the card clipping them.)
-const FOCUS_CARD_HEIGHT = 460;
-// Fixed (not just capped) height for the keyword-card row — every field gets the exact
-// same amount of space here regardless of how many terms it lists, so the remaining space
-// handed to the textarea below is identical across all four boxes too.
-const FOCUS_CHIPS_HEIGHT = 170;
+// The entry row no longer pins its cards to a pixel height. On a tablet the whole view is
+// meant to sit inside the screen with nothing to scroll, so the row takes whatever height
+// is left over and the cards divide it: `gridAutoRows: 1fr` keeps every row of the grid
+// equal (which is what the old fixed height was working around — grid row-stretch alone
+// only equalizes within a row, so wrapping to 2 columns used to produce uneven cards),
+// and each card then splits its own height between keyword chips and the text box by
+// share, not by pixels. Same slot for every card, so the boxes still line up exactly.
+const CHIPS_SHARE = "38%";
 
 /** The two lines of the calculator: the value itself, and the optional upper end of a range. */
 type ValuationLine = "from" | "to";
 
 const VALUATION_LINES: { line: ValuationLine; prefix: string; label: string; placeholder: string }[] = [
+  // Placeholders stay short: the card is a quarter of the screen and the input is 24px, so
+  // anything longer is cut off mid-word rather than read.
   { line: "from", prefix: "Rs.", label: "Valuation", placeholder: "e.g. 1250" },
-  { line: "to", prefix: "to", label: "Range upper value", placeholder: "only for a range" },
+  { line: "to", prefix: "to", label: "Range upper value", placeholder: "range end" },
 ];
 
 // The bottom-left key jumps to the second line instead of typing a range dash — on a
@@ -194,6 +195,10 @@ export default function ValuationFocus({
   // Which line the keypad types into.
   const [activeLine, setActiveLine] = useState<ValuationLine>("from");
   const [fieldText, setFieldText] = useState<Record<FocusTextField, string>>(() => seedFields(lot));
+  // The Standard field, held apart from the remark boxes because it has no box of its own:
+  // the sub-grade picker is its only writer. Kept as the whole string (not just the code) so
+  // any free text a legacy ticket left in there survives a save untouched.
+  const [standardText, setStandardText] = useState(() => lot.valuation?.standardData ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [clsNeeded, setClsNeeded] = useState(false);
@@ -204,6 +209,11 @@ export default function ValuationFocus({
   // Auto-classification ran but this grade has no previous-sale history.
   const [noPrevData, setNoPrevData] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // The full fact grid is collapsed by default: on a tablet it costs ~136px, which is the
+  // difference between the whole view fitting the screen and the keypad falling off the
+  // bottom. The identity strip below stays visible either way, and the preference sticks
+  // across lots so anyone who wants the full box keeps it.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // "Sharings" comparison panel — other brokers' lots of this same mark + grade.
   const [sharingsOpen, setSharingsOpen] = useState(false);
   // The lot you left when you tapped a sharing — drives the one-tap "Back to your lot"
@@ -248,10 +258,9 @@ export default function ValuationFocus({
 
   function seedFields(l: Lot): Record<FocusTextField, string> {
     return {
-      // Falls back to the catalogue's own imported Standard/Remarks columns — the broker's
-      // file already carries these for some lots, so show that instead of a blank box.
-      standardData: l.valuation?.standardData ?? catalogueStandardOf(l) ?? "",
       adjectiveData: l.valuation?.adjectiveData ?? "",
+      // Falls back to the catalogue's own imported Remarks column — the broker's file
+      // already carries that for some lots, so show it instead of a blank box.
       brokerNotes: l.valuation?.brokerNotes ?? catalogueRemarkOf(l) ?? "",
       liquorRemarks: l.valuation?.liquorRemarks ?? "",
     };
@@ -264,6 +273,7 @@ export default function ValuationFocus({
     setPair(valuationPairOf(lot));
     setActiveLine("from");
     setFieldText(seedFields(lot));
+    setStandardText(lot.valuation?.standardData ?? "");
     setError(null);
     setClsNeeded(false);
     setAutoCls(false);
@@ -312,11 +322,11 @@ export default function ValuationFocus({
   const displayCls = valuePresent ? (liveTier ?? currentCls) : "Unclassified";
 
   // ---- Standard sub-grade (the previous sale's tier band, split into four) ----
-  // The sub-grade nests under the currently shown main tier and lives as one token inside
-  // the Standard field, so the picker below and the Standard text box stay in sync.
+  // The sub-grade nests under the currently shown main tier and is the Standard field's
+  // single token — this picker is the only thing that writes it, anywhere in the app.
   const displayTier = CLASSIFICATIONS.find((c) => c.value === displayCls) ?? null;
   const subTierStats = displayCls !== "Unclassified" ? tierStatsFor(gradeStats, displayCls) : null;
-  const currentSubEntry = subGradeEntryOf(fieldText.standardData);
+  const currentSubEntry = subGradeEntryOf(standardText);
   const currentSubCode = currentSubEntry?.code ?? null;
   // The value graded for the sub-band: the live typed value, else the saved one.
   const subValue = liveValue ?? effectiveValuationOf(lot);
@@ -328,6 +338,12 @@ export default function ValuationFocus({
       : null;
   const displaySubSuffix: SubGradeSuffix | null =
     currentSubEntry && currentSubEntry.tier === displayCls ? currentSubEntry.suffix : liveSubSuffix;
+  // The sub-grade row is always on screen and simply goes quiet until there is a value and
+  // a tier to grade. It used to mount only once both existed, so typing a valuation grew
+  // the page by a whole row and shifted everything below it — on a tablet that moves the
+  // buttons out from under the finger that is already on its way down.
+  const subEnabled = valuePresent && displayTier !== null;
+  const subColor = displayTier?.color ?? "var(--text-muted)";
 
   // A range's upper value has no meaning on its own, so the second line stays locked
   // (and the keypad's Range key with it) until the first line has a value.
@@ -417,10 +433,9 @@ export default function ValuationFocus({
         }
       }
     }
-    // Every text field but Standard saves verbatim; Standard is handled below so the auto
-    // sub-grade can be folded into it.
+    // The remark fields save verbatim; Standard is handled below, where the auto sub-grade
+    // is folded in.
     FOCUS_TEXT_FIELDS.forEach((f) => {
-      if (f.value === "standardData") return;
       if (fieldDirty(f.value)) {
         const trimmed = fieldText[f.value].trim();
         patch[f.value] = trimmed === "" ? null : trimmed;
@@ -432,12 +447,12 @@ export default function ValuationFocus({
     // main classification follows. No tier means no sub-grade.
     {
       const stdProvided = extra?.standardData !== undefined;
-      let stdOut = stdProvided ? (extra!.standardData ?? "") : fieldText.standardData;
+      let stdOut = stdProvided ? (extra!.standardData ?? "") : standardText;
       if (!stdProvided) {
         const tierAfter = (patch.classification ?? currentCls) as ClassificationValue;
         if (tierAfter === "Unclassified") {
           stdOut = withSubGrade(stdOut, null);
-          if (subGradeCodeOf(fieldText.standardData)) subApplied = false;
+          if (subGradeCodeOf(standardText)) subApplied = false;
         } else {
           const existing = subGradeEntryOf(stdOut);
           const canAutoSub = !existing || autoSub || existing.tier !== tierAfter;
@@ -464,11 +479,9 @@ export default function ValuationFocus({
       setError(null);
       if (autoApplied !== null) setAutoCls(autoApplied);
       if (subApplied !== null) setAutoSub(subApplied);
-      // Keep the local Standard text in step with what was actually saved, so the picker and
-      // the text box both reflect the folded-in sub-grade.
-      if (patch.standardData !== undefined) {
-        setFieldText((prev) => ({ ...prev, standardData: updated.valuation?.standardData ?? "" }));
-      }
+      // Keep the local Standard string in step with what was actually saved, so the picker
+      // and the badge both reflect the folded-in sub-grade.
+      if (patch.standardData !== undefined) setStandardText(updated.valuation?.standardData ?? "");
       return updated;
     } catch {
       setError("Save failed — try again");
@@ -584,7 +597,7 @@ export default function ValuationFocus({
     if (displayCls === "Unclassified") return;
     const code = subGradeCode(displayCls, suffix);
     const clearing = currentSubCode === code;
-    const nextStd = withSubGrade(fieldText.standardData, clearing ? null : code);
+    const nextStd = withSubGrade(standardText, clearing ? null : code);
     const extra: Partial<ValuationUpdate> = { standardData: nextStd === "" ? null : nextStd };
     // No saved tier yet, only the previewed one — commit it so the sub-grade has a home.
     if (currentCls === "Unclassified") extra.classification = displayCls;
@@ -607,7 +620,10 @@ export default function ValuationFocus({
     { label: "Grade", value: lot.grade, strong: true },
     { label: "Bags", value: noOfChestsOf(lot) },
     { label: "Wt / Bag (kg)", value: weightPerChestOf(lot) },
-    { label: "Standard", value: v?.standardData ?? catalogueStandardOf(lot) },
+    // The broker's own Standard column, read-only — our sub-grade reads off the picker's
+    // badge instead, so the two are never confused for one another. Empty in every sale
+    // file to date, in which case this fact simply drops out below.
+    { label: "Standard (catalogue)", value: catalogueStandardOf(lot) },
     { label: "Remark", value: catalogueRemarkOf(lot) ?? v?.adjectiveData },
     { label: "Liquor Remarks", value: v?.liquorRemarks },
     { label: valuationDirty ? "Valuation (unsaved)" : "Valuation", value: typedValuation || null, strong: true },
@@ -637,9 +653,12 @@ export default function ValuationFocus({
       }}
     >
       {/* ---- top bar: exit, universal search, filters, position ---- */}
+      {/* The brand's olive→gold rule, so focus mode still reads as Asia Siyaka even with
+          the sidebar hidden behind the overlay. */}
+      <div className="brand-rule h-[3px] shrink-0" />
       <div
         className="flex items-center gap-2 flex-wrap px-3 md:px-5 py-2.5 border-b border-border shrink-0"
-        style={{ background: "var(--surface)" }}
+        style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)" }}
       >
         <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={onExit} sx={{ fontWeight: 600 }}>
           All lots
@@ -691,7 +710,7 @@ export default function ValuationFocus({
             Clear
           </Button>
         )}
-        <span className="text-[12px] text-text-muted font-mono whitespace-nowrap ml-auto">
+        <span className="text-[13px] text-text-muted font-mono font-semibold whitespace-nowrap ml-auto">
           {filtersActive
             ? `${filters.matchLots.length.toLocaleString()} match${filters.matchLots.length === 1 ? "" : "es"} · `
             : ""}
@@ -777,7 +796,7 @@ export default function ValuationFocus({
                 type="button"
                 onClick={() => jumpTo(l.id)}
                 title={[l.lotNumber && `Lot ${l.lotNumber}`, sellingMarkOf(l), l.grade].filter(Boolean).join(" · ")}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11.5px] font-semibold whitespace-nowrap cursor-pointer touch-manipulation shrink-0"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full border-2 text-[13px] font-semibold whitespace-nowrap cursor-pointer touch-manipulation shrink-0"
                 style={{
                   borderColor: isCurrent ? "var(--liquor)" : "var(--border)",
                   background: isCurrent ? "var(--liquor)" : "var(--surface)",
@@ -803,21 +822,59 @@ export default function ValuationFocus({
         </div>
       )}
 
-      {/* ---- scrollable work area ---- */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1500px] mx-auto px-3 md:px-5 py-4">
+      {/* ---- work area ----
+           `min-h-full` on the inner column plus `flex-1` on the entry row means: when the
+           screen is tall enough, the row stretches to eat the leftover space and the view
+           fits the tablet exactly with nothing to scroll. When it isn't, the row holds its
+           420px floor (the height the calculator needs before its keypad starts clipping)
+           and this container scrolls instead. Fits when it can, scrolls when it must —
+           never silently cuts the keypad off. The floor is the calculator's own stack
+           measured out: 24 padding + 22 header + 106 for the two value lines + 23 feedback
+           + 244 keypad (5 rows at the 44px minimum plus gaps) = 419, rounded up to 440. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-[1600px] mx-auto px-3 md:px-5 py-2 flex flex-col gap-1.5 min-h-full">
           {/* lot details box */}
-          <Paper variant="outlined" sx={{ borderColor: "var(--border)", mb: 2 }}>
+          <Paper variant="outlined" sx={{ borderColor: "var(--border)", flexShrink: 0, boxShadow: "var(--shadow-sm)" }}>
             <div
               className="px-4 py-2 border-b border-border flex flex-wrap items-center gap-x-2 gap-y-1"
               style={{ background: "var(--surface-sunken)" }}
             >
-              <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">Lot Details</span>
+              {/* Identity strip — who this lot is, always on screen even with the fact
+                  grid collapsed, so the taster never types a value against the wrong lot. */}
+              <span className="text-[15px] font-bold text-text-strong whitespace-nowrap">
+                {lot.lotNumber ? `Lot ${lot.lotNumber}` : lot.rowKey}
+              </span>
+              {sellingMarkOf(lot) && (
+                <span className="text-[15px] font-semibold text-text whitespace-nowrap">{sellingMarkOf(lot)}</span>
+              )}
+              {lot.grade && (
+                <span
+                  className="text-[13px] font-bold font-mono px-2 py-0.5 rounded"
+                  style={{ background: "var(--brass-dim)", color: "var(--text-strong)" }}
+                >
+                  {lot.grade}
+                </span>
+              )}
+              {askingPriceOf(lot) && (
+                <span className="text-[13px] text-text-muted whitespace-nowrap">
+                  Asking <strong style={{ color: "var(--text-strong)" }}>{askingPriceOf(lot)}</strong>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((o) => !o)}
+                title={detailsOpen ? "Hide the full lot details" : "Show every catalogue field for this lot"}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-[13px] font-semibold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
+                style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+              >
+                {detailsOpen ? <ExpandLessIcon sx={{ fontSize: 17 }} /> : <ExpandMoreIcon sx={{ fontSize: 17 }} />}
+                Details
+              </button>
               <button
                 type="button"
                 onClick={() => setSharingsOpen((o) => !o)}
                 title="Show other brokers offering the same mark &amp; grade in this sale — compare packing and asking prices"
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11.5px] font-semibold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] font-semibold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
                 style={{
                   borderColor: sharings.length ? "var(--brass)" : "var(--border)",
                   background: sharingsOpen ? "var(--brass-dim)" : "transparent",
@@ -830,41 +887,52 @@ export default function ValuationFocus({
               {media && (
                 <LotPhoto lotId={lot.id} has={media.photo} version={mediaVersion} onChanged={refreshMedia} />
               )}
-              <span className="ml-auto flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span
+                className="ml-auto flex items-center gap-1.5 text-[13px] font-bold px-3 py-1 rounded-full"
+                style={{
+                  background: complete ? "var(--sage-light)" : saved ? "var(--warn-light)" : "transparent",
+                  color: complete ? "var(--sage-dark)" : saved ? "var(--warn)" : "var(--text-muted)",
+                }}
+              >
                 {complete ? (
                   <>
-                    <CheckCircleIcon sx={{ fontSize: 15, color: "var(--sage)" }} />
-                    <span style={{ color: "var(--sage-dark)" }}>Valued &amp; classified</span>
+                    <CheckCircleIcon sx={{ fontSize: 17 }} />
+                    Valued &amp; classified
                   </>
                 ) : saved ? (
                   <>
-                    <RadioButtonUncheckedIcon sx={{ fontSize: 15, color: "var(--warn)" }} />
-                    <span style={{ color: "var(--warn)" }}>Classification pending</span>
+                    <RadioButtonUncheckedIcon sx={{ fontSize: 17 }} />
+                    Classification pending
                   </>
                 ) : (
                   <>
-                    <RadioButtonUncheckedIcon sx={{ fontSize: 15, color: "var(--text-muted)" }} />
-                    <span className="text-text-muted">Not valued yet</span>
+                    <RadioButtonUncheckedIcon sx={{ fontSize: 17 }} />
+                    Not valued yet
                   </>
                 )}
               </span>
             </div>
-            <div
-              className="grid gap-x-4 gap-y-2.5 px-4 py-2.5"
-              // Auto-fit columns + empty facts skipped keeps this to at most ~2 rows on a
-              // tablet, so the tier buttons and keypad below stay reachable without scrolling.
-              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}
-            >
-              {facts
-                .filter((f) => f.value?.trim())
-                .map((f) => (
-                  <Fact key={f.label} {...f} />
-                ))}
-            </div>
+            {detailsOpen && (
+              <div
+                className="grid gap-x-4 gap-y-2 px-4 py-2.5 border-t border-border"
+                style={{ gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))" }}
+              >
+                {facts
+                  .filter((f) => f.value?.trim())
+                  .map((f) => (
+                    <Fact key={f.label} {...f} />
+                  ))}
+              </div>
+            )}
 
             {/* ---- sharings: other brokers' lots of this same mark + grade ---- */}
             {sharingsOpen && (
-              <div className="border-t border-border px-4 py-3" style={{ background: "var(--surface-sunken)" }}>
+              <div
+                // Capped and self-scrolling: opening the comparison must never push the
+                // tiers and keypad off the bottom of the screen.
+                className="border-t border-border px-4 py-3 max-h-[34vh] overflow-y-auto"
+                style={{ background: "var(--surface-sunken)" }}
+              >
                 {sharings.length === 0 ? (
                   <p className="text-[12.5px] text-text-muted m-0 leading-relaxed">
                     No other broker is offering{" "}
@@ -958,65 +1026,185 @@ export default function ValuationFocus({
             )}
           </Paper>
 
-          {/* classification tiers, flanked by big tap-friendly previous/next-lot buttons —
-              a tablet-sized alternative to the small chevrons up in the top bar. Reuses
-              goTo, so leaving the lot saves everything first exactly like those do. */}
-          <div className="flex items-stretch gap-2 mb-1">
+          {/* Grading block — classification tiers on top, the Standard sub-grade beneath,
+              flanked by big tap-friendly previous/next-lot buttons that span both rows.
+              Both rows are ALWAYS mounted so the block is a fixed shape: typing a value
+              lights it up rather than growing the page under the taster's finger. Reuses
+              goTo, so leaving the lot saves everything first exactly like the chevrons do. */}
+          <div className="flex items-stretch gap-2 shrink-0">
             <button
               type="button"
               disabled={index === 0 || saving}
               onClick={() => goTo(index - 1)}
               aria-label="Previous lot"
               title="Previous lot"
-              className="shrink-0 w-14 sm:w-16 rounded-xl border-2 cursor-pointer touch-manipulation active:scale-[0.97] transition-transform flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              className="shrink-0 w-12 sm:w-14 rounded-xl border-2 cursor-pointer touch-manipulation active:scale-[0.97] transition-transform flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-strong)" }}
             >
-              <ChevronLeftIcon sx={{ fontSize: 30 }} />
+              <ChevronLeftIcon sx={{ fontSize: 34 }} />
             </button>
 
-            <div
-              className="grid grid-cols-2 md:grid-cols-4 gap-2 rounded-xl flex-1"
-              style={clsNeeded ? { outline: "2px solid var(--warn)", outlineOffset: 3 } : undefined}
-            >
-              {CLASSIFICATIONS.map((c) => {
-                const active = displayCls === c.value;
-                const tierInfo = tierStatsFor(gradeStats, c.value);
-                return (
-                  <button
-                    key={c.value}
-                    type="button"
-                    disabled={saving || !valuePresent}
-                    onClick={() => commitClassification(c.value)}
-                    title={
-                      !valuePresent
-                        ? "Enter a valuation first — a classification grades a value"
-                        : active
-                          ? "Tap again to unset"
-                          : `Mark as ${c.label}`
-                    }
-                    className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5 disabled:cursor-not-allowed"
-                    style={{
-                      borderColor: c.color,
-                      background: active ? c.color : "var(--surface)",
-                      color: active ? "var(--paper-0)" : c.color,
-                      opacity: valuePresent ? 1 : 0.4,
-                    }}
-                  >
-                    <span className="block text-[15px] font-bold leading-tight">
-                      {active ? "✓ " : ""}
-                      {c.label}
-                    </span>
-                    {/* This tier's record for the lot's grade in the previous sale. */}
-                    {gradeStats && (
-                      <span className="block text-[10.5px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
-                        {tierInfo
-                          ? `${formatTierRange(tierInfo)} · ${Math.round(tierInfo.percent)}%`
-                          : "no lots last sale"}
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <div
+                className="grid grid-cols-2 md:grid-cols-4 gap-2 rounded-xl"
+                style={clsNeeded ? { outline: "2px solid var(--warn)", outlineOffset: 3 } : undefined}
+              >
+                {CLASSIFICATIONS.map((c) => {
+                  const active = displayCls === c.value;
+                  const tierInfo = tierStatsFor(gradeStats, c.value);
+                  return (
+                    <button
+                      key={c.value}
+                      type="button"
+                      disabled={saving || !valuePresent}
+                      onClick={() => commitClassification(c.value)}
+                      title={
+                        !valuePresent
+                          ? "Enter a valuation first — a classification grades a value"
+                          : active
+                            ? "Tap again to unset"
+                            : `Mark as ${c.label}`
+                      }
+                      className="min-h-[56px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5 px-1 disabled:cursor-not-allowed"
+                      style={{
+                        borderColor: c.color,
+                        background: active ? c.color : "var(--surface)",
+                        color: active ? "var(--paper-0)" : c.color,
+                        opacity: valuePresent ? 1 : 0.4,
+                        boxShadow: active ? "var(--shadow-md)" : "none",
+                      }}
+                    >
+                      <span className="block text-[17px] font-bold leading-tight">
+                        {active ? "✓ " : ""}
+                        {c.label}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
+                      {/* This tier's record for the lot's grade in the previous sale. */}
+                      {gradeStats && (
+                        <span className="block text-[12px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
+                          {tierInfo
+                            ? `${formatTierRange(tierInfo)} · ${Math.round(tierInfo.percent)}%`
+                            : "no lots last sale"}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="h-[17px] overflow-hidden">
+                {!valuePresent && (
+                  <span className="block truncate text-[12.5px] font-semibold text-text-muted">
+                    Enter a valuation first — a lot with no value carries no classification
+                  </span>
+                )}
+                {valuePresent && liveTier && gradeStats && (
+                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
+                    Auto-selects on save · {tierSummary(lot.grade, gradeStats, liveTier)} — tap another tier to override
+                  </span>
+                )}
+                {valuePresent && !liveTier && autoCls && gradeStats && currentCls !== "Unclassified" && (
+                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
+                    Auto-selected · {tierSummary(lot.grade, gradeStats, currentCls)} — tap another tier to override
+                  </span>
+                )}
+                {valuePresent && mayAuto && liveValue !== null && !gradeStats && (
+                  <span className="block truncate text-[12.5px] font-semibold text-text-muted">
+                    No previous-sale data for {lot.grade ?? "this grade"} — tap a tier manually
+                  </span>
+                )}
+                {clsNeeded && (
+                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--warn)" }}>
+                    {noPrevData
+                      ? `No previous-sale data for ${lot.grade ?? "this grade"} — `
+                      : "Classification required — "}
+                    tap a tier, then Save &amp; Next to move on
+                  </span>
+                )}
+              </div>
+
+              {/* Standard sub-grade: the chosen tier's previous-sale band, split into four.
+                  Auto-selects with the tier and is the Standard field's only writer. */}
+              <div className="flex items-center gap-2 flex-wrap min-h-[22px]">
+                <span className="font-mono text-[11px] tracking-widest uppercase text-text-muted font-semibold">
+                  Standard{displayTier ? ` · ${displayTier.label} sub-grade` : " · sub-grade"}
+                </span>
+                {/* What the Standard field will actually read once this lot saves — the one
+                    place the saved value is echoed, now that it has no text box of its own. */}
+                {subEnabled && displaySubSuffix && (
+                  <span
+                    className="px-2.5 py-0.5 rounded-full text-[12.5px] font-bold font-mono"
+                    style={{ background: subColor, color: "var(--paper-0)" }}
+                  >
+                    Standard → {subGradeCode(displayCls, displaySubSuffix)}
+                  </span>
+                )}
+                <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                  {!subEnabled
+                    ? "grades the tier above — pick a valuation and tier first"
+                    : subTierStats
+                      ? `${displayTier!.short} band ${formatTierRange(subTierStats)} split four ways`
+                      : `no ${displayTier!.label.toLowerCase()} lots last sale — pick a sub-grade manually`}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {SUB_GRADE_SUFFIXES.map(({ suffix, label }) => {
+                  // With no tier settled, subGradeCode has no prefix to add and returns the
+                  // bare suffix — exactly the right placeholder for the dimmed state.
+                  const code = subGradeCode(displayCls, suffix);
+                  const active = subEnabled && displaySubSuffix === suffix;
+                  const band = subTierStats ? subBandRange(subTierStats, suffix) : null;
+                  return (
+                    <button
+                      key={suffix}
+                      type="button"
+                      disabled={saving || !subEnabled}
+                      onClick={() => commitSubGrade(suffix)}
+                      title={
+                        !subEnabled
+                          ? "Enter a valuation and pick a tier — a sub-grade grades the tier's band"
+                          : active
+                            ? "Tap again to clear the sub-grade"
+                            : `Mark Standard as ${code} (${label}${
+                                band
+                                  ? ` · Rs. ${Math.round(band.lo).toLocaleString()}–${Math.round(band.hi).toLocaleString()}`
+                                  : ""
+                              })`
+                      }
+                      className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1 px-1 disabled:cursor-not-allowed"
+                      style={{
+                        borderColor: subEnabled ? subColor : "var(--border)",
+                        background: active ? subColor : "var(--surface)",
+                        color: active ? "var(--paper-0)" : subEnabled ? subColor : "var(--text-muted)",
+                        opacity: subEnabled ? 1 : 0.4,
+                        boxShadow: active ? "var(--shadow-md)" : "none",
+                      }}
+                    >
+                      <span className="block text-[18px] font-bold leading-tight font-mono">
+                        {active ? "✓ " : ""}
+                        {code}
+                      </span>
+                      <span className="block text-[11.5px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
+                        {band
+                          ? `Rs. ${Math.round(band.lo).toLocaleString()}–${Math.round(band.hi).toLocaleString()}`
+                          : label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="h-[17px] overflow-hidden">
+                {subEnabled && liveSubSuffix && subTierStats && (
+                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
+                    Auto-selects {subGradeCode(displayCls, liveSubSuffix)} on save — tap a sub-grade to override, or
+                    leave it
+                  </span>
+                )}
+                {subEnabled && !liveSubSuffix && currentSubEntry && currentSubEntry.tier === displayCls && (
+                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                    Standard set to {currentSubEntry.code} — tap it again to clear, or pick another
+                  </span>
+                )}
+              </div>
             </div>
 
             <button
@@ -1025,127 +1213,51 @@ export default function ValuationFocus({
               onClick={() => goTo(index + 1)}
               aria-label="Next lot"
               title="Next lot"
-              className="shrink-0 w-14 sm:w-16 rounded-xl border-2 cursor-pointer touch-manipulation active:scale-[0.97] transition-transform flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-              style={{ borderColor: "var(--liquor)", background: "var(--liquor)", color: "var(--paper-0)" }}
+              className="shrink-0 w-12 sm:w-14 rounded-xl border-2 cursor-pointer touch-manipulation active:scale-[0.97] transition-transform flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{
+                borderColor: "var(--liquor)",
+                background: "var(--liquor)",
+                color: "var(--paper-0)",
+                boxShadow: "var(--shadow-md)",
+              }}
             >
-              <ChevronRightIcon sx={{ fontSize: 30 }} />
+              <ChevronRightIcon sx={{ fontSize: 34 }} />
             </button>
           </div>
-          <div className="min-h-[20px] mb-1.5">
-            {!valuePresent && (
-              <span className="text-[11.5px] font-semibold text-text-muted">
-                Enter a valuation first — a lot with no value carries no classification
-              </span>
-            )}
-            {valuePresent && liveTier && gradeStats && (
-              <span className="text-[11.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
-                Auto-selects on save · {tierSummary(lot.grade, gradeStats, liveTier)} — tap another tier to override
-              </span>
-            )}
-            {valuePresent && !liveTier && autoCls && gradeStats && currentCls !== "Unclassified" && (
-              <span className="text-[11.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
-                Auto-selected · {tierSummary(lot.grade, gradeStats, currentCls)} — tap another tier to override
-              </span>
-            )}
-            {valuePresent && mayAuto && liveValue !== null && !gradeStats && (
-              <span className="text-[11.5px] font-semibold text-text-muted">
-                No previous-sale data for {lot.grade ?? "this grade"} — tap a tier manually
-              </span>
-            )}
-            {clsNeeded && (
-              <span className="text-[11.5px] font-semibold" style={{ color: "var(--warn)" }}>
-                {noPrevData ? `No previous-sale data for ${lot.grade ?? "this grade"} — ` : "Classification required — "}
-                tap a tier, then Save &amp; Next to move on
-              </span>
-            )}
-          </div>
 
-          {/* Standard sub-grade: the chosen tier's previous-sale band, split into four. Auto-
-              selects with the tier and writes into the Standard field — tap to override. */}
-          {valuePresent && displayTier && (
-            <div className="mb-2">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">
-                  Standard · {displayTier.label} sub-grade
-                </span>
-                {subTierStats ? (
-                  <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
-                    {displayTier.short} band {formatTierRange(subTierStats)} split four ways
-                  </span>
-                ) : (
-                  <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
-                    no {displayTier.label.toLowerCase()} lots last sale — pick a sub-grade manually
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {SUB_GRADE_SUFFIXES.map(({ suffix, label }) => {
-                  const code = subGradeCode(displayCls, suffix);
-                  const active = displaySubSuffix === suffix;
-                  const band = subTierStats ? subBandRange(subTierStats, suffix) : null;
-                  return (
-                    <button
-                      key={suffix}
-                      type="button"
-                      disabled={saving || !valuePresent}
-                      onClick={() => commitSubGrade(suffix)}
-                      title={
-                        active
-                          ? "Tap again to clear the sub-grade"
-                          : `Mark Standard as ${code} (${label}${
-                              band
-                                ? ` · Rs. ${Math.round(band.lo).toLocaleString()}–${Math.round(band.hi).toLocaleString()}`
-                                : ""
-                            })`
-                      }
-                      className="min-h-[46px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1 disabled:cursor-not-allowed"
-                      style={{
-                        borderColor: displayTier.color,
-                        background: active ? displayTier.color : "var(--surface)",
-                        color: active ? "var(--paper-0)" : displayTier.color,
-                      }}
-                    >
-                      <span className="block text-[15px] font-bold leading-tight">
-                        {active ? "✓ " : ""}
-                        {code}
-                      </span>
-                      {band && (
-                        <span className="block text-[10px] font-semibold mt-0.5" style={{ opacity: 0.85 }}>
-                          Rs. {Math.round(band.lo).toLocaleString()}–{Math.round(band.hi).toLocaleString()}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="min-h-[18px] mt-1">
-                {liveSubSuffix && subTierStats && (
-                  <span className="text-[11px] font-semibold" style={{ color: "var(--sage-dark)" }}>
-                    Auto-selects {subGradeCode(displayCls, liveSubSuffix)} on save — tap a sub-grade to override, or leave it
-                  </span>
-                )}
-                {!liveSubSuffix && currentSubEntry && currentSubEntry.tier === displayCls && (
-                  <span className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
-                    Standard set to {currentSubEntry.code} — tap it again to clear, or pick another
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* entry columns: four remark containers + the calculator on the far right */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 items-stretch pb-4">
+          {/* entry columns: three remark containers + the calculator on the far right.
+              Takes every pixel the grading block above leaves over. */}
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1"
+            // One row per breakpoint's column count, each at least tall enough for the
+            // calculator's own stack (24 padding + 22 header + 106 for the two value lines
+            // + 23 feedback + 244 keypad = 419, rounded to 440) and growing to share any
+            // leftover height equally. Putting the floor on the ROW rather than the whole
+            // grid is what makes it correct at every breakpoint: at 2 columns the grid
+            // needs two of those rows, and asking the grid for one 440 total would have
+            // squeezed each card to 220 and clipped the keypad.
+            style={{ gridAutoRows: "minmax(440px, 1fr)" }}
+          >
             {FOCUS_TEXT_FIELDS.map((f) => (
               <Paper
                 key={f.value}
                 variant="outlined"
-                sx={{ borderColor: "var(--border)", p: 1.5, display: "flex", flexDirection: "column", height: FOCUS_CARD_HEIGHT }}
+                sx={{
+                  borderColor: "var(--border)",
+                  p: 1.5,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
+                  boxShadow: "var(--shadow-sm)",
+                }}
               >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">{f.label}</span>
+                <div className="flex items-center gap-2 mb-1.5 shrink-0">
+                  <span className="font-mono text-[11px] tracking-widest uppercase text-text-muted font-semibold">
+                    {f.label}
+                  </span>
                 </div>
                 {media && (
-                  <div className="mb-1.5">
+                  <div className="mb-1.5 shrink-0">
                     <VoiceRecorder
                       lotId={lot.id}
                       field={f.value}
@@ -1155,19 +1267,22 @@ export default function ValuationFocus({
                     />
                   </div>
                 )}
-                <KeywordChips
-                  field={f.value}
-                  value={fieldText[f.value]}
-                  disabled={saving}
-                  fixedHeight={FOCUS_CHIPS_HEIGHT}
-                  onToggle={(keyword) => toggleFieldKeyword(f.value, keyword)}
-                />
+                {/* Same share of the card in every column, so the text boxes below line up. */}
+                <div className="min-h-0 mb-2" style={{ flex: `0 0 ${CHIPS_SHARE}` }}>
+                  <KeywordChips
+                    field={f.value}
+                    value={fieldText[f.value]}
+                    disabled={saving}
+                    fill
+                    onToggle={(keyword) => toggleFieldKeyword(f.value, keyword)}
+                  />
+                </div>
                 <textarea
                   value={fieldText[f.value]}
                   placeholder={f.placeholder}
                   disabled={saving}
                   onChange={(e) => setFieldText((prev) => ({ ...prev, [f.value]: e.target.value }))}
-                  className="flex-1 w-full resize-none bg-transparent border border-border rounded-md px-2.5 py-2 text-[13px] leading-relaxed outline-none min-h-0"
+                  className="flex-1 w-full resize-none bg-transparent border border-border rounded-md px-2.5 py-2 text-[15px] leading-relaxed outline-none min-h-0"
                   style={{ color: "var(--text)" }}
                 />
               </Paper>
@@ -1176,10 +1291,23 @@ export default function ValuationFocus({
             {/* calculator container — most right */}
             <Paper
               variant="outlined"
-              sx={{ borderColor: "var(--brass)", p: 1.5, display: "flex", flexDirection: "column", height: FOCUS_CARD_HEIGHT }}
+              sx={{
+                borderColor: "var(--brass)",
+                borderWidth: 2,
+                p: 1.5,
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 0,
+                boxShadow: "var(--shadow-md)",
+              }}
             >
-              <div className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-1.5">
-                Valuation (LKR) — up to {VALUATION_MAX_DIGITS} digits
+              {/* Short enough to stay on one line in a quarter-width card — the digit cap is
+                  enforced by the input itself, so it belongs in the tooltip, not the header. */}
+              <div
+                className="font-mono text-[11px] tracking-widest uppercase text-text-muted font-semibold mb-1.5 shrink-0 truncate"
+                title={`Whole LKR value, up to ${VALUATION_MAX_DIGITS} digits`}
+              >
+                Valuation (LKR)
               </div>
               {/* Two lines instead of one dash-separated field: fill the first alone for a
                   single value, both for a range. The active line is what the keypad types
@@ -1188,9 +1316,9 @@ export default function ValuationFocus({
                 const locked = line === "to" && rangeLineLocked;
                 const active = activeLine === line && !locked;
                 return (
-                  <div key={line} className="flex items-center gap-1.5 mb-1">
+                  <div key={line} className="flex items-center gap-1.5 mb-1 shrink-0">
                     <span
-                      className="text-[11px] font-mono shrink-0 w-[26px] text-right"
+                      className="text-[12.5px] font-mono shrink-0 w-[26px] text-right"
                       style={{ color: locked ? "var(--border)" : "var(--text-muted)" }}
                     >
                       {prefix}
@@ -1203,9 +1331,9 @@ export default function ValuationFocus({
                       inputMode="numeric"
                       autoFocus={line === "from"}
                       aria-label={label}
-                      placeholder={locked ? "enter the value first" : placeholder}
+                      placeholder={locked ? "value first" : placeholder}
                       title={locked ? "Type the value on the line above first" : undefined}
-                      className="w-full min-w-0 px-2.5 py-1.5 rounded-lg border-2 text-[19px] font-mono font-semibold bg-transparent tracking-wide disabled:cursor-not-allowed"
+                      className="w-full min-w-0 px-2.5 py-2 rounded-lg border-2 text-[24px] font-mono font-bold bg-transparent tracking-wide disabled:cursor-not-allowed"
                       style={{
                         borderColor: error && !locked ? "var(--danger)" : active ? "var(--brass)" : "var(--border)",
                         color: "var(--text-strong)",
@@ -1228,20 +1356,29 @@ export default function ValuationFocus({
                   </div>
                 );
               })}
-              <div className="min-h-[16px] mb-1.5">
-                {error && <span className="text-[11px] text-danger">{error}</span>}
+              <div className="h-[34px] mb-1 shrink-0 overflow-hidden">
+                {error && <span className="text-[12.5px] font-semibold text-danger">{error}</span>}
+                {/* Only the part before the em-dash: the shared message ends with "— press
+                    Enter to save", which is worth saying in the grid but is just noise
+                    beside a Save & Next ⏎ button, and it overran this quarter-width card. */}
                 {!error && feedback && feedback.tone !== "none" && (
                   <span
-                    className="text-[11px]"
+                    title={feedback.message}
+                    className="text-[12.5px] font-semibold"
                     style={{ color: feedback.tone === "ok" ? "var(--sage-dark)" : "var(--text-muted)" }}
                   >
                     {feedback.tone === "ok" ? "✓ " : ""}
-                    {feedback.message}
+                    {feedback.message.split(" — ")[0]}
                   </span>
                 )}
               </div>
 
-              <div className="grid grid-cols-3 gap-1.5 select-none flex-1">
+              {/* Five equal rows that divide whatever height the card has left, so the keypad
+                  stays reachable on a short tablet instead of overflowing a fixed 48px grid. */}
+              <div
+                className="grid grid-cols-3 gap-1.5 select-none flex-1 min-h-0"
+                style={{ gridTemplateRows: "repeat(5, minmax(0, 1fr))" }}
+              >
                 {KEYPAD_ROWS.flat().map((key) => {
                   const isRange = key === RANGE_KEY;
                   // Locked in step with the second line itself — no range before a value.
@@ -1261,8 +1398,8 @@ export default function ValuationFocus({
                             : "Enter an upper value — makes this a range"
                           : undefined
                       }
-                      className={`min-h-[48px] rounded-lg border font-semibold font-mono cursor-pointer touch-manipulation active:scale-[0.97] transition-transform disabled:cursor-not-allowed ${
-                        isRange ? "text-[12px]" : "text-[19px]"
+                      className={`min-h-[44px] rounded-lg border-2 font-bold font-mono cursor-pointer touch-manipulation active:scale-[0.97] transition-transform disabled:cursor-not-allowed ${
+                        isRange ? "text-[13px]" : "text-[22px]"
                       }`}
                       style={{
                         borderColor: rangeArmed ? "var(--brass)" : "var(--border)",
@@ -1283,7 +1420,7 @@ export default function ValuationFocus({
                     setPair({ from: "", to: "" });
                     goToLine("from");
                   }}
-                  className="min-h-[48px] rounded-lg border text-[13px] font-semibold cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
+                  className="min-h-[44px] rounded-lg border-2 text-[14px] font-bold cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
                   style={{ borderColor: "var(--border)", background: "var(--surface-alt)", color: "var(--text-muted)" }}
                 >
                   Clear
@@ -1292,8 +1429,12 @@ export default function ValuationFocus({
                   type="button"
                   disabled={saving}
                   onClick={saveAndNext}
-                  className="min-h-[48px] col-span-2 rounded-lg text-[14px] font-bold cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
-                  style={{ background: "var(--liquor)", color: "var(--paper-0)" }}
+                  className="min-h-[44px] col-span-2 rounded-lg text-[16px] font-bold cursor-pointer touch-manipulation active:scale-[0.97] transition-transform"
+                  style={{
+                    background: "var(--liquor)",
+                    color: "var(--paper-0)",
+                    boxShadow: "var(--shadow-md)",
+                  }}
                 >
                   {saving ? "Saving…" : "Save & Next ⏎"}
                 </button>

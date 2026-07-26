@@ -21,9 +21,11 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
       {/* The whole header band takes the logo's own light surface (fixed ivory in both
           themes) — the artwork was drawn for light backgrounds, and a full-width band
           reads as deliberate branding where a small tile looked like a stray rectangle. */}
-      <div className="flex justify-center px-4 py-4 border-b border-brass/20" style={{ background: "#F7F3E8" }}>
+      <div className="flex justify-center px-4 py-4" style={{ background: "#F7F3E8" }}>
         <BrandLogo height={60} />
       </div>
+      {/* The mark's own two colours, carried out of the logo band as a rule. */}
+      <div className="brand-rule h-[3px] shrink-0" />
 
       <nav className="flex-1 overflow-y-auto px-2.5 py-2.5">
         {NAV_SECTIONS.map((section) => (
