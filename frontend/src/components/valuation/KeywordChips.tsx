@@ -1,6 +1,7 @@
 "use client";
 
 import { hasKeyword, REMARK_KEYWORDS, type RemarkKeywordField } from "@/lib/remarkKeywords";
+import { memo } from "react";
 
 /**
  * The clickable master-keyword cards shown on a remark field — tap one to add it to the
@@ -9,7 +10,7 @@ import { hasKeyword, REMARK_KEYWORDS, type RemarkKeywordField } from "@/lib/rema
  * every editing surface for a lot offers the identical set of terms. Takes the spot the
  * field's placeholder examples used to occupy — the cards are the examples now.
  */
-export default function KeywordChips({
+function KeywordChips({
   field,
   value,
   onToggle,
@@ -61,3 +62,11 @@ export default function KeywordChips({
     </div>
   );
 }
+
+/**
+ * Memoised: a field lists up to 16 terms and Focus mode shows three of these side by side,
+ * so an unrelated state change (opening the sharings panel, a keystroke in the calculator)
+ * was re-rendering ~42 chip buttons for nothing. Callers must pass a stable `onToggle` for
+ * this to bite — see the handler map in ValuationFocus.
+ */
+export default memo(KeywordChips);

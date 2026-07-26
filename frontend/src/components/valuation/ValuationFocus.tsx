@@ -26,7 +26,9 @@ import {
 import { OUR_BROKER } from "@/lib/ourBroker";
 import { buildSharingIndex, sharingsFor } from "@/lib/sharings";
 import {
+  parseValuationInput,
   parseValuationPair,
+  sanitizeValuationInput,
   sanitizeValuationSide,
   valuationPairFeedback,
   VALUATION_MAX_DIGITS,
@@ -44,7 +46,6 @@ import {
   suggestSubGrade,
   suggestTier,
   tierStatsFor,
-  tierSummary,
 } from "@/lib/previousSale";
 import FilterPanel from "@/components/catalogue/FilterPanel";
 import type { ClassificationValue, ColumnMeta, GradeStats, Lot, ValuationUpdate } from "@/types/api";
@@ -54,8 +55,6 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SearchIcon from "@mui/icons-material/Search";
@@ -66,7 +65,7 @@ import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** Filter state lifted from the Valuation Centre page — the focus view edits the very
  *  same filters the list uses (identical to Catalogue Manager's per-column engine),
@@ -137,10 +136,10 @@ function Fact({ label, value, strong }: { label: string; value: string | null | 
         {label}
       </div>
       <div
-        className={`text-[15px] leading-snug break-words ${strong ? "font-bold text-text-strong" : "text-text"}`}
-        // Long remark-style values clamp to two lines (full text on the tooltip) so the
-        // details box stays a fixed, compact height and the buttons below stay reachable.
-        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+        className={`text-[15px] leading-snug truncate ${strong ? "font-bold text-text-strong" : "text-text"}`}
+        // One line, ellipsised, with the full text on the tooltip. The details box is on
+        // screen permanently now, so every row it spends is a row the keypad below loses —
+        // and only the remark-style values ever ran long enough to need a second line.
         title={value?.trim() || undefined}
       >
         {value?.trim() ? value : "—"}
@@ -156,7 +155,14 @@ function Fact({ label, value, strong }: { label: string; value: string | null | 
 // only equalizes within a row, so wrapping to 2 columns used to produce uneven cards),
 // and each card then splits its own height between keyword chips and the text box by
 // share, not by pixels. Same slot for every card, so the boxes still line up exactly.
-const CHIPS_SHARE = "38%";
+// Chips-to-textarea split inside a card, as flex-grow ratios against a zero basis rather
+// than a percentage. A percentage basis resolves against an indefinite height by falling
+// back to the content size, and paired with flex-shrink:0 that let the tallest chip list
+// (Adjectives, 15 terms) dictate the height of the entire entry row — 478px instead of the
+// 452px the layout had to give it. Growth ratios split whatever the row hands down and
+// stay shrinkable, so the cards follow the screen instead of the other way round.
+const CHIPS_GROW = 38;
+const TEXT_GROW = 62;
 
 /** The two lines of the calculator: the value itself, and the optional upper end of a range. */
 type ValuationLine = "from" | "to";
@@ -206,19 +212,16 @@ export default function ValuationFocus({
   const [autoCls, setAutoCls] = useState(false);
   // The Standard sub-grade was auto-picked from the previous sale (so a tier change may re-pick it).
   const [autoSub, setAutoSub] = useState(false);
-  // Auto-classification ran but this grade has no previous-sale history.
-  const [noPrevData, setNoPrevData] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  // The full fact grid is collapsed by default: on a tablet it costs ~136px, which is the
-  // difference between the whole view fitting the screen and the keypad falling off the
-  // bottom. The identity strip below stays visible either way, and the preference sticks
-  // across lots so anyone who wants the full box keeps it.
-  const [detailsOpen, setDetailsOpen] = useState(false);
   // "Sharings" comparison panel — other brokers' lots of this same mark + grade.
   const [sharingsOpen, setSharingsOpen] = useState(false);
   // The lot you left when you tapped a sharing — drives the one-tap "Back to your lot"
   // banner so you can value a shared lot and return without hunting for where you were.
   const [returnAnchor, setReturnAnchor] = useState<{ id: string; label: string } | null>(null);
+  // Per-sharing valuation typed straight into the comparison row, keyed by lot id, so a
+  // sharing can be priced without leaving this lot. Empty entry = untouched.
+  const [sharingDraft, setSharingDraft] = useState<Record<string, string>>({});
+  const [savingSharingId, setSavingSharingId] = useState<string | null>(null);
   const lineRefs = useRef<Record<ValuationLine, HTMLInputElement | null>>({ from: null, to: null });
 
   // Index the whole sale by mark+grade once, then pull this lot's sharings from it. The
@@ -278,7 +281,8 @@ export default function ValuationFocus({
     setClsNeeded(false);
     setAutoCls(false);
     setAutoSub(false);
-    setNoPrevData(false);
+    setSharingDraft({});
+    setSharingsOpen(false);
     // Give the value line focus — but never steal focus while the user is typing in
     // another field (the search bar / a filter / a remark box), or searching would be
     // interrupted the moment the first match changes the focused lot.
@@ -494,19 +498,27 @@ export default function ValuationFocus({
   // Tapping a keyword chip adds it to the field (or removes it, if already there) — same
   // local-only edit as typing in the box. Nothing hits the server until the lot is left
   // (Save & Next / arrow / jump), same as every other field here — see saveAll.
-  const toggleFieldKeyword = (field: FocusTextField, keyword: string) => {
+  const toggleFieldKeyword = useCallback((field: FocusTextField, keyword: string) => {
     setFieldText((prev) => ({ ...prev, [field]: toggleKeyword(prev[field], keyword) }));
-  };
+  }, []);
+
+  // One stable handler per field. An inline `(kw) => toggleFieldKeyword(f.value, kw)` in the
+  // render would be a new function every time, which defeats the memo on KeywordChips and
+  // re-renders every chip on any state change here.
+  const chipHandlers = useMemo(
+    () =>
+      Object.fromEntries(
+        FOCUS_TEXT_FIELDS.map((f) => [f.value, (keyword: string) => toggleFieldKeyword(f.value, keyword)])
+      ) as Record<FocusTextField, (keyword: string) => void>,
+    [toggleFieldKeyword]
+  );
 
   // Auto-pick a classification from the previous sale's record for this grade.
   // Returns the updated lot, or null when there's no usable history / the save failed.
   const autoClassify = async (l: Lot): Promise<Lot | null> => {
     const value = effectiveValuationOf(l);
     const tier = gradeStats && value !== null ? suggestTier(gradeStats, value) : null;
-    if (!tier) {
-      setNoPrevData(true);
-      return null;
-    }
+    if (!tier) return null;
     setSaving(true);
     try {
       const updated = await api.updateValuation(l.id, buildValuationUpdate(l, { classification: tier }));
@@ -568,6 +580,72 @@ export default function ValuationFocus({
     onJump(target.id);
   };
 
+  /**
+   * Price a sharing from the comparison row, without leaving this lot.
+   *
+   * A sharing is the same selling mark AND the same grade (see sharingKey), so the very
+   * previous-sale bands driving this lot's tiers apply to it unchanged — the classification
+   * and Standard sub-grade can be derived here exactly as they are in saveAll, rather than
+   * being left for a later trip into that lot. Anything already hand-set on the target is
+   * left alone: the tier is only filled when it is still Unclassified, and the sub-grade
+   * only when it holds none for that tier.
+   */
+  const saveSharingValue = async (target: Lot, raw: string) => {
+    const parsed = parseValuationInput(raw);
+    if (parsed.kind === "error") return;
+    const patch: Partial<ValuationUpdate> = {};
+    if (parsed.kind === "clear") {
+      patch.valuationSingle = null;
+      patch.valuationFrom = null;
+      patch.valuationTo = null;
+      // No value means no grading, the same rule the main entry enforces.
+      patch.classification = "Unclassified";
+      patch.standardData = withSubGrade(target.valuation?.standardData, null) || null;
+    } else {
+      if (parsed.kind === "single") {
+        patch.valuationSingle = parsed.value;
+        patch.valuationFrom = null;
+        patch.valuationTo = null;
+      } else {
+        patch.valuationSingle = null;
+        patch.valuationFrom = parsed.from;
+        patch.valuationTo = parsed.to;
+      }
+      const value = effectiveOfParsed(parsed);
+      const targetCls = target.valuation?.classification ?? "Unclassified";
+      const tier =
+        gradeStats && targetCls === "Unclassified" && value !== null ? suggestTier(gradeStats, value) : null;
+      if (tier) patch.classification = tier;
+      const tierAfter = tier ?? targetCls;
+      if (tierAfter !== "Unclassified" && value !== null) {
+        const existing = subGradeEntryOf(target.valuation?.standardData);
+        if (!existing || existing.tier !== tierAfter) {
+          const ts = tierStatsFor(gradeStats, tierAfter as ClassificationValue);
+          const suffix = ts ? suggestSubGrade(ts, value) : null;
+          if (suffix) {
+            patch.standardData =
+              withSubGrade(target.valuation?.standardData, subGradeCode(tierAfter as ClassificationValue, suffix)) ||
+              null;
+          }
+        }
+      }
+    }
+    setSavingSharingId(target.id);
+    try {
+      const updated = await api.updateValuation(target.id, buildValuationUpdate(target, patch));
+      onLotUpdated(updated);
+      setSharingDraft((prev) => {
+        const next = { ...prev };
+        delete next[target.id];
+        return next;
+      });
+    } catch {
+      setError("Save failed — try again");
+    } finally {
+      setSavingSharingId(null);
+    }
+  };
+
   // The Back banner: save this (shared) lot, then hop back to where the comparison started.
   const returnToAnchor = async () => {
     if (!returnAnchor) return;
@@ -584,9 +662,8 @@ export default function ValuationFocus({
     const next: ClassificationValue = currentCls === value ? "Unclassified" : value;
     const updated = await saveAll({ classification: next });
     if (!updated) return;
-    // A hand-picked tier is an override — drop the auto-selected label and no-data note.
+    // A hand-picked tier is an override — the auto flag no longer applies.
     setAutoCls(false);
-    setNoPrevData(false);
     if (next !== "Unclassified") setClsNeeded(false);
   };
 
@@ -612,7 +689,11 @@ export default function ValuationFocus({
   // This lot's packing (net weight per bag) — a sharing on a different packing is flagged.
   const currentWtBag = weightPerChestOf(lot);
 
-  const facts: { label: string; value: string | null | undefined; strong?: boolean }[] = [
+  // `always` keeps a fact in the grid even while it is empty. Only the valuation needs it:
+  // it is the one fact that fills in as you type, and letting it appear from nothing adds a
+  // cell — often a whole new grid row — which shifts the tiers and keypad down mid-entry.
+  // Reserving its slot costs one "—" and keeps the box a fixed height for a given lot.
+  const facts: { label: string; value: string | null | undefined; strong?: boolean; always?: boolean }[] = [
     { label: "Lot No", value: lot.lotNumber, strong: true },
     { label: "Broker", value: lot.broker, strong: true },
     { label: "Selling Mark", value: sellingMarkOf(lot), strong: true },
@@ -626,7 +707,7 @@ export default function ValuationFocus({
     { label: "Standard (catalogue)", value: catalogueStandardOf(lot) },
     { label: "Remark", value: catalogueRemarkOf(lot) ?? v?.adjectiveData },
     { label: "Liquor Remarks", value: v?.liquorRemarks },
-    { label: valuationDirty ? "Valuation (unsaved)" : "Valuation", value: typedValuation || null, strong: true },
+    { label: valuationDirty ? "Valuation (unsaved)" : "Valuation", value: typedValuation || null, strong: true, always: true },
     { label: "Asking", value: askingPriceOf(lot) },
     { label: "Minimum Limit", value: minimumLimitOf(lot) },
   ];
@@ -832,11 +913,19 @@ export default function ValuationFocus({
            measured out: 24 padding + 22 header + 106 for the two value lines + 23 feedback
            + 244 keypad (5 rows at the 44px minimum plus gaps) = 419, rounded up to 440. */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="max-w-[1600px] mx-auto px-3 md:px-5 py-2 flex flex-col gap-1.5 min-h-full">
+        <div className="max-w-[1600px] mx-auto px-3 md:px-5 py-1.5 flex flex-col gap-1 min-h-full">
           {/* lot details box */}
-          <Paper variant="outlined" sx={{ borderColor: "var(--border)", flexShrink: 0, boxShadow: "var(--shadow-sm)" }}>
+          {/* `relative` anchors the floating sharings panel below this box. */}
+          <Paper
+            variant="outlined"
+            sx={{ borderColor: "var(--border)", flexShrink: 0, boxShadow: "var(--shadow-sm)", position: "relative" }}
+          >
             <div
-              className="px-4 py-2 border-b border-border flex flex-wrap items-center gap-x-2 gap-y-1"
+              // Sits above the tap-away scrim (z-20) so the Sharings button below stays a
+              // real toggle while the panel is open. Without this the scrim covered it and
+              // the second press landed on the scrim instead of the button — the panel still
+              // closed, but the control looked dead and a quick double-tap did nothing at all.
+              className="relative z-40 px-4 py-1.5 border-b border-border flex flex-wrap items-center gap-x-2 gap-y-1"
               style={{ background: "var(--surface-sunken)" }}
             >
               {/* Identity strip — who this lot is, always on screen even with the fact
@@ -860,21 +949,24 @@ export default function ValuationFocus({
                   Asking <strong style={{ color: "var(--text-strong)" }}>{askingPriceOf(lot)}</strong>
                 </span>
               )}
+              {/* Inert when there is nothing to compare. It used to open a panel that said
+                  only "no other broker is offering this" — pressing a button and getting a
+                  near-empty box reads as the button being broken, where a disabled control
+                  labelled "Sharings (0)" says the same thing without the round trip. */}
               <button
                 type="button"
-                onClick={() => setDetailsOpen((o) => !o)}
-                title={detailsOpen ? "Hide the full lot details" : "Show every catalogue field for this lot"}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-[13px] font-semibold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
-                style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
-              >
-                {detailsOpen ? <ExpandLessIcon sx={{ fontSize: 17 }} /> : <ExpandMoreIcon sx={{ fontSize: 17 }} />}
-                Details
-              </button>
-              <button
-                type="button"
+                disabled={sharings.length === 0}
                 onClick={() => setSharingsOpen((o) => !o)}
-                title="Show other brokers offering the same mark &amp; grade in this sale — compare packing and asking prices"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] font-semibold cursor-pointer touch-manipulation active:scale-[0.98] transition-transform"
+                title={
+                  sharings.length === 0
+                    ? `No other broker is offering ${sellingMarkOf(lot) ?? "this mark"}${
+                        lot.grade ? ` · ${lot.grade}` : ""
+                      } in this sale`
+                    : sharingsOpen
+                      ? "Hide the comparison"
+                      : "Compare the other brokers offering this same mark & grade — and price them here"
+                }
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] font-semibold touch-manipulation transition-transform enabled:cursor-pointer enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
                 style={{
                   borderColor: sharings.length ? "var(--brass)" : "var(--border)",
                   background: sharingsOpen ? "var(--brass-dim)" : "transparent",
@@ -912,27 +1004,58 @@ export default function ValuationFocus({
                 )}
               </span>
             </div>
-            {detailsOpen && (
-              <div
-                className="grid gap-x-4 gap-y-2 px-4 py-2.5 border-t border-border"
-                style={{ gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))" }}
-              >
-                {facts
-                  .filter((f) => f.value?.trim())
-                  .map((f) => (
-                    <Fact key={f.label} {...f} />
-                  ))}
-              </div>
-            )}
+            <div
+              className="grid gap-x-4 gap-y-1 px-4 py-1.5 border-t border-border"
+              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))" }}
+            >
+              {facts
+                .filter((f) => f.always || f.value?.trim())
+                .map((f) => (
+                  <Fact key={f.label} {...f} />
+                ))}
+            </div>
 
-            {/* ---- sharings: other brokers' lots of this same mark + grade ---- */}
+            {/* ---- sharings: other brokers' lots of this same mark + grade ----
+                 Floated, not inserted. As a sibling in the details box this panel grew the
+                 box, which pushed the tiers and the keypad down the screen the moment it
+                 opened — the layout moved under whatever the taster was about to tap.
+                 Positioned absolutely it hangs over the work area instead, so opening and
+                 closing the comparison never reflows anything behind it. */}
             {sharingsOpen && (
-              <div
-                // Capped and self-scrolling: opening the comparison must never push the
-                // tiers and keypad off the bottom of the screen.
-                className="border-t border-border px-4 py-3 max-h-[34vh] overflow-y-auto"
-                style={{ background: "var(--surface-sunken)" }}
-              >
+              <>
+                {/* Tap-away close, and a guard so a tap meant for the panel can't land on a
+                    tier button underneath it. */}
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setSharingsOpen(false)}
+                  aria-hidden
+                />
+                <div
+                  className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border-2 overflow-hidden"
+                  style={{
+                    borderColor: "var(--brass)",
+                    background: "var(--surface)",
+                    boxShadow: "var(--shadow-lg)",
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-2 px-4 py-2 border-b border-border"
+                    style={{ background: "var(--surface-sunken)" }}
+                  >
+                    <span className="font-mono text-[11px] tracking-widest uppercase text-text-muted font-semibold">
+                      Sharings · {sellingMarkOf(lot) ?? "this mark"}
+                      {lot.grade ? ` · ${lot.grade}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSharingsOpen(false)}
+                      className="ml-auto px-3 py-1 rounded-full border text-[13px] font-semibold cursor-pointer touch-manipulation"
+                      style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="px-4 py-3 max-h-[46vh] overflow-y-auto">
                 {sharings.length === 0 ? (
                   <p className="text-[12.5px] text-text-muted m-0 leading-relaxed">
                     No other broker is offering{" "}
@@ -941,13 +1064,8 @@ export default function ValuationFocus({
                   </p>
                 ) : (
                   <>
-                    <p className="text-[11px] text-text-muted m-0 mb-2 leading-snug">
-                      Same mark &amp; grade across brokers. Compare packing &amp; asking below, then tap another
-                      broker&apos;s row to open and value that lot — a{" "}
-                      <strong style={{ color: "var(--text-strong)" }}>Back</strong> bar then brings you straight here.
-                    </p>
                     <div className="overflow-x-auto -mx-1 px-1">
-                      <table className="w-full border-collapse text-[12.5px]">
+                      <table className="w-full border-collapse text-[13px]">
                         <thead>
                           <tr>
                             {["Broker", "Lot", "Bags", "Wt/Bag", "Asking", "Valuation", "Go"].map((h) => (
@@ -966,19 +1084,30 @@ export default function ValuationFocus({
                             const wtBag = weightPerChestOf(l);
                             const diffPacking = !!wtBag && !!currentWtBag && wtBag !== currentWtBag;
                             const valText = valuationToText(l);
+                            const busy = savingSharingId === l.id;
+                            // The row's field falls back to whatever is already saved on that
+                            // lot, so it reads as its valuation until you change something.
+                            const draft = sharingDraft[l.id] ?? valText ?? "";
+                            const dirty = draft.trim() !== (valText ?? "").trim();
+                            const valid = draft.trim() === "" || parseValuationInput(draft).kind !== "error";
+                            // One-tap copy of this lot's price. Same mark, same grade — most
+                            // sharings take the same value, so this is the common case and
+                            // deserves to be a single tap rather than a retype.
+                            const canCopy =
+                              !!typedValuation && typedValuation.trim() !== "" && typedValuation !== draft;
+                            // What the row's saved value actually graded to. Saving here fills
+                            // the tier and Standard as well, and without showing them you would
+                            // have to open the lot just to confirm the save did its whole job.
+                            const lTier = CLASSIFICATIONS.find((c) => c.value === l.valuation?.classification);
+                            const lCode = subGradeCodeOf(l.valuation?.standardData) ?? lTier?.short ?? null;
                             return (
                               <tr
                                 key={l.id}
-                                onClick={isAnchor ? () => returnToAnchor() : () => openSharing(l)}
-                                title={isAnchor ? "Go back to this lot" : "Open this lot to value it"}
-                                className="cursor-pointer touch-manipulation active:opacity-80"
-                                style={{
-                                  borderLeft: isAnchor ? "3px solid var(--brass)" : "3px solid transparent",
-                                }}
+                                style={{ borderLeft: isAnchor ? "3px solid var(--brass)" : "3px solid transparent" }}
                               >
                                 <td className="px-2 py-2 whitespace-nowrap font-semibold" style={{ color: "var(--text)" }}>
                                   {l.broker || "—"}
-                                  {isAnchor && <span className="text-text-muted font-normal"> · you came from here</span>}
+                                  {isAnchor && <span className="text-text-muted font-normal"> · came from here</span>}
                                 </td>
                                 <td className="px-2 py-2 whitespace-nowrap font-mono">{l.lotNumber ?? "—"}</td>
                                 <td className="px-2 py-2 whitespace-nowrap font-mono">{noOfChestsOf(l) ?? "—"}</td>
@@ -991,28 +1120,96 @@ export default function ValuationFocus({
                                   {diffPacking ? " ≠" : ""}
                                 </td>
                                 <td className="px-2 py-2 whitespace-nowrap font-mono">{askingPriceOf(l) ?? "—"}</td>
-                                <td
-                                  className="px-2 py-2 whitespace-nowrap font-mono font-semibold"
-                                  style={{ color: valText ? "var(--text-strong)" : "var(--text-muted)" }}
-                                >
-                                  {valText || "—"}
+                                {/* Value the sharing here, in the row. */}
+                                <td className="px-2 py-1.5 whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      aria-label={`Valuation for ${l.broker ?? "broker"} lot ${l.lotNumber ?? ""}`}
+                                      placeholder="—"
+                                      disabled={busy}
+                                      value={draft}
+                                      onChange={(e) =>
+                                        setSharingDraft((prev) => ({
+                                          ...prev,
+                                          [l.id]: sanitizeValuationInput(e.target.value),
+                                        }))
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && dirty && valid) {
+                                          e.preventDefault();
+                                          saveSharingValue(l, draft);
+                                        }
+                                      }}
+                                      className="w-[92px] px-2 py-1.5 rounded-lg border-2 text-[15px] font-mono font-bold bg-transparent disabled:opacity-50"
+                                      style={{
+                                        borderColor: !valid
+                                          ? "var(--danger)"
+                                          : dirty
+                                            ? "var(--brass)"
+                                            : "var(--border)",
+                                        color: "var(--text-strong)",
+                                      }}
+                                    />
+                                    {canCopy && (
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        title={`Give this lot the same valuation — Rs. ${typedValuation}`}
+                                        onClick={() =>
+                                          setSharingDraft((prev) => ({ ...prev, [l.id]: typedValuation }))
+                                        }
+                                        className="px-2 py-1.5 rounded-lg border text-[12px] font-mono font-bold cursor-pointer touch-manipulation shrink-0"
+                                        style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+                                      >
+                                        ={typedValuation}
+                                      </button>
+                                    )}
+                                    {lTier && lCode && (
+                                      <span
+                                        title={`${lTier.label} · Standard ${lCode}`}
+                                        className="px-2 py-1 rounded-full text-[12px] font-bold font-mono shrink-0"
+                                        style={{ background: lTier.color, color: "var(--paper-0)" }}
+                                      >
+                                        {lCode}
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
-                                <td className="px-2 py-2 whitespace-nowrap text-right">
-                                  {isAnchor ? (
-                                    <span
-                                      className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold"
-                                      style={{ background: "var(--liquor)", color: "var(--paper-0)" }}
+                                <td className="px-2 py-1.5 whitespace-nowrap text-right">
+                                  <div className="flex items-center gap-1.5 justify-end">
+                                    {dirty && (
+                                      <button
+                                        type="button"
+                                        disabled={busy || !valid}
+                                        onClick={() => saveSharingValue(l, draft)}
+                                        title="Save this valuation — the tier and Standard follow from it"
+                                        className="px-3 py-1.5 rounded-full text-[12.5px] font-bold cursor-pointer touch-manipulation disabled:opacity-40"
+                                        style={{ background: "var(--liquor)", color: "var(--paper-0)" }}
+                                      >
+                                        {busy ? "…" : "Save"}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={isAnchor ? () => returnToAnchor() : () => openSharing(l)}
+                                      title={
+                                        isAnchor
+                                          ? "Go back to the lot you came from"
+                                          : "Open this lot in full — remarks, photo, voice notes"
+                                      }
+                                      className="px-3 py-1.5 rounded-full text-[12.5px] font-bold border-2 cursor-pointer touch-manipulation"
+                                      style={
+                                        isAnchor
+                                          ? { background: "var(--liquor)", borderColor: "var(--liquor)", color: "var(--paper-0)" }
+                                          : { borderColor: "var(--liquor)", color: "var(--liquor)" }
+                                      }
                                     >
-                                      ↩ Back
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border"
-                                      style={{ borderColor: "var(--liquor)", color: "var(--liquor)" }}
-                                    >
-                                      Open →
-                                    </span>
-                                  )}
+                                      {isAnchor ? "↩ Back" : "Open →"}
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1022,7 +1219,9 @@ export default function ValuationFocus({
                     </div>
                   </>
                 )}
-              </div>
+                  </div>
+                </div>
+              </>
             )}
           </Paper>
 
@@ -1065,7 +1264,7 @@ export default function ValuationFocus({
                             ? "Tap again to unset"
                             : `Mark as ${c.label}`
                       }
-                      className="min-h-[56px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5 px-1 disabled:cursor-not-allowed"
+                      className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1.5 px-1 disabled:cursor-not-allowed"
                       style={{
                         borderColor: c.color,
                         background: active ? c.color : "var(--surface)",
@@ -1091,36 +1290,11 @@ export default function ValuationFocus({
                 })}
               </div>
 
-              <div className="h-[17px] overflow-hidden">
-                {!valuePresent && (
-                  <span className="block truncate text-[12.5px] font-semibold text-text-muted">
-                    Enter a valuation first — a lot with no value carries no classification
-                  </span>
-                )}
-                {valuePresent && liveTier && gradeStats && (
-                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
-                    Auto-selects on save · {tierSummary(lot.grade, gradeStats, liveTier)} — tap another tier to override
-                  </span>
-                )}
-                {valuePresent && !liveTier && autoCls && gradeStats && currentCls !== "Unclassified" && (
-                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
-                    Auto-selected · {tierSummary(lot.grade, gradeStats, currentCls)} — tap another tier to override
-                  </span>
-                )}
-                {valuePresent && mayAuto && liveValue !== null && !gradeStats && (
-                  <span className="block truncate text-[12.5px] font-semibold text-text-muted">
-                    No previous-sale data for {lot.grade ?? "this grade"} — tap a tier manually
-                  </span>
-                )}
-                {clsNeeded && (
-                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--warn)" }}>
-                    {noPrevData
-                      ? `No previous-sale data for ${lot.grade ?? "this grade"} — `
-                      : "Classification required — "}
-                    tap a tier, then Save &amp; Next to move on
-                  </span>
-                )}
-              </div>
+              {/* No coaching line under the tiers. Everything it used to spell out is already
+                  on screen for anyone who works this daily: the buttons carry each tier's
+                  previous-sale band and share, the selected one carries a ✓, disabled buttons
+                  say "not yet", the warn outline on this group says a classification is still
+                  owed, and the strip above states the lot's status outright. */}
 
               {/* Standard sub-grade: the chosen tier's previous-sale band, split into four.
                   Auto-selects with the tier and is the Standard field's only writer. */}
@@ -1138,13 +1312,6 @@ export default function ValuationFocus({
                     Standard → {subGradeCode(displayCls, displaySubSuffix)}
                   </span>
                 )}
-                <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                  {!subEnabled
-                    ? "grades the tier above — pick a valuation and tier first"
-                    : subTierStats
-                      ? `${displayTier!.short} band ${formatTierRange(subTierStats)} split four ways`
-                      : `no ${displayTier!.label.toLowerCase()} lots last sale — pick a sub-grade manually`}
-                </span>
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {SUB_GRADE_SUFFIXES.map(({ suffix, label }) => {
@@ -1170,7 +1337,7 @@ export default function ValuationFocus({
                                   : ""
                               })`
                       }
-                      className="min-h-[52px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1 px-1 disabled:cursor-not-allowed"
+                      className="min-h-[48px] rounded-lg border-2 cursor-pointer touch-manipulation active:scale-[0.98] transition-transform py-1 px-1 disabled:cursor-not-allowed"
                       style={{
                         borderColor: subEnabled ? subColor : "var(--border)",
                         background: active ? subColor : "var(--surface)",
@@ -1192,19 +1359,8 @@ export default function ValuationFocus({
                   );
                 })}
               </div>
-              <div className="h-[17px] overflow-hidden">
-                {subEnabled && liveSubSuffix && subTierStats && (
-                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--sage-dark)" }}>
-                    Auto-selects {subGradeCode(displayCls, liveSubSuffix)} on save — tap a sub-grade to override, or
-                    leave it
-                  </span>
-                )}
-                {subEnabled && !liveSubSuffix && currentSubEntry && currentSubEntry.tier === displayCls && (
-                  <span className="block truncate text-[12.5px] font-semibold" style={{ color: "var(--text-muted)" }}>
-                    Standard set to {currentSubEntry.code} — tap it again to clear, or pick another
-                  </span>
-                )}
-              </div>
+              {/* Likewise no line under the sub-grades: the "Standard → B+" badge in the
+                  header already states exactly what will be saved. */}
             </div>
 
             <button
@@ -1230,13 +1386,13 @@ export default function ValuationFocus({
           <div
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1"
             // One row per breakpoint's column count, each at least tall enough for the
-            // calculator's own stack (24 padding + 22 header + 106 for the two value lines
-            // + 23 feedback + 244 keypad = 419, rounded to 440) and growing to share any
+            // calculator's own stack (24 padding + 22 header + 98 for the two value lines
+            // + 21 feedback + 244 keypad = 409, rounded to 415) and growing to share any
             // leftover height equally. Putting the floor on the ROW rather than the whole
             // grid is what makes it correct at every breakpoint: at 2 columns the grid
             // needs two of those rows, and asking the grid for one 440 total would have
             // squeezed each card to 220 and clipped the keypad.
-            style={{ gridAutoRows: "minmax(440px, 1fr)" }}
+            style={{ gridAutoRows: "minmax(415px, 1fr)" }}
           >
             {FOCUS_TEXT_FIELDS.map((f) => (
               <Paper
@@ -1268,13 +1424,13 @@ export default function ValuationFocus({
                   </div>
                 )}
                 {/* Same share of the card in every column, so the text boxes below line up. */}
-                <div className="min-h-0 mb-2" style={{ flex: `0 0 ${CHIPS_SHARE}` }}>
+                <div className="min-h-0 mb-2" style={{ flex: `${CHIPS_GROW} 1 0` }}>
                   <KeywordChips
                     field={f.value}
                     value={fieldText[f.value]}
                     disabled={saving}
                     fill
-                    onToggle={(keyword) => toggleFieldKeyword(f.value, keyword)}
+                    onToggle={chipHandlers[f.value]}
                   />
                 </div>
                 <textarea
@@ -1282,8 +1438,8 @@ export default function ValuationFocus({
                   placeholder={f.placeholder}
                   disabled={saving}
                   onChange={(e) => setFieldText((prev) => ({ ...prev, [f.value]: e.target.value }))}
-                  className="flex-1 w-full resize-none bg-transparent border border-border rounded-md px-2.5 py-2 text-[15px] leading-relaxed outline-none min-h-0"
-                  style={{ color: "var(--text)" }}
+                  className="w-full resize-none bg-transparent border border-border rounded-md px-2.5 py-2 text-[15px] leading-relaxed outline-none min-h-0"
+                  style={{ color: "var(--text)", flex: `${TEXT_GROW} 1 0` }}
                 />
               </Paper>
             ))}
@@ -1333,7 +1489,7 @@ export default function ValuationFocus({
                       aria-label={label}
                       placeholder={locked ? "value first" : placeholder}
                       title={locked ? "Type the value on the line above first" : undefined}
-                      className="w-full min-w-0 px-2.5 py-2 rounded-lg border-2 text-[24px] font-mono font-bold bg-transparent tracking-wide disabled:cursor-not-allowed"
+                      className="w-full min-w-0 px-2.5 py-1.5 rounded-lg border-2 text-[24px] font-mono font-bold bg-transparent tracking-wide disabled:cursor-not-allowed"
                       style={{
                         borderColor: error && !locked ? "var(--danger)" : active ? "var(--brass)" : "var(--border)",
                         color: "var(--text-strong)",
@@ -1356,15 +1512,15 @@ export default function ValuationFocus({
                   </div>
                 );
               })}
-              <div className="h-[34px] mb-1 shrink-0 overflow-hidden">
-                {error && <span className="text-[12.5px] font-semibold text-danger">{error}</span>}
+              <div className="h-[17px] mb-1 shrink-0 overflow-hidden">
+                {error && <span className="block leading-[16px] text-[12.5px] font-semibold text-danger">{error}</span>}
                 {/* Only the part before the em-dash: the shared message ends with "— press
                     Enter to save", which is worth saying in the grid but is just noise
                     beside a Save & Next ⏎ button, and it overran this quarter-width card. */}
                 {!error && feedback && feedback.tone !== "none" && (
                   <span
                     title={feedback.message}
-                    className="text-[12.5px] font-semibold"
+                    className="block leading-[16px] text-[12.5px] font-semibold"
                     style={{ color: feedback.tone === "ok" ? "var(--sage-dark)" : "var(--text-muted)" }}
                   >
                     {feedback.tone === "ok" ? "✓ " : ""}
