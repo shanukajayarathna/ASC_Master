@@ -202,7 +202,9 @@ public class ExportController(ICatalogueSource source, MongoContext db) : Contro
         _ => 14,
     };
 
-    private static (ICellStyle Title, ICellStyle Subtitle, ICellStyle Header, ICellStyle Cell, ICellStyle Currency) BuildStyles(XSSFWorkbook wb)
+    /// <summary>Internal, not private — Modules/Reports reuses this so a generated report's
+    /// Excel export looks consistent with the raw-lot export instead of re-defining styles.</summary>
+    internal static (ICellStyle Title, ICellStyle Subtitle, ICellStyle Header, ICellStyle Cell, ICellStyle Currency) BuildStyles(XSSFWorkbook wb)
     {
         var titleStyle = wb.CreateCellStyle();
         var titleFont = wb.CreateFont();
@@ -256,7 +258,7 @@ public class ExportController(ICatalogueSource source, MongoContext db) : Contro
         _ => "Unclassified"
     };
 
-    private static string SanitizeFileName(string name)
+    internal static string SanitizeFileName(string name)
     {
         var noExt = Path.GetFileNameWithoutExtension(name);
         foreach (var c in Path.GetInvalidFileNameChars()) noExt = noExt.Replace(c, '_');

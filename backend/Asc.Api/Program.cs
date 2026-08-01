@@ -3,6 +3,7 @@ using Asc.Api.Data;
 using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.Reports;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -50,6 +51,10 @@ builder.Services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
 // pattern as embeddings above. Every tool it can call is read-only (Modules/Assistant/AssistantTools.cs).
 builder.Services.AddHttpClient<IChatProvider, OpenAiChatProvider>();
 builder.Services.AddSingleton<AssistantToolExecutor>();
+
+// Reporting — no PDF library here on purpose; the frontend renders the report and the
+// browser's own Print → Save as PDF covers that leg (see Modules/Reports/ReportsController.cs).
+builder.Services.AddSingleton<ReportGenerator>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

@@ -133,3 +133,23 @@ body {
   --ag-font-size: 13px;
   --ag-accent-color: var(--brass);
 }
+
+/* Reports page's "Print / Save as PDF" — scoped so only the report itself prints, not the
+   sidebar/topbar/toolbar around it. Same trick the original vanilla-JS Report Builder used
+   (window.print() against the visible page), just isolated to one element instead of
+   relying on a dedicated print-preview route. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .report-print-area,
+  .report-print-area * {
+    visibility: visible;
+  }
+  .report-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}

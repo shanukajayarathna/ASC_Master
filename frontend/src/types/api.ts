@@ -28,6 +28,44 @@ export interface ChatResponse {
   reply: string;
 }
 
+export interface ReportKpi {
+  label: string;
+  value: number | null;
+  format: string;
+}
+
+export interface ReportGroupRow {
+  label: string;
+  count: number;
+  averageValue: number | null;
+  percent: number | null;
+}
+
+export interface ReportSection {
+  title: string;
+  kpis: ReportKpi[] | null;
+  groupUnitLabel: string | null;
+  groups: ReportGroupRow[] | null;
+}
+
+export interface Report {
+  type: string;
+  title: string;
+  subtitle: string;
+  sourceName: string;
+  generatedAt: string;
+  sections: ReportSection[];
+}
+
+export interface SavedReport {
+  id: string;
+  type: string;
+  title: string;
+  catalogueId: string | null;
+  source: string | null;
+  createdAt: string;
+}
+
 export interface KnowledgeDocument {
   id: string;
   fileName: string;

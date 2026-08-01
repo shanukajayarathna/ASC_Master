@@ -12,6 +12,8 @@ import type {
   Lot,
   PagedLots,
   PreviousGradeStats,
+  Report,
+  SavedReport,
   ValuationUpdate,
 } from "@/types/api";
 
@@ -122,6 +124,28 @@ export const api = {
   listConversations: () => request<Conversation[]>("/api/v1/assistant/conversations"),
 
   getConversationMessages: (id: string) => request<ChatMessage[]>(`/api/v1/assistant/conversations/${id}/messages`),
+
+  // ---- reports ------------------------------------------------------------------------
+
+  generateReport: (catalogueId: string, type: string) => request<Report>(`/api/v1/reports/${catalogueId}/${type}`),
+
+  exportReportExcel: async (catalogueId: string, type: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/excel`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error("Export failed");
+    return res.blob();
+  },
+
+  saveReport: (type: string, title: string, catalogueId: string, source: string) =>
+    request<SavedReport>("/api/v1/reports/saved", {
+      method: "POST",
+      body: JSON.stringify({ type, title, catalogueId, source }),
+    }),
+
+  listSavedReports: () => request<SavedReport[]>("/api/v1/reports/saved"),
+
+  deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 
