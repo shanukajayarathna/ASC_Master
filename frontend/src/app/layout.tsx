@@ -3,8 +3,6 @@ import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeRegistry from "@/theme/ThemeRegistry";
 import { AuthProvider } from "@/context/AuthContext";
-import { CatalogueProvider } from "@/context/CatalogueContext";
-import Shell from "@/components/shell/Shell";
 
 const fraunces = Fraunces({
   variable: "--font-fraunces",
@@ -42,11 +40,10 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <ThemeRegistry>
-          <AuthProvider>
-            <CatalogueProvider>
-              <Shell>{children}</Shell>
-            </CatalogueProvider>
-          </AuthProvider>
+          {/* Every real page lives under the (app) route group, which gates on this and
+              adds CatalogueProvider/Shell itself — /login stays outside both so a signed-out
+              visitor never renders (or fetches) any of the app's data. */}
+          <AuthProvider>{children}</AuthProvider>
         </ThemeRegistry>
       </body>
     </html>
