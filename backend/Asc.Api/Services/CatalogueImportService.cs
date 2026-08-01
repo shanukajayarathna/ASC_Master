@@ -200,7 +200,16 @@ public class CatalogueImportService
             return name;
         }).ToList();
 
-        var dataRows = rows.Skip(headerIdx + 1).Where(r => r.Any(c => !string.IsNullOrWhiteSpace(c))).ToList();
+        // Every real weekly-sale file ends with a grand-total row (sums for a handful of
+        // numeric columns — bags, weight, price — under an otherwise blank row) which
+        // `Any(non-blank)` alone can't tell apart from a real lot. Checked across all 31
+        // sale files on disk: that trailing row never has more than 6 populated cells,
+        // while every genuine lot row has at least 19 — so a floor of 10 cleanly drops the
+        // total row (and any other blank/separator rows) without risking real data.
+        const int MinPopulatedCellsForDataRow = 10;
+        var dataRows = rows.Skip(headerIdx + 1)
+            .Where(r => r.Count(c => !string.IsNullOrWhiteSpace(c)) >= MinPopulatedCellsForDataRow)
+            .ToList();
         var data = dataRows.Select(r =>
         {
             var obj = new Dictionary<string, string>();
