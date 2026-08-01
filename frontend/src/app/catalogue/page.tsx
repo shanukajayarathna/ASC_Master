@@ -686,6 +686,7 @@ export default function CataloguePage() {
             headers={headers}
             columnMeta={columnMeta}
             hiddenColumns={hiddenColumns}
+            onHiddenColumnsChange={setHiddenColumns}
             onViewLot={viewLotDetails}
             onEditLot={editLot}
             onSelectionChanged={setSelected}

@@ -5,7 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { SALE_COLUMN_HEADER } from "@/lib/multiSale";
 import type { ColumnMeta, Lot } from "@/types/api";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
+import type { ColDef, ColumnVisibleEvent, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
 import { useEffect, useMemo, useRef } from "react";
 import { ascGridTheme } from "./agGridTheme";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
@@ -18,6 +18,18 @@ const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: stri
   Poor: { label: "Poor", bg: "var(--danger-light)", fg: "var(--danger)" },
   Unclassified: { label: "—", bg: "transparent", fg: "var(--text-muted)" },
 };
+
+/** Every raw column comes through as a string (Lot.rawData is Dictionary<string,string>
+ *  server-side), so a numeric column left to compare/sort on the raw string value sorts
+ *  lexicographically — "980" outranks "3450" descending because '9' > '3' as characters.
+ *  Parsing it to a real number here fixes sort, the built-in number filter, and any
+ *  min/max comparison in one place; commas are stripped the same way the server's own
+ *  decimal parsing does. */
+function parseNumericCell(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const num = parseFloat(String(raw).replace(/,/g, ""));
+  return Number.isNaN(num) ? null : num;
+}
 
 function effectiveValuation(lot: Lot): number | null {
   const v = lot.valuation;
@@ -32,6 +44,7 @@ export default function CatalogueGrid({
   headers,
   columnMeta,
   hiddenColumns,
+  onHiddenColumnsChange,
   onViewLot,
   onEditLot,
   onSelectionChanged,
@@ -40,6 +53,15 @@ export default function CatalogueGrid({
   headers: string[];
   columnMeta: Record<string, ColumnMeta>;
   hiddenColumns: Set<string>;
+  /**
+   * AG Grid's own header menu ("Choose Columns") lets a user hide/show columns straight
+   * from the grid, bypassing the app's "Columns" button entirely. That toggle only lives
+   * in the grid's internal column state — until this fires, the app's own `hiddenColumns`
+   * never learns about it, so the next re-render (e.g. touching a filter) pushes the
+   * *old* `hide` values back down through colDefs and silently undoes it. This mirrors
+   * every visibility change back into the app's state so the two never disagree.
+   */
+  onHiddenColumnsChange: (next: Set<string>) => void;
   onViewLot: (lot: Lot) => void;
   onEditLot: (lot: Lot) => void;
   onSelectionChanged: (lots: Lot[]) => void;
@@ -65,6 +87,9 @@ export default function CatalogueGrid({
         hide: hiddenColumns.has(h),
         filter: meta?.categorical ? "agSetColumnFilter" : meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
         type: meta?.numeric ? "numericColumn" : undefined,
+        // field stays wired for edits (they write back into rawData as text, same as
+        // before); valueGetter overrides what sort/filter/display actually read.
+        valueGetter: meta?.numeric ? (p) => parseNumericCell(p.data?.[h]) : undefined,
         minWidth: isSale ? 120 : 100,
         maxWidth: 260,
         tooltipField: h,
@@ -143,6 +168,20 @@ export default function CatalogueGrid({
     onSelectionChanged(rows.map((r) => r.__lot));
   };
 
+  // Recomputes the full hidden-column set straight from the grid's own column state —
+  // fires for every visibility change, however it happened (native header menu, "Reset
+  // Columns", or our own colDef push), so the app's state always matches what's actually
+  // on screen. Only tracks raw headers; the pinned Valuation/Classification/actions
+  // columns aren't part of `hiddenColumns` and are never toggleable anyway.
+  const handleColumnVisible = (e: ColumnVisibleEvent) => {
+    const headerSet = new Set(headers);
+    const next = new Set(
+      e.api.getColumns()?.filter((c) => !c.isVisible() && headerSet.has(c.getColId())).map((c) => c.getColId()) ?? []
+    );
+    if (next.size === hiddenColumns.size && [...next].every((h) => hiddenColumns.has(h))) return;
+    onHiddenColumnsChange(next);
+  };
+
   // sizeColumnsToFit resizes every displayed (non-pinned) column proportionally so their total
   // width exactly equals the center viewport width — this is what makes the grid fill the full
   // page AND guarantees zero gap before the pinned Valuation/Classification/Actions columns
@@ -164,6 +203,7 @@ export default function CatalogueGrid({
         columnDefs={columnDefs}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
         onSelectionChanged={handleSelectionChanged}
+        onColumnVisible={handleColumnVisible}
         onGridReady={handleGridReady}
         onGridSizeChanged={fitColumns}
         pagination
