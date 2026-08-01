@@ -27,7 +27,18 @@ public class Valuation
     public string? BrokerNotes { get; set; }
     public string? PrivateNotes { get; set; }
 
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = UtcNowMillis();
+
+    /// <summary>MongoDB's BSON DateTime only stores millisecond precision, so a raw
+    /// DateTime.UtcNow (100ns ticks) written then read back never compares equal to the
+    /// in-memory value that was just set — which breaks an optimistic-concurrency check
+    /// that compares "what the client last saw" against "what's stored now". Truncating at
+    /// the source keeps every UpdatedAt round-trip-safe through storage.</summary>
+    public static DateTime UtcNowMillis()
+    {
+        var now = DateTime.UtcNow;
+        return new DateTime(now.Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
+    }
 
     /// <summary>Best-effort single value for aggregation: Single if set, else midpoint of From/To, else From.</summary>
     public decimal? EffectiveValue =>

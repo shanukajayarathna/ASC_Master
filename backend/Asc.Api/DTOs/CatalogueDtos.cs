@@ -58,8 +58,16 @@ public record ValuationUpdateDto(
     string? LiquorRemarks,
     string? MusterReport,
     string? BrokerNotes,
-    string? PrivateNotes
+    string? PrivateNotes,
+    /// <summary>The UpdatedAt the client last saw for this lot (null if it had never been
+    /// valued) — echoed back from ValuationDto.UpdatedAt. A mismatch means someone else
+    /// saved a change in between, so the request is rejected instead of overwriting it.</summary>
+    DateTime? ExpectedUpdatedAt = null
 );
+
+/// <summary>409 body for a valuation save that lost the race — carries the lot as it
+/// actually stands now, so a client can show it without a separate re-fetch.</summary>
+public record ValuationConflictDto(string Message, LotDto Lot);
 
 public record PagedLotsDto(List<LotDto> Rows, int Total, int Page, int PageSize);
 

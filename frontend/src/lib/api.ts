@@ -16,6 +16,20 @@ export interface LotMedia {
   voice: string[];
 }
 
+/** A failed request, with the HTTP status and (when the body was JSON) its parsed body —
+ *  callers that care about a specific status (e.g. 409 on a stale valuation save) read
+ *  `status`/`body` instead of pattern-matching the message string. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public body?: unknown
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -23,7 +37,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `Request failed: ${res.status} ${res.statusText}`);
+    let body: unknown;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      // Not JSON — plain-text error bodies (e.g. BadRequest("...")) are common here too.
+    }
+    const message =
+      (body as { message?: string } | undefined)?.message || text || `Request failed: ${res.status} ${res.statusText}`;
+    throw new ApiError(message, res.status, body);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

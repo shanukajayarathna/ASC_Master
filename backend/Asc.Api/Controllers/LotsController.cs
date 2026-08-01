@@ -106,7 +106,17 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         var stored = await db.Valuations.Find(v => v.LotId == id).FirstOrDefaultAsync();
         // Start from what the user currently sees (their override, else the file-derived
         // valuation) so an omitted Classification keeps its current tier.
-        var val = (stored?.Valuation ?? lot.Valuation)?.Clone() ?? new Valuation();
+        var current = stored?.Valuation ?? lot.Valuation;
+
+        // Optimistic concurrency: the client always echoes back the UpdatedAt it last saw
+        // (see ValuationDto.UpdatedAt). If that no longer matches what's actually stored,
+        // someone else saved a change in between — reject rather than silently overwrite it.
+        if (dto.ExpectedUpdatedAt != current?.UpdatedAt)
+            return Conflict(new ValuationConflictDto(
+                "This lot was updated by someone else since you opened it — your changes were not saved.",
+                ToDto(lot, current)));
+
+        var val = current?.Clone() ?? new Valuation();
         val.ValuationFrom = from;
         val.ValuationTo = to;
         val.ValuationSingle = single;
@@ -118,7 +128,7 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         val.MusterReport = dto.MusterReport;
         val.BrokerNotes = dto.BrokerNotes;
         val.PrivateNotes = dto.PrivateNotes;
-        val.UpdatedAt = DateTime.UtcNow;
+        val.UpdatedAt = Valuation.UtcNowMillis();
         DropTierWithoutValue(val);
 
         await UpsertValuation(lot, catalogue.Id, val);
@@ -161,7 +171,7 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
                 continue;
             }
             val.Classification = cls;
-            val.UpdatedAt = DateTime.UtcNow;
+            val.UpdatedAt = Valuation.UtcNowMillis();
             await UpsertValuation(lot, catalogue.Id, val);
             updated++;
         }
@@ -187,7 +197,7 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
             val.MusterReport = null;
             val.BrokerNotes = null;
             val.PrivateNotes = null;
-            val.UpdatedAt = DateTime.UtcNow;
+            val.UpdatedAt = Valuation.UtcNowMillis();
             await UpsertValuation(lot, catalogue.Id, val);
             updated++;
         }

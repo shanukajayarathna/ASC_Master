@@ -20,6 +20,7 @@ export function buildValuationUpdate(lot: Lot, patch: Partial<ValuationUpdate>):
     musterReport: v?.musterReport ?? null,
     brokerNotes: v?.brokerNotes ?? null,
     privateNotes: v?.privateNotes ?? null,
+    expectedUpdatedAt: v?.updatedAt ?? null,
     ...patch,
   };
 }

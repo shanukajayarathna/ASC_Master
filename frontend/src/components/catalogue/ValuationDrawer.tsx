@@ -1,6 +1,6 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { valuationValueError, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
 import { toggleKeyword, type RemarkKeywordField } from "@/lib/remarkKeywords";
 import { catalogueRemarkOf } from "@/lib/lotDisplay";
@@ -93,6 +93,10 @@ function ValuationDrawerContent({
 }) {
   const [form, setForm] = useState<FormState>(() => formFromLot(lot));
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Set only on a 409: the lot as it actually stands now, from the same conflict response —
+  // lets "load latest" apply it without a separate re-fetch.
+  const [conflictLot, setConflictLot] = useState<Lot | null>(null);
 
   // Tapping a keyword chip adds it to that field (or removes it, if already there) —
   // same master list the taster's reference sheets define, just local to the form until
@@ -133,6 +137,8 @@ function ValuationDrawerContent({
   const save = async () => {
     if (hasError) return;
     setSaving(true);
+    setSaveError(null);
+    setConflictLot(null);
     try {
       const updated = await api.updateValuation(lot.id, {
         valuationFrom: form.mode === "range" && form.valuationFrom.trim() ? Number(form.valuationFrom) : null,
@@ -145,8 +151,17 @@ function ValuationDrawerContent({
         musterReport: form.musterReport || null,
         brokerNotes: form.brokerNotes || null,
         privateNotes: form.privateNotes || null,
+        expectedUpdatedAt: lot.valuation?.updatedAt ?? null,
       });
       onSaved(updated);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        const fresh = (e.body as { lot?: Lot } | undefined)?.lot;
+        setConflictLot(fresh ?? null);
+        setSaveError(e.message);
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Couldn't save. Try again.");
+      }
     } finally {
       setSaving(false);
     }
@@ -352,16 +367,32 @@ function ValuationDrawerContent({
         </div>
       </div>
 
-      <div className="px-6 py-3.5 border-t border-border flex items-center gap-2.5 bg-surface-alt">
-        <span className="text-[11px] text-text-muted mr-auto">
-          {lot.valuation?.updatedAt ? `Last saved ${new Date(lot.valuation.updatedAt).toLocaleString()}` : "Not yet saved"}
-        </span>
-        <Button variant="outlined" onClick={onClose}>
-          Close
-        </Button>
-        <Button variant="contained" onClick={save} disabled={saving || hasError}>
-          {saving ? "Saving…" : "Save Ticket"}
-        </Button>
+      <div className="border-t border-border bg-surface-alt">
+        {saveError && (
+          <div className="px-6 pt-3 flex items-start gap-2.5">
+            <p className="text-[11.5px] text-danger m-0 flex-1">{saveError}</p>
+            {conflictLot && (
+              <button
+                type="button"
+                onClick={() => onSaved(conflictLot)}
+                className="text-[11.5px] font-semibold text-liquor underline bg-transparent border-none cursor-pointer whitespace-nowrap"
+              >
+                Load latest (discards your edits)
+              </button>
+            )}
+          </div>
+        )}
+        <div className="px-6 py-3.5 flex items-center gap-2.5">
+          <span className="text-[11px] text-text-muted mr-auto">
+            {lot.valuation?.updatedAt ? `Last saved ${new Date(lot.valuation.updatedAt).toLocaleString()}` : "Not yet saved"}
+          </span>
+          <Button variant="outlined" onClick={onClose}>
+            Close
+          </Button>
+          <Button variant="contained" onClick={save} disabled={saving || hasError}>
+            {saving ? "Saving…" : "Save Ticket"}
+          </Button>
+        </div>
       </div>
     </div>
   );

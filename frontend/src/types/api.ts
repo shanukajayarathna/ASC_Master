@@ -49,6 +49,9 @@ export interface ValuationUpdate {
   musterReport: string | null;
   brokerNotes: string | null;
   privateNotes: string | null;
+  /** The UpdatedAt this form was opened with (null if never valued) — echoed straight from
+   *  Valuation.updatedAt, unparsed, so the server can detect a save based on stale data. */
+  expectedUpdatedAt: string | null;
 }
 
 /** One classification tier's track record for a grade in a previous sale. */
