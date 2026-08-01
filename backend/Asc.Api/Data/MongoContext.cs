@@ -1,5 +1,6 @@
 using Asc.Api.Models;
 using Asc.Api.Modules.Auth;
+using Asc.Api.Modules.Documents;
 using MongoDB.Driver;
 
 namespace Asc.Api.Data;
@@ -29,6 +30,12 @@ public class MongoContext
         [
             new CreateIndexModel<AppUser>(Builders<AppUser>.IndexKeys.Ascending(u => u.Email), new CreateIndexOptions { Unique = true }),
         ]);
+
+        // Every chunk lookup/delete is scoped to its parent document.
+        DocumentChunks.Indexes.CreateMany(
+        [
+            new CreateIndexModel<DocumentChunk>(Builders<DocumentChunk>.IndexKeys.Ascending(c => c.DocumentId)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -44,4 +51,7 @@ public class MongoContext
     public IMongoCollection<Lot> LegacyLots => Database.GetCollection<Lot>("lots");
 
     public IMongoCollection<AppUser> Users => Database.GetCollection<AppUser>("users");
+
+    public IMongoCollection<KnowledgeDocument> Documents => Database.GetCollection<KnowledgeDocument>("documents");
+    public IMongoCollection<DocumentChunk> DocumentChunks => Database.GetCollection<DocumentChunk>("documentChunks");
 }

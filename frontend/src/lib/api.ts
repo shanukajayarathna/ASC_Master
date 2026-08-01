@@ -4,6 +4,8 @@ import type {
   CatalogueDetail,
   CatalogueSummary,
   DashboardStats,
+  DocumentSearchResult,
+  KnowledgeDocument,
   Lot,
   PagedLots,
   PreviousGradeStats,
@@ -79,6 +81,32 @@ export const api = {
     }),
 
   me: () => request<AuthUser>("/api/v1/auth/me"),
+
+  // ---- knowledge base ---------------------------------------------------------------
+  // Unlike every call below this point, these endpoints actually require login — so the
+  // multipart upload (which bypasses `request()`'s auto-attached header, same as
+  // importCatalogue below) has to attach Authorization itself.
+
+  uploadDocument: async (file: File): Promise<KnowledgeDocument> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/documents`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Upload failed");
+    }
+    return res.json();
+  },
+
+  listDocuments: () => request<KnowledgeDocument[]>("/api/v1/documents"),
+
+  deleteDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
+
+  searchDocuments: (q: string) => request<DocumentSearchResult[]>(`/api/v1/documents/search?q=${encodeURIComponent(q)}`),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 

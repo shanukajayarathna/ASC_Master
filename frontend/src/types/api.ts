@@ -10,6 +10,21 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
+export interface KnowledgeDocument {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+}
+
+export interface DocumentSearchResult {
+  documentFileName: string;
+  documentId: string;
+  chunkText: string;
+  score: number;
+}
+
 export interface ColumnMeta {
   numeric: boolean;
   categorical: boolean;

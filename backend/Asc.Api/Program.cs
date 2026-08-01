@@ -1,6 +1,7 @@
 using System.Text;
 using Asc.Api.Data;
 using Asc.Api.Modules.Auth;
+using Asc.Api.Modules.Documents;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -35,6 +36,14 @@ builder.Services.AddSingleton<ILotMediaStore, LocalLotMediaStore>();
 builder.Services.AddHostedService<SaleMetaWarmer>();
 
 builder.Services.AddSingleton<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
+
+// Uploaded documents for the knowledge base — disk-backed for now (data/documents) behind
+// the same kind of swappable seam as lot media, above.
+builder.Services.AddSingleton<IDocumentStore, LocalDocumentStore>();
+// Embeddings go through OpenAI (Claude has no embeddings API) — a plain HttpClient, not the
+// OpenAI SDK, since this is a single endpoint.
+builder.Services.AddHttpClient<IEmbeddingProvider, OpenAiEmbeddingProvider>();
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>

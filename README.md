@@ -48,6 +48,17 @@ dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)"   # any long rand
 
 The API itself still starts fine without this set — only login/token issuance needs it, every other endpoint is unaffected.
 
+### 1b. OpenAI API key (needed for the Knowledge Base)
+
+Uploading/searching documents (`api/v1/documents`) embeds text via OpenAI — same pattern again, your own key, never committed:
+
+```bash
+cd backend/Asc.Api
+dotnet user-secrets set "OpenAI:ApiKey" "sk-..."
+```
+
+Get a key from platform.openai.com if you don't have one. Everything else still works without it — only upload/search on the Knowledge Base page needs it.
+
 ### 2. One-time setup
 
 ```bash
