@@ -1,4 +1,6 @@
 import type {
+  AuthResponse,
+  AuthUser,
   CatalogueDetail,
   CatalogueSummary,
   DashboardStats,
@@ -9,6 +11,14 @@ import type {
 } from "@/types/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
+
+// Set by AuthContext on login/logout/hydrate. Module-level rather than passed per-call
+// since `request()` isn't a component — every existing call site stays untouched, and the
+// header gets added in exactly the one place all of them already funnel through.
+let authToken: string | null = null;
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
 
 /** What media a lot currently has: a photo, and which remark fields carry a voice note. */
 export interface LotMedia {
@@ -33,7 +43,11 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -52,6 +66,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // ---- auth -----------------------------------------------------------------------
+  login: (email: string, password: string) =>
+    request<AuthResponse>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+
+  /** Only succeeds while no account exists yet (bootstrap), or when called by an
+   *  already-authenticated Admin (the token must already be set via setAuthToken). */
+  register: (email: string, password: string, displayName: string) =>
+    request<AuthResponse>("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, displayName }),
+    }),
+
+  me: () => request<AuthUser>("/api/v1/auth/me"),
+
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 
   getCatalogue: (id: string) => request<CatalogueDetail>(`/api/catalogues/${id}`),

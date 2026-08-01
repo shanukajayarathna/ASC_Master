@@ -1,4 +1,5 @@
 using Asc.Api.Models;
+using Asc.Api.Modules.Auth;
 using MongoDB.Driver;
 
 namespace Asc.Api.Data;
@@ -21,6 +22,13 @@ public class MongoContext
         [
             new CreateIndexModel<StoredValuation>(Builders<StoredValuation>.IndexKeys.Ascending(v => v.CatalogueId)),
         ]);
+
+        // Email is how a user logs in and how /register checks for an existing account —
+        // must be unique. CreateMany is idempotent, same as the index above.
+        Users.Indexes.CreateMany(
+        [
+            new CreateIndexModel<AppUser>(Builders<AppUser>.IndexKeys.Ascending(u => u.Email), new CreateIndexOptions { Unique = true }),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -34,4 +42,6 @@ public class MongoContext
     // endpoint can drop them and reclaim the space.
     public IMongoCollection<Catalogue> LegacyCatalogues => Database.GetCollection<Catalogue>("catalogues");
     public IMongoCollection<Lot> LegacyLots => Database.GetCollection<Lot>("lots");
+
+    public IMongoCollection<AppUser> Users => Database.GetCollection<AppUser>("users");
 }

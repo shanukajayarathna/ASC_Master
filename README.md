@@ -23,7 +23,7 @@ Verified by hand against a real local MongoDB: import → list → paged/filtere
 
 Analysis, Reports, Broker Comparison, Market Intelligence, Saved Reports, Saved Filters, Settings. These all shipped as real, working features in the previous vanilla-JS build (see the code still sitting in `js/analysis.js`, `js/broker.js`, `js/market.js`, `js/reports.js`, etc.) — porting them means adding the matching aggregation/report endpoints on the API and then rebuilding the UI as React components. That's the next phase, not started here.
 
-Also out of scope so far: authentication/roles (there is no login yet — anyone who can reach the API can read/write everything), server-side row model for AG Grid (current grid loads up to 5,000 rows client-side per catalogue, matching the old app's approach; true virtualization for 100k+ row catalogues needs a datasource implementation), and a real AG Grid Enterprise license key (see below).
+Also out of scope so far: locking the *existing* catalogue/valuation endpoints behind login (authentication now exists — see below — but today it only protects the new `api/v1/auth` endpoints; every pre-existing endpoint stays open for now, deliberately, until that's rolled out as its own separate change), server-side row model for AG Grid (current grid loads up to 5,000 rows client-side per catalogue, matching the old app's approach; true virtualization for 100k+ row catalogues needs a datasource implementation), and a real AG Grid Enterprise license key (see below).
 
 ## Running it locally
 
@@ -36,6 +36,17 @@ Get-Service -Name MongoDB | Start-Service   # if not already running
 ```
 
 No schema/migration step needed — collections and indexes are created on first write.
+
+### 1a. JWT signing key (needed to log in)
+
+`api/v1/auth/login`/`register` won't issue usable tokens until a signing key is set — same pattern as the Mongo connection string above, never committed to `appsettings.json`:
+
+```bash
+cd backend/Asc.Api
+dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)"   # any long random string works
+```
+
+The API itself still starts fine without this set — only login/token issuance needs it, every other endpoint is unaffected.
 
 ### 2. One-time setup
 

@@ -1,5 +1,10 @@
+using System.Text;
 using Asc.Api.Data;
+using Asc.Api.Modules.Auth;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +34,28 @@ builder.Services.AddSingleton<ILotMediaStore, LocalLotMediaStore>();
 // because it hasn't been opened since the meta cache was last written.
 builder.Services.AddHostedService<SaleMetaWarmer>();
 
+builder.Services.AddSingleton<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(opts =>
+    {
+        var jwtKey = builder.Configuration["Jwt:Key"];
+        opts.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            ValidateIssuerSigningKey = true,
+            // Empty in an environment with no Jwt:Key set (e.g. a fresh dev checkout before
+            // `dotnet user-secrets set Jwt:Key ...`) — startup still succeeds; every token
+            // just fails validation until the key is configured, rather than crashing here.
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey ?? Guid.NewGuid().ToString())),
+            ValidateLifetime = true,
+        };
+    });
+builder.Services.AddAuthorization();
+
 const string CorsPolicy = "FrontendDev";
 builder.Services.AddCors(opts =>
 {
@@ -49,6 +76,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 

@@ -1,3 +1,15 @@
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+}
+
+export interface AuthResponse {
+  token: string;
+  user: AuthUser;
+}
+
 export interface ColumnMeta {
   numeric: boolean;
   categorical: boolean;

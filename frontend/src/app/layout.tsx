@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeRegistry from "@/theme/ThemeRegistry";
+import { AuthProvider } from "@/context/AuthContext";
 import { CatalogueProvider } from "@/context/CatalogueContext";
 import Shell from "@/components/shell/Shell";
 
@@ -41,9 +42,11 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <ThemeRegistry>
-          <CatalogueProvider>
-            <Shell>{children}</Shell>
-          </CatalogueProvider>
+          <AuthProvider>
+            <CatalogueProvider>
+              <Shell>{children}</Shell>
+            </CatalogueProvider>
+          </AuthProvider>
         </ThemeRegistry>
       </body>
     </html>

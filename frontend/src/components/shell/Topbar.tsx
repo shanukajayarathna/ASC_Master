@@ -1,16 +1,70 @@
 "use client";
 
 import BrandLogo from "@/components/shell/BrandLogo";
+import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import MenuIcon from "@mui/icons-material/Menu";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
+import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
 import Select from "@mui/material/Select";
 import Avatar from "@mui/material/Avatar";
+import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
+import Link from "next/link";
+import { useState, type MouseEvent } from "react";
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = (e: MouseEvent<HTMLElement>) => setAnchor(e.currentTarget);
+  const close = () => setAnchor(null);
+
+  if (!user) {
+    return (
+      <Button component={Link} href="/login" variant="outlined" size="small" color="primary">
+        Log in
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <Tooltip title={user.displayName}>
+        <IconButton onClick={open} size="small" aria-label="Account menu">
+          <Avatar sx={{ width: 30, height: 30, bgcolor: "var(--liquor)", fontSize: 12, fontFamily: "var(--font-mono)" }}>
+            {initialsOf(user.displayName)}
+          </Avatar>
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={close} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
+        <MenuItem disabled sx={{ opacity: "1 !important" }}>
+          <ListItemText primary={user.displayName} secondary={user.email} />
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            close();
+            logout();
+          }}
+        >
+          Log out
+        </MenuItem>
+      </Menu>
+    </>
+  );
+}
 
 interface TopbarProps {
   sidebarCollapsed: boolean;
@@ -74,9 +128,7 @@ export default function Topbar({ sidebarCollapsed, onMenuClick }: TopbarProps) {
         </IconButton>
       </Tooltip>
 
-      <Avatar sx={{ width: 30, height: 30, bgcolor: "var(--liquor)", fontSize: 12, fontFamily: "var(--font-mono)" }}>
-        SJ
-      </Avatar>
+      <UserMenu />
     </header>
   );
 }
