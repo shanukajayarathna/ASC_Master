@@ -11,7 +11,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/valuation", label: "Valuation Centre", section: "Workspace", status: "live" },
   { href: "/knowledge", label: "Knowledge Base", section: "Intelligence", status: "live" },
   { href: "/assistant", label: "AI Assistant", section: "Intelligence", status: "live" },
-  { href: "/analysis", label: "Analysis", section: "Intelligence", status: "soon" },
+  { href: "/analysis", label: "Analysis", section: "Intelligence", status: "live" },
   { href: "/reports", label: "Reports", section: "Intelligence", status: "live" },
   { href: "/broker", label: "Broker Comparison", section: "Intelligence", status: "soon" },
   { href: "/market", label: "Market Intelligence", section: "Intelligence", status: "soon" },

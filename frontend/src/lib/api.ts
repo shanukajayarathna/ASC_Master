@@ -7,13 +7,17 @@ import type {
   ChatResponse,
   Conversation,
   DashboardStats,
+  DataQuality,
   DocumentSearchResult,
   KnowledgeDocument,
   Lot,
+  OverviewStats,
   PagedLots,
   PreviousGradeStats,
   Report,
+  ReportGroupRow,
   SavedReport,
+  TopBottomLot,
   ValuationUpdate,
 } from "@/types/api";
 
@@ -146,6 +150,20 @@ export const api = {
   listSavedReports: () => request<SavedReport[]>("/api/v1/reports/saved"),
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
+
+  // ---- analytics ----------------------------------------------------------------------
+
+  getOverviewStats: (catalogueId: string) => request<OverviewStats>(`/api/v1/analytics/${catalogueId}/overview`),
+
+  getBreakdown: (catalogueId: string, column: string) =>
+    request<ReportGroupRow[]>(`/api/v1/analytics/${catalogueId}/breakdown/${column}`),
+
+  getDistribution: (catalogueId: string) => request<ReportGroupRow[]>(`/api/v1/analytics/${catalogueId}/distribution`),
+
+  getTopBottomLots: (catalogueId: string, mode: "top" | "bottom", n: number) =>
+    request<TopBottomLot[]>(`/api/v1/analytics/${catalogueId}/top-bottom?mode=${mode}&n=${n}`),
+
+  getDataQuality: (catalogueId: string) => request<DataQuality>(`/api/v1/analytics/${catalogueId}/quality`),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 

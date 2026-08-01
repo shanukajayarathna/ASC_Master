@@ -1,6 +1,7 @@
 "use client";
 
 import { CLASSIFICATIONS } from "@/lib/classifications";
+import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classificationBadge";
 import { formatCurrency } from "@/lib/format";
 import { formatTierRange, tierStatsFor } from "@/lib/previousSale";
 import type { GradeStats, Lot } from "@/types/api";
@@ -12,12 +13,13 @@ import { useTheme } from "@mui/material/styles";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
 
+// Same colors as CatalogueGrid and the Analytics distribution chart (frontend/src/lib/classificationBadge.ts).
 const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
-  SelectBest: { label: "Select Best", bg: "var(--brass-dim)", fg: "var(--brass)" },
-  Best: { label: "Best", bg: "var(--sage-light)", fg: "var(--sage-dark)" },
-  BelowBest: { label: "Below Best", bg: "var(--warn-light)", fg: "var(--warn)" },
-  Poor: { label: "Poor", bg: "var(--danger-light)", fg: "var(--danger)" },
-  Unclassified: { label: "Unclassified", bg: "var(--surface-sunken)", fg: "var(--text-muted)" },
+  SelectBest: { label: CLASSIFICATION_LABEL.SelectBest, ...CLASSIFICATION_COLOR.SelectBest },
+  Best: { label: CLASSIFICATION_LABEL.Best, ...CLASSIFICATION_COLOR.Best },
+  BelowBest: { label: CLASSIFICATION_LABEL.BelowBest, ...CLASSIFICATION_COLOR.BelowBest },
+  Poor: { label: CLASSIFICATION_LABEL.Poor, ...CLASSIFICATION_COLOR.Poor },
+  Unclassified: { label: CLASSIFICATION_LABEL.Unclassified, ...CLASSIFICATION_COLOR.Unclassified },
 };
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {

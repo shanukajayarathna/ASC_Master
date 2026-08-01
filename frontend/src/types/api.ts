@@ -66,6 +66,32 @@ export interface SavedReport {
   createdAt: string;
 }
 
+export interface OverviewStats {
+  mean: number | null;
+  median: number | null;
+  mode: number | null;
+  stdDev: number | null;
+  variance: number | null;
+  q1: number | null;
+  q3: number | null;
+  spread: number | null;
+}
+
+export interface TopBottomLot {
+  lotId: string;
+  lotNumber: string | null;
+  broker: string | null;
+  grade: string | null;
+  effectiveValue: number | null;
+}
+
+export interface DataQuality {
+  missingValuations: number;
+  incompleteRecords: number;
+  duplicateLots: number;
+  outliers: number;
+}
+
 export interface KnowledgeDocument {
   id: string;
   fileName: string;

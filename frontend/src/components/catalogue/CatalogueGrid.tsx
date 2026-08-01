@@ -1,6 +1,7 @@
 "use client";
 
 import "./agGridSetup";
+import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classificationBadge";
 import { formatCurrency } from "@/lib/format";
 import { SALE_COLUMN_HEADER } from "@/lib/multiSale";
 import type { ColumnMeta, Lot } from "@/types/api";
@@ -11,12 +12,14 @@ import { ascGridTheme } from "./agGridTheme";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
+// Same colors as LotViewDialog and the Analytics distribution chart (frontend/src/lib/classification.ts)
+// — only Unclassified's label/background differ here, for a denser look in the grid.
 const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: string }> = {
-  SelectBest: { label: "Select Best", bg: "var(--brass-dim)", fg: "var(--brass)" },
-  Best: { label: "Best", bg: "var(--sage-light)", fg: "var(--sage-dark)" },
-  BelowBest: { label: "Below Best", bg: "var(--warn-light)", fg: "var(--warn)" },
-  Poor: { label: "Poor", bg: "var(--danger-light)", fg: "var(--danger)" },
-  Unclassified: { label: "—", bg: "transparent", fg: "var(--text-muted)" },
+  SelectBest: { label: CLASSIFICATION_LABEL.SelectBest, ...CLASSIFICATION_COLOR.SelectBest },
+  Best: { label: CLASSIFICATION_LABEL.Best, ...CLASSIFICATION_COLOR.Best },
+  BelowBest: { label: CLASSIFICATION_LABEL.BelowBest, ...CLASSIFICATION_COLOR.BelowBest },
+  Poor: { label: CLASSIFICATION_LABEL.Poor, ...CLASSIFICATION_COLOR.Poor },
+  Unclassified: { label: "—", bg: "transparent", fg: CLASSIFICATION_COLOR.Unclassified.fg },
 };
 
 /** Every raw column comes through as a string (Lot.rawData is Dictionary<string,string>

@@ -58,8 +58,9 @@ public class ReportGenerator(ICatalogueSource source, MongoContext db)
     }
 
     /// <summary>The generic group-by-average this app's version doesn't duplicate per column
-    /// (the original JS had a separate near-identical method per report type).</summary>
-    private static ReportSectionDto GroupSection(string title, string unitLabel, List<(Lot Lot, Valuation? Val)> merged, Func<Lot, string?> selector)
+    /// (the original JS had a separate near-identical method per report type). Internal, not
+    /// private — Modules/Analytics reuses this for its Group Breakdown chart.</summary>
+    internal static ReportSectionDto GroupSection(string title, string unitLabel, List<(Lot Lot, Valuation? Val)> merged, Func<Lot, string?> selector)
     {
         var rows = merged
             .Where(x => x.Val?.EffectiveValue != null)
@@ -72,7 +73,9 @@ public class ReportGenerator(ICatalogueSource source, MongoContext db)
         return new ReportSectionDto(title, null, unitLabel, rows);
     }
 
-    private static ReportSectionDto ClassificationSection(List<(Lot Lot, Valuation? Val)> merged)
+    /// <summary>Internal, not private — Modules/Analytics reuses this for its Classification
+    /// Distribution chart, same data as this report's table.</summary>
+    internal static ReportSectionDto ClassificationSection(List<(Lot Lot, Valuation? Val)> merged)
     {
         var total = merged.Count;
         var rows = merged
