@@ -214,7 +214,11 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync())
             .ToDictionary(v => v.LotId, v => v.Valuation);
 
-    private static Valuation? Merged(Lot lot, Dictionary<Guid, Valuation> overrides) =>
+    /// <summary>A lot's user-entered override always wins over its file-derived valuation.
+    /// Internal (not private) so other code in this assembly — e.g. DashboardController's
+    /// stats computation, the AI assistant's read-only tools — applies the exact same rule
+    /// instead of re-implementing it.</summary>
+    internal static Valuation? Merged(Lot lot, Dictionary<Guid, Valuation> overrides) =>
         overrides.TryGetValue(lot.Id, out var v) ? v : lot.Valuation;
 
     internal static LotDto ToDto(Lot l, Valuation? v) => new(

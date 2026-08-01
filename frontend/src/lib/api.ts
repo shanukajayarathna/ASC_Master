@@ -3,6 +3,9 @@ import type {
   AuthUser,
   CatalogueDetail,
   CatalogueSummary,
+  ChatMessage,
+  ChatResponse,
+  Conversation,
   DashboardStats,
   DocumentSearchResult,
   KnowledgeDocument,
@@ -107,6 +110,18 @@ export const api = {
   deleteDocument: (id: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
 
   searchDocuments: (q: string) => request<DocumentSearchResult[]>(`/api/v1/documents/search?q=${encodeURIComponent(q)}`),
+
+  // ---- AI assistant ------------------------------------------------------------------
+
+  sendChatMessage: (message: string, conversationId?: string) =>
+    request<ChatResponse>("/api/v1/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: conversationId ?? null, message }),
+    }),
+
+  listConversations: () => request<Conversation[]>("/api/v1/assistant/conversations"),
+
+  getConversationMessages: (id: string) => request<ChatMessage[]>(`/api/v1/assistant/conversations/${id}/messages`),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 

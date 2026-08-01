@@ -10,6 +10,24 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface ChatResponse {
+  conversationId: string;
+  reply: string;
+}
+
 export interface KnowledgeDocument {
   id: string;
   fileName: string;

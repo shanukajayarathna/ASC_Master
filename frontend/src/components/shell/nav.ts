@@ -10,6 +10,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/catalogue", label: "Catalogue Manager", section: "Workspace", status: "live" },
   { href: "/valuation", label: "Valuation Centre", section: "Workspace", status: "live" },
   { href: "/knowledge", label: "Knowledge Base", section: "Intelligence", status: "live" },
+  { href: "/assistant", label: "AI Assistant", section: "Intelligence", status: "live" },
   { href: "/analysis", label: "Analysis", section: "Intelligence", status: "soon" },
   { href: "/reports", label: "Reports", section: "Intelligence", status: "soon" },
   { href: "/broker", label: "Broker Comparison", section: "Intelligence", status: "soon" },

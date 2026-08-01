@@ -15,7 +15,7 @@ namespace Asc.Api.Modules.Documents;
 [ApiController]
 [Route("api/v1/documents")]
 [Authorize]
-public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddingProvider embeddings) : ControllerBase
+public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddingProvider embeddings, IDocumentSearchService search) : ControllerBase
 {
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -101,42 +101,9 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
         return NoContent();
     }
 
-    /// <summary>Brute-force cosine similarity over every stored chunk — fine at the scale of an
-    /// internal document library. Atlas Vector Search is the upgrade once volume justifies it.</summary>
     [HttpGet("search")]
-    public async Task<ActionResult<List<SearchResultDto>>> Search([FromQuery] string q, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(q)) return Ok(new List<SearchResultDto>());
-
-        var queryVector = (await embeddings.EmbedAsync([q], ct))[0];
-        var chunks = await db.DocumentChunks.Find(FilterDefinition<DocumentChunk>.Empty).ToListAsync(ct);
-        if (chunks.Count == 0) return Ok(new List<SearchResultDto>());
-
-        var docNames = await db.Documents.Find(FilterDefinition<KnowledgeDocument>.Empty).ToListAsync(ct);
-        var nameById = docNames.ToDictionary(d => d.Id, d => d.FileName);
-
-        var results = chunks
-            .Select(c => new { Chunk = c, Score = CosineSimilarity(queryVector, c.Embedding) })
-            .OrderByDescending(x => x.Score)
-            .Take(8)
-            .Where(x => nameById.ContainsKey(x.Chunk.DocumentId))
-            .Select(x => new SearchResultDto(nameById[x.Chunk.DocumentId], x.Chunk.DocumentId, x.Chunk.Text, x.Score))
-            .ToList();
-
-        return Ok(results);
-    }
-
-    private static double CosineSimilarity(float[] a, float[] b)
-    {
-        double dot = 0, na = 0, nb = 0;
-        for (var i = 0; i < a.Length && i < b.Length; i++)
-        {
-            dot += a[i] * b[i];
-            na += a[i] * a[i];
-            nb += b[i] * b[i];
-        }
-        return na == 0 || nb == 0 ? 0 : dot / (Math.Sqrt(na) * Math.Sqrt(nb));
-    }
+    public async Task<ActionResult<List<SearchResultDto>>> Search([FromQuery] string q, CancellationToken ct) =>
+        Ok(await search.SearchAsync(q, ct));
 
     private static DocumentDto ToDto(KnowledgeDocument d) => new(d.Id, d.FileName, d.ContentType, d.SizeBytes, d.UploadedAt);
 }

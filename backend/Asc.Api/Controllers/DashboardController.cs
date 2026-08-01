@@ -21,8 +21,16 @@ public class DashboardController(ICatalogueSource source, MongoContext db) : Con
         // User-entered valuations override the file-derived ones lot by lot.
         var overrides = (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync())
             .ToDictionary(v => v.LotId, v => v.Valuation);
-        var merged = lots.Select(l => (Lot: l, Val: overrides.TryGetValue(l.Id, out var ov) ? ov : l.Valuation)).ToList();
+        var merged = lots.Select(l => (Lot: l, Val: LotsController.Merged(l, overrides))).ToList();
 
+        return Ok(Compute(merged));
+    }
+
+    /// <summary>Pure stats computation over an already-merged (file-derived, override-applied)
+    /// lot set — split out so the AI assistant's dashboard tool can reuse it without
+    /// duplicating this logic (see Modules/Assistant).</summary>
+    internal static DashboardStatsDto Compute(List<(Lot Lot, Valuation? Val)> merged)
+    {
         var total = merged.Count;
 
         bool IsComplete((Lot Lot, Valuation? Val) x) => x.Val is not null &&
@@ -49,7 +57,7 @@ public class DashboardController(ICatalogueSource source, MongoContext db) : Con
         var totalNetLots = merged.Where(x => x.Lot.NetWeight != null).ToList();
         var totalGrossLots = merged.Where(x => x.Lot.GrossWeight != null).ToList();
 
-        return Ok(new DashboardStatsDto(
+        return new DashboardStatsDto(
             total, completed, pending, todayCount,
             values.Count > 0 ? values.Average() : null,
             values.Count > 0 ? values.Max() : null,
@@ -60,6 +68,6 @@ public class DashboardController(ICatalogueSource source, MongoContext db) : Con
             totalGrossLots.Count > 0 ? totalGrossLots.Sum(x => x.Lot.GrossWeight!.Value) : null,
             totalNetLots.Count > 0 ? totalNetLots.Average(x => x.Lot.NetWeight!.Value) : null,
             totalGrossLots.Count > 0 ? totalGrossLots.Average(x => x.Lot.GrossWeight!.Value) : null
-        ));
+        );
     }
 }

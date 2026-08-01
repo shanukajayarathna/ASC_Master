@@ -1,5 +1,6 @@
 using System.Text;
 using Asc.Api.Data;
+using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Services;
@@ -40,9 +41,15 @@ builder.Services.AddSingleton<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>
 // Uploaded documents for the knowledge base — disk-backed for now (data/documents) behind
 // the same kind of swappable seam as lot media, above.
 builder.Services.AddSingleton<IDocumentStore, LocalDocumentStore>();
-// Embeddings go through OpenAI (Claude has no embeddings API) — a plain HttpClient, not the
-// OpenAI SDK, since this is a single endpoint.
+// Embeddings go through OpenAI — a plain HttpClient, not the OpenAI SDK, since this is a
+// single endpoint.
 builder.Services.AddHttpClient<IEmbeddingProvider, OpenAiEmbeddingProvider>();
+builder.Services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
+
+// AI Assistant — chat also goes through OpenAI (the project's choice), same plain-HttpClient
+// pattern as embeddings above. Every tool it can call is read-only (Modules/Assistant/AssistantTools.cs).
+builder.Services.AddHttpClient<IChatProvider, OpenAiChatProvider>();
+builder.Services.AddSingleton<AssistantToolExecutor>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

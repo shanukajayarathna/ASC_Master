@@ -1,4 +1,5 @@
 using Asc.Api.Models;
+using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Documents;
 using MongoDB.Driver;
@@ -36,6 +37,17 @@ public class MongoContext
         [
             new CreateIndexModel<DocumentChunk>(Builders<DocumentChunk>.IndexKeys.Ascending(c => c.DocumentId)),
         ]);
+
+        // Message history is always fetched per conversation, and conversation lists are
+        // always scoped to the current user.
+        ConversationMessages.Indexes.CreateMany(
+        [
+            new CreateIndexModel<ConversationMessage>(Builders<ConversationMessage>.IndexKeys.Ascending(m => m.ConversationId)),
+        ]);
+        Conversations.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Conversation>(Builders<Conversation>.IndexKeys.Ascending(c => c.UserId)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -54,4 +66,7 @@ public class MongoContext
 
     public IMongoCollection<KnowledgeDocument> Documents => Database.GetCollection<KnowledgeDocument>("documents");
     public IMongoCollection<DocumentChunk> DocumentChunks => Database.GetCollection<DocumentChunk>("documentChunks");
+
+    public IMongoCollection<Conversation> Conversations => Database.GetCollection<Conversation>("conversations");
+    public IMongoCollection<ConversationMessage> ConversationMessages => Database.GetCollection<ConversationMessage>("conversationMessages");
 }
