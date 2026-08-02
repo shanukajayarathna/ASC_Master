@@ -13,6 +13,7 @@ import {
   filterLots,
   isColumnFilterActive,
   type ColumnFilterState,
+  type StoredFilterState,
   type TicketStatus,
 } from "@/lib/lotFilters";
 import { combineSales, SALE_COLUMN_HEADER, type CombinedCatalogue } from "@/lib/multiSale";
@@ -22,6 +23,10 @@ import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
 import Badge from "@mui/material/Badge";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
 import Divider from "@mui/material/Divider";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -30,10 +35,11 @@ import ListItemText from "@mui/material/ListItemText";
 import Tooltip from "@mui/material/Tooltip";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
 import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const WORKSHEET_HANDOFF_KEY = "asc:worksheet:pending";
@@ -81,6 +87,7 @@ const EMPTY_COMBINED: CombinedCatalogue = {
 
 export default function CataloguePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     catalogues,
     activeCatalogueId,
@@ -117,9 +124,17 @@ export default function CataloguePage() {
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Guards against a slow sale load overwriting a newer one when the selection changes fast.
   const loadSeq = useRef(0);
+  // Set by the ?presetId= mount effect when applying a preset requires switching sales first —
+  // loadCombined's resetView branch (which would otherwise blank every filter on that switch)
+  // checks this and restores these values instead, so applying never races its own reset.
+  const pendingPresetFilters = useRef<StoredFilterState | null>(null);
 
   const multiSale = selectedSaleIds.length > 1;
   const { lots, headers, columnMeta, catalogueIdByLot, saleNames } = combined;
@@ -146,10 +161,13 @@ export default function CataloguePage() {
           setHiddenColumns(
             new Set(Object.entries(c.columnMeta).filter(([, m]) => !m.defaultVisible).map(([h]) => h))
           );
-          setColumnFilters({});
-          setStatusFilter("");
-          setClassificationFilter("");
-          setYearFilter("");
+          const pending = pendingPresetFilters.current;
+          pendingPresetFilters.current = null;
+          setColumnFilters(pending?.columnFilters ?? {});
+          setStatusFilter(pending?.status ?? "");
+          setClassificationFilter(pending?.classification ?? "");
+          setYearFilter(pending?.year ?? "");
+          if (pending) setSearch(pending.search);
           setSelected([]);
         }
       } finally {
@@ -171,6 +189,34 @@ export default function CataloguePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedSaleIds(activeCatalogueId ? [activeCatalogueId] : []);
   }, [activeCatalogueId]);
+
+  // A "?presetId=" from Saved Filters' Apply button (mirrors Reports' "?catalogueId=" reopen).
+  // Guarded by a ref (not an empty dep array) so it fires exactly once but with fresh closures
+  // — activeCatalogueId/loadCombined/selectCatalogue are still settling on a fresh navigation,
+  // and this effect needs whichever value is current at the moment it actually runs, not a
+  // stale mount-time snapshot.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (presetAppliedRef.current) return;
+    const presetId = searchParams.get("presetId");
+    if (!presetId) return;
+    presetAppliedRef.current = true;
+    api
+      .getFilterPreset(presetId)
+      .then((preset) => {
+        const filters = JSON.parse(preset.filtersJson) as StoredFilterState;
+        pendingPresetFilters.current = filters;
+        if (preset.catalogueId !== activeCatalogueId) {
+          selectCatalogue(preset.catalogueId); // switching sales triggers its own loadCombined(true)
+        } else {
+          loadCombined(true); // already on the right sale — nothing else will reload, so do it here
+        }
+      })
+      .catch(() => {
+        // Preset may have been deleted since the link was created — the page just loads
+        // with no filters applied, same as visiting /catalogue directly.
+      });
+  }, [searchParams, activeCatalogueId, loadCombined, selectCatalogue]);
 
   const reload = useCallback(() => loadCombined(false), [loadCombined]);
 
@@ -295,6 +341,32 @@ export default function CataloguePage() {
       setImportNotice(`Imported ${detail.sourceName} — added to your selected sales.`);
     } catch (e) {
       setImportError(e instanceof Error ? e.message : "Import failed");
+    }
+  };
+
+  // Saves the page's real filter state (this — not AG Grid's own per-column filters, which
+  // are a separate, redundant layer on top of the already-filtered rows this page hands the
+  // grid). Only meaningful for a single sale, so it's saved against activeCatalogueId even
+  // when several are currently pooled.
+  const savePreset = async () => {
+    if (!activeCatalogueId || !presetName.trim()) return;
+    setSavingPreset(true);
+    try {
+      const filters: StoredFilterState = {
+        search,
+        columnFilters,
+        status: statusFilter,
+        classification: classificationFilter,
+        year: yearFilter,
+      };
+      await api.saveFilterPreset(activeCatalogueId, presetName.trim(), JSON.stringify(filters));
+      setPresetDialogOpen(false);
+      setPresetName("");
+      setPresetNotice(`Saved filter preset "${presetName.trim()}".`);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Could not save the preset");
+    } finally {
+      setSavingPreset(false);
     }
   };
 
@@ -533,6 +605,16 @@ export default function CataloguePage() {
             Filters
           </Button>
         </Badge>
+        {activeFilterCount > 0 && (
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<BookmarkAddOutlinedIcon fontSize="small" />}
+            onClick={() => setPresetDialogOpen(true)}
+          >
+            Save as Preset
+          </Button>
+        )}
         <span className="text-[12.5px] text-text-muted font-mono ml-auto flex items-center gap-2">
           {loadingLots && lots.length > 0 && (
             <span className="inline-flex items-center gap-1 text-brass">
@@ -675,6 +757,20 @@ export default function CataloguePage() {
         </div>
       )}
 
+      {presetNotice && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+          {presetNotice}
+          <button
+            type="button"
+            onClick={() => setPresetNotice(null)}
+            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
+            style={{ color: "var(--sage-dark)" }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Keep the current grid on screen while a newer selection loads — only the true cold
           start (no lots yet) shows the full loading state, so switching sales never blanks. */}
       {loadingLots && lots.length === 0 ? (
@@ -705,6 +801,34 @@ export default function CataloguePage() {
           if (viewLot) editLot(viewLot);
         }}
       />
+
+      <Dialog open={presetDialogOpen} onClose={() => (savingPreset ? null : setPresetDialogOpen(false))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>Save Filter Preset</DialogTitle>
+        <DialogContent>
+          <p className="text-[12.5px] text-text-muted mt-0 mb-3">
+            Saves the {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"} for {reportTitle} — apply it again anytime from Saved Filters.
+          </p>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Preset name"
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && presetName.trim()) savePreset();
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPresetDialogOpen(false)} disabled={savingPreset}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={savePreset} disabled={savingPreset || !presetName.trim()}>
+            {savingPreset ? "Saving…" : "Save"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
     </div>
   );

@@ -13,9 +13,11 @@ public class FilterPreset
     public Guid CatalogueId { get; set; }
 
     public string Name { get; set; } = string.Empty;
-    public Dictionary<string, string> ColumnFilters { get; set; } = new();
-    public string? Status { get; set; }
-    public string? Search { get; set; }
+
+    /// <summary>The frontend's whole FilterOptions object (columnFilters, status,
+    /// classification, year, search), opaque to the backend — filtering is entirely
+    /// client-side already, so this is stored and returned verbatim, never parsed here.</summary>
+    public string FiltersJson { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

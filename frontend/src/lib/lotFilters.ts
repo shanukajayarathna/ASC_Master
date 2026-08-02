@@ -43,6 +43,10 @@ export interface FilterOptions {
   year?: string;
 }
 
+/** The shape saved into a FilterPreset's FiltersJson — a required-year FilterOptions, since a
+ *  saved preset always captures a concrete value ("" included) rather than an optional one. */
+export type StoredFilterState = FilterOptions & { year: string };
+
 export function filterLots(lots: Lot[], opts: FilterOptions): Lot[] {
   const search = opts.search.trim().toLowerCase();
 

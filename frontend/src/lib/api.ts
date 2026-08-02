@@ -12,6 +12,7 @@ import type {
   DashboardStats,
   DataQuality,
   DocumentSearchResult,
+  FilterPreset,
   ImportActualsResult,
   ImportStatus,
   KnowledgeDocument,
@@ -156,6 +157,20 @@ export const api = {
   listSavedReports: () => request<SavedReport[]>("/api/v1/reports/saved"),
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
+
+  // ---- saved filters --------------------------------------------------------------------
+
+  saveFilterPreset: (catalogueId: string, name: string, filtersJson: string) =>
+    request<FilterPreset>("/api/v1/filter-presets", {
+      method: "POST",
+      body: JSON.stringify({ catalogueId, name, filtersJson }),
+    }),
+
+  listFilterPresets: () => request<FilterPreset[]>("/api/v1/filter-presets"),
+
+  getFilterPreset: (id: string) => request<FilterPreset>(`/api/v1/filter-presets/${id}`),
+
+  deleteFilterPreset: (id: string) => request<void>(`/api/v1/filter-presets/${id}`, { method: "DELETE" }),
 
   // ---- analytics ----------------------------------------------------------------------
 

@@ -16,7 +16,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/broker", label: "Broker Comparison", section: "Intelligence", status: "live" },
   { href: "/market", label: "Market Intelligence", section: "Intelligence", status: "live" },
   { href: "/saved-reports", label: "Saved Reports", section: "Library", status: "live" },
-  { href: "/saved-filters", label: "Saved Filters", section: "Library", status: "soon" },
+  { href: "/saved-filters", label: "Saved Filters", section: "Library", status: "live" },
   { href: "/data-import", label: "Data Import", section: "Library", status: "live" },
   { href: "/exports", label: "Exports", section: "Library", status: "live" },
   { href: "/settings", label: "Settings", section: "System", status: "soon" },

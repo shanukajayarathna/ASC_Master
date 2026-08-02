@@ -66,6 +66,14 @@ export interface SavedReport {
   createdAt: string;
 }
 
+export interface FilterPreset {
+  id: string;
+  catalogueId: string;
+  name: string;
+  filtersJson: string;
+  createdAt: string;
+}
+
 export interface OverviewStats {
   mean: number | null;
   median: number | null;
