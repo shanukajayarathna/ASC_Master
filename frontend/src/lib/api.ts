@@ -1,4 +1,6 @@
 import type {
+  AccuracyBucket,
+  AccuracyOverview,
   AuthResponse,
   AuthUser,
   BrokerStats,
@@ -10,8 +12,11 @@ import type {
   DashboardStats,
   DataQuality,
   DocumentSearchResult,
+  ImportActualsResult,
+  ImportStatus,
   KnowledgeDocument,
   Lot,
+  MarketInsight,
   OverviewStats,
   PagedLots,
   PreviousGradeStats,
@@ -167,6 +172,32 @@ export const api = {
   getDataQuality: (catalogueId: string) => request<DataQuality>(`/api/v1/analytics/${catalogueId}/quality`),
 
   getBrokerStats: (catalogueId: string) => request<BrokerStats[]>(`/api/v1/analytics/${catalogueId}/brokers`),
+
+  // ---- market intelligence -------------------------------------------------------------
+
+  importActuals: async (catalogueId: string, file: File): Promise<ImportActualsResult> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/market/${catalogueId}/import`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Import failed");
+    }
+    return res.json();
+  },
+
+  getImportStatus: (catalogueId: string) => request<ImportStatus>(`/api/v1/market/${catalogueId}/import-status`),
+
+  getAccuracyOverview: (catalogueId: string) => request<AccuracyOverview>(`/api/v1/market/${catalogueId}/overview`),
+
+  getAccuracyBreakdown: (catalogueId: string, column: string) =>
+    request<AccuracyBucket[]>(`/api/v1/market/${catalogueId}/breakdown/${column}`),
+
+  getMarketInsights: (catalogueId: string) => request<MarketInsight[]>(`/api/v1/market/${catalogueId}/insights`),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 

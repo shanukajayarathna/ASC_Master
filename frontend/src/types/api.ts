@@ -92,6 +92,48 @@ export interface DataQuality {
   outliers: number;
 }
 
+export interface ImportActualsResult {
+  fileName: string;
+  matched: number;
+  unmatched: number;
+  ambiguous: number;
+  importedAt: string;
+}
+
+export interface ImportStatus {
+  hasImport: boolean;
+  lastImportedAt: string | null;
+  matched: number;
+  unmatched: number;
+  ambiguous: number;
+}
+
+export interface AccuracyOverview {
+  lotsCompared: number;
+  accuracy: number | null;
+  mape: number | null;
+  rmse: number | null;
+  avgError: number | null;
+  totalGain: number | null;
+  totalLoss: number | null;
+}
+
+export interface AccuracyBucket {
+  label: string;
+  count: number;
+  mape: number;
+  bias: number;
+}
+
+export interface MarketInsight {
+  dimension: string;
+  key: string;
+  count: number;
+  avgDiff: number;
+  direction: "overvalued" | "undervalued";
+  magnitude: number;
+}
+
 export interface BrokerStats {
   name: string;
   lots: number;

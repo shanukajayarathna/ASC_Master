@@ -52,7 +52,8 @@ public class CatalogueImportService
     /// Reports exports) file. NPOI's WorkbookFactory auto-detects the format from the file's
     /// binary signature, so both work through the same code path.
     /// </summary>
-    private List<List<string>> ParseExcel(Stream stream)
+    /// <summary>Internal, not private — see the ParseCsv doc comment; same reasoning.</summary>
+    internal List<List<string>> ParseExcel(Stream stream)
     {
         using var wb = WorkbookFactory.Create(stream);
         var sheet = wb.GetSheetAt(0);
@@ -130,7 +131,10 @@ public class CatalogueImportService
             : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private List<List<string>> ParseCsv(Stream stream)
+    /// <summary>Internal, not private — Modules/Market reuses this raw row-reader for the much
+    /// sparser actuals files (2-3 columns), which ExtractTable's MinPopulatedCellsForDataRow=10
+    /// floor (calibrated for full catalogue files) would otherwise drop entirely.</summary>
+    internal List<List<string>> ParseCsv(Stream stream)
     {
         using var reader = new StreamReader(stream);
         var result = new List<List<string>>();
