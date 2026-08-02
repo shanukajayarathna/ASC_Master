@@ -1,6 +1,7 @@
 import type {
   AuthResponse,
   AuthUser,
+  BrokerStats,
   CatalogueDetail,
   CatalogueSummary,
   ChatMessage,
@@ -164,6 +165,8 @@ export const api = {
     request<TopBottomLot[]>(`/api/v1/analytics/${catalogueId}/top-bottom?mode=${mode}&n=${n}`),
 
   getDataQuality: (catalogueId: string) => request<DataQuality>(`/api/v1/analytics/${catalogueId}/quality`),
+
+  getBrokerStats: (catalogueId: string) => request<BrokerStats[]>(`/api/v1/analytics/${catalogueId}/brokers`),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 

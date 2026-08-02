@@ -17,3 +17,16 @@ public record OverviewStatsDto(
 public record TopBottomLotDto(Guid LotId, string? LotNumber, string? Broker, string? Grade, decimal? EffectiveValue);
 
 public record DataQualityDto(int MissingValuations, int IncompleteRecords, int DuplicateLots, int Outliers);
+
+public record BrokerStatsDto(
+    string Name,
+    int Lots,
+    int Valued,
+    double Share,
+    decimal? Avg,
+    decimal? Max,
+    decimal? Min,
+    string TopGrade,
+    string TopCategory,
+    decimal NetWeight
+);

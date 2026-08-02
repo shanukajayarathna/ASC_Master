@@ -58,6 +58,41 @@ public class AnalyticsController(ICatalogueSource source, MongoContext db) : Con
         return Ok(ReportGenerator.ClassificationSection(merged).Groups);
     }
 
+    [HttpGet("{catalogueId:guid}/brokers")]
+    public async Task<ActionResult<List<BrokerStatsDto>>> Brokers(Guid catalogueId, CancellationToken ct)
+    {
+        var merged = await LoadMerged(catalogueId, ct);
+        if (merged is null) return NotFound();
+
+        var totalLots = merged.Count;
+        var rows = merged
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.Lot.Broker) ? "(unspecified)" : x.Lot.Broker!)
+            .Select(g =>
+            {
+                var values = g.Where(x => x.Val?.EffectiveValue != null).Select(x => x.Val!.EffectiveValue!.Value).ToList();
+                var topGrade = g.Where(x => !string.IsNullOrWhiteSpace(x.Lot.Grade)).GroupBy(x => x.Lot.Grade!)
+                    .OrderByDescending(gg => gg.Count()).Select(gg => gg.Key).FirstOrDefault() ?? "—";
+                var topCategory = g.Where(x => !string.IsNullOrWhiteSpace(x.Lot.Category)).GroupBy(x => x.Lot.Category!)
+                    .OrderByDescending(gg => gg.Count()).Select(gg => gg.Key).FirstOrDefault() ?? "—";
+                return new BrokerStatsDto(
+                    g.Key,
+                    g.Count(),
+                    values.Count,
+                    totalLots > 0 ? (double)g.Count() / totalLots * 100 : 0,
+                    values.Count > 0 ? values.Average() : null,
+                    values.Count > 0 ? values.Max() : null,
+                    values.Count > 0 ? values.Min() : null,
+                    topGrade,
+                    topCategory,
+                    g.Sum(x => x.Lot.NetWeight ?? 0)
+                );
+            })
+            .OrderByDescending(r => r.Avg ?? decimal.MinValue)
+            .ToList();
+
+        return Ok(rows);
+    }
+
     [HttpGet("{catalogueId:guid}/top-bottom")]
     public async Task<ActionResult<List<TopBottomLotDto>>> TopBottom(
         Guid catalogueId, CancellationToken ct, [FromQuery] string mode = "top", [FromQuery] int n = 15)

@@ -92,6 +92,19 @@ export interface DataQuality {
   outliers: number;
 }
 
+export interface BrokerStats {
+  name: string;
+  lots: number;
+  valued: number;
+  share: number;
+  avg: number | null;
+  max: number | null;
+  min: number | null;
+  topGrade: string;
+  topCategory: string;
+  netWeight: number;
+}
+
 export interface KnowledgeDocument {
   id: string;
   fileName: string;
