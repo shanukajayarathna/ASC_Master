@@ -3,6 +3,7 @@ export interface AuthUser {
   email: string;
   displayName: string;
   roles: string[];
+  createdAt: string;
 }
 
 export interface AuthResponse {

@@ -104,5 +104,77 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private static UserDto ToDto(AppUser user) => new(user.Id, user.Email, user.DisplayName, user.Roles);
+    [HttpGet("users")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<List<UserDto>>> ListUsers(CancellationToken ct)
+    {
+        var users = await db.Users.Find(FilterDefinition<AppUser>.Empty).SortBy(u => u.CreatedAt).ToListAsync(ct);
+        return Ok(users.Select(ToDto).ToList());
+    }
+
+    [HttpPatch("users/{id:guid}/role")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<UserDto>> SetRole(Guid id, SetRoleDto dto, CancellationToken ct)
+    {
+        if (dto.Role is not ("Admin" or "User")) return BadRequest("Role must be 'Admin' or 'User'.");
+
+        var user = await db.Users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
+        if (user is null) return NotFound();
+
+        if (user.Roles.Contains("Admin") && dto.Role != "Admin" && await IsSoleAdmin(id, ct))
+            return BadRequest("Can't demote the only remaining Admin.");
+
+        user.Roles = [dto.Role];
+        await db.Users.ReplaceOneAsync(u => u.Id == id, user, cancellationToken: ct);
+        return Ok(ToDto(user));
+    }
+
+    [HttpDelete("users/{id:guid}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteUser(Guid id, CancellationToken ct)
+    {
+        var user = await db.Users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
+        if (user is null) return NotFound();
+
+        if (user.Roles.Contains("Admin") && await IsSoleAdmin(id, ct))
+            return BadRequest("Can't delete the only remaining Admin.");
+
+        await db.Users.DeleteOneAsync(u => u.Id == id, ct);
+        return NoContent();
+    }
+
+    /// <summary>True when `id` is the only user with the Admin role — the guard both
+    /// SetRole and DeleteUser use to make sure the app can never end up with zero Admins
+    /// (and, with no self-service reset flow, no way back in).</summary>
+    private async Task<bool> IsSoleAdmin(Guid id, CancellationToken ct)
+    {
+        var otherAdmins = await db.Users.CountDocumentsAsync(u => u.Id != id && u.Roles.Contains("Admin"), cancellationToken: ct);
+        return otherAdmins == 0;
+    }
+
+    /// <summary>Self-service only — an Admin can remove and re-add a user who's lost their
+    /// password (no email/reset-token infra exists in this app), but can't set anyone else's
+    /// password directly.</summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword(ChangePasswordDto dto, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 8)
+            return BadRequest("New password must be at least 8 characters.");
+
+        var idClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (idClaim is null || !Guid.TryParse(idClaim, out var id)) return Unauthorized();
+
+        var user = await db.Users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
+        if (user is null) return Unauthorized();
+
+        if (hasher.VerifyHashedPassword(user, user.PasswordHash, dto.CurrentPassword) == PasswordVerificationResult.Failed)
+            return BadRequest("Current password is incorrect.");
+
+        user.PasswordHash = hasher.HashPassword(user, dto.NewPassword);
+        await db.Users.ReplaceOneAsync(u => u.Id == id, user, cancellationToken: ct);
+        return NoContent();
+    }
+
+    private static UserDto ToDto(AppUser user) => new(user.Id, user.Email, user.DisplayName, user.Roles, user.CreatedAt);
 }

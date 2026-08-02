@@ -98,6 +98,19 @@ export const api = {
 
   me: () => request<AuthUser>("/api/v1/auth/me"),
 
+  listUsers: () => request<AuthUser[]>("/api/v1/auth/users"),
+
+  setUserRole: (id: string, role: "Admin" | "User") =>
+    request<AuthUser>(`/api/v1/auth/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+
+  deleteUser: (id: string) => request<void>(`/api/v1/auth/users/${id}`, { method: "DELETE" }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("/api/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   // ---- knowledge base ---------------------------------------------------------------
   // Unlike every call below this point, these endpoints actually require login — so the
   // multipart upload (which bypasses `request()`'s auto-attached header, same as

@@ -19,7 +19,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/saved-filters", label: "Saved Filters", section: "Library", status: "live" },
   { href: "/data-import", label: "Data Import", section: "Library", status: "live" },
   { href: "/exports", label: "Exports", section: "Library", status: "live" },
-  { href: "/settings", label: "Settings", section: "System", status: "soon" },
+  { href: "/settings", label: "Settings", section: "System", status: "live" },
   { href: "/help", label: "Help", section: "System", status: "live" },
 ];
 
