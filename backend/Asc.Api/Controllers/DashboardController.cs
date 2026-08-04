@@ -2,6 +2,7 @@ using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 
@@ -9,6 +10,7 @@ namespace Asc.Api.Controllers;
 
 [ApiController]
 [Route("api/catalogues/{catalogueId:guid}/dashboard")]
+[Authorize]
 public class DashboardController(ICatalogueSource source, MongoContext db) : ControllerBase
 {
     [HttpGet]

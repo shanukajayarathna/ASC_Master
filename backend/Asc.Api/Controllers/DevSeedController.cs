@@ -1,6 +1,7 @@
 using Asc.Api.Data;
 using Asc.Api.Models;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -11,9 +12,13 @@ namespace Asc.Api.Controllers;
 /// Development-only tooling for the file-backed catalogue store. The weekly-sale Excel
 /// files in data/sales are the store itself (see SaleFileStore) — nothing here imports
 /// them into a database anymore. The files are never modified.
+/// [Authorize(Roles="Admin")] is defense-in-depth on top of the per-action IsDevelopment()
+/// checks below: one action drops database collections, and IsDevelopment() alone depends
+/// entirely on ASPNETCORE_ENVIRONMENT being set correctly wherever this is hosted.
 /// </summary>
 [ApiController]
 [Route("api/dev")]
+[Authorize(Roles = "Admin")]
 public class DevSeedController(MongoContext db, ICatalogueSource source, SaleFileStore fileStore, CatalogueImportService importer, IWebHostEnvironment env) : ControllerBase
 {
     /// <summary>Quick diagnostics: what the database still holds, and which sales the file store sees.</summary>

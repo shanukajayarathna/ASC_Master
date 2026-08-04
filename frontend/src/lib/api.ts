@@ -239,6 +239,7 @@ export const api = {
     form.append("file", file);
     const res = await fetch(`${API_BASE}/api/catalogues/import`, {
       method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
       body: form,
     });
     if (!res.ok) {
@@ -305,18 +306,13 @@ export const api = {
 
   getLotMedia: (lotId: string) => request<LotMedia>(`/api/lots/${lotId}/media`),
 
-  /** <img>/<audio> src straight to the API. Pass `v` (a version/timestamp) to bust the
-   *  browser cache after a photo is replaced or deleted. */
-  photoUrl: (lotId: string, v?: number | string) =>
-    `${API_BASE}/api/lots/${lotId}/photo${v != null ? `?v=${v}` : ""}`,
-
-  voiceUrl: (lotId: string, field: string, v?: number | string) =>
-    `${API_BASE}/api/lots/${lotId}/voice/${field}${v != null ? `?v=${v}` : ""}`,
-
-  /** Load the stored photo as a blob (same-origin object URL) so it can be re-cropped
-   *  in a canvas without cross-origin taint. */
+  /** Load the stored photo as a blob (same-origin object URL) so it can be displayed/re-cropped
+   *  without cross-origin taint. Media endpoints require login, so — unlike a bare <img src>,
+   *  which can't carry a bearer token — every read goes through this authenticated fetch. */
   fetchPhotoBlob: async (lotId: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`);
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
     if (!res.ok) throw new Error("Could not load the photo.");
     return res.blob();
   },
@@ -324,7 +320,10 @@ export const api = {
   uploadPhoto: async (lotId: string, blob: Blob): Promise<LotMedia> => {
     const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
       method: "PUT",
-      headers: { "Content-Type": blob.type || "image/jpeg" },
+      headers: {
+        "Content-Type": blob.type || "image/jpeg",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
       body: blob,
     });
     if (!res.ok) throw new Error((await res.text().catch(() => "")) || "Photo upload failed.");
@@ -332,14 +331,20 @@ export const api = {
   },
 
   deletePhoto: async (lotId: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, { method: "DELETE" });
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
+      method: "DELETE",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
     if (!res.ok) throw new Error("Could not delete the photo.");
   },
 
   /** Load a stored voice note as a blob so it plays from a same-origin object URL — more
-   *  reliable across browsers than a cross-origin <audio src> with range requests. */
+   *  reliable across browsers than a cross-origin <audio src> with range requests, and (like
+   *  fetchPhotoBlob) the only way to carry auth to this now-login-required endpoint. */
   fetchVoiceBlob: async (lotId: string, field: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`);
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
     if (!res.ok) throw new Error("Could not load the voice note.");
     return res.blob();
   },
@@ -347,7 +352,10 @@ export const api = {
   uploadVoice: async (lotId: string, field: string, blob: Blob): Promise<LotMedia> => {
     const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
       method: "PUT",
-      headers: { "Content-Type": blob.type || "audio/webm" },
+      headers: {
+        "Content-Type": blob.type || "audio/webm",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
       body: blob,
     });
     if (!res.ok) throw new Error((await res.text().catch(() => "")) || "Voice upload failed.");
@@ -355,7 +363,10 @@ export const api = {
   },
 
   deleteVoice: async (lotId: string, field: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, { method: "DELETE" });
+    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
+      method: "DELETE",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
     if (!res.ok) throw new Error("Could not delete the voice note.");
   },
 
@@ -370,7 +381,10 @@ export const api = {
   ): Promise<Blob> => {
     const res = await fetch(`${API_BASE}/api/export/excel`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
       body: JSON.stringify({ lots, columns }),
     });
     if (!res.ok) {

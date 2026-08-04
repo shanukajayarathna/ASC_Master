@@ -2,6 +2,7 @@ using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using MongoDB.Driver;
@@ -12,9 +13,14 @@ namespace Asc.Api.Controllers;
 /// Catalogues are file-backed: the weekly-sale Excel files in data/sales ARE the store
 /// (see SaleFileStore), auto-discovered on every listing. Uploading a new sale through
 /// the app simply saves the file into that folder.
+/// Requires login — every caller is already authenticated by the time it reaches here
+/// (CatalogueProvider only mounts inside the app's auth-gated route group), and Import
+/// overwrites a sale file outright, so this was the security-audit gap referenced in
+/// frontend/src/app/(app)/layout.tsx's doc comment.
 /// </summary>
 [ApiController]
 [Route("api/catalogues")]
+[Authorize]
 public class CataloguesController(ICatalogueSource source, SaleFileStore fileStore, MongoContext db, CatalogueImportService importer) : ControllerBase
 {
     [HttpGet]

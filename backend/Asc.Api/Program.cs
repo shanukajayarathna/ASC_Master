@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using Asc.Api.Data;
 using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Auth;
@@ -7,6 +9,7 @@ using Asc.Api.Modules.Reports;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -60,6 +63,13 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>
     {
+        // Explicit, not relying on the framework default (which has changed across .NET
+        // versions): take claim types straight from the token with no short-name remapping,
+        // and pin exactly which claim IsInRole()/[Authorize(Roles=...)] reads — this is what
+        // AuthController.IssueToken issues (ClaimTypes.Role/ClaimTypes.NameIdentifier), so
+        // role-gated endpoints resolve deterministically regardless of library defaults.
+        opts.MapInboundClaims = false;
+
         var jwtKey = builder.Configuration["Jwt:Key"];
         opts.TokenValidationParameters = new TokenValidationParameters
         {
@@ -73,9 +83,29 @@ builder.Services
             // just fails validation until the key is configured, rather than crashing here.
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey ?? Guid.NewGuid().ToString())),
             ValidateLifetime = true,
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = ClaimTypes.NameIdentifier,
         };
     });
 builder.Services.AddAuthorization();
+
+// Throttles login attempts per client IP so a stolen/guessed-at password list can't be
+// brute-forced against /api/v1/auth/login — there's no account lockout, so this is the
+// only thing standing between an attacker and unlimited guesses.
+const string LoginRateLimitPolicy = "login";
+builder.Services.AddRateLimiter(opts =>
+{
+    opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    opts.AddPolicy(LoginRateLimitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
 
 const string CorsPolicy = "FrontendDev";
 builder.Services.AddCors(opts =>
@@ -90,6 +120,20 @@ builder.Services.AddCors(opts =>
 
 var app = builder.Build();
 
+if (string.IsNullOrEmpty(builder.Configuration["Jwt:Key"]))
+{
+    app.Logger.LogWarning(
+        "Jwt:Key is not configured — the app will start, but every issued/validated token will use a " +
+        "random per-process key, so all tokens fail validation. Set it with: " +
+        "dotnet user-secrets set Jwt:Key \"<random-string>\"");
+}
+else if (builder.Configuration["Jwt:Key"]!.Length < 32)
+{
+    app.Logger.LogWarning(
+        "Jwt:Key is shorter than 32 characters — HMAC-SHA256 tokens signed with a short key are " +
+        "easier to brute-force offline. Use a longer random value.");
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -97,6 +141,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

@@ -2,6 +2,7 @@ using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 
@@ -11,9 +12,12 @@ namespace Asc.Api.Controllers;
 /// Lots come from the file-backed catalogue source; the database contributes only the
 /// user-entered valuation overlay, which always wins over a valuation derived from the
 /// sale file (the company's Valuation column + backfilled classification).
+/// Requires login — this is the core commercial dataset (including PrivateNotes/BrokerNotes)
+/// plus the valuation-mutation endpoints; see the security-audit note on CataloguesController.
 /// </summary>
 [ApiController]
 [Route("api")]
+[Authorize]
 public class LotsController(ICatalogueSource source, MongoContext db) : ControllerBase
 {
     [HttpGet("catalogues/{catalogueId:guid}/lots")]

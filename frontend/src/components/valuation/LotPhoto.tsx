@@ -47,6 +47,31 @@ export default function LotPhoto({ lotId, has, version, onChanged }: LotPhotoPro
   };
   useEffect(() => () => setSource(null), []);
 
+  // The saved photo for the thumbnail/view modal — loaded as an authenticated blob (the
+  // media endpoint requires login, so a bare <img src> pointed at the API can't work) into
+  // its own same-origin object URL, independent of cropSrc's lifecycle above.
+  const [photoSrc, setPhotoSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let url: string | null = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPhotoSrc(null);
+    if (has) {
+      api
+        .fetchPhotoBlob(lotId)
+        .then((b) => {
+          if (cancelled) return;
+          url = URL.createObjectURL(b);
+          setPhotoSrc(url);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [lotId, has, version]);
+
   // Add/Retake both open a small menu: take a fresh photo with the camera, or pick a file.
   const openAddMenu = (e: React.MouseEvent<HTMLElement>) => {
     setErr(null);
@@ -153,7 +178,7 @@ export default function LotPhoto({ lotId, has, version, onChanged }: LotPhotoPro
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={api.photoUrl(lotId, version)}
+            src={photoSrc ?? undefined}
             alt="Lot"
             className="w-6 h-6 rounded-full object-cover"
             style={{ background: "var(--surface-sunken)" }}
@@ -197,7 +222,7 @@ export default function LotPhoto({ lotId, has, version, onChanged }: LotPhotoPro
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={api.photoUrl(lotId, version)}
+              src={photoSrc ?? undefined}
               alt="Lot"
               className="w-full rounded-xl object-contain max-h-[55vh]"
               style={{ background: "var(--surface-sunken)" }}

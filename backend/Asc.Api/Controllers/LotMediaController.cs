@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Asc.Api.Controllers;
@@ -10,9 +11,13 @@ namespace Asc.Api.Controllers;
 /// instead of typing). Stored through <see cref="ILotMediaStore"/>: on disk for now, a
 /// database/blob store later, with no controller change. Binaries are sent as raw PUT bodies
 /// (the browser posts the captured JPEG / recorded audio blob directly).
+/// Requires login — the frontend fetches photo/voice bytes as an authenticated blob (never
+/// via a bare &lt;img&gt;/&lt;audio src&gt;, which can't carry a bearer token) precisely so
+/// this can be locked down; see LotPhoto.tsx and VoiceRecorder.tsx.
 /// </summary>
 [ApiController]
 [Route("api/lots/{lotId:guid}")]
+[Authorize]
 public class LotMediaController(ILotMediaStore media) : ControllerBase
 {
     // Same shape the store enforces — validated here too so a bad field is a clean 400.

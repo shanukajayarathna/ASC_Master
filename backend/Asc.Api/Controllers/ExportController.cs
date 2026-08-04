@@ -1,6 +1,7 @@
 using Asc.Api.Data;
 using Asc.Api.Models;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using NPOI.SS.UserModel;
@@ -15,9 +16,12 @@ namespace Asc.Api.Controllers;
 /// chooses which columns land in the sheet and in what order — raw catalogue columns or
 /// the app's own valuation fields — so a download carries only the columns that were asked
 /// for. With no column list the old fixed "Lot Report" layout is produced unchanged.
+/// Requires login — this is a bulk-export primitive over arbitrary (catalogue, lot) pairs
+/// including private/broker notes; see the security-audit note on CataloguesController.
 /// </summary>
 [ApiController]
 [Route("api/export")]
+[Authorize]
 public class ExportController(ICatalogueSource source, MongoContext db) : ControllerBase
 {
     /// <summary>One lot to export, tagged with the sale it belongs to (so cross-sale

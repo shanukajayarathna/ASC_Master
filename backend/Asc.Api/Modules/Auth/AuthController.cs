@@ -5,6 +5,7 @@ using Asc.Api.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
 
@@ -14,6 +15,14 @@ namespace Asc.Api.Modules.Auth;
 [Route("api/v1/auth")]
 public class AuthController(MongoContext db, IConfiguration config, IPasswordHasher<AppUser> hasher) : ControllerBase
 {
+    // A fixed hash of a value nobody could ever type in as a real password — verified
+    // against on the "unknown email" path in Login so that path pays the same PBKDF2 cost
+    // a real verification would, rather than returning early and responding measurably
+    // faster (a timing side-channel that would otherwise let an attacker enumerate which
+    // emails have accounts even though both paths return an identical error message).
+    private static readonly string DummyPasswordHash =
+        new PasswordHasher<AppUser>().HashPassword(new AppUser(), "not-a-real-account-timing-guard-9f3a1c");
+
     /// <summary>
     /// Open only while no account exists yet (creates that first account as Admin) —
     /// after that, only an authenticated Admin can create further accounts. There's no
@@ -51,12 +60,19 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<AuthResponseDto>> Login(LoginDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Password))
+            return BadRequest("Email and password are required.");
+
         var email = dto.Email.Trim().ToLowerInvariant();
         var user = await db.Users.Find(u => u.Email == email).FirstOrDefaultAsync();
         if (user is null)
+        {
+            hasher.VerifyHashedPassword(new AppUser(), DummyPasswordHash, dto.Password);
             return Unauthorized("Invalid email or password.");
+        }
 
         var result = hasher.VerifyHashedPassword(user, user.PasswordHash, dto.Password);
         if (result == PasswordVerificationResult.Failed)
