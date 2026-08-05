@@ -28,7 +28,7 @@ import { useEffect, useState } from "react";
 
 function SettingsSection({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="mb-8 max-w-5xl">
+    <section className="mb-8">
       <h2 className="font-display text-[15px] font-semibold text-text-strong m-0 mb-1">{title}</h2>
       {subtitle && <p className="text-[12.5px] text-text-muted m-0 mb-3">{subtitle}</p>}
       <div className="border border-border rounded-lg bg-surface p-4">{children}</div>

@@ -78,7 +78,7 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="max-w-5xl">
+    <div>
       <div className="mb-5">
         <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Knowledge Base</h1>
         <p className="text-[13px] text-text-muted m-0 max-w-xl">

@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function ExportsPage() {
   return (
-    <div className="max-w-5xl">
+    <div>
       <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Exports</h1>
       <p className="text-[13px] text-text-muted mb-5">
         The Catalogue Manager grid is AG Grid Enterprise, which ships CSV and Excel export built in.

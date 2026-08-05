@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function DataImportPage() {
   return (
-    <div className="max-w-5xl">
+    <div>
       <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Data Import</h1>
       <p className="text-[13px] text-text-muted mb-5">
         Bring lot catalogues into ASC. Files are uploaded to the ASP.NET Core API, parsed server-side (ClosedXML for

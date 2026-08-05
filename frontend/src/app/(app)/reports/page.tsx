@@ -101,7 +101,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="max-w-5xl">
+    <div>
       <div className="mb-5 flex items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Reports</h1>
