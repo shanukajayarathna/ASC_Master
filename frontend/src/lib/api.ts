@@ -1,6 +1,8 @@
 import type {
   AccuracyBucket,
   AccuracyOverview,
+  ApiKeyCreated,
+  ApiKeySummary,
   AuthResponse,
   AuthUser,
   BrokerStats,
@@ -26,6 +28,8 @@ import type {
   SavedReport,
   TopBottomLot,
   ValuationUpdate,
+  WebhookCreated,
+  WebhookSummary,
 } from "@/types/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
@@ -110,6 +114,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
+
+  // ---- api keys (machine credentials for external callers, e.g. n8n) -----------------
+
+  listApiKeys: () => request<ApiKeySummary[]>("/api/v1/api-keys"),
+
+  createApiKey: (name: string, roles: ("Admin" | "User")[]) =>
+    request<ApiKeyCreated>("/api/v1/api-keys", { method: "POST", body: JSON.stringify({ name, roles }) }),
+
+  deleteApiKey: (id: string) => request<void>(`/api/v1/api-keys/${id}`, { method: "DELETE" }),
+
+  // ---- webhooks (outbound event notifications, e.g. to n8n) --------------------------
+
+  listWebhookEvents: () => request<string[]>("/api/v1/webhooks/events"),
+
+  listWebhooks: () => request<WebhookSummary[]>("/api/v1/webhooks"),
+
+  createWebhook: (url: string, event: string) =>
+    request<WebhookCreated>("/api/v1/webhooks", { method: "POST", body: JSON.stringify({ url, event }) }),
+
+  deleteWebhook: (id: string) => request<void>(`/api/v1/webhooks/${id}`, { method: "DELETE" }),
 
   // ---- knowledge base ---------------------------------------------------------------
   // Unlike every call below this point, these endpoints actually require login — so the

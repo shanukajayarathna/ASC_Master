@@ -1,7 +1,9 @@
 using Asc.Api.Models;
+using Asc.Api.Modules.ApiKeys;
 using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.Webhooks;
 using MongoDB.Driver;
 
 namespace Asc.Api.Data;
@@ -69,4 +71,7 @@ public class MongoContext
 
     public IMongoCollection<Conversation> Conversations => Database.GetCollection<Conversation>("conversations");
     public IMongoCollection<ConversationMessage> ConversationMessages => Database.GetCollection<ConversationMessage>("conversationMessages");
+
+    public IMongoCollection<ApiKey> ApiKeys => Database.GetCollection<ApiKey>("apiKeys");
+    public IMongoCollection<WebhookSubscription> WebhookSubscriptions => Database.GetCollection<WebhookSubscription>("webhookSubscriptions");
 }

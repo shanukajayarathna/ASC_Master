@@ -2,11 +2,14 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using Asc.Api.Data;
+using Asc.Api.Modules.ApiKeys;
 using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Reports;
+using Asc.Api.Modules.Webhooks;
 using Asc.Api.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
@@ -59,9 +62,31 @@ builder.Services.AddSingleton<AssistantToolExecutor>();
 // browser's own Print → Save as PDF covers that leg (see Modules/Reports/ReportsController.cs).
 builder.Services.AddSingleton<ReportGenerator>();
 
+// Outbound event notifications (e.g. "catalogue.imported") for external tools like n8n —
+// a short timeout since this fires inline inside user-facing requests and must never hang
+// one on a dead/slow external endpoint (see WebhookSender's own doc comment).
+builder.Services.AddHttpClient<IWebhookSender, WebhookSender>(client => client.Timeout = TimeSpan.FromSeconds(5));
+
+const string ApiKeyScheme = "ApiKey";
+const string SmartScheme = "Smart";
+
 builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opts =>
+    .AddAuthentication(opts =>
+    {
+        // A policy scheme that inspects the request and forwards to whichever real scheme
+        // applies — JWT bearer for a normal browser session, the API key scheme for an
+        // external caller. Every existing [Authorize]/[Authorize(Roles=...)] attribute in
+        // this codebase keeps resolving to the implicit default with zero changes; this is
+        // what that default now points at.
+        opts.DefaultAuthenticateScheme = SmartScheme;
+        opts.DefaultChallengeScheme = SmartScheme;
+    })
+    .AddPolicyScheme(SmartScheme, "JWT or API Key", opts =>
+    {
+        opts.ForwardDefaultSelector = ctx =>
+            ctx.Request.Headers.ContainsKey("X-Api-Key") ? ApiKeyScheme : JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, opts =>
     {
         // Explicit, not relying on the framework default (which has changed across .NET
         // versions): take claim types straight from the token with no short-name remapping,
@@ -86,7 +111,8 @@ builder.Services
             RoleClaimType = ClaimTypes.Role,
             NameClaimType = ClaimTypes.NameIdentifier,
         };
-    });
+    })
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyScheme, _ => { });
 builder.Services.AddAuthorization();
 
 // Throttles login attempts per client IP so a stolen/guessed-at password list can't be

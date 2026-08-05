@@ -1,6 +1,7 @@
 using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
+using Asc.Api.Modules.Webhooks;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,7 +22,7 @@ namespace Asc.Api.Controllers;
 [ApiController]
 [Route("api/catalogues")]
 [Authorize]
-public class CataloguesController(ICatalogueSource source, SaleFileStore fileStore, MongoContext db, CatalogueImportService importer) : ControllerBase
+public class CataloguesController(ICatalogueSource source, SaleFileStore fileStore, MongoContext db, CatalogueImportService importer, IWebhookSender webhooks) : ControllerBase
 {
     [HttpGet]
     public ActionResult<List<CatalogueSummaryDto>> List()
@@ -55,7 +56,7 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     /// </summary>
     [HttpPost("import")]
     [RequestSizeLimit(100_000_000)]
-    public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file)
+    public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
@@ -76,6 +77,15 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
 
         var catalogue = source.GetCatalogue(SaleFileStore.CatalogueIdFor(saleNo));
         if (catalogue is null) return BadRequest("The uploaded file couldn't be parsed as a sale catalogue.");
+
+        await webhooks.SendAsync("catalogue.imported", new
+        {
+            catalogueId = catalogue.Id,
+            sourceName = catalogue.SourceName,
+            rowCount = catalogue.RowCount,
+            importedAt = catalogue.ImportedAt,
+        }, ct);
+
         return Ok(new CatalogueDetailDto(catalogue.Id, catalogue.SourceName, catalogue.Headers, catalogue.ColumnMeta, catalogue.RowCount, catalogue.ImportedAt));
     }
 

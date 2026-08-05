@@ -6,6 +6,34 @@ export interface AuthUser {
   createdAt: string;
 }
 
+export interface ApiKeySummary {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  roles: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** Only returned once, at creation — rawKey is never retrievable again afterward. */
+export interface ApiKeyCreated {
+  summary: ApiKeySummary;
+  rawKey: string;
+}
+
+export interface WebhookSummary {
+  id: string;
+  url: string;
+  event: string;
+  createdAt: string;
+}
+
+/** Only returned once, at creation — secret is never retrievable again afterward. */
+export interface WebhookCreated {
+  summary: WebhookSummary;
+  secret: string;
+}
+
 export interface AuthResponse {
   token: string;
   user: AuthUser;

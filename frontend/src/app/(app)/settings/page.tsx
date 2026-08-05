@@ -3,20 +3,27 @@
 import { useAuth } from "@/context/AuthContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import { api, ApiError } from "@/lib/api";
-import type { AuthUser } from "@/types/api";
+import type { ApiKeySummary, AuthUser, WebhookSummary } from "@/types/api";
+import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
+import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import PersonAddOutlinedIcon from "@mui/icons-material/PersonAddOutlined";
 import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import { useEffect, useState } from "react";
 
 function SettingsSection({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -336,6 +343,391 @@ function UsersSection() {
   );
 }
 
+/** Shows a freshly created secret exactly once (an API key's raw value, a webhook's signing
+ *  secret) — the app never stores or re-displays it after this, same principle as a GitHub
+ *  personal access token. Shared by ApiKeysSection and WebhooksSection since the UI is
+ *  identical; only the surrounding create-flow (and the fields being created) differs. */
+function RevealSecretDialog({ open, title, value, onClose }: { open: boolean; title: string; value: string | null; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ pb: 0.5 }}>{title}</DialogTitle>
+      <DialogContent>
+        <p className="text-[12.5px] text-danger m-0 mb-3">Copy this now — for security, it won&apos;t be shown again.</p>
+        <div className="flex items-center gap-2 p-2.5 rounded border border-border bg-surface-sunken">
+          <code className="flex-1 text-[12.5px] font-mono break-all">{value}</code>
+          <Tooltip title={copied ? "Copied" : "Copy"}>
+            <IconButton size="small" onClick={copy} aria-label="Copy to clipboard">
+              {copied ? (
+                <CheckCircleOutlinedIcon fontSize="small" sx={{ color: "var(--sage-dark)" }} />
+              ) : (
+                <ContentCopyOutlinedIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+        </div>
+      </DialogContent>
+      <DialogActions>
+        <Button variant="contained" onClick={onClose}>
+          Done
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+const API_KEY_ROLE_OPTIONS: ("Admin" | "User")[] = ["User", "Admin"];
+
+function ApiKeysSection() {
+  const [keys, setKeys] = useState<ApiKeySummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addRoles, setAddRoles] = useState<("Admin" | "User")[]>(["User"]);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [revealKey, setRevealKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ApiKeySummary | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const refresh = () => {
+    setLoading(true);
+    api
+      .listApiKeys()
+      .then(setKeys)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load API keys"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refresh();
+  }, []);
+
+  const toggleRole = (role: "Admin" | "User") => {
+    setAddRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  };
+
+  const addKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddBusy(true);
+    setAddError(null);
+    try {
+      const created = await api.createApiKey(addName.trim(), addRoles);
+      setAddOpen(false);
+      setAddName("");
+      setAddRoles(["User"]);
+      refresh();
+      setRevealKey(created.rawKey);
+    } catch (e) {
+      setAddError(e instanceof ApiError ? e.message : "Couldn't create the API key");
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      await api.deleteApiKey(deleteTarget.id);
+      setKeys((list) => list.filter((k) => k.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't revoke that key");
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection title="API Keys" subtitle="Credentials for external tools (e.g. an n8n workflow) to call this API without a human login.">
+      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+
+      <div className="flex justify-end mb-3">
+        <Button variant="outlined" size="small" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={() => setAddOpen(true)}>
+          New Key
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <CircularProgress size={20} sx={{ color: "var(--liquor)" }} />
+        </div>
+      ) : keys.length === 0 ? (
+        <p className="text-[12.5px] text-text-muted m-0">No API keys yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Name</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Key</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Roles</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Last Used</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id} className="border-b border-border last:border-0">
+                  <td className="px-2 py-2">{k.name}</td>
+                  <td className="px-2 py-2 font-mono text-[11.5px] text-text-muted">{k.keyPrefix}…</td>
+                  <td className="px-2 py-2 text-text-muted">{k.roles.join(", ")}</td>
+                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">
+                    {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "Never"}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    <Button size="small" color="error" startIcon={<DeleteOutlineIcon fontSize="small" />} onClick={() => setDeleteTarget(k)}>
+                      Revoke
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Dialog open={addOpen} onClose={() => (addBusy ? null : setAddOpen(false))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>New API Key</DialogTitle>
+        <form onSubmit={addKey}>
+          <DialogContent>
+            {addError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{addError}</div>}
+            <div className="flex flex-col gap-3">
+              <TextField
+                label="Name"
+                size="small"
+                placeholder="e.g. n8n — sale notifications"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                autoFocus
+                required
+                fullWidth
+              />
+              <div>
+                <p className="text-[11.5px] text-text-muted m-0 mb-1">Roles</p>
+                {API_KEY_ROLE_OPTIONS.map((role) => (
+                  <FormControlLabel
+                    key={role}
+                    control={<Checkbox size="small" checked={addRoles.includes(role)} onChange={() => toggleRole(role)} />}
+                    label={role}
+                  />
+                ))}
+              </div>
+            </div>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAddOpen(false)} disabled={addBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={addBusy || addRoles.length === 0}>
+              {addBusy ? "Creating…" : "Create Key"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      <RevealSecretDialog open={!!revealKey} title="API Key Created" value={revealKey} onClose={() => setRevealKey(null)} />
+
+      <Dialog open={!!deleteTarget} onClose={() => (deleteBusy ? null : setDeleteTarget(null))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>Revoke API Key</DialogTitle>
+        <DialogContent>
+          <p className="text-[13px] text-text m-0">
+            Revoke <strong>{deleteTarget?.name}</strong>? Any tool using it will lose access immediately. This can&apos;t be undone.
+          </p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
+            Cancel
+          </Button>
+          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy}>
+            {deleteBusy ? "Revoking…" : "Revoke"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </SettingsSection>
+  );
+}
+
+function WebhooksSection() {
+  const [webhooks, setWebhooks] = useState<WebhookSummary[]>([]);
+  const [events, setEvents] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addUrl, setAddUrl] = useState("");
+  const [addEvent, setAddEvent] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [revealSecret, setRevealSecret] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<WebhookSummary | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const refresh = () => {
+    setLoading(true);
+    api
+      .listWebhooks()
+      .then(setWebhooks)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load webhooks"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refresh();
+    api
+      .listWebhookEvents()
+      .then((list) => {
+        setEvents(list);
+        setAddEvent(list[0] ?? "");
+      })
+      .catch(() => {});
+  }, []);
+
+  const addWebhook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddBusy(true);
+    setAddError(null);
+    try {
+      const created = await api.createWebhook(addUrl.trim(), addEvent);
+      setAddOpen(false);
+      setAddUrl("");
+      refresh();
+      setRevealSecret(created.secret);
+    } catch (e) {
+      setAddError(e instanceof ApiError ? e.message : "Couldn't create the webhook");
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      await api.deleteWebhook(deleteTarget.id);
+      setWebhooks((list) => list.filter((w) => w.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't delete that webhook");
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection title="Webhooks" subtitle="Notify an external tool (e.g. n8n) when something happens in this app.">
+      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+
+      <div className="flex justify-end mb-3">
+        <Button variant="outlined" size="small" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={() => setAddOpen(true)}>
+          New Webhook
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <CircularProgress size={20} sx={{ color: "var(--liquor)" }} />
+        </div>
+      ) : webhooks.length === 0 ? (
+        <p className="text-[12.5px] text-text-muted m-0">No webhooks yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Event</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">URL</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Since</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {webhooks.map((w) => (
+                <tr key={w.id} className="border-b border-border last:border-0">
+                  <td className="px-2 py-2 font-mono text-[11.5px]">{w.event}</td>
+                  <td className="px-2 py-2 text-text-muted truncate max-w-[280px]">{w.url}</td>
+                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{new Date(w.createdAt).toLocaleDateString()}</td>
+                  <td className="px-2 py-2 text-right">
+                    <Button size="small" color="error" startIcon={<DeleteOutlineIcon fontSize="small" />} onClick={() => setDeleteTarget(w)}>
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Dialog open={addOpen} onClose={() => (addBusy ? null : setAddOpen(false))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>New Webhook</DialogTitle>
+        <form onSubmit={addWebhook}>
+          <DialogContent>
+            {addError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{addError}</div>}
+            <div className="flex flex-col gap-3">
+              <Select size="small" value={addEvent} onChange={(e) => setAddEvent(e.target.value)} fullWidth>
+                {events.map((ev) => (
+                  <MenuItem key={ev} value={ev}>
+                    {ev}
+                  </MenuItem>
+                ))}
+              </Select>
+              <TextField
+                label="Target URL"
+                size="small"
+                placeholder="https://your-n8n-instance/webhook/…"
+                value={addUrl}
+                onChange={(e) => setAddUrl(e.target.value)}
+                required
+                fullWidth
+              />
+            </div>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAddOpen(false)} disabled={addBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={addBusy || !addEvent}>
+              {addBusy ? "Creating…" : "Create Webhook"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      <RevealSecretDialog open={!!revealSecret} title="Webhook Created" value={revealSecret} onClose={() => setRevealSecret(null)} />
+
+      <Dialog open={!!deleteTarget} onClose={() => (deleteBusy ? null : setDeleteTarget(null))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>Delete Webhook</DialogTitle>
+        <DialogContent>
+          <p className="text-[13px] text-text m-0">
+            Delete the webhook for <strong>{deleteTarget?.event}</strong>? This can&apos;t be undone.
+          </p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
+            Cancel
+          </Button>
+          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy}>
+            {deleteBusy ? "Deleting…" : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </SettingsSection>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const isAdmin = user?.roles.includes("Admin") ?? false;
@@ -350,6 +742,8 @@ export default function SettingsPage() {
       <AppearanceSection />
       <AccountSection />
       {isAdmin && <UsersSection />}
+      {isAdmin && <ApiKeysSection />}
+      {isAdmin && <WebhooksSection />}
     </div>
   );
 }
