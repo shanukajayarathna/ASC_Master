@@ -31,10 +31,10 @@ export default function HelpPage() {
   ];
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-6xl">
       <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Help</h1>
       <p className="text-[13px] text-text-muted mb-5">Quick answers for common tasks in the ASC platform.</p>
-      <div className="flex flex-col gap-3">
+      <div className="grid gap-3 lg:grid-cols-2">
         {faqs.map((f) => (
           <div key={f.q} className="border border-border rounded-md bg-surface p-4">
             <h3 className="font-display text-[15px] text-text-strong mb-1.5">{f.q}</h3>

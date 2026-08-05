@@ -72,7 +72,7 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="max-w-3xl flex flex-col" style={{ height: "calc(100vh - 140px)" }}>
+    <div className="max-w-5xl flex flex-col" style={{ height: "calc(100vh - 140px)" }}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">AI Assistant</h1>

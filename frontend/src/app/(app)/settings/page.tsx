@@ -28,7 +28,7 @@ import { useEffect, useState } from "react";
 
 function SettingsSection({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="mb-8 max-w-2xl">
+    <section className="mb-8 max-w-5xl">
       <h2 className="font-display text-[15px] font-semibold text-text-strong m-0 mb-1">{title}</h2>
       {subtitle && <p className="text-[12.5px] text-text-muted m-0 mb-3">{subtitle}</p>}
       <div className="border border-border rounded-lg bg-surface p-4">{children}</div>
@@ -657,7 +657,7 @@ function WebhooksSection() {
               {webhooks.map((w) => (
                 <tr key={w.id} className="border-b border-border last:border-0">
                   <td className="px-2 py-2 font-mono text-[11.5px]">{w.event}</td>
-                  <td className="px-2 py-2 text-text-muted truncate max-w-[280px]">{w.url}</td>
+                  <td className="px-2 py-2 text-text-muted truncate max-w-[520px]">{w.url}</td>
                   <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{new Date(w.createdAt).toLocaleDateString()}</td>
                   <td className="px-2 py-2 text-right">
                     <Button size="small" color="error" startIcon={<DeleteOutlineIcon fontSize="small" />} onClick={() => setDeleteTarget(w)}>
@@ -688,6 +688,7 @@ function WebhooksSection() {
                 label="Target URL"
                 size="small"
                 placeholder="https://your-n8n-instance/webhook/…"
+                helperText="Must start with http:// or https://"
                 value={addUrl}
                 onChange={(e) => setAddUrl(e.target.value)}
                 required

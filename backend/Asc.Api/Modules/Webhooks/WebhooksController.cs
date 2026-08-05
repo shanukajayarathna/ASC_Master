@@ -21,12 +21,16 @@ public class WebhooksController(MongoContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult<WebhookCreatedDto>> Create(CreateWebhookRequestDto dto, CancellationToken ct)
     {
-        if (!Uri.TryCreate(dto.Url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
-            return BadRequest("Url must be a valid absolute http(s) URL.");
+        // Trim first — a URL pasted from a browser address bar or another app commonly
+        // carries a leading/trailing space or newline, which would otherwise fail parsing
+        // for a reason invisible to whoever pasted it.
+        var url = dto.Url?.Trim() ?? "";
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+            return BadRequest("That doesn't look like a full URL — it needs to start with http:// or https://, e.g. https://your-n8n-instance/webhook/abc123.");
         if (string.IsNullOrWhiteSpace(dto.Event)) return BadRequest("Event is required.");
 
         var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        var sub = new WebhookSubscription { Url = dto.Url, Event = dto.Event, Secret = secret };
+        var sub = new WebhookSubscription { Url = url, Event = dto.Event, Secret = secret };
         await db.WebhookSubscriptions.InsertOneAsync(sub, cancellationToken: ct);
 
         return Ok(new WebhookCreatedDto(ToDto(sub), secret));

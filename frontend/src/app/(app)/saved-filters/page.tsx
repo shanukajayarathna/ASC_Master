@@ -50,7 +50,7 @@ export default function SavedFiltersPage() {
   };
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       <div className="mb-5">
         <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Saved Filters</h1>
         <p className="text-[13px] text-text-muted m-0">
