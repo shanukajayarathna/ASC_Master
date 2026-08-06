@@ -1,8 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import PhotoCropper from "@/components/valuation/PhotoCropper";
-import CameraCapture from "@/components/valuation/CameraCapture";
+import dynamic from "next/dynamic";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
@@ -14,6 +13,12 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import CachedIcon from "@mui/icons-material/Cached";
 import { useEffect, useRef, useState } from "react";
+
+// Loaded on demand, not in the initial Valuation Centre bundle — both are already
+// conditionally rendered below (only mounted once the camera/cropper is actually opened),
+// and neither can run on the server (getUserMedia / canvas), so ssr:false is correct here.
+const CameraCapture = dynamic(() => import("@/components/valuation/CameraCapture"), { ssr: false });
+const PhotoCropper = dynamic(() => import("@/components/valuation/PhotoCropper"), { ssr: false });
 
 interface LotPhotoProps {
   lotId: string;

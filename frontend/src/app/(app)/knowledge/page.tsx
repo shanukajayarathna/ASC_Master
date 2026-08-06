@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/shared/PageHeader";
 import { api } from "@/lib/api";
 import type { DocumentSearchResult, KnowledgeDocument } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
@@ -79,12 +80,10 @@ export default function KnowledgeBasePage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Knowledge Base</h1>
-        <p className="text-[13px] text-text-muted m-0 max-w-xl">
-          Upload PDFs, Word, PowerPoint and Excel documents — circulars, SOPs, policies — and search across them.
-        </p>
-      </div>
+      <PageHeader
+        title="Knowledge Base"
+        subtitle="Upload PDFs, Word, PowerPoint and Excel documents — circulars, SOPs, policies — and search across them."
+      />
 
       {error && (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>

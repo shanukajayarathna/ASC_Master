@@ -3,20 +3,14 @@
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import FilterPanel from "@/components/catalogue/FilterPanel";
 import LotViewDialog from "@/components/catalogue/LotViewDialog";
+import PageHeader from "@/components/shared/PageHeader";
+import LotRow, { type ExtraField, type RowField } from "@/components/valuation/LotRow";
 import ValuationFocus from "@/components/valuation/ValuationFocus";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { CLASSIFICATIONS } from "@/lib/classifications";
 import { buildExportColumns, defaultExportColumnIds, hiddenFromMeta } from "@/lib/exportColumns";
-import {
-  catalogueRemarkOf,
-  hasValuation,
-  markCodeOf,
-  noOfChestsOf,
-  sellingMarkOf,
-  valuationToText,
-  weightPerChestOf,
-} from "@/lib/lotDisplay";
+import { catalogueRemarkOf, hasValuation, valuationToText } from "@/lib/lotDisplay";
 import {
   filterLots,
   isColumnFilterActive,
@@ -24,22 +18,13 @@ import {
   type TicketStatus,
 } from "@/lib/lotFilters";
 import { buildValuationUpdate } from "@/lib/valuationUpdate";
-import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
+import { parseValuationInput } from "@/lib/valuationInput";
 import { loadSale, patchCachedLot } from "@/lib/saleCache";
 import { sortForDisplay } from "@/lib/ourBroker";
 import { STATUS_OPTIONS, type StatusFilter } from "@/lib/valuationFilters";
-import {
-  effectiveOfParsed,
-  effectiveValuationOf,
-  formatTierRange,
-  gradeStatsFor,
-  suggestTier,
-  tierStatsFor,
-  tierSummary,
-} from "@/lib/previousSale";
+import { effectiveOfParsed, effectiveValuationOf, gradeStatsFor, suggestTier } from "@/lib/previousSale";
 import type { ClassificationValue, Lot, PreviousGradeStats, ValuationUpdate } from "@/types/api";
 import Button from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import LinearProgress from "@mui/material/LinearProgress";
 import MenuItem from "@mui/material/MenuItem";
@@ -52,25 +37,16 @@ import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import FilterListIcon from "@mui/icons-material/FilterList";
-import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SearchIcon from "@mui/icons-material/Search";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlineOutlined";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // The plain table below has no virtualization, so a ~12k-lot sale renders in chunks —
 // more rows stream in as the list scrolls (or when keyboard navigation walks past the end).
 const RENDER_CHUNK = 250;
-
-type ExtraField = "standardData" | "adjectiveData" | "liquorRemarks" | "musterReport" | "brokerNotes" | "privateNotes";
-
-type RowField = "valuation" | "classification" | ExtraField;
 
 const EXTRA_FIELDS: { value: ExtraField; label: string }[] = [
   { value: "liquorRemarks", label: "Taster's Remarks" },
@@ -94,20 +70,17 @@ function catalogueSeedFor(lot: Lot, field: ExtraField): string | null {
 
 export default function ValuationCentrePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { activeCatalogueId, activeCatalogue } = useCatalogue();
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [values, setValues] = useState<Record<string, string>>({});
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   // Optional extra columns ("Also fill") worked in the same pass as the valuation.
   const [extraOn, setExtraOn] = useState<Set<ExtraField>>(new Set());
   const [extraValues, setExtraValues] = useState<Record<string, string>>({});
   // Lot currently blocked from advancing because its classification is still unset.
   const [clsNeededId, setClsNeededId] = useState<string | null>(null);
-  // Arrow-key highlight inside the focused classification chip group (one group at a time).
-  const [clsCursor, setClsCursor] = useState<{ lotId: string; index: number } | null>(null);
   // Per-grade classification history from the previous sale — drives auto-classification.
   const [prevStats, setPrevStats] = useState<PreviousGradeStats | null>(null);
   // Lots whose current classification was auto-picked from the previous sale (labels the hint).
@@ -244,10 +217,11 @@ export default function ValuationCentrePage() {
   };
 
   // Sync a lot saved from focus mode back into everything the list view derives from.
+  // The row's own valuation text is local state seeded from `lot` (see LotRow) and re-syncs
+  // itself once this updated `lot` reference reaches it — nothing to do for that here.
   const applyUpdatedLot = (updated: Lot) => {
     setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
-    setValues((v) => ({ ...v, [updated.id]: valuationToText(updated) }));
     setSavedIds((prev) => {
       const next = new Set(prev);
       if (hasValuation(updated)) next.add(updated.id);
@@ -264,21 +238,10 @@ export default function ValuationCentrePage() {
     });
   };
 
-  // Seed the text field for any newly-displayed lot without clobbering one the user is
-  // already mid-edit on — an additive merge, not a full derive, so an effect is the right tool.
+  // Seed savedIds for any newly-displayed lot. Each row seeds its own valuation text
+  // locally (see LotRow) — this effect no longer needs to seed a page-level text map.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setValues((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      displayedLots.forEach((l) => {
-        if (next[l.id] === undefined) {
-          next[l.id] = valuationToText(l);
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
     setSavedIds((prev) => {
       let changed = false;
       const next = new Set(prev);
@@ -320,19 +283,25 @@ export default function ValuationCentrePage() {
     [enabledExtras]
   );
 
-  const focusField = (index: number, field: RowField) => {
-    const lot = visibleLots[index];
-    if (!lot) return;
-    // Walking past the mounted chunk: mount up to that row first, focus it after render.
-    if (index >= renderLimit) {
-      setRenderLimit(index + RENDER_CHUNK);
-      setPendingFocus({ index, field });
-      return;
-    }
-    if (field === "valuation") inputRefs.current[lot.id]?.focus();
-    else if (field === "classification") clsRefs.current[lot.id]?.focus();
-    else extraRefs.current[`${field}:${lot.id}`]?.focus();
-  };
+  // Stable across re-renders except when renderLimit/visibleLots genuinely change (filters,
+  // extraOn, chunk growth) — none of which happen on a keystroke, so this identity survives
+  // typing in any row, which is what lets LotRow's memoization actually hold.
+  const focusField = useCallback(
+    (index: number, field: RowField) => {
+      const lot = visibleLots[index];
+      if (!lot) return;
+      // Walking past the mounted chunk: mount up to that row first, focus it after render.
+      if (index >= renderLimit) {
+        setRenderLimit(index + RENDER_CHUNK);
+        setPendingFocus({ index, field });
+        return;
+      }
+      if (field === "valuation") inputRefs.current[lot.id]?.focus();
+      else if (field === "classification") clsRefs.current[lot.id]?.focus();
+      else extraRefs.current[`${field}:${lot.id}`]?.focus();
+    },
+    [visibleLots, renderLimit]
+  );
 
   // Complete a deferred focus once the requested row is mounted — a DOM focus side
   // effect (plus clearing its one-shot request), not derived state.
@@ -344,195 +313,220 @@ export default function ValuationCentrePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingFocus, renderLimit]);
 
-  const focusRow = (index: number) => focusField(index, "valuation");
+  const focusRow = useCallback((index: number) => focusField(index, "valuation"), [focusField]);
 
   // Move focus to the next step in the row flow: valuation → classification → extras → next lot.
   // Classification is the gate — focus never reaches the next lot while this one is unclassified.
   // A lot with no valuation has nothing to classify, so the gate doesn't apply to it.
-  const advance = (lot: Lot, index: number, from: "valuation" | "classification" | ExtraField) => {
-    if (hasValuation(lot) && !isClassified(lot)) {
-      setClsNeededId(lot.id);
-      clsRefs.current[lot.id]?.focus();
-      return;
-    }
-    const order = enabledExtras.map((f) => f.value);
-    const pos = from === "valuation" || from === "classification" ? 0 : order.indexOf(from) + 1;
-    const nextField = order[pos];
-    if (nextField) extraRefs.current[`${nextField}:${lot.id}`]?.focus();
-    else focusRow(index + 1);
-  };
+  const advance = useCallback(
+    (lot: Lot, index: number, from: "valuation" | "classification" | ExtraField) => {
+      if (hasValuation(lot) && !isClassified(lot)) {
+        setClsNeededId(lot.id);
+        clsRefs.current[lot.id]?.focus();
+        return;
+      }
+      const order = enabledExtras.map((f) => f.value);
+      const pos = from === "valuation" || from === "classification" ? 0 : order.indexOf(from) + 1;
+      const nextField = order[pos];
+      if (nextField) extraRefs.current[`${nextField}:${lot.id}`]?.focus();
+      else focusRow(index + 1);
+    },
+    [enabledExtras, focusRow]
+  );
 
   // Parse and save the typed value when it differs from what's stored. While the tier is
   // unset (or was itself auto-picked), the previous sale's suggested classification for
   // the new value rides along in the same call — a hand-picked tier is never touched.
   // Returns the lot to continue navigating with (updated, or as-is when nothing changed),
-  // or null when the input is invalid or the save failed — callers keep focus in place on null.
-  const saveValuation = async (lot: Lot): Promise<Lot | null> => {
-    const text = values[lot.id] ?? "";
-    if (text === valuationToText(lot)) return lot;
-    const parsed = parseValuationInput(text);
-    setErrors((e) => {
-      const next = { ...e };
-      delete next[lot.id];
-      return next;
-    });
+  // or null when the input is invalid or the save failed — the caller (LotRow) keeps its
+  // own local text/error state in place on null. `text` and `onError` come from the row
+  // itself, which now owns that state locally instead of a page-level map — see LotRow.
+  const saveValuation = useCallback(
+    async (lot: Lot, text: string, onError: (msg: string) => void): Promise<Lot | null> => {
+      if (text === valuationToText(lot)) return lot;
+      const parsed = parseValuationInput(text);
+      if (parsed.kind === "error") {
+        onError(parsed.message);
+        return null;
+      }
 
-    if (parsed.kind === "error") {
-      setErrors((e) => ({ ...e, [lot.id]: parsed.message }));
-      return null;
-    }
+      const patch: Partial<ValuationUpdate> =
+        parsed.kind === "clear"
+          ? { valuationSingle: null, valuationFrom: null, valuationTo: null }
+          : parsed.kind === "single"
+            ? { valuationSingle: parsed.value, valuationFrom: null, valuationTo: null }
+            : { valuationSingle: null, valuationFrom: parsed.from, valuationTo: parsed.to };
 
-    const patch: Partial<ValuationUpdate> =
-      parsed.kind === "clear"
-        ? { valuationSingle: null, valuationFrom: null, valuationTo: null }
-        : parsed.kind === "single"
-          ? { valuationSingle: parsed.value, valuationFrom: null, valuationTo: null }
-          : { valuationSingle: null, valuationFrom: parsed.from, valuationTo: parsed.to };
+      const currentCls = lot.valuation?.classification ?? "Unclassified";
+      let autoTier: ClassificationValue | null = null;
+      if (parsed.kind === "clear") {
+        // The value is gone, so the tier goes with it — hand-picked or not, a lot with no
+        // valuation carries no classification (the API enforces this too).
+        patch.classification = "Unclassified";
+      } else if (currentCls === "Unclassified" || autoClsIds.has(lot.id)) {
+        const stats = gradeStatsFor(prevStats, lot.grade);
+        const liveValue = effectiveOfParsed(parsed);
+        autoTier = stats && liveValue !== null ? suggestTier(stats, liveValue) : null;
+        if (autoTier) patch.classification = autoTier;
+      }
 
-    const currentCls = lot.valuation?.classification ?? "Unclassified";
-    let autoTier: ClassificationValue | null = null;
-    if (parsed.kind === "clear") {
-      // The value is gone, so the tier goes with it — hand-picked or not, a lot with no
-      // valuation carries no classification (the API enforces this too).
-      patch.classification = "Unclassified";
-    } else if (currentCls === "Unclassified" || autoClsIds.has(lot.id)) {
-      const stats = gradeStatsFor(prevStats, lot.grade);
-      const liveValue = effectiveOfParsed(parsed);
-      autoTier = stats && liveValue !== null ? suggestTier(stats, liveValue) : null;
-      if (autoTier) patch.classification = autoTier;
-    }
-
-    setSavingId(lot.id);
-    try {
-      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
-      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
-      setSavedIds((s) => {
-        const next = new Set(s);
-        if (parsed.kind === "clear") next.delete(lot.id);
-        else next.add(lot.id);
-        return next;
-      });
-      setAutoClsIds((prev) => {
-        if (!!autoTier === prev.has(lot.id)) return prev;
-        const next = new Set(prev);
-        if (autoTier) next.add(lot.id);
-        else next.delete(lot.id);
-        return next;
-      });
-      return updated;
-    } catch {
-      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
-      return null;
-    } finally {
-      setSavingId(null);
-    }
-  };
+      setSavingId(lot.id);
+      try {
+        const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, patch));
+        setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+        if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
+        setSavedIds((s) => {
+          const next = new Set(s);
+          if (parsed.kind === "clear") next.delete(lot.id);
+          else next.add(lot.id);
+          return next;
+        });
+        setAutoClsIds((prev) => {
+          if (!!autoTier === prev.has(lot.id)) return prev;
+          const next = new Set(prev);
+          if (autoTier) next.add(lot.id);
+          else next.delete(lot.id);
+          return next;
+        });
+        return updated;
+      } catch {
+        onError("Save failed — try again");
+        return null;
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [activeCatalogueId, autoClsIds, prevStats]
+  );
 
   // Auto-pick a classification from the previous sale's record for this lot's grade.
   // Returns the updated lot, or null when there's no usable history (callers fall back
   // to the manual classification gate).
-  const autoClassify = async (lot: Lot): Promise<Lot | null> => {
-    const stats = gradeStatsFor(prevStats, lot.grade);
-    const value = effectiveValuationOf(lot);
-    const tier = stats && value !== null ? suggestTier(stats, value) : null;
-    if (!tier) {
-      setNoPrevDataId(lot.id);
-      return null;
-    }
-    setSavingId(lot.id);
-    try {
-      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: tier }));
-      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
-      setAutoClsIds((prev) => new Set(prev).add(lot.id));
-      setNoPrevDataId((id) => (id === lot.id ? null : id));
-      return updated;
-    } catch {
-      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
-      return null;
-    } finally {
-      setSavingId(null);
-    }
-  };
+  const autoClassify = useCallback(
+    async (lot: Lot, onError: (msg: string) => void): Promise<Lot | null> => {
+      const stats = gradeStatsFor(prevStats, lot.grade);
+      const value = effectiveValuationOf(lot);
+      const tier = stats && value !== null ? suggestTier(stats, value) : null;
+      if (!tier) {
+        setNoPrevDataId(lot.id);
+        return null;
+      }
+      setSavingId(lot.id);
+      try {
+        const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: tier }));
+        setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+        if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
+        setAutoClsIds((prev) => new Set(prev).add(lot.id));
+        setNoPrevDataId((id) => (id === lot.id ? null : id));
+        return updated;
+      } catch {
+        onError("Save failed — try again");
+        return null;
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [prevStats, activeCatalogueId]
+  );
 
-  const commit = async (lot: Lot, index: number) => {
-    const updated = await saveValuation(lot);
-    if (!updated) return;
-    // A cleared/blank row is being abandoned, so no classification gate applies.
-    if (!hasValuation(updated)) {
-      focusRow(index + 1);
-      return;
-    }
-    // Fresh valuation on an unclassified lot: auto-select the tier the previous sale
-    // suggests, then hold focus on the chips so Enter accepts it or the user overrides.
-    if (!isClassified(updated)) {
-      const auto = await autoClassify(updated);
-      if (auto) {
-        const at = CLASSIFICATIONS.findIndex((c) => c.value === auto.valuation?.classification);
-        clsRefs.current[auto.id]?.focus();
-        setClsCursor({ lotId: auto.id, index: Math.max(0, at) });
+  // Save, then either move on, or — when the new value has no classification yet — try the
+  // previous sale's auto-pick and report back which tier index this row should preview/focus
+  // locally (clsCursor lives in LotRow now, not here — see LotRow's local state).
+  const commit = useCallback(
+    async (
+      lot: Lot,
+      index: number,
+      text: string,
+      onError: (msg: string) => void
+    ): Promise<{ autoFocusClassificationAt: number } | void> => {
+      const updated = await saveValuation(lot, text, onError);
+      if (!updated) return;
+      // A cleared/blank row is being abandoned, so no classification gate applies.
+      if (!hasValuation(updated)) {
+        focusRow(index + 1);
         return;
       }
-    }
-    advance(updated, index, "valuation");
-  };
+      // Fresh valuation on an unclassified lot: auto-select the tier the previous sale
+      // suggests, then hold focus on the chips so Enter accepts it or the user overrides.
+      if (!isClassified(updated)) {
+        const auto = await autoClassify(updated, onError);
+        if (auto) {
+          const at = CLASSIFICATIONS.findIndex((c) => c.value === auto.valuation?.classification);
+          return { autoFocusClassificationAt: Math.max(0, at) };
+        }
+      }
+      advance(updated, index, "valuation");
+    },
+    [saveValuation, autoClassify, focusRow, advance]
+  );
 
   // Classification saves instantly on click — clicking the active tier again clears it.
   // Only ever on a valued lot: a tier grades a valuation, so an unvalued row's chips are
   // disabled and every keyboard path into here bounces off this guard.
-  const commitClassification = async (lot: Lot, index: number, value: ClassificationValue) => {
-    if (!hasValuation(lot)) return;
-    const current = lot.valuation?.classification ?? "Unclassified";
-    const next: ClassificationValue = current === value ? "Unclassified" : value;
-    setSavingId(lot.id);
-    let updated: Lot;
-    try {
-      updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
-      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
-      // A hand-picked tier is an override — drop the "auto-selected" label and no-data note.
-      setAutoClsIds((prev) => {
-        if (!prev.has(lot.id)) return prev;
-        const n = new Set(prev);
-        n.delete(lot.id);
-        return n;
-      });
-      setNoPrevDataId((id) => (id === lot.id ? null : id));
-    } catch {
-      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
-      return;
-    } finally {
-      setSavingId(null);
-    }
-    if (next !== "Unclassified") {
-      setClsNeededId((id) => (id === lot.id ? null : id));
-      advance(updated, index, "classification");
-    }
-  };
+  const commitClassification = useCallback(
+    async (lot: Lot, index: number, value: ClassificationValue, onError: (msg: string) => void) => {
+      if (!hasValuation(lot)) return;
+      const current = lot.valuation?.classification ?? "Unclassified";
+      const next: ClassificationValue = current === value ? "Unclassified" : value;
+      setSavingId(lot.id);
+      let updated: Lot;
+      try {
+        updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { classification: next }));
+        setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+        if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
+        // A hand-picked tier is an override — drop the "auto-selected" label and no-data note.
+        setAutoClsIds((prev) => {
+          if (!prev.has(lot.id)) return prev;
+          const n = new Set(prev);
+          n.delete(lot.id);
+          return n;
+        });
+        setNoPrevDataId((id) => (id === lot.id ? null : id));
+      } catch {
+        onError("Save failed — try again");
+        return;
+      } finally {
+        setSavingId(null);
+      }
+      if (next !== "Unclassified") {
+        setClsNeededId((id) => (id === lot.id ? null : id));
+        advance(updated, index, "classification");
+      }
+    },
+    [activeCatalogueId, advance]
+  );
 
   // Same contract as saveValuation: skips the API call when nothing changed, null on failure.
-  const saveExtra = async (lot: Lot, field: ExtraField): Promise<Lot | null> => {
-    const raw = (extraValues[`${field}:${lot.id}`] ?? "").trim();
-    if (raw === (lot.valuation?.[field] ?? "").trim()) return lot;
-    setSavingId(lot.id);
-    try {
-      const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { [field]: raw === "" ? null : raw }));
-      setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
-      return updated;
-    } catch {
-      setErrors((e) => ({ ...e, [lot.id]: "Save failed — try again" }));
-      return null;
-    } finally {
-      setSavingId(null);
-    }
-  };
+  // Reads the typed text from the page-level extraValues map (still page-owned, unlike the
+  // valuation text — extra columns are an opt-in secondary path, not the common per-keystroke
+  // cost this refactor targets).
+  const saveExtra = useCallback(
+    async (lot: Lot, field: ExtraField, onError: (msg: string) => void): Promise<Lot | null> => {
+      const raw = (extraValues[`${field}:${lot.id}`] ?? "").trim();
+      if (raw === (lot.valuation?.[field] ?? "").trim()) return lot;
+      setSavingId(lot.id);
+      try {
+        const updated = await api.updateValuation(lot.id, buildValuationUpdate(lot, { [field]: raw === "" ? null : raw }));
+        setLots((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+        if (activeCatalogueId) patchCachedLot(activeCatalogueId, updated);
+        return updated;
+      } catch {
+        onError("Save failed — try again");
+        return null;
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [extraValues, activeCatalogueId]
+  );
 
-  const commitExtra = async (lot: Lot, index: number, field: ExtraField) => {
-    const updated = await saveExtra(lot, field);
-    if (updated) advance(updated, index, field);
-  };
+  const commitExtra = useCallback(
+    async (lot: Lot, index: number, field: ExtraField, onError: (msg: string) => void) => {
+      const updated = await saveExtra(lot, field, onError);
+      if (updated) advance(updated, index, field);
+    },
+    [saveExtra, advance]
+  );
 
   // A lot only counts as done once it has both a valuation and a classification.
   const filledCount = displayedLots.filter((l) => savedIds.has(l.id) && isClassified(l)).length;
@@ -564,63 +558,78 @@ export default function ValuationCentrePage() {
     if (target) setFocusLotId(target.id);
   };
 
+  // Dashboard's "Continue Valuing" CTA links here with ?focus=1 — once this sale's lots
+  // are actually loaded, drop straight into Focus mode at the first lot needing attention
+  // instead of making the tap-through land on the plain list. Consumed once (the ref
+  // guards against re-entering focus mode if the user deliberately exits it later while
+  // the query param is still sitting in the URL) and then stripped from the URL so a
+  // refresh or the back button doesn't replay it.
+  const consumedFocusParam = useRef(false);
+  useEffect(() => {
+    if (consumedFocusParam.current) return;
+    if (searchParams.get("focus") !== "1") return;
+    if (loading || visibleLots.length === 0) return;
+    consumedFocusParam.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    enterFocus();
+    router.replace("/valuation");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, loading, visibleLots]);
+
   // The details dialog reads its lot fresh from state so saves made after opening still show.
   const viewLotLive = viewLot ? (lots.find((l) => l.id === viewLot.id) ?? viewLot) : null;
 
   if (!activeCatalogueId) {
-    return (
-      <div>
-        <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Valuation Centre</h1>
-        <p className="text-[13px] text-text-muted">Load a catalogue from Catalogue Manager first.</p>
-      </div>
-    );
+    return <PageHeader title="Valuation Centre" subtitle="Load a catalogue from Catalogue Manager first." />;
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Valuation Centre</h1>
-          <p className="text-[13px] text-text-muted m-0">
+      <PageHeader
+        title="Valuation Centre"
+        subtitle={
+          <>
             {activeCatalogue?.sourceName} · {displayedLots.length.toLocaleString()} lot{displayedLots.length === 1 ? "" : "s"} ·
             values in <strong>LKR</strong>
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {!focusLot && displayedLots.length > 0 && (
+          </>
+        }
+        actions={
+          <>
+            {!focusLot && displayedLots.length > 0 && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<CenterFocusStrongIcon fontSize="small" />}
+                onClick={enterFocus}
+                disabled={visibleLots.length === 0}
+              >
+                Focus mode
+              </Button>
+            )}
+            {activeCatalogueId && displayedLots.length > 0 && (
+              <ExportShareMenu
+                lots={displayedLots}
+                reportTitle={activeCatalogue?.sourceName ?? "Catalogue"}
+                catalogueIdForLot={() => activeCatalogueId}
+                availableColumns={buildExportColumns(activeCatalogue?.headers ?? [], false)}
+                defaultColumnIds={defaultExportColumnIds(
+                  activeCatalogue?.headers ?? [],
+                  hiddenFromMeta(activeCatalogue?.columnMeta ?? {}),
+                  false
+                )}
+              />
+            )}
             <Button
-              variant="outlined"
+              variant="contained"
               size="small"
-              startIcon={<CenterFocusStrongIcon fontSize="small" />}
-              onClick={enterFocus}
-              disabled={visibleLots.length === 0}
+              startIcon={<AddCircleOutlineIcon fontSize="small" />}
+              onClick={() => router.push("/catalogue")}
             >
-              Focus mode
+              Catalogue Manager
             </Button>
-          )}
-          {activeCatalogueId && displayedLots.length > 0 && (
-            <ExportShareMenu
-              lots={displayedLots}
-              reportTitle={activeCatalogue?.sourceName ?? "Catalogue"}
-              catalogueIdForLot={() => activeCatalogueId}
-              availableColumns={buildExportColumns(activeCatalogue?.headers ?? [], false)}
-              defaultColumnIds={defaultExportColumnIds(
-                activeCatalogue?.headers ?? [],
-                hiddenFromMeta(activeCatalogue?.columnMeta ?? {}),
-                false
-              )}
-            />
-          )}
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddCircleOutlineIcon fontSize="small" />}
-            onClick={() => router.push("/catalogue")}
-          >
-            Catalogue Manager
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {loading && <p className="text-text-muted text-sm mt-4">Loading lots…</p>}
 
@@ -843,347 +852,46 @@ export default function ValuationCentrePage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {visibleLots.slice(0, renderLimit).map((lot, index) => {
-                  const saved = savedIds.has(lot.id);
-                  // A tier grades a saved valuation — until this row has one, its chips are
-                  // dead. (Unlike focus mode, clicking a chip here doesn't save the typed
-                  // value, so a half-typed number can't stand in for one.)
-                  const valued = hasValuation(lot);
-                  const classified = isClassified(lot);
-                  const complete = saved && classified;
-                  const clsNeeded = clsNeededId === lot.id && !classified;
-                  const error = errors[lot.id];
-                  const currentCls = lot.valuation?.classification ?? "Unclassified";
-                  // The garden mark code travels with the selling mark, not the grade.
-                  const markCode = markCodeOf(lot) ?? lot.mark;
-                  const text = values[lot.id] ?? "";
-                  // Live feedback only while the text differs from what's already saved —
-                  // settled rows stay quiet.
-                  const feedback = !error && text !== valuationToText(lot) ? valuationTypingFeedback(text) : null;
-                  // Previous-sale context for this grade. While the typed value is valid and
-                  // the tier isn't hand-picked, the previous sale's suggestion previews as
-                  // selected — it will be saved together with the value. Arrow highlight
-                  // previews other tiers' history.
-                  const gradeStats = gradeStatsFor(prevStats, lot.grade);
-                  const wasAuto = autoClsIds.has(lot.id);
-                  const liveParsed = text !== valuationToText(lot) ? parseValuationInput(text) : null;
-                  const liveValue = liveParsed ? effectiveOfParsed(liveParsed) : null;
-                  const mayAuto = currentCls === "Unclassified" || wasAuto;
-                  const liveTier =
-                    mayAuto && liveValue !== null && gradeStats ? suggestTier(gradeStats, liveValue) : null;
-                  const displayCls = liveTier ?? currentCls;
-                  const previewTier: ClassificationValue | null =
-                    clsCursor?.lotId === lot.id
-                      ? (CLASSIFICATIONS[clsCursor.index]?.value ?? null)
-                      : (liveTier ?? (wasAuto && currentCls !== "Unclassified" ? currentCls : null));
-                  let prevMsg: string | null = null;
-                  let prevMsgColor = "var(--text-muted)";
-                  if (previewTier) {
-                    const tierLabel = CLASSIFICATIONS.find((c) => c.value === previewTier)?.label ?? previewTier;
-                    prevMsg = gradeStats
-                      ? (tierSummary(lot.grade, gradeStats, previewTier) ??
-                        `${gradeStats.saleName}: no ${lot.grade ?? ""} lots were ${tierLabel}`)
-                      : `No previous-sale data for ${lot.grade ?? "this grade"}`;
-                    if (liveTier && previewTier === liveTier) {
-                      prevMsg = `Auto-selects on save — ${prevMsg}`;
-                      prevMsgColor = "var(--sage-dark)";
-                    } else if (wasAuto && previewTier === currentCls) {
-                      prevMsg = `Auto-selected — ${prevMsg}`;
-                      prevMsgColor = "var(--sage-dark)";
-                    }
-                  } else if (mayAuto && liveValue !== null && !gradeStats) {
-                    prevMsg = `No previous-sale data for ${lot.grade ?? "this grade"} — pick a tier manually`;
-                  } else if (noPrevDataId === lot.id && !classified) {
-                    prevMsg = `No previous-sale data for ${lot.grade ?? "this grade"} — pick a tier manually`;
-                  }
-                  // While this row is being worked, show how the previous sale split this
-                  // grade across the four tiers (range + share per tier).
-                  const rowActive =
-                    activeValLotId === lot.id ||
-                    clsCursor?.lotId === lot.id ||
-                    clsNeededId === lot.id ||
-                    liveTier !== null;
-                  return (
-                    <TableRow
-                      key={lot.id}
-                      hover
-                      sx={{
-                        "&:nth-of-type(even)": { bgcolor: "var(--surface-alt)" },
-                        ...(error && { outline: "1.5px solid var(--danger)", outlineOffset: "-1.5px" }),
-                        ...(complete && !error && { borderLeft: "3px solid var(--sage)" }),
-                      }}
-                    >
-                      <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>
-                        {lot.lotNumber ?? "—"}
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 12.5 }}>{lot.grade || "—"}</TableCell>
-                      <TableCell sx={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{lot.broker || "—"}</TableCell>
-                      <TableCell sx={{ fontSize: 12.5 }}>
-                        {sellingMarkOf(lot) ?? "—"}
-                        {markCode && (
-                          <span className="block text-[11px] text-text-muted font-mono">{markCode}</span>
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{noOfChestsOf(lot) ?? "—"}</TableCell>
-                      <TableCell sx={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{weightPerChestOf(lot) ?? "—"}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] text-text-muted font-mono shrink-0">Rs.</span>
-                          <input
-                            ref={(el) => {
-                              inputRefs.current[lot.id] = el;
-                            }}
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="1250 or 1200-1350"
-                            className="w-[160px] px-2.5 py-1.5 rounded border text-[13px] bg-transparent font-mono"
-                            style={{ borderColor: error ? "var(--danger)" : "var(--border)", color: "var(--text)" }}
-                            value={text}
-                            disabled={savingId === lot.id}
-                            onFocus={() => setActiveValLotId(lot.id)}
-                            onBlur={() => setActiveValLotId((id) => (id === lot.id ? null : id))}
-                            onChange={(e) =>
-                              setValues((v) => ({ ...v, [lot.id]: sanitizeValuationInput(e.target.value) }))
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                commit(lot, index);
-                                return;
-                              }
-                              // Arrow navigation: ↑/↓ move between lots, →/← move across the row's
-                              // fields once the caret is at the value's edge. Any typed value is
-                              // saved on the way out; invalid input shows its error and stays put.
-                              const el = e.currentTarget;
-                              const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
-                              const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
-                              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                                e.preventDefault();
-                                const target = e.key === "ArrowUp" ? index - 1 : index + 1;
-                                saveValuation(lot).then((ok) => {
-                                  if (ok) focusField(target, "valuation");
-                                });
-                              } else if (e.key === "ArrowRight" && atEnd) {
-                                e.preventDefault();
-                                saveValuation(lot).then((ok) => {
-                                  if (ok) focusField(index, "classification");
-                                });
-                              } else if (e.key === "ArrowLeft" && atStart && index > 0) {
-                                e.preventDefault();
-                                saveValuation(lot).then((ok) => {
-                                  if (ok) focusField(index - 1, rowFields[rowFields.length - 1]);
-                                });
-                              }
-                            }}
-                          />
-                        </div>
-                        {error && <span className="text-[10.5px] text-danger block mt-0.5">{error}</span>}
-                        {feedback && feedback.tone !== "none" && (
-                          <span
-                            className="text-[10.5px] block mt-0.5"
-                            style={{ color: feedback.tone === "ok" ? "var(--sage-dark)" : "var(--text-muted)" }}
-                          >
-                            {feedback.tone === "ok" ? "✓ " : ""}
-                            {feedback.message}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div
-                          ref={(el) => {
-                            clsRefs.current[lot.id] = el;
-                          }}
-                          tabIndex={0}
-                          onFocus={() => {
-                            if (clsCursor?.lotId !== lot.id) {
-                              const at = CLASSIFICATIONS.findIndex((c) => c.value === currentCls);
-                              setClsCursor({ lotId: lot.id, index: at === -1 ? 0 : at });
-                            }
-                          }}
-                          onBlur={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node)) setClsCursor(null);
-                          }}
-                          onKeyDown={(e) => {
-                            const match = CLASSIFICATIONS.find((c) => c.key === e.key);
-                            if (match) {
-                              e.preventDefault();
-                              commitClassification(lot, index, match.value);
-                              return;
-                            }
-                            const cursor =
-                              clsCursor?.lotId === lot.id
-                                ? clsCursor.index
-                                : Math.max(0, CLASSIFICATIONS.findIndex((c) => c.value === currentCls));
-                            if (e.key === "ArrowRight") {
-                              e.preventDefault();
-                              // → past the last tier continues to the next field in the row
-                              // (first extra column), or on to the next lot's value.
-                              if (cursor === CLASSIFICATIONS.length - 1) {
-                                const nextField = rowFields[rowFields.indexOf("classification") + 1];
-                                if (nextField) focusField(index, nextField);
-                                else focusField(index + 1, "valuation");
-                              } else setClsCursor({ lotId: lot.id, index: cursor + 1 });
-                            } else if (e.key === "ArrowLeft") {
-                              e.preventDefault();
-                              // ← past the first tier returns to the valuation input.
-                              if (cursor === 0) focusField(index, "valuation");
-                              else setClsCursor({ lotId: lot.id, index: cursor - 1 });
-                            } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                              e.preventDefault();
-                              focusField(e.key === "ArrowUp" ? index - 1 : index + 1, "classification");
-                            } else if (e.key === "Enter") {
-                              e.preventDefault();
-                              const c = CLASSIFICATIONS[cursor];
-                              // Enter on the already-set tier just moves on — no toggle-off.
-                              if (currentCls === c.value) advance(lot, index, "classification");
-                              else commitClassification(lot, index, c.value);
-                            }
-                          }}
-                          className="flex gap-1 flex-wrap rounded-lg outline-none"
-                          style={clsNeeded ? { outline: "1.5px solid var(--warn)", outlineOffset: 2 } : undefined}
-                        >
-                          {CLASSIFICATIONS.map((c, ci) => {
-                            const highlighted = clsCursor?.lotId === lot.id && clsCursor.index === ci;
-                            return (
-                              <button
-                                key={c.value}
-                                type="button"
-                                tabIndex={-1}
-                                disabled={savingId === lot.id || !valued}
-                                onClick={() => commitClassification(lot, index, c.value)}
-                                title={
-                                  !valued
-                                    ? "Save a valuation first — a classification grades a value"
-                                    : currentCls === c.value
-                                      ? "Click again to unset"
-                                      : `Mark as ${c.label} (press ${c.key})`
-                                }
-                                className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap disabled:cursor-not-allowed"
-                                style={{
-                                  borderColor: displayCls === c.value ? c.color : "var(--border)",
-                                  background: displayCls === c.value ? c.color : "transparent",
-                                  color: displayCls === c.value ? "var(--paper-0)" : "var(--text-muted)",
-                                  opacity: valued || liveTier ? 1 : 0.45,
-                                  ...(highlighted && { boxShadow: `0 0 0 2px ${c.color}` }),
-                                }}
-                              >
-                                {c.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {rowActive && gradeStats && (
-                          <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-1">
-                            <span className="text-[10px] text-text-muted font-mono whitespace-nowrap">
-                              {gradeStats.saleName} · {lot.grade}:
-                            </span>
-                            {CLASSIFICATIONS.map((c) => {
-                              const t = tierStatsFor(gradeStats, c.value);
-                              if (!t) return null;
-                              return (
-                                <span
-                                  key={c.value}
-                                  className="text-[10px] font-mono font-semibold whitespace-nowrap"
-                                  style={{ color: c.color }}
-                                >
-                                  {c.short} {formatTierRange(t, false)} ({Math.round(t.percent)}%)
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {prevMsg && (
-                          <span className="text-[10.5px] block mt-1" style={{ color: prevMsgColor }}>
-                            {prevMsg}
-                          </span>
-                        )}
-                        {clsNeeded && (
-                          <span className="text-[10.5px] block mt-1" style={{ color: "var(--warn)" }}>
-                            Classification required — ←/→ then Enter, press 1–4, or click a tier to move on
-                          </span>
-                        )}
-                      </TableCell>
-                      {enabledExtras.map((f) => (
-                        <TableCell key={f.value}>
-                          <input
-                            ref={(el) => {
-                              extraRefs.current[`${f.value}:${lot.id}`] = el;
-                            }}
-                            type="text"
-                            placeholder={f.label}
-                            className="w-[200px] px-2.5 py-1.5 rounded border text-[13px] bg-transparent"
-                            style={{ borderColor: "var(--border)", color: "var(--text)" }}
-                            value={extraValues[`${f.value}:${lot.id}`] ?? ""}
-                            disabled={savingId === lot.id}
-                            onChange={(e) => setExtraValues((v) => ({ ...v, [`${f.value}:${lot.id}`]: e.target.value }))}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                commitExtra(lot, index, f.value);
-                                return;
-                              }
-                              // Same grid navigation as the valuation input, saving on the way out.
-                              const el = e.currentTarget;
-                              const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
-                              const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
-                              const at = rowFields.indexOf(f.value);
-                              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                                e.preventDefault();
-                                const target = e.key === "ArrowUp" ? index - 1 : index + 1;
-                                saveExtra(lot, f.value).then((ok) => {
-                                  if (ok) focusField(target, f.value);
-                                });
-                              } else if (e.key === "ArrowRight" && atEnd) {
-                                e.preventDefault();
-                                saveExtra(lot, f.value).then((ok) => {
-                                  if (!ok) return;
-                                  const nextField = rowFields[at + 1];
-                                  if (nextField) focusField(index, nextField);
-                                  else focusField(index + 1, "valuation");
-                                });
-                              } else if (e.key === "ArrowLeft" && atStart) {
-                                e.preventDefault();
-                                saveExtra(lot, f.value).then((ok) => {
-                                  if (ok) focusField(index, rowFields[at - 1]);
-                                });
-                              }
-                            }}
-                          />
-                        </TableCell>
-                      ))}
-                      <TableCell>
-                        {complete ? (
-                          <CheckCircleIcon sx={{ fontSize: 18, color: "var(--sage)" }} />
-                        ) : saved ? (
-                          <span title="Valued — classification still needed">
-                            <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--warn)" }} />
-                          </span>
-                        ) : (
-                          <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} />
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ width: 72, p: 0.5, whiteSpace: "nowrap" }}>
-                        <Tooltip title="Full lot details (every catalogue column)">
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              setViewLot(lot);
-                              setViewOpen(true);
-                            }}
-                            aria-label="Show full lot details"
-                          >
-                            <VisibilityOutlinedIcon sx={{ fontSize: 15 }} />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Focus on this lot (full details + keypad)">
-                          <IconButton size="small" onClick={() => setFocusLotId(lot.id)} aria-label="Focus on this lot">
-                            <OpenInFullIcon sx={{ fontSize: 15 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {visibleLots.slice(0, renderLimit).map((lot, index) => (
+                  <LotRow
+                    key={lot.id}
+                    lot={lot}
+                    index={index}
+                    saved={savedIds.has(lot.id)}
+                    saving={savingId === lot.id}
+                    clsNeeded={clsNeededId === lot.id}
+                    autoCls={autoClsIds.has(lot.id)}
+                    noPrevData={noPrevDataId === lot.id}
+                    active={activeValLotId === lot.id}
+                    gradeStats={gradeStatsFor(prevStats, lot.grade)}
+                    enabledExtras={enabledExtras}
+                    extraValues={extraValues}
+                    onExtraChange={(lotId, field, val) => setExtraValues((v) => ({ ...v, [`${field}:${lotId}`]: val }))}
+                    onFocusValuation={(lotId) => setActiveValLotId(lotId)}
+                    onBlurValuation={(lotId) => setActiveValLotId((id) => (id === lotId ? null : id))}
+                    onSaveValuation={saveValuation}
+                    onCommit={commit}
+                    onCommitClassification={commitClassification}
+                    onCommitExtra={commitExtra}
+                    onSaveExtra={saveExtra}
+                    onNavigate={focusField}
+                    onView={(l) => {
+                      setViewLot(l);
+                      setViewOpen(true);
+                    }}
+                    onFocusMode={(id) => setFocusLotId(id)}
+                    registerValuationRef={(el) => {
+                      inputRefs.current[lot.id] = el;
+                    }}
+                    registerClassificationRef={(el) => {
+                      clsRefs.current[lot.id] = el;
+                    }}
+                    registerExtraRef={(field, el) => {
+                      extraRefs.current[`${field}:${lot.id}`] = el;
+                    }}
+                    rowFields={rowFields}
+                  />
+                ))}
               </TableBody>
             </Table>
             {renderLimit < visibleLots.length && (

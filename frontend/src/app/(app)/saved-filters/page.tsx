@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { isColumnFilterActive, type StoredFilterState } from "@/lib/lotFilters";
@@ -51,12 +52,10 @@ export default function SavedFiltersPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Saved Filters</h1>
-        <p className="text-[13px] text-text-muted m-0">
-          Filter combinations you&apos;ve saved from Catalogue Manager — apply one to jump straight back to it.
-        </p>
-      </div>
+      <PageHeader
+        title="Saved Filters"
+        subtitle="Filter combinations you've saved from Catalogue Manager — apply one to jump straight back to it."
+      />
 
       {loading ? (
         <div className="flex justify-center py-16">

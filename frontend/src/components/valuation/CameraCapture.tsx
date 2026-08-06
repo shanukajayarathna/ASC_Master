@@ -58,15 +58,21 @@ export default function CameraCapture({ onCapture, onCancel, onUseGallery }: Cam
     };
   }, [facing]);
 
+  // Matches PhotoCropper's own output cap — the cropper downscales further anyway, so
+  // capturing at full sensor resolution (some tablet cameras exceed 4000px) only spends
+  // extra CPU/memory on this step for no visible gain.
+  const MAX_CAPTURE_DIMENSION = 1400;
+
   const shoot = () => {
     const v = videoRef.current;
     if (!v || !v.videoWidth) return;
+    const scale = Math.min(1, MAX_CAPTURE_DIMENSION / Math.max(v.videoWidth, v.videoHeight));
     const canvas = document.createElement("canvas");
-    canvas.width = v.videoWidth;
-    canvas.height = v.videoHeight;
+    canvas.width = Math.round(v.videoWidth * scale);
+    canvas.height = Math.round(v.videoHeight * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(v, 0, 0);
+    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
     canvas.toBlob((b) => b && onCapture(b), "image/jpeg", 0.92);
   };
 

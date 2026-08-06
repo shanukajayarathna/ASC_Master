@@ -9,14 +9,21 @@
   --brand-olive: #717C21; --brand-olive-deep: #4E5715; --brand-olive-soft: #9AA455;
   --brand-gold: #C1920C; --brand-gold-deep: #8F6C08; --brand-gold-soft: #E3B93F;
 
-  /* Fixed always-dark inks for surfaces that stay dark in BOTH themes (sidebar, drawer
+  /* Fixed always-dark inks for surfaces that stay dark in BOTH themes (sidebar-era drawer
      headers, bulk toolbar). Never overridden by the dark theme — the flipping --ink-*
-     scale below is for TEXT and must not be used as a dark background.
-     Tinted toward the brand olive so the sidebar reads as deep olive-black, not brown. */
+     scale below is for TEXT and must not be used as a dark background. Left tinted toward
+     the brand olive on purpose — these are small, deliberate "branded chrome" moments
+     (a drawer header, the bulk-action bar), not the everyday reading surface. */
   --ink-solid-900: #14180B; --ink-solid-800: #202612;
 
-  --ink-900: #14180B; --ink-800: #272D18; --ink-700: #40472C; --ink-muted: #7B8066;
-  --paper-0: #FFFFFF; --paper-50: #FAF9EF; --paper-100: #F2F0DE; --paper-200: #E6E3C9; --line: #D7D3B4;
+  /* Neutral gray scale for text/surfaces/borders — previously tinted olive/cream, which
+     read as dull and low-contrast across ordinary body text and page backgrounds (every
+     screen inherits these). Neutral now; the brand olive/gold/liquor hues stay exactly as
+     they were and do the accent work instead — buttons, links, active states, the brand
+     rule — so they actually stand out against a clean background instead of blending into
+     a same-hued page. */
+  --ink-900: #111827; --ink-800: #1F2937; --ink-700: #374151; --ink-muted: #667085;
+  --paper-0: #FFFFFF; --paper-50: #F9FAFB; --paper-100: #F1F3F5; --paper-200: #E4E7EB; --line: #E2E5EA;
   /* Tea liquor — the primary action colour. Deepened and given more chroma than before:
      it has to sit beside olive and gold without turning muddy. */
   --liquor: #8A3A16; --liquor-dark: #672A0E; --liquor-light: #FAEADF;
@@ -32,21 +39,42 @@
   --border: var(--line); --text: var(--ink-800); --text-strong: var(--ink-900); --text-muted: var(--ink-muted);
 
   /* Depth. The flat single-hairline look is what made every screen read the same weight —
-     these give headers, cards and the focus overlay an actual hierarchy. */
-  --shadow-sm: 0 1px 2px rgba(20,24,11,0.06), 0 1px 3px rgba(20,24,11,0.04);
-  --shadow-md: 0 2px 6px rgba(20,24,11,0.08), 0 6px 16px rgba(20,24,11,0.06);
-  --shadow-lg: 0 8px 28px rgba(20,24,11,0.14), 0 2px 8px rgba(20,24,11,0.08);
+     these give headers, cards and the focus overlay an actual hierarchy. Neutral shadow
+     tint now (was olive-tinted to match the old ink-900), matching the neutral scale above. */
+  --shadow-sm: 0 1px 2px rgba(17,24,39,0.06), 0 1px 3px rgba(17,24,39,0.04);
+  --shadow-md: 0 2px 6px rgba(17,24,39,0.08), 0 6px 16px rgba(17,24,39,0.06);
+  --shadow-lg: 0 8px 28px rgba(17,24,39,0.14), 0 2px 8px rgba(17,24,39,0.08);
   --brand-gradient: linear-gradient(135deg, var(--brand-olive-deep), var(--brand-olive) 58%, var(--brand-gold-deep));
   --rule-brand: linear-gradient(90deg, var(--brand-olive), var(--brand-gold));
+
+  /* Soft-premium radius scale — the launchpad redesign's tiles/cards/inputs read as
+     rounded-and-calm rather than the old flat-enterprise 6px everywhere. */
+  --radius-sm: 10px; --radius-md: 16px; --radius-lg: 22px; --radius-xl: 28px;
+
+  /* Module-tile artwork gradients — built only from colours that already exist above
+     (brand olive/gold, tea liquor, sage, plus the existing info/warn/danger accents),
+     never new hues, so a tile still reads as this app's palette rather than generic
+     dashboard chrome. Eight distinct treatments so a 14-tile grid doesn't visibly repeat. */
+  --tile-gradient-1: linear-gradient(135deg, var(--brand-olive-deep), var(--brand-olive));
+  --tile-gradient-2: linear-gradient(135deg, var(--liquor-dark), var(--liquor));
+  --tile-gradient-3: linear-gradient(135deg, var(--brand-gold-deep), var(--brand-gold));
+  --tile-gradient-4: linear-gradient(135deg, var(--brand-olive), var(--brand-gold-deep));
+  --tile-gradient-5: linear-gradient(135deg, var(--ink-solid-900), var(--info));
+  --tile-gradient-6: linear-gradient(135deg, var(--liquor), var(--brand-gold));
+  --tile-gradient-7: linear-gradient(135deg, var(--sage-dark), var(--brand-olive-soft));
+  --tile-gradient-8: linear-gradient(135deg, var(--liquor-dark), var(--warn));
 }
 
 :root[data-theme="dark"] {
-  /* The same two brand hues, lifted to carry on a dark ground. */
+  /* The same two brand hues, lifted to carry on a dark ground — unchanged, still the
+     signature accent (buttons, links, active states) rather than a page-wide tint. */
   --brand-olive: #A8B45E; --brand-olive-deep: #7C8830; --brand-olive-soft: #C3CD86;
   --brand-gold: #E0B23C; --brand-gold-deep: #B78D18; --brand-gold-soft: #EFCE74;
 
-  --ink-900: #F2F1E2; --ink-800: #E4E3CD; --ink-700: #C4C4A6; --ink-muted: #8B8E70;
-  --paper-0: #15180D; --paper-50: #1B1F11; --paper-100: #242817; --paper-200: #2F3420; --line: #454A2F;
+  /* Same neutral-gray philosophy as light mode — was olive-tinted, which muddied dark
+     mode's text/surfaces the same way it did in light mode. */
+  --ink-900: #F3F4F6; --ink-800: #E2E4E9; --ink-700: #C7CAD1; --ink-muted: #8B90A0;
+  --paper-0: #16181D; --paper-50: #1B1E24; --paper-100: #23262E; --paper-200: #2C303A; --line: #383C46;
   --liquor: #DE8B62; --liquor-dark: #C87249; --liquor-light: #35200F;
   --brass: var(--brand-gold); --brass-light: var(--brand-gold-soft); --brass-dim: rgba(224,178,60,0.16);
   --sage: var(--brand-olive); --sage-light: #262C15; --sage-dark: var(--brand-olive-soft);
@@ -54,8 +82,8 @@
   --info: #7FB3D9; --info-light: #162934;
   --warn: #E6A055; --warn-light: #33220F;
 
-  --surface: #1B1F11; --surface-alt: #15180D; --surface-sunken: #242817;
-  --border: #454A2F; --text: #E4E3CD; --text-strong: #F2F1E2; --text-muted: #8B8E70;
+  --surface: #1B1E24; --surface-alt: #16181D; --surface-sunken: #23262E;
+  --border: #383C46; --text: #E2E4E9; --text-strong: #F3F4F6; --text-muted: #8B90A0;
 
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 2px 8px rgba(0,0,0,0.45), 0 8px 20px rgba(0,0,0,0.35);
@@ -116,6 +144,22 @@ body {
 }
 
 ::selection { background: var(--brand-gold-soft); color: var(--ink-solid-900); }
+
+/* Launchpad tiles / cards use this for their hover lift — transform + shadow only, never
+   filter/backdrop-filter blur, so it stays cheap on a weak GPU (the low-end-tablet work
+   this app just went through). Respect the OS-level motion preference on top of that. */
+.lift-on-hover {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+.lift-on-hover:hover {
+  transform: translateY(-3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lift-on-hover, .lift-on-hover:hover {
+    transition: none;
+    transform: none;
+  }
+}
 
 /* The brand rule — a 3px olive→gold bar. Used to cap dark headers (sidebar, drawer,
    focus mode) so the logo's two colours appear on every screen, not just the sidebar. */

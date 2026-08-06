@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/shared/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import { api, ApiError } from "@/lib/api";
@@ -10,6 +11,7 @@ import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import SettingsBrightnessOutlinedIcon from "@mui/icons-material/SettingsBrightnessOutlined";
 import PersonAddOutlinedIcon from "@mui/icons-material/PersonAddOutlined";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
@@ -37,25 +39,33 @@ function SettingsSection({ title, subtitle, children }: { title: string; subtitl
 }
 
 function AppearanceSection() {
-  const { mode, toggle } = useThemeMode();
+  const { preference, setPreference } = useThemeMode();
   return (
     <SettingsSection title="Appearance" subtitle="Applies everywhere in the app, including this toggle in the top bar.">
       <div className="flex items-center gap-3">
         <Button
-          variant={mode === "light" ? "contained" : "outlined"}
+          variant={preference === "light" ? "contained" : "outlined"}
           size="small"
           startIcon={<LightModeOutlinedIcon fontSize="small" />}
-          onClick={() => mode === "dark" && toggle()}
+          onClick={() => setPreference("light")}
         >
           Light
         </Button>
         <Button
-          variant={mode === "dark" ? "contained" : "outlined"}
+          variant={preference === "dark" ? "contained" : "outlined"}
           size="small"
           startIcon={<DarkModeOutlinedIcon fontSize="small" />}
-          onClick={() => mode === "light" && toggle()}
+          onClick={() => setPreference("dark")}
         >
           Dark
+        </Button>
+        <Button
+          variant={preference === "system" ? "contained" : "outlined"}
+          size="small"
+          startIcon={<SettingsBrightnessOutlinedIcon fontSize="small" />}
+          onClick={() => setPreference("system")}
+        >
+          System
         </Button>
       </div>
     </SettingsSection>
@@ -735,10 +745,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Settings</h1>
-        <p className="text-[13px] text-text-muted m-0">Account, appearance and workspace access.</p>
-      </div>
+      <PageHeader title="Settings" subtitle="Account, appearance and workspace access." />
 
       <AppearanceSection />
       <AccountSection />

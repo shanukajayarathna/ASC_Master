@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/shared/PageHeader";
 import { api } from "@/lib/api";
 import type { SavedReport } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
@@ -44,10 +45,10 @@ export default function SavedReportsPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Saved Reports</h1>
-        <p className="text-[13px] text-text-muted m-0">Reports you&apos;ve bookmarked — reopening regenerates them against current data.</p>
-      </div>
+      <PageHeader
+        title="Saved Reports"
+        subtitle="Reports you've bookmarked — reopening regenerates them against current data."
+      />
 
       {loading ? (
         <div className="flex justify-center py-16">

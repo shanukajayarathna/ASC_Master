@@ -88,7 +88,10 @@ export default function CatalogueGrid({
         field: h,
         headerName: h,
         hide: hiddenColumns.has(h),
-        filter: meta?.categorical ? "agSetColumnFilter" : meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
+        // agSetColumnFilter is AG Grid Enterprise-only — Community-only here, so
+        // categorical columns fall back to the text filter (the app's own FilterPanel is
+        // the primary multi-select filtering UI anyway).
+        filter: meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
         type: meta?.numeric ? "numericColumn" : undefined,
         // field stays wired for edits (they write back into rawData as text, same as
         // before); valueGetter overrides what sort/filter/display actually read.
@@ -212,7 +215,7 @@ export default function CatalogueGrid({
         pagination
         paginationPageSize={50}
         paginationPageSizeSelector={[25, 50, 100, 250]}
-        animateRows
+        animateRows={false}
         tooltipShowDelay={300}
         defaultColDef={{ sortable: true, filter: true, resizable: true }}
       />

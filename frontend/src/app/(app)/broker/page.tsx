@@ -5,6 +5,7 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { BrokerStats } from "@/types/api";
+import PageHeader from "@/components/shared/PageHeader";
 import Button from "@mui/material/Button";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -32,12 +33,10 @@ export default function BrokerPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Broker Comparison</h1>
-        <p className="text-[13px] text-text-muted m-0 max-w-xl">
-          Rankings, market share and average-valuation comparisons across brokers.
-        </p>
-      </div>
+      <PageHeader
+        title="Broker Comparison"
+        subtitle="Rankings, market share and average-valuation comparisons across brokers."
+      />
 
       {catalogueError && (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">

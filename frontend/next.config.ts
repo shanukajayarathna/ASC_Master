@@ -8,6 +8,13 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Launchpad module tiles (frontend/src/components/shell/nav.ts) reference specific,
+  // verified Unsplash CDN photos for their artwork. next/image needs the remote host
+  // allow-listed; Unsplash's own image-resizing query params (w/q/fm/fit) are used
+  // directly rather than duplicating that logic in next/image's own optimizer.
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],
+  },
 };
 
 export default nextConfig;

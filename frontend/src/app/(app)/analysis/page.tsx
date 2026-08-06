@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classificationBadge";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { DataQuality, OverviewStats, ReportGroupRow, TopBottomLot } from "@/types/api";
+import PageHeader from "@/components/shared/PageHeader";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
@@ -103,12 +104,10 @@ export default function AnalysisPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Analysis</h1>
-        <p className="text-[13px] text-text-muted m-0 max-w-xl">
-          Statistical breakdown of the valued catalogue — computed server-side against MongoDB.
-        </p>
-      </div>
+      <PageHeader
+        title="Analysis"
+        subtitle="Statistical breakdown of the valued catalogue — computed server-side."
+      />
 
       {catalogueError && (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">

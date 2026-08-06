@@ -5,10 +5,15 @@ import ThemeRegistry from "@/theme/ThemeRegistry";
 import { AuthProvider } from "@/context/AuthContext";
 import PwaRegister from "@/components/shared/PwaRegister";
 
+// Weight lists are trimmed to what's actually referenced in the app (checked across every
+// .tsx file for font-display/font-mono paired with a Tailwind weight class, plus every
+// numeric fontWeight in an sx prop) — fewer weight files to fetch/parse on a slow connection
+// or weak device, with no visual change. Re-check with the same sweep before adding a new
+// bold/black usage of Fraunces or Plex Mono elsewhere in the app.
 const fraunces = Fraunces({
   variable: "--font-fraunces",
   subsets: ["latin"],
-  weight: ["500", "600", "700", "900"],
+  weight: ["600", "700"],
 });
 
 const plexSans = IBM_Plex_Sans({
@@ -20,7 +25,7 @@ const plexSans = IBM_Plex_Sans({
 const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "600"],
 });
 
 export const metadata: Metadata = {
@@ -38,7 +43,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#717C21" },
-    { media: "(prefers-color-scheme: dark)", color: "#14180B" },
+    { media: "(prefers-color-scheme: dark)", color: "#16181D" },
   ],
 };
 

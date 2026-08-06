@@ -1,3 +1,5 @@
+import PageHeader from "@/components/shared/PageHeader";
+
 export default function HelpPage() {
   const faqs = [
     {
@@ -32,8 +34,7 @@ export default function HelpPage() {
 
   return (
     <div>
-      <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Help</h1>
-      <p className="text-[13px] text-text-muted mb-5">Quick answers for common tasks in the ASC platform.</p>
+      <PageHeader title="Help" subtitle="Quick answers for common tasks in the ASC platform." />
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))" }}>
         {faqs.map((f) => (
           <div key={f.q} className="border border-border rounded-md bg-surface p-4">

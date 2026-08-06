@@ -1,6 +1,7 @@
 "use client";
 
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
+import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { buildExportColumns, defaultExportColumnIds, hiddenFromMeta } from "@/lib/exportColumns";
@@ -199,47 +200,40 @@ export default function WorksheetPage() {
   const filledCount = displayedLots.filter((l) => hasField(l, field)).length;
 
   if (!activeCatalogueId) {
-    return (
-      <div>
-        <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Lot Worksheet</h1>
-        <p className="text-[13px] text-text-muted">Load a catalogue from Catalogue Manager first.</p>
-      </div>
-    );
+    return <PageHeader title="Lot Worksheet" subtitle="Load a catalogue from Catalogue Manager first." />;
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Lot Worksheet — {fieldDef.label}</h1>
-          <p className="text-[13px] text-text-muted m-0">
-            {activeCatalogue?.sourceName} · {displayedLots.length.toLocaleString()} lot{displayedLots.length === 1 ? "" : "s"}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {activeCatalogueId && displayedLots.length > 0 && (
-            <ExportShareMenu
-              lots={displayedLots}
-              reportTitle={activeCatalogue?.sourceName ?? "Catalogue"}
-              catalogueIdForLot={() => activeCatalogueId}
-              availableColumns={buildExportColumns(activeCatalogue?.headers ?? [], false)}
-              defaultColumnIds={defaultExportColumnIds(
-                activeCatalogue?.headers ?? [],
-                hiddenFromMeta(activeCatalogue?.columnMeta ?? {}),
-                false
-              )}
-            />
-          )}
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddCircleOutlineIcon fontSize="small" />}
-            onClick={() => router.push("/catalogue")}
-          >
-            Add more lots
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={`Lot Worksheet — ${fieldDef.label}`}
+        subtitle={`${activeCatalogue?.sourceName} · ${displayedLots.length.toLocaleString()} lot${displayedLots.length === 1 ? "" : "s"}`}
+        actions={
+          <>
+            {activeCatalogueId && displayedLots.length > 0 && (
+              <ExportShareMenu
+                lots={displayedLots}
+                reportTitle={activeCatalogue?.sourceName ?? "Catalogue"}
+                catalogueIdForLot={() => activeCatalogueId}
+                availableColumns={buildExportColumns(activeCatalogue?.headers ?? [], false)}
+                defaultColumnIds={defaultExportColumnIds(
+                  activeCatalogue?.headers ?? [],
+                  hiddenFromMeta(activeCatalogue?.columnMeta ?? {}),
+                  false
+                )}
+              />
+            )}
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddCircleOutlineIcon fontSize="small" />}
+              onClick={() => router.push("/catalogue")}
+            >
+              Add more lots
+            </Button>
+          </>
+        }
+      />
 
       <Tabs
         value={field}

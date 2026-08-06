@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -102,39 +103,39 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-3 print:hidden">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Reports</h1>
-          <p className="text-[13px] text-text-muted m-0">Generate a summary report for a catalogue.</p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Select
-            size="small"
-            value={activeCatalogueId ?? ""}
-            onChange={(e) => selectCatalogue(e.target.value || null)}
-            displayEmpty
-            sx={{ minWidth: 180, fontSize: 13 }}
-            renderValue={(v) => {
-              if (!v) return <span className="text-text-muted">No catalogue</span>;
-              const c = catalogues.find((x) => x.id === v);
-              return c?.sourceName ?? "…";
-            }}
-          >
-            {catalogues.map((c) => (
-              <MenuItem key={c.id} value={c.id}>
-                {c.sourceName}
-              </MenuItem>
-            ))}
-          </Select>
-          <Select size="small" value={type} onChange={(e) => setType(e.target.value)} sx={{ minWidth: 190, fontSize: 13 }}>
-            {REPORT_TYPES.map((t) => (
-              <MenuItem key={t.value} value={t.value}>
-                {t.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </div>
-      </div>
+      <PageHeader
+        title="Reports"
+        subtitle="Generate a summary report for a catalogue."
+        actions={
+          <>
+            <Select
+              size="small"
+              value={activeCatalogueId ?? ""}
+              onChange={(e) => selectCatalogue(e.target.value || null)}
+              displayEmpty
+              sx={{ minWidth: 180, fontSize: 13 }}
+              renderValue={(v) => {
+                if (!v) return <span className="text-text-muted">No catalogue</span>;
+                const c = catalogues.find((x) => x.id === v);
+                return c?.sourceName ?? "…";
+              }}
+            >
+              {catalogues.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  {c.sourceName}
+                </MenuItem>
+              ))}
+            </Select>
+            <Select size="small" value={type} onChange={(e) => setType(e.target.value)} sx={{ minWidth: 190, fontSize: 13 }}>
+              {REPORT_TYPES.map((t) => (
+                <MenuItem key={t.value} value={t.value}>
+                  {t.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </>
+        }
+      />
 
       {error && (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark print:hidden">{error}</div>

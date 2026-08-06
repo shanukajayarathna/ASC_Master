@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/shared/PageHeader";
 import { api } from "@/lib/api";
 import type { ChatMessage, Conversation } from "@/types/api";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
@@ -73,37 +74,35 @@ export default function AssistantPage() {
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 140px)" }}>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">AI Assistant</h1>
-          <p className="text-[13px] text-text-muted m-0">
-            Ask about lots, valuations, and uploaded documents. Read-only — it can&apos;t edit anything.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Select
-            size="small"
-            value={activeId ?? ""}
-            onChange={(e) => setActiveId(e.target.value || null)}
-            displayEmpty
-            sx={{ minWidth: 200, fontSize: 13 }}
-            renderValue={(v) => {
-              if (!v) return <span className="text-text-muted">New conversation</span>;
-              const c = conversations.find((x) => x.id === v);
-              return c?.title ?? "…";
-            }}
-          >
-            {conversations.map((c) => (
-              <MenuItem key={c.id} value={c.id}>
-                {c.title}
-              </MenuItem>
-            ))}
-          </Select>
-          <IconButton size="small" onClick={() => setActiveId(null)} aria-label="New chat">
-            <AddCommentOutlinedIcon fontSize="small" />
-          </IconButton>
-        </div>
-      </div>
+      <PageHeader
+        title="AI Assistant"
+        subtitle="Ask about lots, valuations, and uploaded documents. Read-only — it can't edit anything."
+        actions={
+          <>
+            <Select
+              size="small"
+              value={activeId ?? ""}
+              onChange={(e) => setActiveId(e.target.value || null)}
+              displayEmpty
+              sx={{ minWidth: 200, fontSize: 13 }}
+              renderValue={(v) => {
+                if (!v) return <span className="text-text-muted">New conversation</span>;
+                const c = conversations.find((x) => x.id === v);
+                return c?.title ?? "…";
+              }}
+            >
+              {conversations.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  {c.title}
+                </MenuItem>
+              ))}
+            </Select>
+            <IconButton size="small" onClick={() => setActiveId(null)} aria-label="New chat">
+              <AddCommentOutlinedIcon fontSize="small" />
+            </IconButton>
+          </>
+        }
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto border border-border rounded-lg bg-surface p-4 flex flex-col gap-3">
         {messages.length === 0 && (

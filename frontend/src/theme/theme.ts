@@ -25,9 +25,12 @@ export function buildTheme(mode: "light" | "dark") {
       h4: { fontFamily: "var(--font-display), serif" },
       button: { textTransform: "none", fontWeight: 600 },
     },
-    shape: { borderRadius: 6 },
+    // Soft-premium radius instead of the old flat-enterprise 6px — MuiButton gets fully
+    // rounded (pill) since that's the launchpad redesign's button language; everything
+    // else (Paper, Select, TextField, …) picks up the 14px base from `shape.borderRadius`.
+    shape: { borderRadius: 14 },
     components: {
-      MuiButton: { styleOverrides: { root: { borderRadius: 6 } } },
+      MuiButton: { styleOverrides: { root: { borderRadius: 999 } } },
       MuiPaper: {
         styleOverrides: { root: { backgroundImage: "none" } },
       },

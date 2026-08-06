@@ -4,25 +4,40 @@ import BrandLogo from "@/components/shell/BrandLogo";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
+import { api } from "@/lib/api";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import CheckIcon from "@mui/icons-material/Check";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
-import MenuIcon from "@mui/icons-material/Menu";
+import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
+import SearchIcon from "@mui/icons-material/Search";
+import SettingsBrightnessOutlinedIcon from "@mui/icons-material/SettingsBrightnessOutlined";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
 import Select from "@mui/material/Select";
 import Avatar from "@mui/material/Avatar";
+import Badge from "@mui/material/Badge";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+
+/** "Administrator" / "User" from the account's real roles — never fabricated. */
+function roleLabel(roles: string[]): string {
+  if (roles.includes("Admin")) return "Administrator";
+  if (roles.length > 0) return roles[0];
+  return "User";
 }
 
 function UserMenu() {
@@ -41,13 +56,25 @@ function UserMenu() {
 
   return (
     <>
-      <Tooltip title={user.displayName}>
-        <IconButton onClick={open} size="small" aria-label="Account menu">
-          <Avatar sx={{ width: 30, height: 30, bgcolor: "var(--liquor)", fontSize: 12, fontFamily: "var(--font-mono)" }}>
-            {initialsOf(user.displayName)}
-          </Avatar>
-        </IconButton>
-      </Tooltip>
+      <button
+        type="button"
+        onClick={open}
+        aria-label="Account menu"
+        className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full cursor-pointer border-0 bg-transparent"
+      >
+        <Avatar sx={{ width: 34, height: 34, bgcolor: "var(--liquor)", fontSize: 13, fontFamily: "var(--font-mono)" }}>
+          {initialsOf(user.displayName)}
+        </Avatar>
+        <span className="hidden md:flex flex-col items-start leading-tight">
+          <span className="text-[12.5px] font-semibold" style={{ color: "var(--text-strong)" }}>
+            {user.displayName}
+          </span>
+          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+            {roleLabel(user.roles)}
+          </span>
+        </span>
+        <ExpandMoreIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} className="hidden md:block" />
+      </button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={close} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
         <MenuItem disabled sx={{ opacity: "1 !important" }}>
           <ListItemText primary={user.displayName} secondary={user.email} />
@@ -66,45 +93,148 @@ function UserMenu() {
   );
 }
 
-interface TopbarProps {
-  sidebarCollapsed: boolean;
-  onMenuClick: () => void;
+const THEME_OPTIONS = [
+  { value: "light", label: "Light", icon: LightModeOutlinedIcon },
+  { value: "dark", label: "Dark", icon: DarkModeOutlinedIcon },
+  { value: "system", label: "System", icon: SettingsBrightnessOutlinedIcon },
+] as const;
+
+function ThemeMenu() {
+  const { mode, preference, setPreference } = useThemeMode();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const CurrentIcon = mode === "dark" ? DarkModeOutlinedIcon : LightModeOutlinedIcon;
+
+  return (
+    <>
+      <Tooltip title="Theme">
+        <IconButton onClick={(e) => setAnchor(e.currentTarget)} size="small" aria-label="Change theme">
+          <CurrentIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
+        {THEME_OPTIONS.map((opt) => (
+          <MenuItem
+            key={opt.value}
+            selected={preference === opt.value}
+            onClick={() => {
+              setPreference(opt.value);
+              setAnchor(null);
+            }}
+          >
+            <ListItemIcon>
+              <opt.icon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>{opt.label}</ListItemText>
+            {preference === opt.value && <CheckIcon fontSize="small" sx={{ color: "var(--liquor)", ml: 1 }} />}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
+  );
 }
 
-export default function Topbar({ sidebarCollapsed, onMenuClick }: TopbarProps) {
-  const { mode, toggle } = useThemeMode();
+/** The bell's badge is a real number — lots still pending a valuation in the active sale
+ *  (the same `DashboardStats.pending` the launchpad KPIs show) — not a decorative count.
+ *  Fetched independently here so it stays current on every page, not just the dashboard. */
+function NotificationsMenu() {
+  const { activeCatalogueId, activeCatalogue } = useCatalogue();
+  const [pending, setPending] = useState<number | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!activeCatalogueId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPending(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getDashboardStats(activeCatalogueId)
+      .then((s) => {
+        if (!cancelled) setPending(s.pending);
+      })
+      .catch(() => {
+        if (!cancelled) setPending(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCatalogueId]);
+
+  return (
+    <>
+      <Tooltip title="Pending valuations">
+        <IconButton onClick={(e) => setAnchor(e.currentTarget)} size="small" aria-label="Notifications">
+          <Badge badgeContent={pending ?? 0} color="error" max={99} invisible={!pending}>
+            <NotificationsNoneOutlinedIcon fontSize="small" />
+          </Badge>
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
+        <MenuItem disabled sx={{ opacity: "1 !important" }}>
+          <ListItemText
+            primary={pending ? `${pending.toLocaleString()} lot${pending === 1 ? "" : "s"} pending valuation` : "Nothing pending"}
+            secondary={activeCatalogue?.sourceName ?? "No active sale"}
+          />
+        </MenuItem>
+        {!!pending && (
+          <MenuItem component={Link} href="/valuation" onClick={() => setAnchor(null)}>
+            Go to Valuation Centre
+          </MenuItem>
+        )}
+      </Menu>
+    </>
+  );
+}
+
+interface TopbarProps {
+  /** Opens the Ctrl/Cmd+K command palette — the search field here is just its trigger. */
+  onSearchClick: () => void;
+}
+
+export default function Topbar({ onSearchClick }: TopbarProps) {
+  const { mode } = useThemeMode();
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
 
   return (
     <header
-      className="h-[60px] flex items-center gap-3.5 px-5 border-b border-border bg-surface sticky top-0 z-20"
+      className="h-[68px] flex items-center gap-4 px-5 border-b border-border bg-surface sticky top-0 z-20"
       style={{ boxShadow: "var(--shadow-sm)" }}
     >
-      <Tooltip title="Toggle sidebar">
-        <IconButton onClick={onMenuClick} size="small" edge="start" aria-label="Toggle sidebar">
-          <MenuIcon fontSize="small" />
-        </IconButton>
+      <Tooltip title="Home">
+        <Link href="/dashboard" className="shrink-0 flex items-center gap-2 rounded-[var(--radius-sm)]">
+          <BrandLogo height={30} onDark={mode === "dark"} />
+          <span className="hidden lg:flex flex-col leading-none border-l border-border pl-2">
+            <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
+              Tea Auction
+            </span>
+            <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
+              Platform
+            </span>
+          </span>
+        </Link>
       </Tooltip>
-      {/* Brand stays visible whenever the sidebar (and its logo) is out of view:
-          always on mobile, and on desktop while the sidebar is collapsed. */}
-      <BrandLogo
-        height={30}
-        onDark={mode === "dark"}
-        className={`shrink-0 ${sidebarCollapsed ? "" : "md:!hidden"}`}
-      />
-      <div className="flex-1 min-w-0">
+
+      <button
+        type="button"
+        onClick={onSearchClick}
+        className="flex-1 min-w-0 max-w-[480px] flex items-center gap-2 px-4 py-2 rounded-full border border-border text-left cursor-pointer"
+        style={{ background: "var(--surface-alt)", color: "var(--text-muted)" }}
+      >
+        <SearchIcon fontSize="small" />
+        <span className="text-[13px] truncate flex-1">Search lots, brokers, gardens, sales…</span>
+        <kbd className="font-mono text-[10.5px] px-1.5 py-0.5 rounded border border-border shrink-0 hidden md:inline">Ctrl + K</kbd>
+      </button>
+
+      <div className="hidden sm:block min-w-0 w-[180px] lg:w-[220px]">
         <Select
           size="small"
           value={activeCatalogueId ?? ""}
           onChange={(e) => selectCatalogue(e.target.value || null)}
           displayEmpty
-          // Fluid, not a fixed 260px: on a phone the header holds a hamburger, brand,
-          // theme toggle and avatar too, so a hard min-width pushed the row wider than
-          // the screen and the whole page scrolled sideways. It now fills whatever space
-          // is left (truncating its label) and only caps out on wide screens.
-          sx={{ width: "100%", maxWidth: 340, minWidth: 0, fontSize: 13 }}
+          sx={{ width: "100%", fontSize: 13 }}
           renderValue={(v) => {
-            if (!v) return <span className="text-text-muted">No catalogue loaded</span>;
+            if (!v) return <span className="text-text-muted">No catalogue</span>;
             const c = catalogues.find((x) => x.id === v);
             return c ? `${c.sourceName} · ${c.rowCount.toLocaleString()} lots` : "…";
           }}
@@ -122,13 +252,19 @@ export default function Topbar({ sidebarCollapsed, onMenuClick }: TopbarProps) {
         </Select>
       </div>
 
-      <Tooltip title={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-        <IconButton onClick={toggle} size="small">
-          {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
-        </IconButton>
-      </Tooltip>
+      <div className="flex items-center gap-1 ml-auto">
+        <Tooltip title="Ask ASC AI">
+          <IconButton component={Link} href="/assistant" size="small" aria-label="AI Assistant">
+            <AutoAwesomeOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
 
-      <UserMenu />
+        <NotificationsMenu />
+
+        <ThemeMenu />
+
+        <UserMenu />
+      </div>
     </header>
   );
 }

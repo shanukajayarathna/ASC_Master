@@ -5,6 +5,7 @@ import FilterPanel from "@/components/catalogue/FilterPanel";
 import LotViewDialog from "@/components/catalogue/LotViewDialog";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
+import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { buildExportColumns, defaultExportColumnIds } from "@/lib/exportColumns";
@@ -497,48 +498,48 @@ export default function CataloguePage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Catalogue Manager</h1>
-          <p className="text-[13px] text-text-muted m-0">
-            {reportTitle} · {lots.length.toLocaleString()} lots · {headers.length} columns
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Badge badgeContent={multiSale ? selectedSaleIds.length : 0} color="primary" invisible={!multiSale}>
+      <PageHeader
+        title="Catalogue Manager"
+        subtitle={`${reportTitle} · ${lots.length.toLocaleString()} lots · ${headers.length} columns`}
+        actions={
+          <>
+            <Badge badgeContent={multiSale ? selectedSaleIds.length : 0} color="primary" invisible={!multiSale}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<LayersOutlinedIcon fontSize="small" />}
+                onClick={(e) => setSalesMenuAnchor(e.currentTarget)}
+              >
+                Sales
+              </Button>
+            </Badge>
+            <ExportShareMenu
+              lots={filteredLots}
+              reportTitle={reportTitle}
+              catalogueIdForLot={catalogueIdForLot}
+              availableColumns={availableExportColumns}
+              defaultColumnIds={exportDefaultColumnIds}
+            />
             <Button
               variant="outlined"
               size="small"
-              startIcon={<LayersOutlinedIcon fontSize="small" />}
-              onClick={(e) => setSalesMenuAnchor(e.currentTarget)}
+              startIcon={<ViewColumnIcon fontSize="small" />}
+              onClick={(e) => setColumnsMenuAnchor(e.currentTarget)}
             >
-              Sales
+              Columns
             </Button>
-          </Badge>
-          <ExportShareMenu
-            lots={filteredLots}
-            reportTitle={reportTitle}
-            catalogueIdForLot={catalogueIdForLot}
-            availableColumns={availableExportColumns}
-            defaultColumnIds={exportDefaultColumnIds}
-          />
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<ViewColumnIcon fontSize="small" />}
-            onClick={(e) => setColumnsMenuAnchor(e.currentTarget)}
-          >
-            Columns
-          </Button>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<UploadFileOutlinedIcon fontSize="small" />}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Import file
-          </Button>
-        </div>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<UploadFileOutlinedIcon fontSize="small" />}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Import file
+            </Button>
+          </>
+        }
+      />
+      <div>
         <input
           ref={fileInputRef}
           type="file"

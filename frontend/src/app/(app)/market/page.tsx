@@ -2,6 +2,7 @@
 
 import KpiSection from "@/components/dashboard/KpiSection";
 import KpiTile from "@/components/dashboard/KpiTile";
+import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -88,38 +89,36 @@ export default function MarketPage() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong m-0 mb-1">Market Intelligence</h1>
-          <p className="text-[13px] text-text-muted m-0 max-w-xl">
-            Import actual post-sale auction prices and compare them against this catalogue&apos;s valuations.
-          </p>
-        </div>
-        {activeCatalogueId && (
-          <div>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<UploadFileOutlinedIcon fontSize="small" />}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing}
-            >
-              {importing ? "Importing…" : "Import Actual Results"}
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleFile(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title="Market Intelligence"
+        subtitle="Import actual post-sale auction prices and compare them against this catalogue's valuations."
+        actions={
+          activeCatalogueId && (
+            <>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<UploadFileOutlinedIcon fontSize="small" />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+              >
+                {importing ? "Importing…" : "Import Actual Results"}
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </>
+          )
+        }
+      />
 
       {catalogueError && (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">

@@ -1,13 +1,44 @@
-import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
-import { AllEnterpriseModule, LicenseManager } from "ag-grid-enterprise";
+import {
+  CellStyleModule,
+  ClientSideRowModelModule,
+  ColumnApiModule,
+  ColumnAutoSizeModule,
+  EventApiModule,
+  ModuleRegistry,
+  NumberEditorModule,
+  NumberFilterModule,
+  PaginationModule,
+  RowApiModule,
+  RowSelectionModule,
+  RowStyleModule,
+  ScrollApiModule,
+  TextEditorModule,
+  TextFilterModule,
+  TooltipModule,
+  ValidationModule,
+} from "ag-grid-community";
 
-ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
-
-// No AG Grid Enterprise license key is configured — get one from
-// https://www.ag-grid.com/license-pricing/ and set NEXT_PUBLIC_AG_GRID_LICENSE_KEY
-// in .env.local. Without it, Enterprise features work in dev but the grid
-// shows a watermark and a console warning.
-const licenseKey = process.env.NEXT_PUBLIC_AG_GRID_LICENSE_KEY;
-if (licenseKey) {
-  LicenseManager.setLicenseKey(licenseKey);
-}
+// Community-only: no AG Grid Enterprise (unlicensed anyway — it only ever showed a
+// watermark) and no "All*Module" bundles, just the specific features CatalogueGrid.tsx
+// actually uses (client-side rows, text/number filters+editors, pagination, checkbox row
+// selection, tooltips, column auto-size for sizeColumnsToFit). ValidationModule is
+// dev-only — it logs a clear console error naming any feature used without its module
+// registered, which is how this list should be extended if the grid grows.
+ModuleRegistry.registerModules([
+  ClientSideRowModelModule,
+  TextFilterModule,
+  NumberFilterModule,
+  TextEditorModule,
+  NumberEditorModule,
+  RowSelectionModule,
+  PaginationModule,
+  TooltipModule,
+  CellStyleModule,
+  RowStyleModule,
+  ColumnAutoSizeModule,
+  ColumnApiModule,
+  RowApiModule,
+  ScrollApiModule,
+  EventApiModule,
+  ...(process.env.NODE_ENV !== "production" ? [ValidationModule] : []),
+]);

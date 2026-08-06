@@ -9,7 +9,7 @@ import {
 import { subGradeCodeOf, subGradeEntryOf, withSubGrade } from "@/lib/subGrade";
 import { api, type LotMedia } from "@/lib/api";
 import LotPhoto from "@/components/valuation/LotPhoto";
-import VoiceRecorder from "@/components/valuation/VoiceRecorder";
+import dynamic from "next/dynamic";
 import {
   askingPriceOf,
   catalogueRemarkOf,
@@ -66,6 +66,10 @@ import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// Loaded on demand — MediaRecorder-based, can't run on the server, and most lots are
+// worked without ever opening a voice note, so this shouldn't ship in the initial bundle.
+const VoiceRecorder = dynamic(() => import("@/components/valuation/VoiceRecorder"), { ssr: false });
 
 /** Filter state lifted from the Valuation Centre page — the focus view edits the very
  *  same filters the list uses (identical to Catalogue Manager's per-column engine),
@@ -1297,22 +1301,10 @@ export default function ValuationFocus({
                   owed, and the strip above states the lot's status outright. */}
 
               {/* Standard sub-grade: the chosen tier's previous-sale band, split into four.
-                  Auto-selects with the tier and is the Standard field's only writer. */}
-              <div className="flex items-center gap-2 flex-wrap min-h-[22px]">
-                <span className="font-mono text-[11px] tracking-widest uppercase text-text-muted font-semibold">
-                  Standard{displayTier ? ` · ${displayTier.label} sub-grade` : " · sub-grade"}
-                </span>
-                {/* What the Standard field will actually read once this lot saves — the one
-                    place the saved value is echoed, now that it has no text box of its own. */}
-                {subEnabled && displaySubSuffix && (
-                  <span
-                    className="px-2.5 py-0.5 rounded-full text-[12.5px] font-bold font-mono"
-                    style={{ background: subColor, color: "var(--paper-0)" }}
-                  >
-                    Standard → {subGradeCode(displayCls, displaySubSuffix)}
-                  </span>
-                )}
-              </div>
+                  Auto-selects with the tier and is the Standard field's only writer. No label
+                  line above it — this is a daily-use screen, the four buttons are self-evident
+                  from position/shape alone, and the highlighted one (checkmark, filled colour)
+                  already says what's picked. */}
               <div className="grid grid-cols-4 gap-2">
                 {SUB_GRADE_SUFFIXES.map(({ suffix, label }) => {
                   // With no tier settled, subGradeCode has no prefix to add and returns the
