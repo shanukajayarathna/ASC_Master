@@ -4,26 +4,28 @@ Full re-platform of the original single-file HTML/CSS/JS app onto:
 
 - **Frontend**: Next.js (App Router) + TypeScript + Tailwind CSS + Material UI + AG Grid Enterprise
 - **Backend**: ASP.NET Core (.NET 9) Web API + MongoDB.Driver
-- **Database**: MongoDB (chosen for now to make local testing frictionless — no Docker/install required if MongoDB is already on the machine; swapping to Postgres/EF Core later is a contained change scoped to `backend/Asc.Api/Data` and the controllers)
+- **Database**: Two-tier. Catalogue/lot data is **file-based** — weekly sale Excel files under `data/sales`, read by `SaleFileStore`. User-entered state (valuations, users, saved reports/filters, API keys, webhooks) lives in **MongoDB** (chosen for now to make local testing frictionless — no Docker/install required if MongoDB is already on the machine)
 
 The old vanilla-JS build (`index.html`, `css/`, `js/`) is left in place, untouched, as a reference — it still works standalone if you just open `index.html`.
 
 ## What's actually wired end-to-end right now
 
-- Import a catalogue (.xls/.xlsx/.csv) → uploaded to the API → parsed server-side (ClosedXML / a CSV parser) → stored in MongoDB (`catalogues` + `lots` collections; the full original row is kept on each lot document, common fields like Lot Number/Broker/Grade/Garden/etc. are also promoted to typed top-level fields; the taster's ticket is embedded directly on the lot document since it's always 1:1)
-- **Dashboard** — KPI tiles computed from the lots in MongoDB
+- Catalogues are **file-backed**, not database-backed: the weekly-sale Excel files under `data/sales` (named `01.xlsx` … `30.xlsx`) ARE the store (`SaleFileStore`), auto-discovered on every listing. "Import" through the app just saves the uploaded file into that folder — a filename numbered like the weekly files slots into that exact sale (re-uploading a number replaces it), any other name gets the next free sale number. Parses are cached to `data/.cache` (gzipped JSON keyed by file size+mtime) so reloads after the first parse are fast. MongoDB holds only user-entered state layered on top — valuations, users, saved reports/filters, API keys, webhooks, etc. — never the catalogue/lot data itself.
+- **Dashboard** — KPI tiles computed from the current sale's lots
 - **Catalogue Manager** — AG Grid Enterprise grid bound to the imported lots, with the Enterprise column/filter side panel, row selection, and CSV/Excel export built into the grid itself
-- **Valuation drawer** — open a ticket, enter a From/To range or single value, pick a classification (Best/Below Best/Poor), add remarks, save — persisted via `PATCH /api/lots/{id}/valuation`
+- **Valuation drawer** — open a ticket, enter a From/To range or single value, pick a classification (Best/Below Best/Poor), add remarks, save — persisted to MongoDB via `PATCH /api/lots/{id}/valuation` and merged back onto the file-backed lot on read
 - **Bulk operations** — select multiple rows, bulk-classify or bulk-clear-notes via the API
 - Light/dark theme toggle, matching the original brand palette, applied consistently across Tailwind and the MUI theme and the AG Grid theme (AG Grid's v36 Theming API reads the same CSS custom properties, so it follows the toggle automatically)
 
-Verified by hand against a real local MongoDB: import → list → paged/filtered lot query → valuation update → dashboard aggregates recompute → delete, all round-tripped correctly.
+Verified by hand against a real local MongoDB: import → list → paged/filtered lot query → valuation update → dashboard aggregates recompute, all round-tripped correctly. (Catalogue deletion is deliberately not exposed through the app — removing a sale means removing its Excel file from `data/sales`.)
 
-## What's a placeholder ("Coming soon" page in the sidebar)
+## Current status
 
-Analysis, Reports, Broker Comparison, Market Intelligence, Saved Reports, Saved Filters, Settings. These all shipped as real, working features in the previous vanilla-JS build (see the code still sitting in `js/analysis.js`, `js/broker.js`, `js/market.js`, `js/reports.js`, etc.) — porting them means adding the matching aggregation/report endpoints on the API and then rebuilding the UI as React components. That's the next phase, not started here.
+All modules listed in the app's navigation (Dashboard, Catalogue Manager, Valuation Centre, Analysis, Reports, Broker Comparison, Market Intelligence, Saved Reports, Saved Filters, Data Import, Exports, Knowledge Base, AI Assistant, Settings, Help) are real, working features — not placeholders. The sidebar-era "Coming soon" framing that used to live in this section is gone; the redesign in commit `f85b306` replaced the sidebar with a dashboard-first launchpad, and every tile there is `status: "live"`. See [`/docs`](docs/README.md) for the current, maintained module-by-module reference — treat that directory, not this section, as the source of truth for what's built.
 
-Also out of scope so far: locking the *existing* catalogue/valuation endpoints behind login (authentication now exists — see below — but today it only protects the new `api/v1/auth` endpoints; every pre-existing endpoint stays open for now, deliberately, until that's rolled out as its own separate change), server-side row model for AG Grid (current grid loads up to 5,000 rows client-side per catalogue, matching the old app's approach; true virtualization for 100k+ row catalogues needs a datasource implementation), and a real AG Grid Enterprise license key (see below).
+Authentication now protects the whole API, not just `api/v1/auth`: every controller and module carries `[Authorize]` (Admin-only where appropriate — user/role management, API keys, webhooks, dev seeding). See [`docs/18_Security.md`](docs/18_Security.md) for the full policy.
+
+Still genuinely outstanding: server-side row model for AG Grid (current grid loads up to 5,000 rows client-side per catalogue, matching the old app's approach; true virtualization for 100k+ row catalogues needs a datasource implementation), and a real AG Grid Enterprise license key (see below).
 
 ## Running it locally
 
@@ -98,21 +100,24 @@ package.json    root dev-orchestration only (`npm run dev` via `concurrently`) �
 
 backend/
   Asc.Api/
-    Models/        Catalogue, Lot (embeds Valuation), FilterPreset, ActualPrice, SavedReport
-    Data/           MongoContext (MongoDB.Driver client + collection accessors)
-    Services/       CatalogueImportService (xlsx/csv parsing, column/type detection)
-    Controllers/    CataloguesController, LotsController, DashboardController
+    Models/         Catalogue, Lot (embeds Valuation), FilterPreset, ActualPrice, SavedReport
+    Data/           MongoContext (MongoDB.Driver client + collection accessors — user state only)
+    Services/       SaleFileStore (the catalogue store), CatalogueImportService (xlsx/csv parsing), LotMediaStore
+    Controllers/    CataloguesController, LotsController, DashboardController, ExportController, LotMediaController, DevSeedController
+    Modules/        one folder per feature area — Auth, ApiKeys, Webhooks, Documents (Knowledge Base), Assistant, Analytics, Market, Reports, FilterPresets — each with its own controller/DTOs/model, not spread across the shared folders above
 
 frontend/
   src/
-    app/            one folder per route (dashboard, catalogue, valuation, analysis, ...)
+    app/            one folder per route, grouped under (app)/ (dashboard, catalogue, valuation, analysis, market, broker, reports, assistant, knowledge, exports, data-import, saved-reports, saved-filters, settings, help, worksheet) plus a standalone login/
     components/
-      shell/         Sidebar, Topbar, nav config
-      catalogue/      CatalogueGrid (AG Grid), ValuationDrawer, AG Grid theme/setup
+      shell/         Topbar, command palette, nav config — no persistent sidebar (dashboard-first launchpad, see docs/04_Navigation_Architecture.md)
+      home/           launchpad tiles, recent/attention lists, AI insights panel — the dashboard-first landing surface
+      catalogue/      CatalogueGrid (AG Grid), FilterPanel, ValuationDrawer, AG Grid theme/setup
+      valuation/      ticket-level valuation UI — photo/voice capture, sub-grade and keyword chips
       dashboard/      KpiTile, KpiSection
-      shared/         ComingSoon placeholder
-    context/         CatalogueContext (active catalogue + list), ThemeModeContext
-    lib/             api.ts (typed fetch client), format.ts
+      analytics/      chart components shared by Analysis/Broker/Market pages
+    context/         CatalogueContext, AuthContext, ThemeModeContext
+    lib/             api.ts (typed fetch client), plus per-concern helpers (filters, exports, classifications, sub-grade, etc.)
     theme/           MUI theme + ThemeRegistry (App Router cache provider)
     types/           TypeScript types mirroring the API DTOs
 
