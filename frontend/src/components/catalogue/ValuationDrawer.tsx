@@ -389,7 +389,7 @@ function ValuationDrawerContent({
           <Button variant="outlined" onClick={onClose}>
             Close
           </Button>
-          <Button variant="contained" onClick={save} disabled={saving || hasError}>
+          <Button variant="contained" onClick={save} disabled={saving || hasError} aria-busy={saving}>
             {saving ? "Saving…" : "Save Ticket"}
           </Button>
         </div>

@@ -31,7 +31,7 @@ Follow the existing structure in [22_Frontend_Architecture.md](22_Frontend_Archi
 One component per file, named to match the file. Presentational logic in the component; data-fetching/business logic delegated to `lib/api.ts` calls or context, not inlined ad hoc `fetch` calls scattered across components.
 
 ### Hooks
-Custom hooks (if/when introduced) prefixed `use`, colocated with the feature that owns them unless genuinely shared, in which case promote to a shared location.
+Custom hooks prefixed `use`, colocated with the feature that owns them unless genuinely shared, in which case promote to `frontend/src/hooks/` — the pattern `useAsyncAction` (busy flag + synchronous re-entry guard + `try/finally` cleanup for an async action, see [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md)) follows. Reach for it on a new save/create/delete/import action instead of hand-rolling a fresh `useState` busy flag.
 
 ### Services
 Backend: `Services/` for cross-cutting logic not tied to a single controller/module (e.g. `CatalogueImportService`, `SaleFileStore`, `LotMediaStore`). A service should have one clear responsibility — resist folding unrelated logic into an existing service just because it's convenient.
@@ -71,7 +71,7 @@ See [19_Performance.md](19_Performance.md) for known seams; don't pre-optimise b
 Before writing new logic, check: does `Modules/Analytics` already compute this? Does `components/shared/` already have this pattern? Does the metrics registry (once it exists) already define this number? Duplication is the default failure mode this whole `/docs` set exists to prevent (see [00_Project_Vision.md](00_Project_Vision.md), "One number, one source").
 
 ## Dependencies
-[22_Frontend_Architecture.md](22_Frontend_Architecture.md), [23_Backend_Architecture.md](23_Backend_Architecture.md), [24_API_Guidelines.md](24_API_Guidelines.md), [26_Testing_Strategy.md](26_Testing_Strategy.md).
+[22_Frontend_Architecture.md](22_Frontend_Architecture.md), [23_Backend_Architecture.md](23_Backend_Architecture.md), [24_API_Guidelines.md](24_API_Guidelines.md), [26_Testing_Strategy.md](26_Testing_Strategy.md), [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md).
 
 ## Future expansion
 A linter/formatter configuration reference, if/when one is standardised beyond whatever ESLint config ships with `create-next-app`'s defaults (`eslint-config-next` is already a dependency — confirm current rule set before assuming custom rules exist).

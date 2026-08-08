@@ -35,7 +35,7 @@ Use MUI `Button` variants (contained/outlined/text) mapped to the brand palette 
 MUI form controls throughout, styled via the shared theme rather than per-form overrides. The Valuation Centre's drawer/focus-mode inputs (value range, classification, remarks) are the reference implementation for form density on data-entry-heavy screens — see [10_Valuation_Centre.md](10_Valuation_Centre.md).
 
 ### Animations & micro-interactions
-Motion should be purposeful and brief: hover/press feedback on tiles and buttons, panel open/close transitions, and the command palette's open animation. Avoid decorative animation that delays task completion — this is a working tool used on a sale floor, not a marketing site.
+Motion should be purposeful and brief: hover/press feedback on tiles and buttons, panel open/close transitions, and the command palette's open animation. Avoid decorative animation that delays task completion — this is a working tool used on a sale floor, not a marketing site. The one branded loading animation (`TeaLoader` — a refined tea-leaf silhouette over a thin data-flow line, deliberately not a literal cup/steam illustration; composed with the brand mark as `FullScreenLoader` for boot/route-transition moments) and the rules for when it — versus a skeleton, versus a plain button busy-state — applies are documented in [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md); all of it respects `prefers-reduced-motion`.
 
 ### Icons
 Material Icons (`@mui/icons-material`, "Outlined" variants) throughout, as seen in `frontend/src/components/shell/nav.ts`. Use the outlined family consistently; don't mix filled and outlined icon styles in the same view.
@@ -44,7 +44,7 @@ Material Icons (`@mui/icons-material`, "Outlined" variants) throughout, as seen 
 Both are first-class, not an afterthought — every token in `globals.css` has a light and a dark value, and AG Grid's v36 Theming API reads the same CSS custom properties so the grid follows the toggle automatically. Any new colour must be added to both `:root` and `:root[data-theme="dark"]` blocks, and mirrored in `theme/tokens.ts`.
 
 ### Accessibility
-Baseline expectation: sufficient colour contrast in both themes, keyboard operability for the command palette and all form controls, and semantic MUI components used as intended (not divs styled to look like buttons). No formal accessibility audit exists yet in the codebase — see [26_Testing_Strategy.md](26_Testing_Strategy.md) for where this should be added.
+Baseline expectation: sufficient colour contrast in both themes, keyboard operability for the command palette and all form controls, and semantic MUI components used as intended (not divs styled to look like buttons). Every busy/disabled control (save, create, delete, import, export) pairs `disabled` with `aria-busy` — see [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md). No formal accessibility audit exists yet in the codebase — see [26_Testing_Strategy.md](26_Testing_Strategy.md) for where this should be added.
 
 ### Responsive design
 The platform must remain usable on tablet — the Valuation Centre explicitly ships a "tablet-friendly focus mode" for sale-floor use (per its nav description). Test any new data-entry screen at tablet width, not just desktop. Phone-width support is not a stated requirement today; tablet is the documented minimum secondary breakpoint. See [19_Performance.md](19_Performance.md) for related on-device performance concerns.
@@ -62,7 +62,7 @@ See [04_Navigation_Architecture.md](04_Navigation_Architecture.md).
 Not applicable — this document is design guidance, not business logic.
 
 ## Dependencies
-[21_Design_Tokens.md](21_Design_Tokens.md), [20_Component_Library.md](20_Component_Library.md), [03_Dashboard_Experience.md](03_Dashboard_Experience.md), [04_Navigation_Architecture.md](04_Navigation_Architecture.md).
+[21_Design_Tokens.md](21_Design_Tokens.md), [20_Component_Library.md](20_Component_Library.md), [03_Dashboard_Experience.md](03_Dashboard_Experience.md), [04_Navigation_Architecture.md](04_Navigation_Architecture.md), [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md).
 
 ## Future expansion
 Formal accessibility audit and a documented phone-width breakpoint strategy, if/when mobile app or phone-web support is prioritised (see [27_Future_Roadmap.md](27_Future_Roadmap.md)).

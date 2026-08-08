@@ -3,6 +3,7 @@
 import KpiSection from "@/components/dashboard/KpiSection";
 import KpiTile from "@/components/dashboard/KpiTile";
 import PageHeader from "@/components/shared/PageHeader";
+import { SkeletonCard, SkeletonRows } from "@/components/shared/SkeletonBlock";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -141,7 +142,16 @@ export default function MarketPage() {
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
       )}
 
-      {activeCatalogueId && loading && !status && <p className="text-text-muted text-sm">Loading market intelligence…</p>}
+      {activeCatalogueId && loading && !status && (
+        <div aria-busy="true" className="flex flex-col gap-4">
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} height={70} />
+            ))}
+          </div>
+          <SkeletonRows rows={6} />
+        </div>
+      )}
 
       {activeCatalogueId && status && (
         <>

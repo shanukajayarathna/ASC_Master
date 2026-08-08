@@ -1,13 +1,13 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
+import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { isColumnFilterActive, type StoredFilterState } from "@/lib/lotFilters";
 import type { FilterPreset } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
-import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
@@ -59,7 +59,7 @@ export default function SavedFiltersPage() {
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <CircularProgress size={22} sx={{ color: "var(--liquor)" }} />
+          <TeaLoader size={44} />
         </div>
       ) : presets.length === 0 ? (
         <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-lg">

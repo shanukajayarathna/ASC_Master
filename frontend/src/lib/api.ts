@@ -3,6 +3,7 @@ import type {
   AccuracyOverview,
   ApiKeyCreated,
   ApiKeySummary,
+  AuctionReport,
   AuthResponse,
   AuthUser,
   BrokerStats,
@@ -10,6 +11,7 @@ import type {
   CatalogueSummary,
   ChatMessage,
   ChatResponse,
+  CombinedReport,
   Conversation,
   DashboardStats,
   DataQuality,
@@ -30,6 +32,10 @@ import type {
   ValuationUpdate,
   WebhookCreated,
   WebhookSummary,
+  WorksheetFacets,
+  WorksheetImportResult,
+  WorksheetLookupResult,
+  WorksheetRow,
 } from "@/types/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
@@ -194,6 +200,74 @@ export const api = {
   listSavedReports: () => request<SavedReport[]>("/api/v1/reports/saved"),
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
+
+  // ---- auction reports (Combined Report / Top Prices) --------------------------------
+
+  getCombinedReport: (catalogueId: string) => request<CombinedReport>(`/api/v1/auction-reports/${catalogueId}/combined`),
+
+  getAuctionReport: (catalogueId: string, reportKey: string) =>
+    request<AuctionReport>(`/api/v1/auction-reports/${catalogueId}/${reportKey}`),
+
+  exportAuctionReportExcel: async (catalogueId: string, reportKey: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/auction-reports/${catalogueId}/${reportKey}/excel`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error("Export failed");
+    return res.blob();
+  },
+
+  exportCombinedReportExcel: async (catalogueId: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/auction-reports/${catalogueId}/combined/excel`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error("Export failed");
+    return res.blob();
+  },
+
+  // ---- worksheet (rough pre-auction scratchpad) ---------------------------------------
+
+  getWorksheetLots: (catalogueId: string, broker: string, factories: string[]) => {
+    const qs = new URLSearchParams();
+    if (broker) qs.set("broker", broker);
+    factories.filter(Boolean).forEach((f) => qs.append("factory", f));
+    return request<WorksheetLookupResult>(`/api/v1/worksheet/lots?catalogueId=${catalogueId}&${qs.toString()}`);
+  },
+
+  getWorksheetFacets: (catalogueId: string) => request<WorksheetFacets>(`/api/v1/worksheet/facets?catalogueId=${catalogueId}`),
+
+  importWorksheetFile: async (file: File): Promise<WorksheetImportResult> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/worksheet/import`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Import failed");
+    }
+    return res.json();
+  },
+
+  exportWorksheetExcel: async (
+    title: string,
+    saleLabel: string | null,
+    rows: WorksheetRow[],
+    excludeUnvalued: boolean,
+    extraColumnKeys: string[]
+  ): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/worksheet/export/excel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: JSON.stringify({ title, saleLabel, rows, excludeUnvalued, extraColumnKeys }),
+    });
+    if (!res.ok) throw new Error("Export failed");
+    return res.blob();
+  },
 
   // ---- saved filters --------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ import LotViewDialog from "@/components/catalogue/LotViewDialog";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import PageHeader from "@/components/shared/PageHeader";
+import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { buildExportColumns, defaultExportColumnIds } from "@/lib/exportColumns";
@@ -453,45 +454,66 @@ export default function CataloguePage() {
         <div
           onDragOver={(e) => {
             e.preventDefault();
-            setDragOver(true);
+            if (!catalogueLoading) setDragOver(true);
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
+            if (catalogueLoading) return; // already importing — a second drop here would race it
             const f = e.dataTransfer.files[0];
             if (f) handleFile(f);
           }}
-          onClick={() => fileInputRef.current?.click()}
-          className={`max-w-2xl mx-auto border-2 border-dashed rounded-lg bg-surface p-14 text-center cursor-pointer transition-colors ${
-            dragOver ? "border-sage bg-sage-light" : "border-brass"
-          }`}
+          onClick={() => {
+            if (!catalogueLoading) fileInputRef.current?.click();
+          }}
+          aria-busy={catalogueLoading}
+          className={`max-w-2xl mx-auto border-2 border-dashed rounded-lg bg-surface p-14 text-center transition-colors ${
+            catalogueLoading ? "cursor-default" : "cursor-pointer"
+          } ${dragOver ? "border-sage bg-sage-light" : "border-brass"}`}
         >
-          <h2 className="font-display text-2xl text-text-strong mb-2">Drop your catalogue here</h2>
-          <p className="text-[13.5px] text-text-muted mb-5">
-            Click to browse, or drag an Excel file in. Parsed and stored server-side in MongoDB via the ASP.NET Core API.
-          </p>
-          <Button variant="contained" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>
-            Choose file
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xls,.xlsx,.csv,.ods"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-              e.target.value = "";
-            }}
-          />
-          <p className="font-mono text-[11px] text-text-muted mt-4 tracking-wide">.XLS · .XLSX · .CSV</p>
+          {catalogueLoading ? (
+            <div className="flex flex-col items-center gap-3">
+              <TeaLoader size={48} />
+              <p className="text-[13.5px] text-text-muted m-0">
+                Importing sale file — this can take a little while for a large catalogue…
+              </p>
+            </div>
+          ) : (
+            <>
+              <h2 className="font-display text-2xl text-text-strong mb-2">Drop your catalogue here</h2>
+              <p className="text-[13.5px] text-text-muted mb-5">
+                Click to browse, or drag an Excel file in. Parsed and stored server-side in MongoDB via the ASP.NET Core API.
+              </p>
+              <Button
+                variant="contained"
+                disabled={catalogueLoading}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+              >
+                Choose file
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xls,.xlsx,.csv,.ods"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFile(f);
+                  e.target.value = "";
+                }}
+              />
+              <p className="font-mono text-[11px] text-text-muted mt-4 tracking-wide">.XLS · .XLSX · .CSV</p>
+            </>
+          )}
         </div>
 
         {(importError || catalogueError) && (
           <p className="max-w-2xl mx-auto mt-4 text-center text-danger text-sm">{importError ?? catalogueError}</p>
         )}
-        {catalogueLoading && <p className="text-center text-text-muted text-sm mt-4">Importing…</p>}
       </div>
     );
   }
@@ -533,8 +555,10 @@ export default function CataloguePage() {
               size="small"
               startIcon={<UploadFileOutlinedIcon fontSize="small" />}
               onClick={() => fileInputRef.current?.click()}
+              disabled={catalogueLoading}
+              aria-busy={catalogueLoading}
             >
-              Import file
+              {catalogueLoading ? "Importing…" : "Import file"}
             </Button>
           </>
         }
@@ -545,9 +569,10 @@ export default function CataloguePage() {
           type="file"
           accept=".xls,.xlsx,.csv,.ods"
           className="hidden"
+          disabled={catalogueLoading}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleImport(f);
+            if (f && !catalogueLoading) handleImport(f);
             e.target.value = "";
           }}
         />

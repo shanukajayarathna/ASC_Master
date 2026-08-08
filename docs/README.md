@@ -51,6 +51,7 @@ Full diagrams: [01_System_Architecture.md](01_System_Architecture.md).
 ├── 25_Coding_Standards.md
 ├── 26_Testing_Strategy.md
 ├── 27_Future_Roadmap.md
+├── 28_Loading_And_Interaction_States.md
 └── assets/
     ├── wireframes/
     ├── ui/

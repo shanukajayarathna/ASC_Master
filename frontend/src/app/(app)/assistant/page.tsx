@@ -6,7 +6,6 @@ import type { ChatMessage, Conversation } from "@/types/api";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
@@ -122,9 +121,14 @@ export default function AssistantPage() {
           </div>
         ))}
         {sending && (
-          <div className="flex justify-start">
-            <div className="rounded-lg px-3.5 py-2.5 bg-surface-alt">
-              <CircularProgress size={14} sx={{ color: "var(--liquor)" }} />
+          <div className="flex justify-start" aria-live="polite">
+            <div className="rounded-lg px-3.5 py-2.5 bg-surface-alt flex items-center gap-2">
+              <span className="flex items-center gap-1" aria-hidden="true">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </span>
+              <span className="text-[12px] text-text-muted">ASC AI is thinking…</span>
             </div>
           </div>
         )}
@@ -144,7 +148,7 @@ export default function AssistantPage() {
           fullWidth
           disabled={sending}
         />
-        <Button type="submit" variant="contained" color="primary" disabled={sending || !input.trim()}>
+        <Button type="submit" variant="contained" color="primary" disabled={sending || !input.trim()} aria-busy={sending}>
           <SendOutlinedIcon fontSize="small" />
         </Button>
       </form>

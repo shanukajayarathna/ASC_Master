@@ -4,7 +4,6 @@ import BrandLogo from "@/components/shell/BrandLogo";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
-import { api } from "@/lib/api";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
@@ -25,7 +24,7 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -135,31 +134,13 @@ function ThemeMenu() {
 
 /** The bell's badge is a real number — lots still pending a valuation in the active sale
  *  (the same `DashboardStats.pending` the launchpad KPIs show) — not a decorative count.
- *  Fetched independently here so it stays current on every page, not just the dashboard. */
+ *  Read from CatalogueContext (shared with the dashboard's own KPIs) rather than fetched
+ *  here too — this renders on every page, so an independent fetch here doubled up with the
+ *  dashboard's whenever both were mounted at once. */
 function NotificationsMenu() {
-  const { activeCatalogueId, activeCatalogue } = useCatalogue();
-  const [pending, setPending] = useState<number | null>(null);
+  const { activeCatalogue, activeStats } = useCatalogue();
+  const pending = activeStats?.pending ?? null;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!activeCatalogueId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setPending(null);
-      return;
-    }
-    let cancelled = false;
-    api
-      .getDashboardStats(activeCatalogueId)
-      .then((s) => {
-        if (!cancelled) setPending(s.pending);
-      })
-      .catch(() => {
-        if (!cancelled) setPending(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeCatalogueId]);
 
   return (
     <>

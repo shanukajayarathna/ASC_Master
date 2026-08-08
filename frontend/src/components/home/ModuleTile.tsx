@@ -24,6 +24,10 @@ interface ModuleTileProps {
   pinned?: boolean;
   /** Omit to hide the pin control entirely (e.g. nowhere to persist it). */
   onTogglePin?: () => void;
+  /** Set for tiles rendered above the fold (first row of the launchpad grid) — skips lazy
+   *  loading so the tile's photo starts fetching immediately instead of only once it
+   *  scrolls into view, and tells Next.js not to flag it as an unoptimized LCP candidate. */
+  priority?: boolean;
 }
 
 /**
@@ -37,7 +41,7 @@ interface ModuleTileProps {
  * <a> is invalid HTML and fights the browser over the click) — it's layered on top via
  * position+z-index instead, so tapping it toggles the pin without also navigating.
  */
-export default function ModuleTile({ item, pinned, onTogglePin }: ModuleTileProps) {
+export default function ModuleTile({ item, pinned, onTogglePin, priority }: ModuleTileProps) {
   const Icon = item.icon;
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = !!item.image && !imageFailed;
@@ -84,7 +88,8 @@ export default function ModuleTile({ item, pinned, onTogglePin }: ModuleTileProp
               fill
               sizes="(min-width: 1024px) 260px, (min-width: 640px) 45vw, 90vw"
               className="object-cover"
-              loading="lazy"
+              priority={priority}
+              loading={priority ? undefined : "lazy"}
               onError={() => setImageFailed(true)}
             />
           )}

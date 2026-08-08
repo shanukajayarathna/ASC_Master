@@ -1,13 +1,13 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
+import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
 import type { DocumentSearchResult, KnowledgeDocument } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
@@ -157,7 +157,7 @@ export default function KnowledgeBasePage() {
 
       {loading ? (
         <div className="flex justify-center py-10">
-          <CircularProgress size={22} sx={{ color: "var(--liquor)" }} />
+          <TeaLoader size={44} />
         </div>
       ) : documents.length === 0 ? (
         <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-lg">

@@ -4,6 +4,7 @@ import "./globals.css";
 import ThemeRegistry from "@/theme/ThemeRegistry";
 import { AuthProvider } from "@/context/AuthContext";
 import PwaRegister from "@/components/shared/PwaRegister";
+import NavigationLoader from "@/components/shell/NavigationLoader";
 
 // Weight lists are trimmed to what's actually referenced in the app (checked across every
 // .tsx file for font-display/font-mono paired with a Tailwind weight class, plus every
@@ -61,6 +62,9 @@ export default function RootLayout({
       <body className="min-h-full">
         <PwaRegister />
         <ThemeRegistry>
+          {/* Outside AuthProvider/the (app) gate on purpose — it also covers the
+              login → dashboard redirect, not just navigation inside the authed app. */}
+          <NavigationLoader />
           {/* Every real page lives under the (app) route group, which gates on this and
               adds CatalogueProvider/Shell itself — /login stays outside both so a signed-out
               visitor never renders (or fetches) any of the app's data. */}

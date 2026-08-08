@@ -171,7 +171,7 @@ export default function ExportShareMenu({
           </ListItemIcon>
           <ListItemText primary="Export as PDF" secondary="Opens print dialog — choose Save as PDF" />
         </MenuItem>
-        <MenuItem onClick={handleShare} disabled={busy !== null}>
+        <MenuItem onClick={handleShare} disabled={busy !== null} aria-busy={busy === "share"}>
           <ListItemIcon>
             {busy === "share" ? (
               <CircularProgress size={16} />
@@ -228,6 +228,7 @@ export default function ExportShareMenu({
             variant="contained"
             onClick={downloadExcel}
             disabled={busy === "excel" || picked.size === 0}
+            aria-busy={busy === "excel"}
             startIcon={busy === "excel" ? <CircularProgress size={15} /> : <FileDownloadOutlinedIcon fontSize="small" />}
           >
             Download {picked.size} column{picked.size === 1 ? "" : "s"}

@@ -453,9 +453,16 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
     // ---- gzip JSON cache -------------------------------------------------------------
 
+    // Bump this whenever the Lot/Catalogue shape changes so old cache files (which would
+    // otherwise silently deserialize with nulls for any newly-added field) are ignored and
+    // every sale transparently re-parses once, on its next request — no manual cache-clearing
+    // step needed. v2: added SellingMark/Status/PurchasedPrice/Buyer/BuyerName to Lot.
+    // v3: added Factory/FactoryName to Lot.
+    private const string CacheSchemaVersion = "v4";
+
     private string MetaPath() => Path.Combine(CacheDir, "meta.json");
-    private string SaleCachePath(int saleNo) => Path.Combine(CacheDir, $"sale-{saleNo}.json.gz");
-    private string SlimCachePath(int saleNo) => Path.Combine(CacheDir, $"valued-{saleNo}.json.gz");
+    private string SaleCachePath(int saleNo) => Path.Combine(CacheDir, $"sale-{CacheSchemaVersion}-{saleNo}.json.gz");
+    private string SlimCachePath(int saleNo) => Path.Combine(CacheDir, $"valued-{CacheSchemaVersion}-{saleNo}.json.gz");
 
     private sealed class CacheEnvelope<T>
     {

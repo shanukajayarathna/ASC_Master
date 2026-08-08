@@ -1,6 +1,7 @@
 "use client";
 
 import BarChart from "@/components/analytics/BarChart";
+import { SkeletonCard, SkeletonRows } from "@/components/shared/SkeletonBlock";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -59,7 +60,13 @@ export default function BrokerPage() {
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
       )}
 
-      {activeCatalogueId && loading && !brokers && <p className="text-text-muted text-sm">Loading broker comparison…</p>}
+      {activeCatalogueId && loading && !brokers && (
+        <div aria-busy="true" className="flex flex-col gap-4">
+          <SkeletonRows rows={6} />
+          <SkeletonCard height={220} />
+          <SkeletonCard height={220} />
+        </div>
+      )}
 
       {activeCatalogueId && brokers && (
         <>

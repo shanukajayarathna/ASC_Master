@@ -25,6 +25,8 @@ frontend/src/
     manifest.ts        PWA manifest
   components/           see 20_Component_Library.md
   context/              CatalogueContext, ThemeModeContext
+  hooks/                useAsyncAction — busy+re-entry-guard+cleanup for async actions,
+                         see 28_Loading_And_Interaction_States.md
   lib/                  api.ts (typed fetch client), format.ts
   theme/                MUI theme + ThemeRegistry (App Router cache provider)
   types/                TypeScript types mirroring API DTOs
@@ -43,7 +45,7 @@ Not applicable directly — see linked design docs.
 - **`(app)/page.tsx` redirects to `/dashboard`** — there is no separate "home" distinct from the dashboard/launchpad.
 
 ## Dependencies
-[01_System_Architecture.md](01_System_Architecture.md), [24_API_Guidelines.md](24_API_Guidelines.md) (contract the typed client implements), [04_Navigation_Architecture.md](04_Navigation_Architecture.md), [20_Component_Library.md](20_Component_Library.md).
+[01_System_Architecture.md](01_System_Architecture.md), [24_API_Guidelines.md](24_API_Guidelines.md) (contract the typed client implements), [04_Navigation_Architecture.md](04_Navigation_Architecture.md), [20_Component_Library.md](20_Component_Library.md), [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md) (`hooks/useAsyncAction`, `NavigationLoader` mounted in the root layout).
 
 ## Future expansion
 Adopt a data-fetching/caching library (e.g. React Query/SWR) if manual fetch+state duplication across pages becomes a real pain point — not needed yet given current app size, but worth revisiting if page count or fetch complexity grows significantly.

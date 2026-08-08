@@ -1,6 +1,7 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
+import TeaLoader from "@/components/shared/TeaLoader";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import { api, ApiError } from "@/lib/api";
@@ -15,7 +16,6 @@ import SettingsBrightnessOutlinedIcon from "@mui/icons-material/SettingsBrightne
 import PersonAddOutlinedIcon from "@mui/icons-material/PersonAddOutlined";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
-import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -143,7 +143,7 @@ function AccountSection() {
           autoComplete="new-password"
           required
         />
-        <Button type="submit" variant="contained" disabled={submitting} sx={{ alignSelf: "flex-start" }}>
+        <Button type="submit" variant="contained" disabled={submitting} aria-busy={submitting} sx={{ alignSelf: "flex-start" }}>
           {submitting ? "Changing…" : "Change Password"}
         </Button>
       </form>
@@ -236,7 +236,7 @@ function UsersSection() {
 
       {loading ? (
         <div className="flex justify-center py-8">
-          <CircularProgress size={20} sx={{ color: "var(--liquor)" }} />
+          <TeaLoader size={40} />
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -325,7 +325,7 @@ function UsersSection() {
             <Button onClick={() => setAddOpen(false)} disabled={addBusy}>
               Cancel
             </Button>
-            <Button type="submit" variant="contained" disabled={addBusy}>
+            <Button type="submit" variant="contained" disabled={addBusy} aria-busy={addBusy}>
               {addBusy ? "Creating…" : "Create Account"}
             </Button>
           </DialogActions>
@@ -344,7 +344,7 @@ function UsersSection() {
           <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
             Cancel
           </Button>
-          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy}>
+          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy} aria-busy={deleteBusy}>
             {deleteBusy ? "Removing…" : "Remove"}
           </Button>
         </DialogActions>
@@ -471,7 +471,7 @@ function ApiKeysSection() {
 
       {loading ? (
         <div className="flex justify-center py-8">
-          <CircularProgress size={20} sx={{ color: "var(--liquor)" }} />
+          <TeaLoader size={40} />
         </div>
       ) : keys.length === 0 ? (
         <p className="text-[12.5px] text-text-muted m-0">No API keys yet.</p>
@@ -540,7 +540,7 @@ function ApiKeysSection() {
             <Button onClick={() => setAddOpen(false)} disabled={addBusy}>
               Cancel
             </Button>
-            <Button type="submit" variant="contained" disabled={addBusy || addRoles.length === 0}>
+            <Button type="submit" variant="contained" disabled={addBusy || addRoles.length === 0} aria-busy={addBusy}>
               {addBusy ? "Creating…" : "Create Key"}
             </Button>
           </DialogActions>
@@ -560,7 +560,7 @@ function ApiKeysSection() {
           <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
             Cancel
           </Button>
-          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy}>
+          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy} aria-busy={deleteBusy}>
             {deleteBusy ? "Revoking…" : "Revoke"}
           </Button>
         </DialogActions>
@@ -648,7 +648,7 @@ function WebhooksSection() {
 
       {loading ? (
         <div className="flex justify-center py-8">
-          <CircularProgress size={20} sx={{ color: "var(--liquor)" }} />
+          <TeaLoader size={40} />
         </div>
       ) : webhooks.length === 0 ? (
         <p className="text-[12.5px] text-text-muted m-0">No webhooks yet.</p>
@@ -710,7 +710,7 @@ function WebhooksSection() {
             <Button onClick={() => setAddOpen(false)} disabled={addBusy}>
               Cancel
             </Button>
-            <Button type="submit" variant="contained" disabled={addBusy || !addEvent}>
+            <Button type="submit" variant="contained" disabled={addBusy || !addEvent} aria-busy={addBusy}>
               {addBusy ? "Creating…" : "Create Webhook"}
             </Button>
           </DialogActions>
@@ -730,7 +730,7 @@ function WebhooksSection() {
           <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
             Cancel
           </Button>
-          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy}>
+          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy} aria-busy={deleteBusy}>
             {deleteBusy ? "Deleting…" : "Delete"}
           </Button>
         </DialogActions>

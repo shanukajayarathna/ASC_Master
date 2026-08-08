@@ -38,6 +38,24 @@ public class CatalogueImportService
         ("InvoiceNo", [new Regex("invoice", RegexOptions.IgnoreCase)], null),
         ("NetWeight", [new Regex("(total|nett).?(weight|wt)", RegexOptions.IgnoreCase), new Regex("net.?(weight|wt)", RegexOptions.IgnoreCase)], null),
         ("GrossWeight", [new Regex("gross.?(weight|wt)", RegexOptions.IgnoreCase)], null),
+        ("Bags", [new Regex("bags", RegexOptions.IgnoreCase)], null),
+        // The five patterns below back the auction-reports feature (top-price ranking across
+        // brokers). Verified against real weekly-sale files (data/sales/*.xlsx): Status,
+        // Purchased Price, Buyer, Buyer Name and Selling Mark are all present as real columns,
+        // for every broker's lots, just not previously promoted to typed fields.
+        ("SellingMark", [new Regex("selling.?mark", RegexOptions.IgnoreCase)], null),
+        ("Status", [new Regex("status", RegexOptions.IgnoreCase)], null),
+        ("PurchasedPrice", [new Regex("purchased.?price", RegexOptions.IgnoreCase)], null),
+        // "buyer" also matches "Buyer Name"/"Buyer User Name"/"Final Buyer", but Find() takes the
+        // first header (in file order) that matches — real files list the short "Buyer" code
+        // column before those, so this resolves correctly without needing an exclude regex.
+        ("Buyer", [new Regex("buyer", RegexOptions.IgnoreCase)], null),
+        ("BuyerName", [new Regex("buyer.?name", RegexOptions.IgnoreCase)], new Regex("user", RegexOptions.IgnoreCase)),
+        // Real files list "Factory Name" BEFORE the bare "Factory" (MF code) column, so unlike
+        // Buyer/BuyerName above, Factory needs an explicit exclude — otherwise Find()'s
+        // first-matching-header rule would put the factory's full name into the MF-code field.
+        ("Factory", [new Regex("factory", RegexOptions.IgnoreCase)], new Regex("name", RegexOptions.IgnoreCase)),
+        ("FactoryName", [new Regex("factory.?name", RegexOptions.IgnoreCase)], null),
     ];
 
     public ParsedCatalogue ParseFile(Stream stream, string fileName)
@@ -293,6 +311,13 @@ public class CatalogueImportService
             return decimal.TryParse(raw.Replace(",", ""), out var d) ? d : null;
         }
 
+        int? FindInt(string field)
+        {
+            var raw = Find(field);
+            if (raw is null) return null;
+            return int.TryParse(raw.Replace(",", ""), out var i) ? i : null;
+        }
+
         var lotNumber = Find("LotNumber");
         var invoiceNo = Find("InvoiceNo");
         var rowKey = "k_" + Hash($"{lotNumber}|{invoiceNo}|{string.Join("|", headers.Select(h => row.GetValueOrDefault(h, "")))}");
@@ -315,6 +340,14 @@ public class CatalogueImportService
             InvoiceNo = invoiceNo,
             NetWeight = FindDecimal("NetWeight"),
             GrossWeight = FindDecimal("GrossWeight"),
+            Bags = FindInt("Bags"),
+            SellingMark = Find("SellingMark"),
+            Status = Find("Status"),
+            PurchasedPrice = FindDecimal("PurchasedPrice"),
+            Buyer = Find("Buyer"),
+            BuyerName = Find("BuyerName"),
+            Factory = Find("Factory"),
+            FactoryName = Find("FactoryName"),
             // Empty cells are dropped rather than stored — real market catalogues carry
             // ~50 columns, most sparse, and every consumer already treats a missing key
             // as blank. Cuts stored size dramatically at ~12k lots per weekly sale.

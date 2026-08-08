@@ -38,7 +38,7 @@ The dashboard itself does not duplicate the launchpad's tile grid; `ModuleTile` 
 No dedicated notification centre or activity timeline exists today beyond `RecentActivityList`. Treat as a future-expansion item (see below), not a currently implemented feature.
 
 ### Widgets
-Each widget owns its own data fetch and loading/error state; the dashboard page composes them but does not centrally orchestrate their loading (per current React/Next.js data-fetching conventions in this codebase — verify against `frontend/src/app/(app)/dashboard/` before assuming otherwise).
+Most widgets own their own data fetch and loading/error state. The one exception: `DashboardStats` for the active sale (the KPI strip, the "Continue Valuing" banner, `AutoSlidingKpiPanel`) is fetched once in `CatalogueContext` (`activeStats`) and shared — the topbar's pending-valuations badge needs the same number, and used to fetch it separately, doubling the load on an endpoint that can mean parsing an uncached sale file server-side. While `activeStats` is loading, the KPI strip and detail panel render as real `Skeleton`-based placeholders matching their final layout, not a blank gap — the dashboard used to show nothing at all here for several seconds on a cold cache before this was fixed. See [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md) for the loading-state rules this follows.
 
 ### System health
 No system-health widget (API status, Mongo connectivity, etc.) exists today. Future expansion item — would be useful given the platform's dependency on MongoDB and OpenAI being reachable.
@@ -51,7 +51,7 @@ Not implemented — the dashboard layout is fixed, not user-configurable. If cus
 - No widget should show static/sample data in production — this was an explicit fix (commit `f85b306`), not a stylistic preference, and regressing it should be treated as a bug.
 
 ## Dependencies
-[06_Shared_Analytics_Engine.md](06_Shared_Analytics_Engine.md), [07_Metrics_Registry.md](07_Metrics_Registry.md), [08_AI_Assistant.md](08_AI_Assistant.md), [04_Navigation_Architecture.md](04_Navigation_Architecture.md).
+[06_Shared_Analytics_Engine.md](06_Shared_Analytics_Engine.md), [07_Metrics_Registry.md](07_Metrics_Registry.md), [08_AI_Assistant.md](08_AI_Assistant.md), [04_Navigation_Architecture.md](04_Navigation_Architecture.md), [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md).
 
 ## Future expansion
 Notification centre, system-health widget, per-user dashboard customisation, drill-down from a KPI tile straight into the filtered Catalogue Manager view.

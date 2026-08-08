@@ -9,6 +9,7 @@ import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classification
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { DataQuality, OverviewStats, ReportGroupRow, TopBottomLot } from "@/types/api";
 import PageHeader from "@/components/shared/PageHeader";
+import { SkeletonCard, SkeletonRows } from "@/components/shared/SkeletonBlock";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
@@ -130,7 +131,17 @@ export default function AnalysisPage() {
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
       )}
 
-      {activeCatalogueId && loading && !overview && <p className="text-text-muted text-sm">Loading analysis…</p>}
+      {activeCatalogueId && loading && !overview && (
+        <div aria-busy="true" className="flex flex-col gap-4">
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <SkeletonCard key={i} height={70} />
+            ))}
+          </div>
+          <SkeletonCard height={200} />
+          <SkeletonRows rows={6} />
+        </div>
+      )}
 
       {activeCatalogueId && overview && (
         <>

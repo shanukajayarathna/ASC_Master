@@ -165,6 +165,73 @@ body {
    focus mode) so the logo's two colours appear on every screen, not just the sidebar. */
 .brand-rule { background: var(--rule-brand); }
 
+/* TeaLoader (components/shared/TeaLoader.tsx) — the app's one loading animation, used
+   everywhere something takes a moment (route navigation, in particular). A refined leaf that
+   settles into a slow, continuous float, plus a thin "data flowing along a path" line beneath
+   it (animated stroke-dashoffset, not a particle system) — transform/opacity/dashoffset only,
+   same reasoning as .lift-on-hover above (cheap on a weak GPU/tablet). */
+.tea-loader-leaf {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tea-leaf-fade-in 0.6s ease both, tea-leaf-float 3.2s ease-in-out infinite;
+}
+@keyframes tea-leaf-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes tea-leaf-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-3px) rotate(3deg); }
+}
+.tea-loader-flow {
+  animation: tea-flow-dash 2.4s linear infinite;
+}
+@keyframes tea-flow-dash {
+  to { stroke-dashoffset: -24; }
+}
+/* AI Assistant's "thinking" indicator (app/(app)/assistant/page.tsx) — three dots, same
+   nth-child stagger technique as .tea-loader-flow's sibling pieces above. */
+.typing-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--liquor);
+  animation: typing-pulse 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-pulse {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* FullScreenLoader (components/shared/FullScreenLoader.tsx) — brand mark, TeaLoader, then
+   status text, each settling in slightly after the last (same 4px-rise-plus-fade the page
+   transition convention elsewhere in the design system uses, see 02_UI_UX_Design_System.md). */
+.fsl-logo, .fsl-loader, .fsl-message {
+  animation: fsl-fade-up 0.5s ease both;
+}
+.fsl-loader { animation-delay: 0.15s; }
+.fsl-message { animation-delay: 0.35s; }
+@keyframes fsl-fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tea-loader-leaf, .tea-loader-flow, .typing-dot {
+    animation: none;
+  }
+  .tea-loader-flow { opacity: 0.35; }
+  .typing-dot { opacity: 0.7; }
+  .fsl-logo, .fsl-loader, .fsl-message {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .ag-theme-asc {
   --ag-background-color: var(--surface);
   --ag-foreground-color: var(--text);

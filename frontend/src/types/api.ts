@@ -86,6 +86,106 @@ export interface Report {
   sections: ReportSection[];
 }
 
+// ---- auction reports (Combined Report / Top Prices — cross-broker per-grade ranking) --------
+
+export interface RankedLotRow {
+  rank: number;
+  broker: string;
+  sellingMark: string;
+  grade: string;
+  subElevation: string | null;
+  price: number;
+  buyer: string | null;
+  buyerName: string | null;
+  isOurs: boolean;
+  remark: string | null;
+}
+
+export interface GradeBlock {
+  grade: string;
+  rows: RankedLotRow[];
+}
+
+export interface ReportBlock {
+  title: string;
+  grades: GradeBlock[];
+}
+
+export interface AuctionReportSheet {
+  title: string;
+  includeElevation: boolean;
+  blocks: ReportBlock[];
+}
+
+export interface AuctionReportStats {
+  top: number;
+  top4: number;
+  absent: number;
+  total: number;
+  rows: number;
+  outsold: number;
+}
+
+export interface AuctionReport {
+  reportKey: string;
+  title: string;
+  sourceName: string;
+  generatedAt: string;
+  stats: AuctionReportStats;
+  sheets: AuctionReportSheet[];
+}
+
+export interface CombinedReport {
+  sourceName: string;
+  generatedAt: string;
+  reports: AuctionReport[];
+}
+
+// ---- worksheet (rough pre-auction scratchpad — never persisted server-side) -----------------
+
+export interface WorksheetRow {
+  lotNumber: string | null;
+  broker: string | null;
+  sellingMark: string | null;
+  grade: string | null;
+  bags: number | null;
+  netWeight: number | null;
+  totalWeight: number | null;
+  /** Numeric figure used for Total Proceeds/totals math — the range's midpoint when
+   *  valuationRangeText is set. */
+  valuation: number | null;
+  /** Set only when the valuation genuinely is a range (e.g. "1200-1300") — display/edit this
+   *  instead of `valuation` whenever it's non-null, so a range doesn't silently collapse to
+   *  one number. */
+  valuationRangeText: string | null;
+  remarks: string | null;
+  /** Any column beyond the fixed set, keyed by its original header label (e.g. "Invoice No") —
+   *  the Worksheet's "extra columns" concept, toggleable via the Columns menu. */
+  extra: Record<string, string> | null;
+}
+
+export interface WorksheetLookupResult {
+  rows: WorksheetRow[];
+  totalMatches: number;
+  truncated: boolean;
+}
+
+export interface WorksheetImportResult {
+  fileName: string;
+  rows: WorksheetRow[];
+  skippedRows: number;
+}
+
+export interface WorksheetFactoryOption {
+  code: string | null;
+  name: string | null;
+}
+
+export interface WorksheetFacets {
+  brokers: string[];
+  factories: WorksheetFactoryOption[];
+}
+
 export interface SavedReport {
   id: string;
   type: string;

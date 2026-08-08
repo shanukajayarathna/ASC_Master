@@ -34,8 +34,6 @@ export default function BrandLogo({
         priority
         style={{
           display: "block",
-          width: "auto",
-          height,
           ...(onDark && { filter: "brightness(1.65) saturate(1.1)" }),
         }}
       />

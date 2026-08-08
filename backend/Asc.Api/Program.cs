@@ -15,6 +15,18 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
+// SaleFileStore parses each sale's Excel file synchronously (ClosedXML has no async API),
+// directly on whatever thread calls it — and SaleMetaWarmer does the same, sequentially,
+// on a background thread pool worker for as long as it takes to warm every sale on disk.
+// The dashboard alone can fan out into 6-8 of these calls in parallel (active sale, the
+// recent-sales comparison window, analytics). The CLR's thread pool starts at
+// Environment.ProcessorCount and only grows ~1 thread/~500ms under sustained demand, so a
+// burst like that can starve genuinely fast, already-async endpoints (e.g. auth/me) behind
+// it for several seconds while they wait for a free worker thread. Raising the floor here
+// means a burst doesn't have to wait on that slow growth. This doesn't make the parsing
+// itself faster — it just stops it from blocking unrelated requests.
+ThreadPool.SetMinThreads(Math.Max(Environment.ProcessorCount * 4, 16), Math.Max(Environment.ProcessorCount * 4, 16));
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers()
@@ -61,6 +73,13 @@ builder.Services.AddSingleton<AssistantToolExecutor>();
 // Reporting — no PDF library here on purpose; the frontend renders the report and the
 // browser's own Print → Save as PDF covers that leg (see Modules/Reports/ReportsController.cs).
 builder.Services.AddSingleton<ReportGenerator>();
+
+// Combined Report / Top Prices — cross-broker per-grade ranking (see Modules/AuctionReports).
+builder.Services.AddSingleton<Asc.Api.Modules.AuctionReports.TopPriceEngine>();
+builder.Services.AddSingleton<Asc.Api.Modules.AuctionReports.AuctionReportExcelBuilder>();
+
+// Worksheet — rough pre-auction scratchpad, never persisted (see Modules/Worksheet).
+builder.Services.AddSingleton<Asc.Api.Modules.Worksheet.WorksheetExcelBuilder>();
 
 // Outbound event notifications (e.g. "catalogue.imported") for external tools like n8n —
 // a short timeout since this fires inline inside user-facing requests and must never hang

@@ -7,10 +7,14 @@ export default function ComingSoon({
   title,
   description,
   features,
+  backHref = "/dashboard",
+  backLabel = "Dashboard",
 }: {
   title: string;
   description: string;
   features: string[];
+  backHref?: string;
+  backLabel?: string;
 }) {
   return (
     <div className="max-w-3xl">
@@ -31,8 +35,8 @@ export default function ComingSoon({
         ))}
       </div>
       <div className="mt-5">
-        <Button component={Link} href="/dashboard" variant="outlined" size="small">
-          Back to Dashboard
+        <Button component={Link} href={backHref} variant="outlined" size="small">
+          Back to {backLabel}
         </Button>
       </div>
     </div>

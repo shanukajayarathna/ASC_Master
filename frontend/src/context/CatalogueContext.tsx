@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import type { CatalogueDetail, CatalogueSummary } from "@/types/api";
+import type { CatalogueDetail, CatalogueSummary, DashboardStats } from "@/types/api";
 import {
   createContext,
   useCallback,
@@ -15,6 +15,13 @@ interface CatalogueCtx {
   catalogues: CatalogueSummary[];
   activeCatalogue: CatalogueDetail | null;
   activeCatalogueId: string | null;
+  /** DashboardStats for the active sale, fetched once here and shared — the launchpad KPIs
+   *  and the topbar's pending-valuations badge both need this and used to each fetch it
+   *  independently, doubling the load on GET /catalogues/{id}/dashboard (expensive: it can
+   *  mean parsing an uncached sale file server-side). Null while loading or with no active
+   *  sale; consumers that need to tell "loading" apart from "loaded, zero lots" should check
+   *  activeCatalogueId too. */
+  activeStats: DashboardStats | null;
   loading: boolean;
   error: string | null;
   refreshList: () => Promise<void>;
@@ -31,8 +38,31 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
   const [catalogues, setCatalogues] = useState<CatalogueSummary[]>([]);
   const [activeCatalogue, setActiveCatalogue] = useState<CatalogueDetail | null>(null);
   const [activeCatalogueId, setActiveCatalogueId] = useState<string | null>(null);
+  const [activeStats, setActiveStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetched independently of selectCatalogue (not awaited there) so the stats call runs in
+  // parallel with the catalogue-detail fetch rather than after it.
+  useEffect(() => {
+    if (!activeCatalogueId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveStats(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getDashboardStats(activeCatalogueId)
+      .then((s) => {
+        if (!cancelled) setActiveStats(s);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCatalogueId]);
 
   const refreshList = useCallback(async () => {
     try {
@@ -111,6 +141,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
       catalogues,
       activeCatalogue,
       activeCatalogueId,
+      activeStats,
       loading,
       error,
       refreshList: async () => {
@@ -120,7 +151,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
       importFile,
       removeCatalogue,
     }),
-    [catalogues, activeCatalogue, activeCatalogueId, loading, error, refreshList, selectCatalogue, importFile, removeCatalogue]
+    [catalogues, activeCatalogue, activeCatalogueId, activeStats, loading, error, refreshList, selectCatalogue, importFile, removeCatalogue]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

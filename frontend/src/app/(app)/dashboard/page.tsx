@@ -33,10 +33,11 @@ import WbCloudyOutlinedIcon from "@mui/icons-material/WbCloudyOutlined";
 import WbSunnyOutlinedIcon from "@mui/icons-material/WbSunnyOutlined";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
+import Skeleton from "@mui/material/Skeleton";
 import TextField from "@mui/material/TextField";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const SUGGESTED_PROMPTS = [
   "Which lots are still unvalued in the active sale?",
@@ -75,12 +76,19 @@ const WEATHER_ICON: Record<WeatherNow["icon"], typeof WbSunnyOutlinedIcon> = {
  */
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { activeCatalogueId, activeCatalogue, error: catalogueError } = useCatalogue();
+  // stats comes from CatalogueContext, not a fetch of its own — the topbar's notification
+  // badge needs the same DashboardStats, so it's fetched once there and shared (see
+  // CatalogueContext's activeStats doc comment).
+  const { activeCatalogueId, activeCatalogue, activeStats: stats, error: catalogueError } = useCatalogue();
   const router = useRouter();
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Lets the recent-sales-window effect below reuse the active sale's stats instead of
+  // re-fetching them (it's read via .current, not as a dependency, so this never re-runs
+  // that effect — see its comment for why).
+  const statsRef = useRef<DashboardStats | null>(null);
+  useEffect(() => {
+    statsRef.current = stats;
+  }, [stats]);
 
   const [catalogues, setCatalogues] = useState<CatalogueSummary[]>([]);
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
@@ -122,21 +130,6 @@ export default function DashboardPage() {
     });
   };
 
-  useEffect(() => {
-    if (!activeCatalogueId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStats(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    api
-      .getDashboardStats(activeCatalogueId)
-      .then(setStats)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load dashboard"))
-      .finally(() => setLoading(false));
-  }, [activeCatalogueId]);
-
   // Real, existing data for the recent/pinned surfaces — best-effort, a failed fetch here
   // just leaves that one panel empty rather than breaking the page. Weather is likewise
   // best-effort: fetchColomboWeather resolves null on any failure.
@@ -169,9 +162,17 @@ export default function DashboardPage() {
     const window = sorted.slice(0, RECENT_SALES_WINDOW);
     if (previous && !window.some((c) => c.id === previous.id)) window.push(previous);
 
+    // The active sale is almost always window[0] (it's normally the newest), and its stats
+    // were already fetched by the effect above — reuse them instead of firing a second,
+    // identical /dashboard request for the same catalogue.
+    const getStats = (id: string) =>
+      id === activeCatalogueId && statsRef.current
+        ? Promise.resolve(statsRef.current)
+        : api.getDashboardStats(id);
+
     (async () => {
       const windowStats = await Promise.all(
-        window.map((c) => api.getDashboardStats(c.id).then((s) => ({ c, s })).catch(() => null))
+        window.map((c) => getStats(c.id).then((s) => ({ c, s })).catch(() => null))
       );
       if (cancelled) return;
       const valid = windowStats.filter((x): x is { c: CatalogueSummary; s: DashboardStats } => x !== null);
@@ -443,9 +444,28 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {activeCatalogueId && error && (
-        <div className="mb-4 p-3.5 rounded-[var(--radius-md)] border border-danger bg-danger-light text-sm text-liquor-dark">
-          {error}
+      {/* ---- glance bar skeleton: same six-column strip, shown until `stats` resolves so
+           the page never sits blank while the sale's file loads/parses server-side (that
+           can take several seconds on a cold cache) — see DashboardController. ---- */}
+      {activeCatalogueId && !stats && (
+        <div
+          className="mb-6 rounded-[var(--radius-lg)] border border-border grid"
+          style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-start gap-2.5 p-4"
+              style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}
+            >
+              <Skeleton variant="circular" width={36} height={36} sx={{ flexShrink: 0 }} />
+              <div className="min-w-0 flex-1">
+                <Skeleton variant="text" width="65%" height={14} />
+                <Skeleton variant="text" width="45%" height={24} />
+                <Skeleton variant="text" width="55%" height={13} />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -601,8 +621,9 @@ export default function DashboardPage() {
       {/* ---- the same Valuation Range / Portfolio Composition / Weight & Volume detail as
            before, now one auto-rotating card instead of three stacked sections ---- */}
       {activeCatalogueId && stats && <AutoSlidingKpiPanel slides={kpiSlides} />}
-
-      {activeCatalogueId && loading && !stats && <p className="text-text-muted text-sm mb-6">Loading dashboard…</p>}
+      {activeCatalogueId && !stats && (
+        <Skeleton variant="rounded" height={140} className="mb-6" sx={{ borderRadius: "var(--radius-lg)" }} />
+      )}
 
       {/* ---- launchpad: module tiles replace the old sidebar as the primary navigation ---- */}
       <div className="mt-2 mb-4">
@@ -617,12 +638,13 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-          {moduleTiles.map((item) => (
+          {moduleTiles.map((item, i) => (
             <ModuleTile
               key={item.href}
               item={item}
               pinned={pinnedHrefs.includes(item.href)}
               onTogglePin={() => togglePin(item.href)}
+              priority={i < 4}
             />
           ))}
         </div>

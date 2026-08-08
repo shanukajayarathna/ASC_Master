@@ -3,7 +3,8 @@
 import { useAuth } from "@/context/AuthContext";
 import { CatalogueProvider } from "@/context/CatalogueContext";
 import Shell from "@/components/shell/Shell";
-import CircularProgress from "@mui/material/CircularProgress";
+import FullScreenLoader from "@/components/shared/FullScreenLoader";
+import { useThemeMode } from "@/context/ThemeModeContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -17,6 +18,7 @@ import { useEffect } from "react";
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const { mode } = useThemeMode();
   const router = useRouter();
 
   useEffect(() => {
@@ -26,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (loading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-surface-alt">
-        <CircularProgress size={28} sx={{ color: "var(--liquor)" }} />
+        <FullScreenLoader message="Preparing your workspace…" onDark={mode === "dark"} />
       </div>
     );
   }
