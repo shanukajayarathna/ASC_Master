@@ -32,4 +32,8 @@ public class ConversationMessage
 
     public string Content { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Which AI provider produced this turn ("openai"/"gemini"/"groq") — null on user
+    /// messages. Safe, non-secret metadata; lets the UI show which vendor answered.</summary>
+    public string? Provider { get; set; }
 }

@@ -25,6 +25,7 @@ import type {
   OverviewStats,
   PagedLots,
   PreviousGradeStats,
+  ProviderStatus,
   Report,
   ReportGroupRow,
   SavedReport,
@@ -169,15 +170,17 @@ export const api = {
 
   // ---- AI assistant ------------------------------------------------------------------
 
-  sendChatMessage: (message: string, conversationId?: string) =>
+  sendChatMessage: (message: string, conversationId?: string, provider?: string) =>
     request<ChatResponse>("/api/v1/assistant/chat", {
       method: "POST",
-      body: JSON.stringify({ conversationId: conversationId ?? null, message }),
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, provider: provider ?? null }),
     }),
 
   listConversations: () => request<Conversation[]>("/api/v1/assistant/conversations"),
 
   getConversationMessages: (id: string) => request<ChatMessage[]>(`/api/v1/assistant/conversations/${id}/messages`),
+
+  getProviderStatuses: () => request<ProviderStatus[]>("/api/v1/assistant/providers"),
 
   // ---- reports ------------------------------------------------------------------------
 

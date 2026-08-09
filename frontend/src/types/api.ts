@@ -50,11 +50,20 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  provider?: string | null;
 }
 
 export interface ChatResponse {
   conversationId: string;
   reply: string;
+  provider: string;
+}
+
+export interface ProviderStatus {
+  key: string;
+  displayName: string;
+  model: string | null;
+  configured: boolean;
 }
 
 export interface ReportKpi {

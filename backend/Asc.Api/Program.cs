@@ -65,9 +65,19 @@ builder.Services.AddSingleton<IDocumentStore, LocalDocumentStore>();
 builder.Services.AddHttpClient<IEmbeddingProvider, OpenAiEmbeddingProvider>();
 builder.Services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
 
-// AI Assistant — chat also goes through OpenAI (the project's choice), same plain-HttpClient
-// pattern as embeddings above. Every tool it can call is read-only (Modules/Assistant/AssistantTools.cs).
-builder.Services.AddHttpClient<IChatProvider, OpenAiChatProvider>();
+// AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
+// OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own
+// wire format. Every tool any of them can call is read-only (Modules/Assistant/AssistantTools.cs).
+// Gemini/Groq are optional — GetRequiredService below still resolves fine unconfigured, since
+// "configured" is a runtime check (IsConfigured), not a DI-time one; OpenAI keeps working
+// regardless of whether the other two ever get keys.
+builder.Services.AddHttpClient<OpenAiChatProvider>();
+builder.Services.AddHttpClient<GroqChatProvider>();
+builder.Services.AddHttpClient<GeminiChatProvider>();
+builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<OpenAiChatProvider>());
+builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GroqChatProvider>());
+builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GeminiChatProvider>());
+builder.Services.AddScoped<AiGateway>();
 builder.Services.AddSingleton<AssistantToolExecutor>();
 
 // Reporting — no PDF library here on purpose; the frontend renders the report and the
