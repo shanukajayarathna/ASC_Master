@@ -5,13 +5,19 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { WorksheetFacets, WorksheetRow } from "@/types/api";
-import { displayValuationForExport as displayValuation, exportWorksheetPdf, fmt2, type WorksheetPdfColumn } from "@/lib/worksheetPdf";
+import {
+  displayValuationForExport as displayValuation,
+  exportWorksheetPdf,
+  fmt2,
+  type WorksheetPdfColumn,
+} from "@/lib/worksheetPdf";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import SearchIcon from "@mui/icons-material/Search";
+import SimCardDownloadOutlinedIcon from "@mui/icons-material/SimCardDownloadOutlined";
 import ViewColumnOutlinedIcon from "@mui/icons-material/ViewColumnOutlined";
 import Autocomplete from "@mui/material/Autocomplete";
 import Button from "@mui/material/Button";
@@ -21,6 +27,7 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
+import Snackbar from "@mui/material/Snackbar";
 import TextField from "@mui/material/TextField";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -95,6 +102,33 @@ const VALUATION_RANGE_RE = /^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/;
 const AUTO_SHOW_EXTRA_PATTERNS = [/invoice/i, /\binv\b/i];
 const EXTRA_PREFIX = "extra:";
 const extraColKey = (rawKey: string) => `${EXTRA_PREFIX}${rawKey}`;
+
+const SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Default order" },
+  { value: "grade-asc", label: "Grade (A–Z)" },
+  { value: "grade-desc", label: "Grade (Z–A)" },
+  { value: "totalWeight-desc", label: "Weight (High–Low)" },
+  { value: "totalWeight-asc", label: "Weight (Low–High)" },
+  { value: "valuation-desc", label: "Valuation (High–Low)" },
+  { value: "valuation-asc", label: "Valuation (Low–High)" },
+  { value: "totalProceeds-desc", label: "Total Proceeds (High–Low)" },
+  { value: "totalProceeds-asc", label: "Total Proceeds (Low–High)" },
+];
+
+function sortValueOf(r: Row, key: string): number | string {
+  switch (key) {
+    case "grade":
+      return r.grade ?? "";
+    case "totalWeight":
+      return r.totalWeight ?? 0;
+    case "valuation":
+      return r.valuation ?? 0;
+    case "totalProceeds":
+      return (r.valuation ?? 0) * (r.totalWeight ?? 0);
+    default:
+      return "";
+  }
+}
 
 function newId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `r_${Date.now()}_${Math.random()}`;
@@ -182,6 +216,13 @@ export default function WorksheetPage() {
   // the canonical formatted text only "snaps in" on blur. Same UX as the original tool, which
   // leaves the DOM input alone on every keystroke and only rewrites it in its blur handler.
   const [editingValuation, setEditingValuation] = useState<Record<string, string>>({});
+  const [sortValue, setSortValue] = useState("");
+
+  // Lines taken out of the working table, newest last, each kept with the position it was
+  // removed from so "Restore removed lines" can put every one back exactly where it was —
+  // ported from the original's removedRows/restoreAllRemovedRows.
+  const [removedRows, setRemovedRows] = useState<{ index: number; row: Row }[]>([]);
+  const [undoRow, setUndoRow] = useState<Row | null>(null);
 
   const [saleCatalogueId, setSaleCatalogueId] = useState("");
   const [broker, setBroker] = useState("");
@@ -191,6 +232,7 @@ export default function WorksheetPage() {
 
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -328,12 +370,81 @@ export default function WorksheetPage() {
     setRows((r) => r.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
 
-  const removeRow = (id: string) => setRows((r) => r.filter((row) => row.id !== id));
+  // Soft-remove with an 8s Undo toast, matching the original's showUndoToast — the removed line
+  // is held (with the position it came from) so it can go back exactly where it was.
+  const removeRow = (id: string) => {
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    const row = rows[idx];
+    setRemovedRows((rr) => [...rr, { index: idx, row }]);
+    setRows((r) => r.filter((x) => x.id !== id));
+    setUndoRow(row);
+  };
 
-  const clearWorksheet = () => {
+  const restoreRow = (id: string) => {
+    const at = removedRows.findIndex((e) => e.row.id === id);
+    if (at === -1) return;
+    const entry = removedRows[at];
+    setRows((cur) => {
+      const next = [...cur];
+      next.splice(Math.min(entry.index, next.length), 0, entry.row);
+      return next;
+    });
+    setRemovedRows((rr) => rr.filter((_, i) => i !== at));
+  };
+
+  const restoreAllRemoved = () => {
+    if (!removedRows.length) return;
+    setRows((cur) => {
+      const next = [...cur];
+      for (let i = removedRows.length - 1; i >= 0; i--) {
+        const entry = removedRows[i];
+        next.splice(Math.min(entry.index, next.length), 0, entry.row);
+      }
+      return next;
+    });
+    setRemovedRows([]);
+    setUndoRow(null);
+  };
+
+  const clearValuations = () => {
+    if (!rows.length) return;
+    if (!window.confirm("Clear all entered valuations? This cannot be undone.")) return;
+    setRows((r) => r.map((row) => ({ ...row, valuation: 0, valuationRangeText: null })));
+    setEditingValuation({});
+    setNotice("All valuations cleared.");
+  };
+
+  const resetWorksheet = () => {
+    if (!rows.length) return;
+    if (!window.confirm("Reset the current worksheet to the default state? This will clear the loaded data and any entered valuations.")) return;
     setRows([]);
+    setRemovedRows([]);
+    setUndoRow(null);
+    setVisibleColumns(ALL_COLUMNS);
+    setSearch("");
+    setSortValue("");
     setNotice(null);
     setError(null);
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const downloadTemplate = async () => {
+    setDownloadingTemplate(true);
+    setError(null);
+    try {
+      const blob = await api.downloadWorksheetTemplate("Valuation");
+      triggerDownload(blob, "tea-auction-template.xlsx");
+      setNotice("Template downloaded.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not download the template");
+    } finally {
+      setDownloadingTemplate(false);
+    }
   };
 
   const filteredRows = useMemo(() => {
@@ -343,6 +454,18 @@ export default function WorksheetPage() {
       [r.lotNumber, r.broker, r.sellingMark, r.grade].some((v) => (v ?? "").toLowerCase().includes(q))
     );
   }, [rows, search]);
+
+  const filteredSortedRows = useMemo(() => {
+    if (!sortValue) return filteredRows;
+    const [key, dir] = sortValue.split("-");
+    return [...filteredRows].sort((a, b) => {
+      const av = sortValueOf(a, key);
+      const bv = sortValueOf(b, key);
+      if (typeof av === "number" && typeof bv === "number") return dir === "asc" ? av - bv : bv - av;
+      const cmp = String(av).localeCompare(String(bv));
+      return dir === "asc" ? cmp : -cmp;
+    });
+  }, [filteredRows, sortValue]);
 
   const avgEligibleRows = useMemo(() => (excludeUnvalued ? rows.filter((r) => (r.valuation ?? 0) > 0) : rows), [
     rows,
@@ -456,8 +579,8 @@ export default function WorksheetPage() {
   // next row's Valuation if the Remarks column is hidden); Enter in Remarks jumps to the next
   // row's Valuation, so a valuer can key straight down the sheet without touching the mouse.
   const focusNextValuation = (rowId: string) => {
-    const idx = filteredRows.findIndex((row) => row.id === rowId);
-    const next = filteredRows[idx + 1];
+    const idx = filteredSortedRows.findIndex((row) => row.id === rowId);
+    const next = filteredSortedRows[idx + 1];
     if (next) valuationInputRefs.current.get(next.id)?.focus();
   };
   const focusRemarksOrNextValuation = (rowId: string) => {
@@ -595,6 +718,18 @@ export default function WorksheetPage() {
         </div>
       </div>
 
+      {removedRows.length > 0 && (
+        <div className="mb-3 p-3 rounded border border-border bg-surface-alt text-sm text-text-muted flex items-center justify-between gap-3 flex-wrap print:hidden">
+          <span>
+            {removedRows.length} {removedRows.length === 1 ? "line is" : "lines are"} removed from this worksheet — left out
+            of the totals, the average and every export.
+          </span>
+          <Button size="small" variant="outlined" onClick={restoreAllRemoved}>
+            Restore removed lines
+          </Button>
+        </div>
+      )}
+
       <div className="flex items-center gap-2.5 mb-3 flex-wrap print:hidden">
         <TextField
           size="small"
@@ -602,8 +737,15 @@ export default function WorksheetPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           slotProps={{ input: { startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: "var(--text-muted)" }} /> } }}
-          sx={{ minWidth: 260 }}
+          sx={{ minWidth: 240 }}
         />
+        <Select size="small" value={sortValue} onChange={(e) => setSortValue(e.target.value)} sx={{ fontSize: 13, minWidth: 180 }}>
+          {SORT_OPTIONS.map((o) => (
+            <MenuItem key={o.value} value={o.value}>
+              {o.label}
+            </MenuItem>
+          ))}
+        </Select>
         <Button variant="outlined" startIcon={<ViewColumnOutlinedIcon fontSize="small" />} onClick={(e) => setColumnsAnchor(e.currentTarget)}>
           Columns
         </Button>
@@ -622,8 +764,20 @@ export default function WorksheetPage() {
             </MenuItem>
           ))}
         </Menu>
-        <Button variant="outlined" onClick={clearWorksheet} disabled={rows.length === 0}>
-          Clear worksheet
+        <Button
+          variant="text"
+          size="small"
+          startIcon={<SimCardDownloadOutlinedIcon fontSize="small" />}
+          onClick={downloadTemplate}
+          disabled={downloadingTemplate}
+        >
+          {downloadingTemplate ? "Downloading…" : "Download template"}
+        </Button>
+        <Button variant="outlined" onClick={clearValuations} disabled={rows.length === 0}>
+          Clear valuations
+        </Button>
+        <Button variant="outlined" onClick={resetWorksheet} disabled={rows.length === 0}>
+          Reset worksheet
         </Button>
         <div className="flex-1" />
         <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()} disabled={rows.length === 0}>
@@ -675,7 +829,7 @@ export default function WorksheetPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((r) => {
+              {filteredSortedRows.map((r) => {
                 const totalProceeds = (r.valuation ?? 0) * (r.totalWeight ?? 0);
                 const isNegative = (editingValuation[r.id] !== undefined ? parseValuationInput(editingValuation[r.id]).valuation : (r.valuation ?? 0)) < 0;
                 return (
@@ -757,6 +911,26 @@ export default function WorksheetPage() {
           </table>
         </div>
       )}
+
+      <Snackbar
+        open={!!undoRow}
+        autoHideDuration={8000}
+        onClose={() => setUndoRow(null)}
+        message={undoRow ? `${undoRow.lotNumber ? `Lot ${undoRow.lotNumber}` : "Line"} removed — totals recalculated.` : ""}
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            onClick={() => {
+              if (undoRow) restoreRow(undoRow.id);
+              setUndoRow(null);
+            }}
+          >
+            Undo
+          </Button>
+        }
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      />
     </div>
   );
 }

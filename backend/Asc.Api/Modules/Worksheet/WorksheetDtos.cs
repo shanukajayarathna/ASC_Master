@@ -38,8 +38,20 @@ public record WorksheetImportResultDto(string FileName, List<WorksheetRowDto> Ro
 /// <summary>ExcludeUnvalued mirrors the working table's "entered values only" toggle so the
 /// exported average/summary boxes match exactly what's on screen. ExtraColumnKeys is the
 /// ordered list of extra columns currently shown on screen — the export includes exactly those,
-/// same as the original tool's getActiveColumns() driving both its Excel and PDF exports.</summary>
-public record WorksheetExportRequestDto(string Title, string? SaleLabel, List<WorksheetRowDto> Rows, bool ExcludeUnvalued, List<string>? ExtraColumnKeys = null);
+/// same as the original tool's getActiveColumns() driving both its Excel and PDF exports.
+/// ValuationLabel/ProceedsLabel/SheetName default to the Worksheet tool's own wording; the
+/// Asking Price tool (which shares this same export endpoint/builder — the original standalone
+/// apps share one excel-report.js the same way) passes "Asking Price"/"Total Value"/"Asking
+/// Price Report" instead.</summary>
+public record WorksheetExportRequestDto(
+    string Title,
+    string? SaleLabel,
+    List<WorksheetRowDto> Rows,
+    bool ExcludeUnvalued,
+    List<string>? ExtraColumnKeys = null,
+    string ValuationLabel = "Valuation",
+    string ProceedsLabel = "Total Proceeds",
+    string SheetName = "Worksheet");
 
 /// <summary>Distinct Broker/Factory values actually present in one sale, for the Worksheet's
 /// "import from sale" autocomplete — fetched once when a sale is picked, filtered client-side

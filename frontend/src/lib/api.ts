@@ -244,7 +244,10 @@ export const api = {
     saleLabel: string | null,
     rows: WorksheetRow[],
     excludeUnvalued: boolean,
-    extraColumnKeys: string[]
+    extraColumnKeys: string[],
+    // Defaults match the Worksheet tool's own wording; the Asking Price tool (which shares this
+    // same export endpoint/builder) passes "Asking Price"/"Total Value"/"Asking Price Report".
+    labels?: { valuationLabel?: string; proceedsLabel?: string; sheetName?: string }
   ): Promise<Blob> => {
     const res = await fetch(`${API_BASE}/api/v1/worksheet/export/excel`, {
       method: "POST",
@@ -252,9 +255,26 @@ export const api = {
         "Content-Type": "application/json",
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
-      body: JSON.stringify({ title, saleLabel, rows, excludeUnvalued, extraColumnKeys }),
+      body: JSON.stringify({
+        title,
+        saleLabel,
+        rows,
+        excludeUnvalued,
+        extraColumnKeys,
+        valuationLabel: labels?.valuationLabel,
+        proceedsLabel: labels?.proceedsLabel,
+        sheetName: labels?.sheetName,
+      }),
     });
     if (!res.ok) throw new Error("Export failed");
+    return res.blob();
+  },
+
+  downloadWorksheetTemplate: async (priceLabel: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/worksheet/template?priceLabel=${encodeURIComponent(priceLabel)}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error("Could not download the template");
     return res.blob();
   },
 

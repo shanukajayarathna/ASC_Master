@@ -28,7 +28,7 @@ public class WorksheetExcelBuilder(IWebHostEnvironment env)
     // Column order matches the original's DEFAULT_COLUMNS (broker first); any currently-shown
     // extra column (e.g. "Invoice No") is inserted right after Total Weight, before the
     // Valuation/Total Proceeds/Remarks block that's always last.
-    private static List<(string Header, int Width, bool Numeric, bool Wrap)> BuildColumns(List<string> extraKeys)
+    private static List<(string Header, int Width, bool Numeric, bool Wrap)> BuildColumns(List<string> extraKeys, string valuationLabel, string proceedsLabel)
     {
         var cols = new List<(string, int, bool, bool)>
         {
@@ -41,8 +41,8 @@ public class WorksheetExcelBuilder(IWebHostEnvironment env)
             ("Total Weight", 13, true, false),
         };
         foreach (var key in extraKeys) cols.Add((key, 16, false, false));
-        cols.Add(("Valuation", 16, true, false));
-        cols.Add(("Total Proceeds", 15, true, false));
+        cols.Add((valuationLabel, 16, true, false));
+        cols.Add((proceedsLabel, 15, true, false));
         cols.Add(("Remarks", 34, false, true));
         return cols;
     }
@@ -73,11 +73,19 @@ public class WorksheetExcelBuilder(IWebHostEnvironment env)
         }
     }
 
-    public XSSFWorkbook Build(string title, string? saleLabel, List<WorksheetRowDto> rows, bool excludeUnvalued, List<string> extraColumnKeys)
+    public XSSFWorkbook Build(
+        string title,
+        string? saleLabel,
+        List<WorksheetRowDto> rows,
+        bool excludeUnvalued,
+        List<string> extraColumnKeys,
+        string valuationLabel = "Valuation",
+        string proceedsLabel = "Total Proceeds",
+        string sheetName = "Worksheet")
     {
-        var columns = BuildColumns(extraColumnKeys);
+        var columns = BuildColumns(extraColumnKeys, valuationLabel, proceedsLabel);
         var wb = new XSSFWorkbook();
-        var ws = wb.CreateSheet(SanitizeSheetName("Worksheet"));
+        var ws = wb.CreateSheet(SanitizeSheetName(sheetName));
         var nCols = columns.Count;
         var lastCol = nCols - 1;
         var valuationIdx = 7 + extraColumnKeys.Count;

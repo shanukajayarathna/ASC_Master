@@ -115,12 +115,59 @@ public class WorksheetController(ICatalogueSource source, CatalogueImportService
     [HttpPost("export/excel")]
     public ActionResult ExportExcel(WorksheetExportRequestDto dto)
     {
-        using var wb = excelBuilder.Build(dto.Title, dto.SaleLabel, dto.Rows, dto.ExcludeUnvalued, dto.ExtraColumnKeys ?? []);
+        using var wb = excelBuilder.Build(
+            dto.Title, dto.SaleLabel, dto.Rows, dto.ExcludeUnvalued, dto.ExtraColumnKeys ?? [],
+            dto.ValuationLabel, dto.ProceedsLabel, dto.SheetName);
         using var ms = new MemoryStream();
         wb.Write(ms, leaveOpen: true);
         ms.Position = 0;
         var fileName = $"{ExportController.SanitizeFileName(dto.Title)}.xlsx";
         return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    /// <summary>A blank starter workbook (headers + two sample rows) for filling in offline and
+    /// re-uploading — same eight-column layout and sample values as the original standalone
+    /// tools' downloadTemplate (script.js/asking-price.js), just built server-side with NPOI
+    /// instead of client-side SheetJS since that's what's already wired up here. priceLabel lets
+    /// the Asking Price tool ask for "Asking Price" instead of "Valuation" in the header row.</summary>
+    [HttpGet("template")]
+    public ActionResult Template([FromQuery] string priceLabel = "Valuation")
+    {
+        var headers = new[] { "Broker Lot No", "Invoice No", "Selling Mark", "Grade", "Net Weight", "Total Weight", priceLabel, "Remarks" };
+        var sample = new object?[][]
+        {
+            ["1001", "INV-1001", "ABC", "BOP", 45, 46.5, null, null],
+            ["1002", "INV-1002", "XYZ", "BOPF", 40, 41.2, null, null],
+        };
+
+        using var wb = new NPOI.XSSF.UserModel.XSSFWorkbook();
+        var ws = wb.CreateSheet("Template");
+        var headerRow = ws.CreateRow(0);
+        for (var c = 0; c < headers.Length; c++)
+        {
+            headerRow.CreateCell(c).SetCellValue(headers[c]);
+            ws.SetColumnWidth(c, 16 * 256);
+        }
+        for (var r = 0; r < sample.Length; r++)
+        {
+            var row = ws.CreateRow(r + 1);
+            for (var c = 0; c < sample[r].Length; c++)
+            {
+                var cell = row.CreateCell(c);
+                switch (sample[r][c])
+                {
+                    case int i: cell.SetCellValue(i); break;
+                    case double d: cell.SetCellValue(d); break;
+                    case string s: cell.SetCellValue(s); break;
+                }
+            }
+        }
+
+        using var ms = new MemoryStream();
+        wb.Write(ms, leaveOpen: true);
+        ms.Position = 0;
+        var slug = ExportController.SanitizeFileName(priceLabel.ToLowerInvariant() == "asking price" ? "tea-asking-price-template" : "tea-auction-template");
+        return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{slug}.xlsx");
     }
 
     /// <summary>Builds the {value, rangeText} pair for a From/To pair exactly like the original
@@ -188,7 +235,10 @@ public class WorksheetController(ICatalogueSource source, CatalogueImportService
         ["Bags"] = ["bags", "no of bags", "no. of bags", "bag count"],
         ["NetWeight"] = ["net weight", "net wt", "nett weight", "net wt.", "net weight (kg)"],
         ["TotalWeight"] = ["total weight", "total wt", "total weight (kg)", "gross weight", "weight"],
-        ["Valuation"] = ["valuation", "price", "rate", "valuation (rs)", "price/kg"],
+        // Also accepts the Asking Price tool's own header spellings, so a file exported from
+        // either tool loads correctly on both (ported verbatim from the original standalone
+        // apps, which cross-recognise "valuation" and "asking price" the same way).
+        ["Valuation"] = ["valuation", "price", "rate", "valuation (rs)", "price/kg", "asking price", "asking", "ask price", "asking price (rs)", "ask"],
         ["Remarks"] = ["remarks", "remark", "comments", "comment", "notes", "note"],
     };
 

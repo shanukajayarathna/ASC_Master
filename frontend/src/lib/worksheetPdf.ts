@@ -16,12 +16,12 @@ export interface WorksheetPdfColumn<TRow extends WorksheetRow = WorksheetRow> {
 
 export const fmt2 = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function dateStamp(): string {
+export function dateStamp(): string {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function safeFileName(value: string): string {
+export function safeFileName(value: string): string {
   return (
     String(value || "valuation-report")
       .trim()
@@ -49,7 +49,7 @@ function drawMetric(doc: jsPDF, x: number, y: number, width: number, label: stri
 
 /** Loads a public image as a data URL + its natural pixel size, so the logo can be drawn at
  *  its real aspect ratio (matching window.ASC_LOGO / ASC_LOGO_W / ASC_LOGO_H in the original). */
-function loadImage(url: string): Promise<{ dataUrl: string; width: number; height: number } | null> {
+export function loadImage(url: string): Promise<{ dataUrl: string; width: number; height: number } | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
