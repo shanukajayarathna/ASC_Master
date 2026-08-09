@@ -16,8 +16,10 @@
     "@mui/material-nextjs": "^9.1.1",
     "ag-grid-community": "^36.0.0",
     "ag-grid-react": "^36.0.0",
+    "exceljs": "^4.4.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
+    "jszip": "^3.10.1",
     "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4"
