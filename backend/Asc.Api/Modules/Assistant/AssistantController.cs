@@ -146,5 +146,17 @@ public class AssistantController(MongoContext db, AiGateway gateway, AssistantTo
         return Ok(messages.Select(m => new MessageDto(m.Id, m.Role, m.Content, m.CreatedAt, m.Provider)).ToList());
     }
 
+    [HttpDelete("conversations/{id:guid}")]
+    public async Task<IActionResult> DeleteConversation(Guid id, CancellationToken ct)
+    {
+        var userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid) ? uid : Guid.Empty;
+        var conversation = await db.Conversations.Find(c => c.Id == id).FirstOrDefaultAsync(ct);
+        if (conversation is null || conversation.UserId != userId) return NotFound();
+
+        await db.ConversationMessages.DeleteManyAsync(m => m.ConversationId == id, ct);
+        await db.Conversations.DeleteOneAsync(c => c.Id == id, ct);
+        return NoContent();
+    }
+
     private static string TitleFrom(string message) => message.Length <= 60 ? message : message[..60] + "…";
 }

@@ -180,6 +180,8 @@ export const api = {
 
   getConversationMessages: (id: string) => request<ChatMessage[]>(`/api/v1/assistant/conversations/${id}/messages`),
 
+  deleteConversation: (id: string) => request<void>(`/api/v1/assistant/conversations/${id}`, { method: "DELETE" }),
+
   getProviderStatuses: () => request<ProviderStatus[]>("/api/v1/assistant/providers"),
 
   // ---- reports ------------------------------------------------------------------------
