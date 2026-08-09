@@ -26,6 +26,7 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
 
     [HttpPost]
     [RequestSizeLimit(MaxUploadBytes)]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<DocumentDto>> Upload(IFormFile file, CancellationToken ct)
     {
         if (file.Length == 0) return BadRequest("File is empty.");
@@ -93,6 +94,7 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
     }
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await db.Documents.DeleteOneAsync(d => d.Id == id, ct);

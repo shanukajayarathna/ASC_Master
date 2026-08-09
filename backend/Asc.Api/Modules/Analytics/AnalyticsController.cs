@@ -63,9 +63,15 @@ public class AnalyticsController(ICatalogueSource source, MongoContext db) : Con
     {
         var merged = await LoadMerged(catalogueId, ct);
         if (merged is null) return NotFound();
+        return Ok(ComputeBrokerStats(merged));
+    }
 
+    /// <summary>Internal, not private — the AI assistant's get_broker_performance tool reuses
+    /// this without re-deriving per-broker aggregation.</summary>
+    internal static List<BrokerStatsDto> ComputeBrokerStats(List<(Lot Lot, Valuation? Val)> merged)
+    {
         var totalLots = merged.Count;
-        var rows = merged
+        return merged
             .GroupBy(x => string.IsNullOrWhiteSpace(x.Lot.Broker) ? "(unspecified)" : x.Lot.Broker!)
             .Select(g =>
             {
@@ -89,8 +95,6 @@ public class AnalyticsController(ICatalogueSource source, MongoContext db) : Con
             })
             .OrderByDescending(r => r.Avg ?? decimal.MinValue)
             .ToList();
-
-        return Ok(rows);
     }
 
     [HttpGet("{catalogueId:guid}/top-bottom")]
