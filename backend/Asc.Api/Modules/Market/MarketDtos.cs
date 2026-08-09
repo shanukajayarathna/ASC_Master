@@ -2,7 +2,10 @@ namespace Asc.Api.Modules.Market;
 
 public record ImportActualsResultDto(string FileName, int Matched, int Unmatched, int Ambiguous, DateTime ImportedAt);
 
-public record ImportStatusDto(bool HasImport, DateTime? LastImportedAt, int Matched, int Unmatched, int Ambiguous);
+/// <summary>FileEmbeddedMatched is independent of HasImport/Matched — it's the count of lots
+/// whose Status/PurchasedPrice already reflect a settled sale straight from the sale file
+/// itself, with no manual "Import Actual Results" upload involved.</summary>
+public record ImportStatusDto(bool HasImport, DateTime? LastImportedAt, int Matched, int Unmatched, int Ambiguous, int FileEmbeddedMatched);
 
 public record AccuracyOverviewDto(
     int LotsCompared,

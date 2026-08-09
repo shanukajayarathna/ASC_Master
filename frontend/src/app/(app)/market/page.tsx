@@ -156,9 +156,22 @@ export default function MarketPage() {
       {activeCatalogueId && status && (
         <>
           <p className="text-[12.5px] text-text-muted mb-5 border border-border rounded-lg bg-surface px-3.5 py-2.5">
-            {status.hasImport
-              ? `Actuals loaded from your last import (${new Date(status.lastImportedAt!).toLocaleString()}) · ${formatNumber(status.matched)} lots matched, ${formatNumber(status.unmatched)} unmatched, ${formatNumber(status.ambiguous)} ambiguous`
-              : "No actual auction results imported yet for this catalogue."}
+            {status.hasImport ? (
+              <>
+                Actuals loaded from your last import ({new Date(status.lastImportedAt!).toLocaleString()}) ·{" "}
+                {formatNumber(status.matched)} lots matched, {formatNumber(status.unmatched)} unmatched,{" "}
+                {formatNumber(status.ambiguous)} ambiguous
+                {status.fileEmbeddedMatched > 0 &&
+                  ` · ${formatNumber(status.fileEmbeddedMatched)} more available directly from the sale file if needed`}
+              </>
+            ) : status.fileEmbeddedMatched > 0 ? (
+              <>
+                Using {formatNumber(status.fileEmbeddedMatched)} sold lots&apos; results already in this sale file — no
+                import needed. You can still import an external actuals file to override or supplement this.
+              </>
+            ) : (
+              "This sale isn't settled yet, and no actual auction results have been imported for this catalogue."
+            )}
           </p>
 
           {overview && overview.lotsCompared > 0 ? (

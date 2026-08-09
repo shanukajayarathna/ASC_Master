@@ -252,6 +252,9 @@ export interface ImportStatus {
   matched: number;
   unmatched: number;
   ambiguous: number;
+  /** Lots already settled (Status=Sold with a real price) straight from the sale file itself,
+   *  independent of hasImport — accuracy metrics use these automatically with no upload needed. */
+  fileEmbeddedMatched: number;
 }
 
 export interface AccuracyOverview {
