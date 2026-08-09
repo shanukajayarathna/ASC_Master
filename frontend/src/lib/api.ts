@@ -213,22 +213,6 @@ export const api = {
   getAuctionReport: (catalogueId: string, reportKey: string) =>
     request<AuctionReport>(`/api/v1/auction-reports/${catalogueId}/${reportKey}`),
 
-  exportAuctionReportExcel: async (catalogueId: string, reportKey: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/v1/auction-reports/${catalogueId}/${reportKey}/excel`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-    });
-    if (!res.ok) throw new Error("Export failed");
-    return res.blob();
-  },
-
-  exportCombinedReportExcel: async (catalogueId: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/v1/auction-reports/${catalogueId}/combined/excel`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-    });
-    if (!res.ok) throw new Error("Export failed");
-    return res.blob();
-  },
-
   // ---- worksheet (rough pre-auction scratchpad) ---------------------------------------
 
   getWorksheetLots: (catalogueId: string, broker: string, factories: string[]) => {

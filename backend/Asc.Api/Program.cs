@@ -85,8 +85,9 @@ builder.Services.AddSingleton<AssistantToolExecutor>();
 builder.Services.AddSingleton<ReportGenerator>();
 
 // Combined Report / Top Prices — cross-broker per-grade ranking (see Modules/AuctionReports).
+// Excel/PDF export for this report now happens client-side (frontend/src/lib/combinedReportExport.ts),
+// ported near-verbatim from the original standalone app so the output matches exactly.
 builder.Services.AddSingleton<Asc.Api.Modules.AuctionReports.TopPriceEngine>();
-builder.Services.AddSingleton<Asc.Api.Modules.AuctionReports.AuctionReportExcelBuilder>();
 
 // Worksheet — rough pre-auction scratchpad, never persisted (see Modules/Worksheet).
 builder.Services.AddSingleton<Asc.Api.Modules.Worksheet.WorksheetExcelBuilder>();

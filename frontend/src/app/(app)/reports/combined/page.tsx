@@ -5,8 +5,10 @@ import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
+import { exportCombinedReportExcel, exportCombinedReportPdf } from "@/lib/combinedReportExport";
 import type { CombinedReport } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
@@ -14,15 +16,6 @@ import Select from "@mui/material/Select";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import { useEffect, useState } from "react";
-
-function triggerDownload(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export default function CombinedReportPage() {
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
@@ -32,6 +25,7 @@ export default function CombinedReportPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => {
     if (!activeCatalogueId) {
@@ -54,15 +48,28 @@ export default function CombinedReportPage() {
   const report = combined?.reports[activeFamily] ?? null;
 
   const exportExcel = async () => {
-    if (!activeCatalogueId || !report) return;
+    if (!report) return;
     setExporting(true);
+    setError(null);
     try {
-      const blob = await api.exportAuctionReportExcel(activeCatalogueId, report.reportKey);
-      triggerDownload(blob, `${report.title.replace(/\s+/g, "_")}.xlsx`);
+      await exportCombinedReportExcel(report);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!report) return;
+    setExportingPdf(true);
+    setError(null);
+    try {
+      await exportCombinedReportPdf(report);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "PDF export failed");
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -136,7 +143,15 @@ export default function CombinedReportPage() {
 
               <div className="flex items-center gap-2.5 mt-5 print:hidden">
                 <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()}>
-                  Print / Save as PDF
+                  Print
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<PictureAsPdfOutlinedIcon fontSize="small" />}
+                  onClick={exportPdf}
+                  disabled={exportingPdf}
+                >
+                  {exportingPdf ? "Exporting…" : "Export PDF"}
                 </Button>
                 <Button
                   variant="outlined"
