@@ -7,6 +7,7 @@ using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Notifications;
+using Asc.Api.Modules.Observability;
 using Asc.Api.Modules.Webhooks;
 using MongoDB.Driver;
 
@@ -86,6 +87,13 @@ public class MongoContext
                 Builders<Deadline>.IndexKeys.Ascending(d => d.Type).Ascending(d => d.EntityId),
                 new CreateIndexOptions { Unique = true }),
         ]);
+
+        // The usage/cost summary endpoint always aggregates "last N days" — a descending
+        // index on CreatedAt is all that query needs.
+        AiUsageLogs.Indexes.CreateMany(
+        [
+            new CreateIndexModel<AiUsageLogEntry>(Builders<AiUsageLogEntry>.IndexKeys.Descending(e => e.CreatedAt)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -117,4 +125,6 @@ public class MongoContext
 
     public IMongoCollection<Notification> Notifications => Database.GetCollection<Notification>("notifications");
     public IMongoCollection<Deadline> Deadlines => Database.GetCollection<Deadline>("deadlines");
+
+    public IMongoCollection<AiUsageLogEntry> AiUsageLogs => Database.GetCollection<AiUsageLogEntry>("aiUsageLogs");
 }

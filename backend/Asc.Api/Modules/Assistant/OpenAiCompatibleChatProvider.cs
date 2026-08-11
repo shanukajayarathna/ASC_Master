@@ -29,13 +29,15 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
 
     public string Model => config[ModelConfigKey] ?? DefaultModel;
 
-    public async Task<string> CompleteAsync(
+    public async Task<ChatCompletionResult> CompleteAsync(
         string systemPrompt,
         IReadOnlyList<(string Role, string Content)> history,
         IReadOnlyList<ToolDef> tools,
         Func<string, string, Task<string>> executeTool,
         CancellationToken ct = default)
     {
+        var promptTokens = 0;
+        var completionTokens = 0;
         var apiKey = config[ApiKeyConfigKey]
             ?? throw new InvalidOperationException(
                 $"{ApiKeyConfigKey} is not configured. Set it with: dotnet user-secrets set {ApiKeyConfigKey} \"...\"");
@@ -82,10 +84,13 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
             var message = parsed["choices"]![0]!["message"]!;
             var finishReason = parsed["choices"]![0]!["finish_reason"]!.GetValue<string>();
 
+            promptTokens += parsed["usage"]?["prompt_tokens"]?.GetValue<int>() ?? 0;
+            completionTokens += parsed["usage"]?["completion_tokens"]?.GetValue<int>() ?? 0;
+
             messages.Add(message.DeepClone());
 
             if (finishReason != "tool_calls")
-                return message["content"]?.GetValue<string>() ?? string.Empty;
+                return new ChatCompletionResult(message["content"]?.GetValue<string>() ?? string.Empty, promptTokens, completionTokens);
 
             foreach (var call in message["tool_calls"]!.AsArray())
             {
@@ -102,7 +107,9 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
             }
         }
 
-        return "I wasn't able to finish that within the allotted tool calls — try rephrasing or narrowing the question.";
+        return new ChatCompletionResult(
+            "I wasn't able to finish that within the allotted tool calls — try rephrasing or narrowing the question.",
+            promptTokens, completionTokens);
     }
 }
 

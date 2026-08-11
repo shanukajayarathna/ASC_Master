@@ -2,6 +2,11 @@ namespace Asc.Api.Modules.Assistant;
 
 public record ToolDef(string Name, string Description, object ParametersSchema, bool RequiresAdmin = false);
 
+/// <summary>Token counts are summed across every round trip of a single CompleteAsync call,
+/// including tool-calling iterations — each is a separate upstream request with its own usage
+/// block. Zero when a provider's usage field is missing or unparsable, never a guess.</summary>
+public record ChatCompletionResult(string Reply, int PromptTokens, int CompletionTokens);
+
 /// <summary>
 /// The chat seam — same swap-later shape as <see cref="Asc.Api.Modules.Documents.IEmbeddingProvider"/>.
 /// Multiple vendors implement this behind the AI Gateway (<see cref="AiGateway"/>): OpenAI
@@ -25,7 +30,7 @@ public interface IChatProvider
     /// <summary>The configured (or default) model name — never a secret, safe to expose.</summary>
     string Model { get; }
 
-    Task<string> CompleteAsync(
+    Task<ChatCompletionResult> CompleteAsync(
         string systemPrompt,
         IReadOnlyList<(string Role, string Content)> history,
         IReadOnlyList<ToolDef> tools,

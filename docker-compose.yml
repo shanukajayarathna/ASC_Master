@@ -1,0 +1,40 @@
+# Two services only — MongoDB is Atlas (a managed cloud cluster the app already points at
+# in every environment, dev included), not a container this compose file owns. See
+# DEPLOYMENT.md for the full list of required environment variables.
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Asc.Api/Dockerfile
+    ports:
+      - "5058:8080"
+    environment:
+      ConnectionStrings__Mongo: ${MONGO_CONNECTION_STRING}
+      MongoDatabaseName: ${MONGO_DATABASE_NAME:-asc_tea}
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-asc-intelligence-hub}
+      Jwt__Audience: ${JWT_AUDIENCE:-asc-intelligence-hub}
+      Cors__AllowedOrigins: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      Groq__ApiKey: ${GROQ_API_KEY:-}
+      Gemini__ApiKey: ${GEMINI_API_KEY:-}
+    volumes:
+      # Sale-import Excel files, uploaded knowledge-base documents, and lot media all live
+      # here (see Dockerfile's comment on the ContentRootPath/../../data convention) — a
+      # named volume so they survive `docker compose down`/rebuilds.
+      - asc-data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5058}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  asc-data:

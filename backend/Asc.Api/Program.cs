@@ -12,6 +12,7 @@ using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Knowledge;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Notifications;
+using Asc.Api.Modules.Observability;
 using Asc.Api.Modules.Performance;
 using Asc.Api.Modules.Reports;
 using Asc.Api.Modules.Webhooks;
@@ -93,6 +94,12 @@ builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GroqCha
 builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GeminiChatProvider>());
 builder.Services.AddScoped<AiGateway>();
 builder.Services.AddSingleton<AssistantToolExecutor>();
+
+// AI usage/cost tracking (Phase 8 — observability) — every AiGateway call, success or
+// failure, is recorded here; see Modules/Observability. Cost is only estimated for models
+// with a configured "AiPricing:<model>" price entry, never guessed.
+builder.Services.AddSingleton<AiCostEstimator>();
+builder.Services.AddSingleton<IAiUsageLogger, AiUsageLogger>();
 
 // Agent Platform — User Request → AgentRouter → Selected Agent → KnowledgeService → LLM →
 // Agent Response (see Modules/Agents). Scoped, matching AiGateway's own lifetime: a scoped
@@ -205,7 +212,15 @@ builder.Services.AddAuthorization(opts =>
     opts.AddPolicy(Policies.ManageKnowledgeBase, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.UseAdminAiTools, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ViewAuditLog, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ViewObservability, p => p.RequireRole(RoleNames.Admin));
 });
+
+// Liveness probe for container orchestration (Phase 9) — deliberately just "did the process
+// start and is it still responding", not a deep dependency check: MongoDB Atlas is a managed
+// external cloud service outside this container's blast radius, so a health check that fails
+// on transient Atlas latency would cause an orchestrator to kill and restart a perfectly
+// healthy process for a problem restarting it can't fix.
+builder.Services.AddHealthChecks();
 
 // Throttles login attempts per client IP so a stolen/guessed-at password list can't be
 // brute-forced against /api/v1/auth/login — there's no account lockout, so this is the
@@ -225,12 +240,18 @@ builder.Services.AddRateLimiter(opts =>
             }));
 });
 
-const string CorsPolicy = "FrontendDev";
+const string CorsPolicy = "Frontend";
+// Configurable so a deployed container can point at its real frontend origin
+// (Cors:AllowedOrigins, comma-separated) without a code change — falls back to the dev
+// default when unset, so local `dotnet run` behavior is unchanged.
+var corsOrigins = builder.Configuration["Cors:AllowedOrigins"]?
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    ?? ["http://localhost:3000"];
 builder.Services.AddCors(opts =>
 {
     opts.AddPolicy(CorsPolicy, policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(corsOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -268,5 +289,6 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

@@ -24,13 +24,15 @@ public class GeminiChatProvider(HttpClient http, IConfiguration config) : IChatP
     public bool IsConfigured => !string.IsNullOrWhiteSpace(config["Gemini:ApiKey"]);
     public string Model => config["Gemini:Model"] ?? "gemini-flash-latest";
 
-    public async Task<string> CompleteAsync(
+    public async Task<ChatCompletionResult> CompleteAsync(
         string systemPrompt,
         IReadOnlyList<(string Role, string Content)> history,
         IReadOnlyList<ToolDef> tools,
         Func<string, string, Task<string>> executeTool,
         CancellationToken ct = default)
     {
+        var promptTokens = 0;
+        var completionTokens = 0;
         var apiKey = config["Gemini:ApiKey"]
             ?? throw new InvalidOperationException(
                 "Gemini:ApiKey is not configured. Set it with: dotnet user-secrets set Gemini:ApiKey \"...\"");
@@ -82,12 +84,15 @@ public class GeminiChatProvider(HttpClient http, IConfiguration config) : IChatP
             var contentNode = candidate?["content"];
             var parts = contentNode?["parts"]?.AsArray() ?? [];
 
+            promptTokens += parsed["usageMetadata"]?["promptTokenCount"]?.GetValue<int>() ?? 0;
+            completionTokens += parsed["usageMetadata"]?["candidatesTokenCount"]?.GetValue<int>() ?? 0;
+
             var functionCalls = parts.Where(p => p!["functionCall"] is not null).ToList();
 
             if (functionCalls.Count == 0)
             {
                 var text = string.Concat(parts.Select(p => p!["text"]?.GetValue<string>() ?? string.Empty));
-                return text;
+                return new ChatCompletionResult(text, promptTokens, completionTokens);
             }
 
             // Echo the model's own turn back into history before appending the tool results, so
@@ -118,6 +123,8 @@ public class GeminiChatProvider(HttpClient http, IConfiguration config) : IChatP
             contents.Add(new JsonObject { ["role"] = "user", ["parts"] = responseParts });
         }
 
-        return "I wasn't able to finish that within the allotted tool calls — try rephrasing or narrowing the question.";
+        return new ChatCompletionResult(
+            "I wasn't able to finish that within the allotted tool calls — try rephrasing or narrowing the question.",
+            promptTokens, completionTokens);
     }
 }

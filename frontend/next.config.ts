@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle (frontend/Dockerfile copies only .next/standalone + static
+  // assets into the runtime image) — doesn't change `next dev`/`next start` behavior at all,
+  // only what `next build` additionally emits.
+  output: "standalone",
   // Pin the workspace root explicitly: the repo root now also has a package-lock.json
   // (for the `concurrently`-based `npm run dev` that starts both frontend and backend),
   // which otherwise makes Turbopack guess wrong about which directory is the app root.

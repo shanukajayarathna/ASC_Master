@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+**/.vs/
+Asc.Api.Tests/
+.config/
+*.user

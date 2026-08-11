@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Asc.Api.Modules.Observability;
 
 namespace Asc.Api.Modules.Assistant;
 
@@ -8,8 +9,11 @@ namespace Asc.Api.Modules.Assistant;
 /// Gemini/Groq providers. No routing intelligence beyond "requested key, or the default" —
 /// deliberately, per the project's "don't over-engineer Auto mode yet" scoping. Never falls back
 /// silently: an unknown or unconfigured provider always surfaces as a clean error to the caller.
+/// Every call — success or failure — is also recorded via <see cref="IAiUsageLogger"/>, the
+/// only place in the app that talks to a chat vendor, so usage/cost tracking never needs a
+/// second seam bolted on elsewhere.
 /// </summary>
-public class AiGateway(IEnumerable<IChatProvider> providers, ILogger<AiGateway> logger)
+public class AiGateway(IEnumerable<IChatProvider> providers, IAiUsageLogger usageLogger, ILogger<AiGateway> logger)
 {
     private const string DefaultProviderKey = "openai";
 
@@ -38,17 +42,19 @@ public class AiGateway(IEnumerable<IChatProvider> providers, ILogger<AiGateway> 
         var sw = Stopwatch.StartNew();
         try
         {
-            var reply = await provider.CompleteAsync(systemPrompt, history, tools, executeTool, ct);
+            var result = await provider.CompleteAsync(systemPrompt, history, tools, executeTool, ct);
             logger.LogInformation(
-                "AI gateway call: provider={Provider} model={Model} durationMs={DurationMs} success=true",
-                provider.Key, provider.Model, sw.ElapsedMilliseconds);
-            return (reply, provider.Key);
+                "AI gateway call: provider={Provider} model={Model} durationMs={DurationMs} promptTokens={PromptTokens} completionTokens={CompletionTokens} success=true",
+                provider.Key, provider.Model, sw.ElapsedMilliseconds, result.PromptTokens, result.CompletionTokens);
+            await usageLogger.LogAsync(provider.Key, provider.Model, result.PromptTokens, result.CompletionTokens, true, sw.ElapsedMilliseconds, ct);
+            return (result.Reply, provider.Key);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex,
                 "AI gateway call: provider={Provider} model={Model} durationMs={DurationMs} success=false",
                 provider.Key, provider.Model, sw.ElapsedMilliseconds);
+            await usageLogger.LogAsync(provider.Key, provider.Model, 0, 0, false, sw.ElapsedMilliseconds, ct);
             throw new ProviderUnavailableException($"{provider.DisplayName} request failed: {ex.Message}");
         }
     }

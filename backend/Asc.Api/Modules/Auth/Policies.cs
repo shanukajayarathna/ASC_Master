@@ -16,4 +16,5 @@ public static class Policies
     public const string ManageKnowledgeBase = "ManageKnowledgeBase";
     public const string UseAdminAiTools = "UseAdminAiTools";
     public const string ViewAuditLog = "ViewAuditLog";
+    public const string ViewObservability = "ViewObservability";
 }
