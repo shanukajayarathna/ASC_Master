@@ -22,7 +22,12 @@ interface CatalogueCtx {
    *  sale; consumers that need to tell "loading" apart from "loaded, zero lots" should check
    *  activeCatalogueId too. */
   activeStats: DashboardStats | null;
+  /** True while a sale switch (selectCatalogue) is in flight. Kept separate from `importing`
+   *  so an unrelated sale switch elsewhere in the app (e.g. the Topbar dropdown) doesn't make
+   *  the catalogue page's import dropzone look/act busy. */
   loading: boolean;
+  /** True only while importFile is in flight. */
+  importing: boolean;
   error: string | null;
   refreshList: () => Promise<void>;
   selectCatalogue: (id: string | null) => Promise<void>;
@@ -40,6 +45,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
   const [activeCatalogueId, setActiveCatalogueId] = useState<string | null>(null);
   const [activeStats, setActiveStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Fetched independently of selectCatalogue (not awaited there) so the stats call runs in
@@ -108,7 +114,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
 
   const importFile = useCallback(
     async (file: File, options?: { select?: boolean }) => {
-      setLoading(true);
+      setImporting(true);
       try {
         setError(null);
         const detail = await api.importCatalogue(file);
@@ -119,7 +125,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
         setError(e instanceof Error ? e.message : "Import failed");
         throw e;
       } finally {
-        setLoading(false);
+        setImporting(false);
       }
     },
     [refreshList, selectCatalogue]
@@ -143,6 +149,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
       activeCatalogueId,
       activeStats,
       loading,
+      importing,
       error,
       refreshList: async () => {
         await refreshList();
@@ -151,7 +158,7 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
       importFile,
       removeCatalogue,
     }),
-    [catalogues, activeCatalogue, activeCatalogueId, activeStats, loading, error, refreshList, selectCatalogue, importFile, removeCatalogue]
+    [catalogues, activeCatalogue, activeCatalogueId, activeStats, loading, importing, error, refreshList, selectCatalogue, importFile, removeCatalogue]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

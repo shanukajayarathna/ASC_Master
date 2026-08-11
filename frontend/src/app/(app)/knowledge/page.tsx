@@ -3,13 +3,20 @@
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
+import { DOCUMENT_CATEGORIES, DOCUMENT_CATEGORY_LABELS } from "@/lib/documentCategories";
 import type { DocumentSearchResult, KnowledgeDocument } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import { useEffect, useRef, useState } from "react";
@@ -20,17 +27,36 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** The page's established "meta label" style (see the "Documents"/"No matches" headers
+ *  below) reused as a small badge — categories are distinguished by their text, not color,
+ *  so this stays neutral rather than inventing a semantic color per category. */
+function CategoryBadge({ category }: { category: string }) {
+  return (
+    <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted border border-border rounded px-1.5 py-0.5">
+      {DOCUMENT_CATEGORY_LABELS[category as keyof typeof DOCUMENT_CATEGORY_LABELS] ?? category}
+    </span>
+  );
+}
+
 export default function KnowledgeBasePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<DocumentSearchResult[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadCategory, setUploadCategory] = useState<string>("Internal");
+  const [uploadEffectiveDate, setUploadEffectiveDate] = useState("");
+  const [uploadExpiryDate, setUploadExpiryDate] = useState("");
+  const [uploadSupersedes, setUploadSupersedes] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -46,14 +72,33 @@ export default function KnowledgeBasePage() {
     refresh();
   }, []);
 
-  const handleFile = async (file: File) => {
+  const resetUploadForm = () => {
+    setUploadFile(null);
+    setUploadCategory("Internal");
+    setUploadEffectiveDate("");
+    setUploadExpiryDate("");
+    setUploadSupersedes("");
+    setUploadError(null);
+  };
+
+  const submitUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
     setUploading(true);
-    setError(null);
+    setUploadError(null);
     try {
-      await api.uploadDocument(file);
+      await api.uploadDocument(
+        uploadFile,
+        uploadCategory,
+        uploadEffectiveDate || undefined,
+        uploadExpiryDate || undefined,
+        uploadSupersedes || undefined
+      );
+      setUploadOpen(false);
+      resetUploadForm();
       refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -123,7 +168,10 @@ export default function KnowledgeBasePage() {
           <div className="flex flex-col gap-2.5">
             {results.map((r, i) => (
               <div key={i} className="border border-border rounded-lg bg-surface p-3.5">
-                <div className="text-[11px] font-mono text-text-muted mb-1.5">{r.documentFileName}</div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[11px] font-mono text-text-muted">{r.documentFileName}</span>
+                  <CategoryBadge category={r.category} />
+                </div>
                 <p className="text-[13px] text-text m-0 leading-relaxed whitespace-pre-wrap">{r.chunkText}</p>
               </div>
             ))}
@@ -137,22 +185,10 @@ export default function KnowledgeBasePage() {
           variant="outlined"
           size="small"
           startIcon={<UploadFileOutlinedIcon fontSize="small" />}
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          onClick={() => setUploadOpen(true)}
         >
-          {uploading ? "Uploading…" : "Upload"}
+          Upload
         </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,.pptx,.xlsx,.xls"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleFile(f);
-            e.target.value = "";
-          }}
-        />
       </div>
 
       {loading ? (
@@ -165,23 +201,113 @@ export default function KnowledgeBasePage() {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {documents.map((d) => (
-            <div key={d.id} className="flex items-center gap-3 border border-border rounded-lg bg-surface px-3.5 py-2.5">
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] text-text-strong truncate">{d.fileName}</div>
-                <div className="text-[11px] text-text-muted font-mono">
-                  {formatSize(d.sizeBytes)} · {new Date(d.uploadedAt).toLocaleString()}
+          {documents.map((d) => {
+            const supersededByName = d.supersededByDocumentId
+              ? documents.find((other) => other.id === d.supersededByDocumentId)?.fileName
+              : null;
+            return (
+              <div key={d.id} className="flex items-center gap-3 border border-border rounded-lg bg-surface px-3.5 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] text-text-strong truncate">{d.fileName}</span>
+                    <CategoryBadge category={d.category} />
+                  </div>
+                  <div className="text-[11px] text-text-muted font-mono">
+                    {formatSize(d.sizeBytes)} · {new Date(d.uploadedAt).toLocaleString()}
+                    {d.effectiveDate && ` · effective ${new Date(d.effectiveDate).toLocaleDateString()}`}
+                    {d.expiryDate && ` · expires ${new Date(d.expiryDate).toLocaleDateString()}`}
+                  </div>
+                  {supersededByName && (
+                    <div className="text-[11px] text-text-muted italic mt-0.5">Superseded by {supersededByName}</div>
+                  )}
                 </div>
+                <Tooltip title="Delete">
+                  <IconButton size="small" onClick={() => handleDelete(d.id)} aria-label={`Delete ${d.fileName}`}>
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </div>
-              <Tooltip title="Delete">
-                <IconButton size="small" onClick={() => handleDelete(d.id)} aria-label={`Delete ${d.fileName}`}>
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+      <Dialog open={uploadOpen} onClose={() => (uploading ? null : setUploadOpen(false))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>Upload Document</DialogTitle>
+        <form onSubmit={submitUpload}>
+          <DialogContent>
+            {uploadError && (
+              <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{uploadError}</div>
+            )}
+            <div className="flex flex-col gap-3">
+              <div>
+                <Button variant="outlined" size="small" fullWidth onClick={() => fileInputRef.current?.click()}>
+                  {uploadFile ? uploadFile.name : "Choose File"}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.pptx,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+
+              <Select size="small" value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)} fullWidth>
+                {DOCUMENT_CATEGORIES.map((c) => (
+                  <MenuItem key={c} value={c}>
+                    {DOCUMENT_CATEGORY_LABELS[c]}
+                  </MenuItem>
+                ))}
+              </Select>
+
+              <TextField
+                label="Effective date"
+                type="date"
+                size="small"
+                value={uploadEffectiveDate}
+                onChange={(e) => setUploadEffectiveDate(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                helperText="Optional — when this document's guidance starts applying."
+                fullWidth
+              />
+              <TextField
+                label="Expiry date"
+                type="date"
+                size="small"
+                value={uploadExpiryDate}
+                onChange={(e) => setUploadExpiryDate(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                helperText="Optional — when it stops applying."
+                fullWidth
+              />
+
+              <Select
+                size="small"
+                value={uploadSupersedes}
+                onChange={(e) => setUploadSupersedes(e.target.value)}
+                displayEmpty
+                fullWidth
+              >
+                <MenuItem value="">This is a new document</MenuItem>
+                {documents.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    Supersedes: {d.fileName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </div>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setUploadOpen(false)} disabled={uploading}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={uploading || !uploadFile} aria-busy={uploading}>
+              {uploading ? "Uploading…" : "Upload"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
     </div>
   );
 }

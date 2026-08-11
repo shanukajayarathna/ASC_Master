@@ -8,6 +8,7 @@ import { formatCurrency, formatNumber } from "@/lib/format";
 import type { Report } from "@/types/api";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import SlideshowOutlinedIcon from "@mui/icons-material/SlideshowOutlined";
 import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
@@ -49,7 +50,7 @@ export default function ReportsPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"excel" | "save" | null>(null);
+  const [busy, setBusy] = useState<"excel" | "pptx" | "save" | null>(null);
   const [saved, setSaved] = useState(false);
 
   // A "Reopen" link from Saved Reports carries ?catalogueId=; apply it once on load.
@@ -81,6 +82,19 @@ export default function ReportsPage() {
     try {
       const blob = await api.exportReportExcel(activeCatalogueId, type);
       triggerDownload(blob, `${report.title.replace(/\s+/g, "_")}.xlsx`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const exportPptx = async () => {
+    if (!activeCatalogueId || !report) return;
+    setBusy("pptx");
+    try {
+      const blob = await api.exportReportPptx(activeCatalogueId, type);
+      triggerDownload(blob, `${report.title.replace(/\s+/g, "_")}.pptx`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -227,6 +241,14 @@ export default function ReportsPage() {
               disabled={busy === "excel"}
             >
               {busy === "excel" ? "Exporting…" : "Export to Excel"}
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<SlideshowOutlinedIcon fontSize="small" />}
+              onClick={exportPptx}
+              disabled={busy === "pptx"}
+            >
+              {busy === "pptx" ? "Exporting…" : "Download PPTX"}
             </Button>
             <Button
               variant="outlined"

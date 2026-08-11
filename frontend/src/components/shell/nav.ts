@@ -12,6 +12,7 @@ import RequestQuoteOutlinedIcon from "@mui/icons-material/RequestQuoteOutlined";
 import SpaceDashboardOutlinedIcon from "@mui/icons-material/SpaceDashboardOutlined";
 import SummarizeOutlinedIcon from "@mui/icons-material/SummarizeOutlined";
 import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
+import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 
@@ -124,6 +125,15 @@ export const NAV_ITEMS: NavItem[] = [
     icon: PublicOutlinedIcon,
     gradient: 1,
     image: "https://images.unsplash.com/photo-1524661135-423995f22d0b",
+  },
+  {
+    href: "/performance",
+    label: "Performance",
+    section: "Intelligence",
+    status: "live",
+    description: "Cross-sale grade valuation streaks and buyer purchase-volume trends.",
+    icon: TrendingUpOutlinedIcon,
+    gradient: 2,
   },
   {
     href: "/saved-reports",

@@ -34,6 +34,35 @@ export interface WebhookCreated {
   secret: string;
 }
 
+/** A canonical business entity (a specific broker, buyer, garden, grade, ...) plus every raw
+ *  spelling variant seen in broker files that should resolve to it. `type` is one of
+ *  MASTER_DATA_ENTITY_TYPES — sent/received as a plain string, not a numeric enum. */
+export interface MasterDataEntity {
+  id: string;
+  type: string;
+  canonicalName: string;
+  aliases: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One raw value seen in source files that doesn't yet resolve to any canonical entity. */
+export interface UnmappedMasterDataValue {
+  value: string;
+  count: number;
+}
+
+/** One "who did what" record from the audit trail. */
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  userEmail: string | null;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  details: string | null;
+}
+
 export interface AuthResponse {
   token: string;
   user: AuthUser;
@@ -283,6 +312,43 @@ export interface MarketInsight {
   magnitude: number;
 }
 
+/** A cross-sale trend finding (Dimension "Grade" or "Buyer") — description is a
+ *  ready-to-render, server-built sentence, never AI-generated. */
+export interface PerformanceInsight {
+  dimension: string;
+  key: string;
+  direction: string;
+  magnitude: number;
+  unit: string;
+  salesSpan: number;
+  description: string;
+}
+
+/** One in-app notification. actionUrl, when set, is a frontend route to navigate to on click. */
+export interface AppNotification {
+  id: string;
+  type: string;
+  priority: string;
+  title: string;
+  body: string | null;
+  actionUrl: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface Deadline {
+  id: string;
+  type: string;
+  entityId: string;
+  entityLabel: string | null;
+  dueAt: string;
+  responsibleRole: string;
+  status: string;
+  notifiedEscalationLevel: number;
+}
+
 export interface BrokerStats {
   name: string;
   lots: number;
@@ -302,6 +368,13 @@ export interface KnowledgeDocument {
   contentType: string;
   sizeBytes: number;
   uploadedAt: string;
+  category: string;
+  effectiveDate: string | null;
+  expiryDate: string | null;
+  supersedesDocumentId: string | null;
+  /** Set when a newer upload named this document as the one it supersedes — computed
+   *  server-side, not stored (see KnowledgeDocument.cs's doc comment). */
+  supersededByDocumentId: string | null;
 }
 
 export interface DocumentSearchResult {
@@ -309,6 +382,7 @@ export interface DocumentSearchResult {
   documentId: string;
   chunkText: string;
   score: number;
+  category: string;
 }
 
 export interface ColumnMeta {

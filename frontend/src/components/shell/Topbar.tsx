@@ -4,6 +4,8 @@ import BrandLogo from "@/components/shell/BrandLogo";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
+import { api } from "@/lib/api";
+import type { AppNotification } from "@/types/api";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
@@ -24,7 +26,19 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
-import { useState, type MouseEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type MouseEvent } from "react";
+
+function timeAgo(iso: string): string {
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -132,36 +146,114 @@ function ThemeMenu() {
   );
 }
 
-/** The bell's badge is a real number — lots still pending a valuation in the active sale
- *  (the same `DashboardStats.pending` the launchpad KPIs show) — not a decorative count.
- *  Read from CatalogueContext (shared with the dashboard's own KPIs) rather than fetched
- *  here too — this renders on every page, so an independent fetch here doubled up with the
- *  dashboard's whenever both were mounted at once. */
+/** A real notification center: the badge is the account's actual unread count (polled every
+ *  60s, independent of whatever page is mounted), and opening the bell fetches the real
+ *  list — title/body/priority/read-state — rather than a single derived "pending valuations"
+ *  number. Deadline reminders (see Modules/Deadlines) are the first real producer; more
+ *  notification types are additive from here, nothing here is specific to valuations. */
 function NotificationsMenu() {
-  const { activeCatalogue, activeStats } = useCatalogue();
-  const pending = activeStats?.pending ?? null;
+  const router = useRouter();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => api.getUnreadNotificationCount().then(setUnreadCount).catch(() => {});
+    refresh();
+    const interval = setInterval(refresh, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const open = (e: MouseEvent<HTMLElement>) => {
+    setAnchor(e.currentTarget);
+    setLoading(true);
+    api
+      .listNotifications()
+      .then(setNotifications)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  const close = () => setAnchor(null);
+
+  const handleClick = (n: AppNotification) => {
+    if (!n.readAt) {
+      const readAt = new Date().toISOString();
+      setNotifications((list) => list.map((x) => (x.id === n.id ? { ...x, readAt } : x)));
+      setUnreadCount((c) => Math.max(0, c - 1));
+      api.markNotificationRead(n.id).catch(() => {});
+    }
+    close();
+    if (n.actionUrl) router.push(n.actionUrl);
+  };
+
+  const markAllRead = () => {
+    const readAt = new Date().toISOString();
+    setNotifications((list) => list.map((n) => ({ ...n, readAt: n.readAt ?? readAt })));
+    setUnreadCount(0);
+    api.markAllNotificationsRead().catch(() => {});
+  };
 
   return (
     <>
-      <Tooltip title="Pending valuations">
-        <IconButton onClick={(e) => setAnchor(e.currentTarget)} size="small" aria-label="Notifications">
-          <Badge badgeContent={pending ?? 0} color="error" max={99} invisible={!pending}>
+      <Tooltip title="Notifications">
+        <IconButton onClick={open} size="small" aria-label="Notifications">
+          <Badge badgeContent={unreadCount} color="error" max={99} invisible={!unreadCount}>
             <NotificationsNoneOutlinedIcon fontSize="small" />
           </Badge>
         </IconButton>
       </Tooltip>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
-        <MenuItem disabled sx={{ opacity: "1 !important" }}>
-          <ListItemText
-            primary={pending ? `${pending.toLocaleString()} lot${pending === 1 ? "" : "s"} pending valuation` : "Nothing pending"}
-            secondary={activeCatalogue?.sourceName ?? "No active sale"}
-          />
-        </MenuItem>
-        {!!pending && (
-          <MenuItem component={Link} href="/valuation" onClick={() => setAnchor(null)}>
-            Go to Valuation Centre
+      <Menu
+        anchorEl={anchor}
+        open={!!anchor}
+        onClose={close}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        slotProps={{ paper: { sx: { width: 360, maxHeight: 440 } } }}
+      >
+        <div className="flex items-center justify-between px-3 py-1.5">
+          <span className="text-[11px] font-mono tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
+            Notifications
+          </span>
+          {notifications.some((n) => !n.readAt) && (
+            <button
+              type="button"
+              onClick={markAllRead}
+              className="text-[11px] border-0 bg-transparent cursor-pointer p-0"
+              style={{ color: "var(--liquor)" }}
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
+        <Divider />
+        {loading ? (
+          <MenuItem disabled sx={{ opacity: "1 !important" }}>
+            <ListItemText primary="Loading…" />
           </MenuItem>
+        ) : notifications.length === 0 ? (
+          <MenuItem disabled sx={{ opacity: "1 !important" }}>
+            <ListItemText primary="Nothing yet" secondary="You're all caught up." />
+          </MenuItem>
+        ) : (
+          notifications.map((n) => (
+            <MenuItem key={n.id} onClick={() => handleClick(n)} sx={{ whiteSpace: "normal", alignItems: "flex-start", opacity: n.readAt ? 0.62 : 1 }}>
+              <ListItemText
+                primary={
+                  <span className="flex items-center gap-1.5">
+                    {n.priority === "high" && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--danger)" }} />}
+                    <span className="text-[12.5px] font-medium">{n.title}</span>
+                  </span>
+                }
+                secondary={
+                  <span className="flex flex-col gap-0.5 mt-0.5">
+                    {n.body && <span className="text-[11.5px] block">{n.body}</span>}
+                    <span className="text-[10.5px] font-mono block">{timeAgo(n.createdAt)}</span>
+                  </span>
+                }
+              />
+            </MenuItem>
+          ))
         )}
       </Menu>
     </>

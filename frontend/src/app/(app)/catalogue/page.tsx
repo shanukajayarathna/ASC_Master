@@ -95,7 +95,7 @@ export default function CataloguePage() {
     activeCatalogueId,
     selectCatalogue,
     importFile,
-    loading: catalogueLoading,
+    importing: catalogueLoading,
     error: catalogueError,
   } = useCatalogue();
 

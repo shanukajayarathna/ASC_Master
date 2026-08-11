@@ -212,9 +212,6 @@ export default function CatalogueGrid({
         onColumnVisible={handleColumnVisible}
         onGridReady={handleGridReady}
         onGridSizeChanged={fitColumns}
-        pagination
-        paginationPageSize={50}
-        paginationPageSizeSelector={[25, 50, 100, 250]}
         animateRows={false}
         tooltipShowDelay={300}
         defaultColDef={{ sortable: true, filter: true, resizable: true }}

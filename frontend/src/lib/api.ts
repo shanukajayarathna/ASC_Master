@@ -3,7 +3,9 @@ import type {
   AccuracyOverview,
   ApiKeyCreated,
   ApiKeySummary,
+  AppNotification,
   AuctionReport,
+  AuditLogEntry,
   AuthResponse,
   AuthUser,
   BrokerStats,
@@ -15,6 +17,7 @@ import type {
   Conversation,
   DashboardStats,
   DataQuality,
+  Deadline,
   DocumentSearchResult,
   FilterPreset,
   ImportActualsResult,
@@ -22,14 +25,17 @@ import type {
   KnowledgeDocument,
   Lot,
   MarketInsight,
+  MasterDataEntity,
   OverviewStats,
   PagedLots,
+  PerformanceInsight,
   PreviousGradeStats,
   ProviderStatus,
   Report,
   ReportGroupRow,
   SavedReport,
   TopBottomLot,
+  UnmappedMasterDataValue,
   ValuationUpdate,
   WebhookCreated,
   WebhookSummary,
@@ -111,8 +117,8 @@ export const api = {
 
   listUsers: () => request<AuthUser[]>("/api/v1/auth/users"),
 
-  setUserRole: (id: string, role: "Admin" | "User") =>
-    request<AuthUser>(`/api/v1/auth/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  setUserRole: (id: string, roles: string[]) =>
+    request<AuthUser>(`/api/v1/auth/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ roles }) }),
 
   deleteUser: (id: string) => request<void>(`/api/v1/auth/users/${id}`, { method: "DELETE" }),
 
@@ -126,7 +132,7 @@ export const api = {
 
   listApiKeys: () => request<ApiKeySummary[]>("/api/v1/api-keys"),
 
-  createApiKey: (name: string, roles: ("Admin" | "User")[]) =>
+  createApiKey: (name: string, roles: string[]) =>
     request<ApiKeyCreated>("/api/v1/api-keys", { method: "POST", body: JSON.stringify({ name, roles }) }),
 
   deleteApiKey: (id: string) => request<void>(`/api/v1/api-keys/${id}`, { method: "DELETE" }),
@@ -142,14 +148,47 @@ export const api = {
 
   deleteWebhook: (id: string) => request<void>(`/api/v1/webhooks/${id}`, { method: "DELETE" }),
 
+  // ---- master data (canonical broker/buyer/garden/grade/... names + spelling aliases) ----
+  // Resolution itself happens server-side at read time (Analytics/Market/Reports/Assistant);
+  // this is only the admin CRUD + the "what still needs mapping" discovery scan.
+
+  listMasterData: (type?: string) =>
+    request<MasterDataEntity[]>(`/api/v1/master-data${type ? `?type=${encodeURIComponent(type)}` : ""}`),
+
+  createMasterData: (type: string, canonicalName: string, aliases: string[]) =>
+    request<MasterDataEntity>("/api/v1/master-data", { method: "POST", body: JSON.stringify({ type, canonicalName, aliases }) }),
+
+  updateMasterData: (id: string, type: string, canonicalName: string, aliases: string[]) =>
+    request<MasterDataEntity>(`/api/v1/master-data/${id}`, { method: "PUT", body: JSON.stringify({ type, canonicalName, aliases }) }),
+
+  deleteMasterData: (id: string) => request<void>(`/api/v1/master-data/${id}`, { method: "DELETE" }),
+
+  getUnmappedMasterData: (type: string) =>
+    request<UnmappedMasterDataValue[]>(`/api/v1/master-data/unmapped?type=${encodeURIComponent(type)}`),
+
+  // ---- audit log (who did what, for admin-mutating actions) --------------------------
+
+  listAuditLog: (skip: number, take: number) =>
+    request<AuditLogEntry[]>(`/api/v1/audit-log?skip=${skip}&take=${take}`),
+
   // ---- knowledge base ---------------------------------------------------------------
   // Unlike every call below this point, these endpoints actually require login — so the
   // multipart upload (which bypasses `request()`'s auto-attached header, same as
   // importCatalogue below) has to attach Authorization itself.
 
-  uploadDocument: async (file: File): Promise<KnowledgeDocument> => {
+  uploadDocument: async (
+    file: File,
+    category: string,
+    effectiveDate?: string,
+    expiryDate?: string,
+    supersedesDocumentId?: string
+  ): Promise<KnowledgeDocument> => {
     const form = new FormData();
     form.append("file", file);
+    form.append("category", category);
+    if (effectiveDate) form.append("effectiveDate", effectiveDate);
+    if (expiryDate) form.append("expiryDate", expiryDate);
+    if (supersedesDocumentId) form.append("supersedesDocumentId", supersedesDocumentId);
     const res = await fetch(`${API_BASE}/api/v1/documents`, {
       method: "POST",
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
@@ -190,6 +229,14 @@ export const api = {
 
   exportReportExcel: async (catalogueId: string, type: string): Promise<Blob> => {
     const res = await fetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/excel`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error("Export failed");
+    return res.blob();
+  },
+
+  exportReportPptx: async (catalogueId: string, type: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/pptx`, {
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
     });
     if (!res.ok) throw new Error("Export failed");
@@ -333,6 +380,25 @@ export const api = {
     request<AccuracyBucket[]>(`/api/v1/market/${catalogueId}/breakdown/${column}`),
 
   getMarketInsights: (catalogueId: string) => request<MarketInsight[]>(`/api/v1/market/${catalogueId}/insights`),
+
+  // ---- performance (cross-sale grade/buyer trends) -----------------------------------
+
+  getPerformanceInsights: () => request<PerformanceInsight[]>("/api/v1/performance/insights"),
+
+  // ---- deadlines (catalogue closure reminders/escalation) ----------------------------
+
+  getUpcomingDeadlines: () => request<Deadline[]>("/api/v1/deadlines/upcoming"),
+
+  // ---- notifications -------------------------------------------------------------------
+
+  listNotifications: (unreadOnly = false, take = 20) =>
+    request<AppNotification[]>(`/api/v1/notifications?unreadOnly=${unreadOnly}&take=${take}`),
+
+  getUnreadNotificationCount: () => request<number>("/api/v1/notifications/unread-count"),
+
+  markNotificationRead: (id: string) => request<void>(`/api/v1/notifications/${id}/read`, { method: "POST" }),
+
+  markAllNotificationsRead: () => request<void>("/api/v1/notifications/read-all", { method: "POST" }),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
 

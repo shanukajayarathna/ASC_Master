@@ -138,31 +138,12 @@ function toRow(w: WorksheetRow): Row {
   return { ...w, id: newId() };
 }
 
-/** Identifies "the same lot" regardless of which load produced it, so loading from a sale (or
- *  re-uploading a file) twice — e.g. re-clicking "Load matching lots" after widening a filter —
- *  never leaves a visually duplicated row sitting in the working table. */
+/** Identifies "the same lot" across two rows — used only to collapse duplicates left over in a
+ *  browser session saved before duplicate-safe loading existed (see dedupeStoredRows above). */
 function rowSignature(w: WorksheetRow): string {
   return [w.lotNumber, w.broker, w.sellingMark, w.grade, w.netWeight, w.totalWeight]
     .map((v) => (v ?? "").toString().trim().toLowerCase())
     .join("|");
-}
-
-/** Appends only the rows not already present (by rowSignature) in the current table, returning
- *  both the merged array and how many incoming rows were dropped as duplicates. */
-function mergeUniqueRows(existing: Row[], incoming: WorksheetRow[]): { rows: Row[]; duplicates: number } {
-  const seen = new Set(existing.map(rowSignature));
-  const additions: Row[] = [];
-  let duplicates = 0;
-  for (const w of incoming) {
-    const sig = rowSignature(w);
-    if (seen.has(sig)) {
-      duplicates += 1;
-      continue;
-    }
-    seen.add(sig);
-    additions.push(toRow(w));
-  }
-  return { rows: [...existing, ...additions], duplicates };
 }
 
 function triggerDownload(blob: Blob, name: string) {
@@ -321,17 +302,16 @@ export default function WorksheetPage() {
     setNotice(null);
     try {
       const result = await api.getWorksheetLots(saleCatalogueId, broker.trim(), factory);
-      let duplicates = 0;
-      setRows((r) => {
-        const merged = mergeUniqueRows(r, result.rows);
-        duplicates = merged.duplicates;
-        return merged.rows;
-      });
-      const dupSuffix = duplicates ? ` (${duplicates} already in the table, skipped)` : "";
+      // Every load replaces the table outright — otherwise stale rows from a previous sale
+      // linger mixed in with the new load and look like they never refreshed.
+      setRows(result.rows.map(toRow));
+      setEditingValuation({});
+      setRemovedRows([]);
+      setUndoRow(null);
       setNotice(
         result.truncated
-          ? `Loaded the first ${result.rows.length} of ${result.totalMatches} matching lots — narrow the filters to see the rest.${dupSuffix}`
-          : `Loaded ${result.rows.length} lot(s).${dupSuffix}`
+          ? `Loaded the first ${result.rows.length} of ${result.totalMatches} matching lots — narrow the filters to see the rest.`
+          : `Loaded ${result.rows.length} lot(s).`
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load lots from that sale");
@@ -346,17 +326,16 @@ export default function WorksheetPage() {
     setNotice(null);
     try {
       const result = await api.importWorksheetFile(file);
-      let duplicates = 0;
-      setRows((r) => {
-        const merged = mergeUniqueRows(r, result.rows);
-        duplicates = merged.duplicates;
-        return merged.rows;
-      });
-      const dupSuffix = duplicates ? `, ${duplicates} already in the table skipped` : "";
+      // Every load replaces the table outright — otherwise stale rows from a previous load
+      // linger mixed in with the new one and look like they never refreshed.
+      setRows(result.rows.map(toRow));
+      setEditingValuation({});
+      setRemovedRows([]);
+      setUndoRow(null);
       setNotice(
         result.skippedRows
-          ? `Loaded ${result.rows.length} row(s) from "${result.fileName}" (${result.skippedRows} incomplete row(s) skipped${dupSuffix}).`
-          : `Loaded ${result.rows.length} row(s) from "${result.fileName}"${dupSuffix ? ` (${duplicates} already in the table skipped)` : ""}.`
+          ? `Loaded ${result.rows.length} row(s) from "${result.fileName}" (${result.skippedRows} incomplete row(s) skipped).`
+          : `Loaded ${result.rows.length} row(s) from "${result.fileName}".`
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
@@ -648,8 +627,8 @@ export default function WorksheetPage() {
               onChange={(_, value) => setFactory(value.map((v) => v.split(" — ")[0]))}
               isOptionEqualToValue={(option, value) => option.split(" — ")[0] === value}
               disabled={!saleCatalogueId}
-              renderOption={(liProps, option, { selected }) => (
-                <li {...liProps}>
+              renderOption={({ key, ...liProps }, option, { selected }) => (
+                <li key={key} {...liProps}>
                   <Checkbox size="small" checked={selected} sx={{ p: 0, mr: 1 }} />
                   {option}
                 </li>
@@ -857,9 +836,13 @@ export default function WorksheetPage() {
                         size="small"
                         placeholder="0.00 or 1100-1150"
                         error={isNegative}
-                        value={editingValuation[r.id] ?? displayValuation(r)}
+                        // An untouched, unvalued row shows blank rather than "0.00" — 0.00 read
+                        // as an already-entered value and forced a backspace-everything before
+                        // typing a real one.
+                        value={editingValuation[r.id] ?? (r.valuationRangeText || (r.valuation ? fmt2(r.valuation) : ""))}
                         onChange={(e) => updateValuation(r.id, e.target.value)}
                         onBlur={() => commitValuation(r.id)}
+                        onFocus={(e) => e.target.select()}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
@@ -870,7 +853,9 @@ export default function WorksheetPage() {
                           if (el) valuationInputRefs.current.set(r.id, el);
                           else valuationInputRefs.current.delete(r.id);
                         }}
-                        sx={{ width: 120 }}
+                        // Wide enough to show a full range ("1,200.00 - 1,300.00") without
+                        // clipping — a plain single value just leaves the extra space unused.
+                        sx={{ width: r.valuationRangeText || editingValuation[r.id]?.includes("-") ? 190 : 120 }}
                         slotProps={{ htmlInput: { style: { textAlign: "right" }, inputMode: "decimal" } }}
                         className="print:hidden"
                       />

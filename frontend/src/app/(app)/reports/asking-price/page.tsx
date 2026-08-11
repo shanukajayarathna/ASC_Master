@@ -654,8 +654,8 @@ export default function AskingPricePage() {
               onChange={(_, value) => setFactory(value.map((v) => v.split(" — ")[0]))}
               isOptionEqualToValue={(option, value) => option.split(" — ")[0] === value}
               disabled={!saleCatalogueId}
-              renderOption={(liProps, option, { selected }) => (
-                <li {...liProps}>
+              renderOption={({ key, ...liProps }, option, { selected }) => (
+                <li key={key} {...liProps}>
                   <Checkbox size="small" checked={selected} sx={{ p: 0, mr: 1 }} />
                   {option}
                 </li>
