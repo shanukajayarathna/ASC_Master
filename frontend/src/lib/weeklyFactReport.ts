@@ -614,33 +614,48 @@ async function buildRankCategorySheet(
 
   const ws = targetWb.addWorksheet(spec.tabName);
   // Cross-workbook worksheet copy: ExcelJS has no first-class "import a worksheet from another
-  // workbook" API, but a worksheet's `.model` is a plain serializable object (rows, cols,
-  // merges, styles) — reassigning it onto a freshly-added sheet (with that sheet's own id/name
-  // kept) reproduces the template's formatting exactly, same idea as the captureStyle()-based
-  // cloning buildCategoryWorkbook() does above. Media (the letterhead logo) is excluded here and
-  // re-added below — a worksheet's media anchors reference image ids on ITS OWN workbook
-  // (tmpWb), which don't exist on targetWb, so copying them across as-is leaves a dangling image
-  // reference that throws when the file is written.
+  // workbook" API. An earlier version of this function reassigned the whole `.model` object
+  // (rows/cols/merges/styles in one shot) onto the new sheet, which looked like the obvious
+  // shortcut but is lossy in two independent ways, both verified by diffing cell-by-cell
+  // against the real template (rank-uh.xlsx etc.) with ExcelJS in isolation:
+  //   1. `get model()` names the merged-ranges field "merges"; `set model()`'s internal
+  //      _parseMergeCells reads "mergeCells" instead — passed straight through, every merge in
+  //      the template (the header banner's label boxes, the column-header boxes sitting right
+  //      above the data table) was silently dropped.
+  //   2. Even once that name is fixed, Row's own `set model()` explicitly SKIPS any cell whose
+  //      recorded type is "merge" ("special case - don't add this types" — see ExcelJS's
+  //      row.js): a template that gives its merge-SLAVE cells their own partial border segments
+  //      (the standard OOXML technique for drawing a merged box's outline — each cell touching
+  //      an edge of the box carries that edge's border, not just the top-left master) loses
+  //      every one of those slave-cell borders on the round trip, because the slave cell is
+  //      never even reconstructed — only the merge structure is (from fix #1), landing on a
+  //      brand-new, styleless cell.
+  // Copying every cell directly off the already-correctly-parsed srcWs (below) sidesteps both:
+  // it never goes through the lossy Worksheet/Row `.model` setters at all.
   const srcMedia = srcWs.model.media || [];
-  // Object.assign (not an object literal) sidesteps TS's excess-property check for `state` —
-  // ExcelJS's own WorksheetModel type omits it, but the runtime model object carries it.
-  //
-  // mergeCells: the `.model` getter and setter disagree on the field name for merged ranges —
-  // `get model()` emits `merges`, but `set model()`'s `_parseMergeCells` reads `mergeCells` (see
-  // ExcelJS's own worksheet.js). Passed straight through, srcWs.model.merges is silently ignored
-  // by the setter (`_.each(undefined, …)` is a no-op) and every merged range from the template —
-  // the header banner's merged label boxes as well as any merged box inside the ranking table —
-  // is dropped. The visible symptom is exactly what it looks like: text sized for a wide merged
-  // cell overflowing across the now-separate cells next to it (the header looking "overlapped"),
-  // and internal borders that a merge used to hide reappearing as gaps because the individual
-  // cells on either side were never separately bordered (borders "missing" inside the table).
-  ws.model = Object.assign({}, srcWs.model, {
-    id: ws.id,
-    name: spec.tabName,
-    state: "visible",
-    media: [],
-    mergeCells: srcWs.model.merges,
+  srcWs.columns.forEach((col, idx) => {
+    if (col && col.width) ws.getColumn(idx + 1).width = col.width;
   });
+  const maxRow = Math.max(srcWs.rowCount, RANK_DATA_START_ROW - 1);
+  const maxCol = Math.max(srcWs.columnCount, Math.max(...RANK_DATA_COLS));
+  for (let r = 1; r <= maxRow; r++) {
+    const srcRowHeight = srcWs.getRow(r).height;
+    if (srcRowHeight) ws.getRow(r).height = srcRowHeight;
+    for (let c = 1; c <= maxCol; c++) {
+      const srcCell = srcWs.getCell(r, c);
+      const dstCell = ws.getCell(r, c);
+      // A merge-slave cell's own value is never meaningful (Excel/ExcelJS both route it to the
+      // master), and writing one here would just be discarded anyway once mergeCellsWithoutStyle
+      // below marks the cell as a merge slave — only copy a master (or otherwise-unmerged) cell's
+      // value.
+      if (srcCell.master === srcCell && srcCell.value != null) dstCell.value = srcCell.value;
+      dstCell.style = cloneStyle(srcCell.style) as ExcelJS.Style;
+    }
+  }
+  // Re-create the template's merges now that every cell (including slaves) already has its own
+  // correct style — mergeCellsWithoutStyle deliberately doesn't overwrite a slave's style with
+  // the master's, so the per-cell border segments just copied above survive intact.
+  (srcWs.model.merges || []).forEach((range) => ws.mergeCellsWithoutStyle(range));
   srcMedia.forEach((medium) => {
     if (medium.type !== "image") return;
     // ExcelJS's Media type omits imageId/range for image media entries — undocumented in the
