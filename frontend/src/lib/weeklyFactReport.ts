@@ -656,6 +656,19 @@ async function buildRankCategorySheet(
   // correct style — mergeCellsWithoutStyle deliberately doesn't overwrite a slave's style with
   // the master's, so the per-cell border segments just copied above survive intact.
   (srcWs.model.merges || []).forEach((range) => ws.mergeCellsWithoutStyle(range));
+
+  // Header banner (rows 2-7: title / subtitle / sale-no / address / phone / website, each
+  // merged across C:I — see the merges above) has no explicit vertical alignment in the
+  // template, which leaves it on Excel's own default of "bottom". Combined with a snugly-sized
+  // row (row 2's 16pt bold title sits in a 21pt-tall row), bottom alignment can crop the very
+  // top of the tallest glyphs against the row boundary instead of leaving even headroom above
+  // and below. Centering it removes that risk without changing row heights, merges, or any
+  // other layout the template defines.
+  for (let r = 2; r <= 7; r++) {
+    const cell = ws.getCell(r, 3);
+    if (cell.value != null) cell.alignment = { ...cloneStyle(cell.alignment), vertical: "middle" };
+  }
+
   srcMedia.forEach((medium) => {
     if (medium.type !== "image") return;
     // ExcelJS's Media type omits imageId/range for image media entries — undocumented in the
