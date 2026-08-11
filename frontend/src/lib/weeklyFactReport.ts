@@ -624,7 +624,23 @@ async function buildRankCategorySheet(
   const srcMedia = srcWs.model.media || [];
   // Object.assign (not an object literal) sidesteps TS's excess-property check for `state` —
   // ExcelJS's own WorksheetModel type omits it, but the runtime model object carries it.
-  ws.model = Object.assign({}, srcWs.model, { id: ws.id, name: spec.tabName, state: "visible", media: [] });
+  //
+  // mergeCells: the `.model` getter and setter disagree on the field name for merged ranges —
+  // `get model()` emits `merges`, but `set model()`'s `_parseMergeCells` reads `mergeCells` (see
+  // ExcelJS's own worksheet.js). Passed straight through, srcWs.model.merges is silently ignored
+  // by the setter (`_.each(undefined, …)` is a no-op) and every merged range from the template —
+  // the header banner's merged label boxes as well as any merged box inside the ranking table —
+  // is dropped. The visible symptom is exactly what it looks like: text sized for a wide merged
+  // cell overflowing across the now-separate cells next to it (the header looking "overlapped"),
+  // and internal borders that a merge used to hide reappearing as gaps because the individual
+  // cells on either side were never separately bordered (borders "missing" inside the table).
+  ws.model = Object.assign({}, srcWs.model, {
+    id: ws.id,
+    name: spec.tabName,
+    state: "visible",
+    media: [],
+    mergeCells: srcWs.model.merges,
+  });
   srcMedia.forEach((medium) => {
     if (medium.type !== "image") return;
     // ExcelJS's Media type omits imageId/range for image media entries — undocumented in the
