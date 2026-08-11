@@ -787,12 +787,6 @@ function splitFlowColumns(items: FlowItem[], perColHeight: number): FlowItem[][]
 
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx];
-    if (item.kind === "region") {
-      activeRegion = item.regionTitle ?? null;
-      activeBlock = null;
-    } else if (item.kind === "block") {
-      activeBlock = item.blockLabel ?? null;
-    }
 
     // A header (region/block) that fits but whose very next line doesn't is a widow — it would
     // sit alone at the bottom of a column with its actual content starting fresh (behind a
@@ -805,7 +799,22 @@ function splitFlowColumns(items: FlowItem[], perColHeight: number): FlowItem[][]
       if (next && next.kind !== "region") requiredHeight += next.height;
     }
 
+    // The break check (and the continuation header it triggers) must run BEFORE activeRegion/
+    // activeBlock are updated to THIS item's own title — startNewColumn()'s continuationHeaders()
+    // describes whatever was active going into this item, i.e. what's actually being continued.
+    // Updating first (as an earlier version of this loop did) meant that when the widowed item
+    // was itself a region/block header, the synthesized "<title> (cont'd)" header described that
+    // same not-yet-placed header instead of the real previous one — producing a duplicate
+    // "<Title> (cont'd)" immediately followed by the real "<Title>" header right below it.
     if (currentHeight + requiredHeight > perColHeight && current.length > 0) startNewColumn();
+
+    if (item.kind === "region") {
+      activeRegion = item.regionTitle ?? null;
+      activeBlock = null;
+    } else if (item.kind === "block") {
+      activeBlock = item.blockLabel ?? null;
+    }
+
     current.push(item);
     currentHeight += item.height;
   }
