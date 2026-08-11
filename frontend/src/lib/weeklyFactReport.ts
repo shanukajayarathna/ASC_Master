@@ -727,7 +727,12 @@ async function buildRankCategorySheet(
   });
 
   ws.pageSetup = ws.pageSetup || {};
-  ws.pageSetup.printArea = `A1:J${RANK_DATA_START_ROW + rowsSorted.length}`;
+  // N rows are written at RANK_DATA_START_ROW..RANK_DATA_START_ROW+N-1 — the last row WITH data
+  // is one less than RANK_DATA_START_ROW + N, not equal to it (that lands one row past the last
+  // real row, pulling a blank trailing row into the printed range). Math.max keeps the floor at
+  // RANK_DATA_START_ROW itself when there are zero rows, so the empty table still prints its own
+  // row instead of the print area ending one row short of the data band entirely.
+  ws.pageSetup.printArea = `A1:J${Math.max(RANK_DATA_START_ROW, RANK_DATA_START_ROW + rowsSorted.length - 1)}`;
 
   return { rowCount: rowsSorted.length, warnings };
 }
