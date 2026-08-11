@@ -19,3 +19,6 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Unrelated local scratch content, not part of the ASC product
+/Rishan IT/

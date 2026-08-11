@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Asc.Api.Data;
+using Asc.Api.Modules.Audit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -13,7 +14,7 @@ namespace Asc.Api.Modules.Auth;
 
 [ApiController]
 [Route("api/v1/auth")]
-public class AuthController(MongoContext db, IConfiguration config, IPasswordHasher<AppUser> hasher) : ControllerBase
+public class AuthController(MongoContext db, IConfiguration config, IPasswordHasher<AppUser> hasher, IAuditLogger audit) : ControllerBase
 {
     // A fixed hash of a value nobody could ever type in as a real password — verified
     // against on the "unknown email" path in Login so that path pays the same PBKDF2 cost
@@ -40,7 +41,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         if (!isFirstUser)
         {
             if (!(User.Identity?.IsAuthenticated ?? false)) return Unauthorized();
-            if (!User.IsInRole("Admin")) return Forbid();
+            if (!User.IsInRole(RoleNames.Admin)) return Forbid();
         }
 
         var email = dto.Email.Trim().ToLowerInvariant();
@@ -51,7 +52,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         {
             Email = email,
             DisplayName = dto.DisplayName.Trim(),
-            Roles = isFirstUser ? ["Admin"] : ["User"],
+            Roles = isFirstUser ? [RoleNames.Admin] : [RoleNames.User],
         };
         user.PasswordHash = hasher.HashPassword(user, dto.Password);
         await db.Users.InsertOneAsync(user);
@@ -121,7 +122,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
     }
 
     [HttpGet("users")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Policy = Policies.ManageUsers)]
     public async Task<ActionResult<List<UserDto>>> ListUsers(CancellationToken ct)
     {
         var users = await db.Users.Find(FilterDefinition<AppUser>.Empty).SortBy(u => u.CreatedAt).ToListAsync(ct);
@@ -129,33 +130,37 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
     }
 
     [HttpPatch("users/{id:guid}/role")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Policy = Policies.ManageUsers)]
     public async Task<ActionResult<UserDto>> SetRole(Guid id, SetRoleDto dto, CancellationToken ct)
     {
-        if (dto.Role is not ("Admin" or "User")) return BadRequest("Role must be 'Admin' or 'User'.");
+        if (dto.Roles.Count == 0 || dto.Roles.Any(r => !RoleNames.All.Contains(r)))
+            return BadRequest($"Roles must be a non-empty list from: {string.Join(", ", RoleNames.All)}.");
 
         var user = await db.Users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
         if (user is null) return NotFound();
 
-        if (user.Roles.Contains("Admin") && dto.Role != "Admin" && await IsSoleAdmin(id, ct))
+        if (user.Roles.Contains(RoleNames.Admin) && !dto.Roles.Contains(RoleNames.Admin) && await IsSoleAdmin(id, ct))
             return BadRequest("Can't demote the only remaining Admin.");
 
-        user.Roles = [dto.Role];
+        var previousRoles = string.Join(", ", user.Roles);
+        user.Roles = dto.Roles;
         await db.Users.ReplaceOneAsync(u => u.Id == id, user, cancellationToken: ct);
+        await audit.LogAsync(User, "user.role_changed", "User", user.Id.ToString(), $"{previousRoles} -> {string.Join(", ", dto.Roles)}", ct);
         return Ok(ToDto(user));
     }
 
     [HttpDelete("users/{id:guid}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Policy = Policies.ManageUsers)]
     public async Task<IActionResult> DeleteUser(Guid id, CancellationToken ct)
     {
         var user = await db.Users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
         if (user is null) return NotFound();
 
-        if (user.Roles.Contains("Admin") && await IsSoleAdmin(id, ct))
+        if (user.Roles.Contains(RoleNames.Admin) && await IsSoleAdmin(id, ct))
             return BadRequest("Can't delete the only remaining Admin.");
 
         await db.Users.DeleteOneAsync(u => u.Id == id, ct);
+        await audit.LogAsync(User, "user.deleted", "User", user.Id.ToString(), user.Email, ct);
         return NoContent();
     }
 
@@ -164,7 +169,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
     /// (and, with no self-service reset flow, no way back in).</summary>
     private async Task<bool> IsSoleAdmin(Guid id, CancellationToken ct)
     {
-        var otherAdmins = await db.Users.CountDocumentsAsync(u => u.Id != id && u.Roles.Contains("Admin"), cancellationToken: ct);
+        var otherAdmins = await db.Users.CountDocumentsAsync(u => u.Id != id && u.Roles.Contains(RoleNames.Admin), cancellationToken: ct);
         return otherAdmins == 0;
     }
 

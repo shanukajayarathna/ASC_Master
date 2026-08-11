@@ -1,6 +1,7 @@
 using Asc.Api.Controllers;
 using Asc.Api.Data;
 using Asc.Api.Models;
+using Asc.Api.Modules.MasterData;
 using Asc.Api.Services;
 using MongoDB.Driver;
 
@@ -10,9 +11,11 @@ namespace Asc.Api.Modules.Reports;
 /// Ports the original vanilla-JS Report Builder (js/reports.js) onto this stack — same 7
 /// report types (market/custom deferred, see Phase 5 plan), same underlying arithmetic,
 /// but reusing DashboardController.Compute and one generic group-by-average helper instead
-/// of the original's four near-duplicate per-column methods.
+/// of the original's four near-duplicate per-column methods. Broker/grade/category/garden
+/// groupings resolve through MasterDataResolver first, so admin-curated spelling aliases
+/// (e.g. "A.B.C. Ltd" / "ABC LIMITED") merge into one row instead of splitting the average.
 /// </summary>
-public class ReportGenerator(ICatalogueSource source, MongoContext db)
+public class ReportGenerator(ICatalogueSource source, MongoContext db, MasterDataResolver masterData)
 {
     public static readonly string[] Types = ["executive", "broker", "grade", "category", "garden", "classification", "valuation"];
 
@@ -29,10 +32,10 @@ public class ReportGenerator(ICatalogueSource source, MongoContext db)
         var (title, subtitle, sections) = type switch
         {
             "executive" => ("Executive Summary", "Full catalogue overview", Executive(merged)),
-            "broker" => ("Broker Summary", "Average valuation and lot count per broker", [GroupSection("Brokers", "Broker", merged, l => l.Broker)]),
-            "grade" => ("Grade Summary", "Average valuation per grade", [GroupSection("Grades", "Grade", merged, l => l.Grade)]),
-            "category" => ("Category Summary", "Average valuation per category", [GroupSection("Categories", "Category", merged, l => l.Category)]),
-            "garden" => ("Garden Summary", "Average valuation per garden", [GroupSection("Gardens", "Garden", merged, l => l.Garden)]),
+            "broker" => ("Broker Summary", "Average valuation and lot count per broker", [GroupSection("Brokers", "Broker", merged, l => masterData.Resolve(MasterDataEntityType.Broker, l.Broker))]),
+            "grade" => ("Grade Summary", "Average valuation per grade", [GroupSection("Grades", "Grade", merged, l => masterData.Resolve(MasterDataEntityType.Grade, l.Grade))]),
+            "category" => ("Category Summary", "Average valuation per category", [GroupSection("Categories", "Category", merged, l => masterData.Resolve(MasterDataEntityType.Category, l.Category))]),
+            "garden" => ("Garden Summary", "Average valuation per garden", [GroupSection("Gardens", "Garden", merged, l => masterData.Resolve(MasterDataEntityType.Garden, l.Garden))]),
             "classification" => ("Classification Report", "Lot count by classification", [ClassificationSection(merged)]),
             "valuation" => ("Valuation Analysis", "Distribution of valued lots", [ValuationAnalysis(merged)]),
             _ => (null, null, null),
@@ -42,7 +45,7 @@ public class ReportGenerator(ICatalogueSource source, MongoContext db)
         return new ReportDto(type, title, subtitle!, catalogue.SourceName, DateTime.UtcNow, sections!);
     }
 
-    private static List<ReportSectionDto> Executive(List<(Lot Lot, Valuation? Val)> merged)
+    private List<ReportSectionDto> Executive(List<(Lot Lot, Valuation? Val)> merged)
     {
         var stats = DashboardController.Compute(merged);
         var kpis = new ReportSectionDto("Overview", [
@@ -54,7 +57,11 @@ public class ReportGenerator(ICatalogueSource source, MongoContext db)
             new("Lowest Valuation", stats.MinValuation, "currency"),
         ], null, null);
 
-        return [kpis, GroupSection("By Broker", "Broker", merged, l => l.Broker), GroupSection("By Grade", "Grade", merged, l => l.Grade)];
+        return [
+            kpis,
+            GroupSection("By Broker", "Broker", merged, l => masterData.Resolve(MasterDataEntityType.Broker, l.Broker)),
+            GroupSection("By Grade", "Grade", merged, l => masterData.Resolve(MasterDataEntityType.Grade, l.Grade)),
+        ];
     }
 
     /// <summary>The generic group-by-average this app's version doesn't duplicate per column

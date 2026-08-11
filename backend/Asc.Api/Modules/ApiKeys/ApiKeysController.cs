@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Asc.Api.Data;
+using Asc.Api.Modules.Audit;
+using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
@@ -14,15 +16,15 @@ namespace Asc.Api.Modules.ApiKeys;
 /// </summary>
 [ApiController]
 [Route("api/v1/api-keys")]
-[Authorize(Roles = "Admin")]
-public class ApiKeysController(MongoContext db) : ControllerBase
+[Authorize(Policy = Policies.ManageApiKeys)]
+public class ApiKeysController(MongoContext db, IAuditLogger audit) : ControllerBase
 {
     [HttpPost]
     public async Task<ActionResult<ApiKeyCreatedDto>> Create(CreateApiKeyRequestDto dto, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.Name)) return BadRequest("A name is required.");
-        if (dto.Roles.Count == 0 || dto.Roles.Any(r => r is not ("Admin" or "User")))
-            return BadRequest("Roles must be a non-empty list of 'Admin' and/or 'User'.");
+        if (dto.Roles.Count == 0 || dto.Roles.Any(r => !RoleNames.All.Contains(r)))
+            return BadRequest($"Roles must be a non-empty list from: {string.Join(", ", RoleNames.All)}.");
 
         var rawKey = $"asc_{Convert.ToHexString(RandomNumberGenerator.GetBytes(32))}";
         var key = new ApiKey
@@ -34,6 +36,7 @@ public class ApiKeysController(MongoContext db) : ControllerBase
             CreatedByUserId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid) ? uid : Guid.Empty,
         };
         await db.ApiKeys.InsertOneAsync(key, cancellationToken: ct);
+        await audit.LogAsync(User, "api_key.created", "ApiKey", key.Id.ToString(), key.Name, ct);
 
         return Ok(new ApiKeyCreatedDto(ToDto(key), rawKey));
     }
@@ -48,7 +51,9 @@ public class ApiKeysController(MongoContext db) : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
+        var key = await db.ApiKeys.Find(k => k.Id == id).FirstOrDefaultAsync(ct);
         await db.ApiKeys.DeleteOneAsync(k => k.Id == id, ct);
+        await audit.LogAsync(User, "api_key.revoked", "ApiKey", id.ToString(), key?.Name, ct);
         return NoContent();
     }
 

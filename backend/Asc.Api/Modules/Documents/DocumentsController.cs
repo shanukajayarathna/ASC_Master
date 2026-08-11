@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Asc.Api.Data;
+using Asc.Api.Modules.Audit;
+using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
@@ -15,7 +17,7 @@ namespace Asc.Api.Modules.Documents;
 [ApiController]
 [Route("api/v1/documents")]
 [Authorize]
-public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddingProvider embeddings, IDocumentSearchService search) : ControllerBase
+public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddingProvider embeddings, IDocumentSearchService search, IAuditLogger audit) : ControllerBase
 {
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -26,14 +28,22 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
 
     [HttpPost]
     [RequestSizeLimit(MaxUploadBytes)]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<DocumentDto>> Upload(IFormFile file, CancellationToken ct)
+    [Authorize(Policy = Policies.ManageKnowledgeBase)]
+    public async Task<ActionResult<DocumentDto>> Upload(
+        IFormFile file, [FromForm] string category, CancellationToken ct,
+        [FromForm] DateTime? effectiveDate = null, [FromForm] DateTime? expiryDate = null, [FromForm] Guid? supersedesDocumentId = null)
     {
         if (file.Length == 0) return BadRequest("File is empty.");
 
         var ext = Path.GetExtension(file.FileName).TrimStart('.').ToLowerInvariant();
         if (!AllowedExtensions.Contains(ext))
             return BadRequest($"Unsupported file type: .{ext}. Allowed: {string.Join(", ", AllowedExtensions)}");
+
+        if (!Enum.TryParse<DocumentCategory>(category, ignoreCase: true, out var parsedCategory))
+            return BadRequest($"Unknown category '{category}'. Use one of: {string.Join(", ", Enum.GetNames<DocumentCategory>())}.");
+
+        if (supersedesDocumentId is { } supersedesId && !await db.Documents.Find(d => d.Id == supersedesId).AnyAsync(ct))
+            return BadRequest("The document this is meant to supersede doesn't exist.");
 
         var userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid) ? uid : Guid.Empty;
 
@@ -43,16 +53,24 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
             ContentType = file.ContentType,
             SizeBytes = file.Length,
             UploadedByUserId = userId,
+            Category = parsedCategory,
+            EffectiveDate = effectiveDate,
+            ExpiryDate = expiryDate,
+            SupersedesDocumentId = supersedesDocumentId,
         };
 
         // Buffered once, reused for both extraction and the eventual raw-file save —
         // IFormFile's stream isn't guaranteed cheaply re-readable, and this file is already
-        // size-capped above.
-        await using var buffer = new MemoryStream();
+        // size-capped above. Each consumer gets its own MemoryStream over the same bytes
+        // (not the same stream instance, rewound) because several of NPOI's format readers
+        // (e.g. WorkbookFactory.Create for .xlsx/.xls) close the stream they were given when
+        // the returned IWorkbook is disposed — reusing that same instance afterward throws
+        // ObjectDisposedException.
+        using var buffer = new MemoryStream();
         await file.CopyToAsync(buffer, ct);
+        var fileBytes = buffer.ToArray();
 
-        buffer.Position = 0;
-        var text = DocumentTextExtractor.ExtractText(buffer, ext);
+        var text = DocumentTextExtractor.ExtractText(new MemoryStream(fileBytes), ext);
         var chunkTexts = DocumentTextExtractor.Chunk(text);
 
         // Embed *before* persisting anything — this is the step most likely to fail (missing
@@ -72,8 +90,7 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
             }).ToList();
         }
 
-        buffer.Position = 0;
-        await store.SaveAsync(doc.Id, buffer, ext, ct);
+        await store.SaveAsync(doc.Id, new MemoryStream(fileBytes), ext, ct);
         await db.Documents.InsertOneAsync(doc, cancellationToken: ct);
 
         if (chunks.Count > 0)
@@ -81,7 +98,8 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
             await db.DocumentChunks.InsertManyAsync(chunks, cancellationToken: ct);
         }
 
-        return Ok(ToDto(doc));
+        await audit.LogAsync(User, "knowledge_document.uploaded", "Document", doc.Id.ToString(), $"{doc.FileName} ({doc.Category})", ct);
+        return Ok(ToDto(doc, supersededBy: null));
     }
 
     [HttpGet]
@@ -90,16 +108,25 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
         var docs = await db.Documents.Find(FilterDefinition<KnowledgeDocument>.Empty)
             .SortByDescending(d => d.UploadedAt)
             .ToListAsync(ct);
-        return Ok(docs.Select(ToDto).ToList());
+
+        // No back-reference is stored on the superseded document (see KnowledgeDocument's
+        // doc comment) — computed here instead, from the same full list this endpoint
+        // already loads.
+        var supersededBy = docs.Where(d => d.SupersedesDocumentId.HasValue)
+            .ToDictionary(d => d.SupersedesDocumentId!.Value, d => d.Id);
+
+        return Ok(docs.Select(d => ToDto(d, supersededBy.TryGetValue(d.Id, out var by) ? by : null)).ToList());
     }
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Policy = Policies.ManageKnowledgeBase)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
+        var doc = await db.Documents.Find(d => d.Id == id).FirstOrDefaultAsync(ct);
         await db.Documents.DeleteOneAsync(d => d.Id == id, ct);
         await db.DocumentChunks.DeleteManyAsync(c => c.DocumentId == id, ct);
         store.Delete(id);
+        await audit.LogAsync(User, "knowledge_document.deleted", "Document", id.ToString(), doc?.FileName, ct);
         return NoContent();
     }
 
@@ -107,5 +134,7 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
     public async Task<ActionResult<List<SearchResultDto>>> Search([FromQuery] string q, CancellationToken ct) =>
         Ok(await search.SearchAsync(q, ct));
 
-    private static DocumentDto ToDto(KnowledgeDocument d) => new(d.Id, d.FileName, d.ContentType, d.SizeBytes, d.UploadedAt);
+    private static DocumentDto ToDto(KnowledgeDocument d, Guid? supersededBy) => new(
+        d.Id, d.FileName, d.ContentType, d.SizeBytes, d.UploadedAt,
+        d.Category.ToString(), d.EffectiveDate, d.ExpiryDate, d.SupersedesDocumentId, supersededBy);
 }

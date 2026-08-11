@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using Asc.Api.Data;
+using Asc.Api.Modules.Audit;
+using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
@@ -10,10 +12,13 @@ namespace Asc.Api.Modules.Webhooks;
 /// shape and "secret shown once" principle as ApiKeysController.</summary>
 [ApiController]
 [Route("api/v1/webhooks")]
-[Authorize(Roles = "Admin")]
-public class WebhooksController(MongoContext db) : ControllerBase
+[Authorize(Policy = Policies.ManageWebhooks)]
+public class WebhooksController(MongoContext db, IAuditLogger audit) : ControllerBase
 {
-    private static readonly string[] KnownEvents = ["catalogue.imported"];
+    // "notification.whatsapp" is fired by NotificationService.SendWhatsAppMessageAsync — an
+    // admin points an n8n workflow at it to actually deliver the message (no WhatsApp
+    // Business API credentials exist yet, so nothing subscribes to it by default).
+    private static readonly string[] KnownEvents = ["catalogue.imported", "notification.whatsapp"];
 
     [HttpGet("events")]
     public ActionResult<string[]> Events() => Ok(KnownEvents);
@@ -32,6 +37,7 @@ public class WebhooksController(MongoContext db) : ControllerBase
         var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var sub = new WebhookSubscription { Url = url, Event = dto.Event, Secret = secret };
         await db.WebhookSubscriptions.InsertOneAsync(sub, cancellationToken: ct);
+        await audit.LogAsync(User, "webhook.created", "Webhook", sub.Id.ToString(), $"{sub.Event} -> {sub.Url}", ct);
 
         return Ok(new WebhookCreatedDto(ToDto(sub), secret));
     }
@@ -47,7 +53,9 @@ public class WebhooksController(MongoContext db) : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
+        var sub = await db.WebhookSubscriptions.Find(s => s.Id == id).FirstOrDefaultAsync(ct);
         await db.WebhookSubscriptions.DeleteOneAsync(s => s.Id == id, ct);
+        await audit.LogAsync(User, "webhook.deleted", "Webhook", id.ToString(), sub?.Event, ct);
         return NoContent();
     }
 

@@ -5,8 +5,11 @@ using Asc.Api.Data;
 using Asc.Api.Models;
 using Asc.Api.Modules.Analytics;
 using Asc.Api.Modules.AuctionReports;
-using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.Deadlines;
+using Asc.Api.Modules.Knowledge;
 using Asc.Api.Modules.Market;
+using Asc.Api.Modules.MasterData;
+using Asc.Api.Modules.Performance;
 using Asc.Api.Modules.Reports;
 using Asc.Api.Services;
 using MongoDB.Driver;
@@ -18,12 +21,13 @@ namespace Asc.Api.Modules.Assistant;
 /// optimistic-concurrency protection already on valuation saves. Every tool here calls into
 /// existing seams/logic (ICatalogueSource, MongoContext, LotsController.Merged,
 /// DashboardController.Compute, MarketController's accuracy statics, AnalyticsController's
-/// broker stats, ReportGenerator's group sections, TopPriceEngine, IDocumentSearchService)
+/// broker stats, ReportGenerator's group sections, TopPriceEngine, IKnowledgeService)
 /// rather than re-implementing anything.
 /// </summary>
 public class AssistantToolExecutor(
-    ICatalogueSource source, MongoContext db, IDocumentSearchService search,
-    TopPriceEngine engine, ILogger<AssistantToolExecutor> logger)
+    ICatalogueSource source, MongoContext db, IKnowledgeService knowledge,
+    TopPriceEngine engine, MasterDataResolver masterData, ReportGenerator reportGenerator,
+    PerformanceEngine performanceEngine, DeadlineEngine deadlineEngine, ILogger<AssistantToolExecutor> logger)
 {
     // compare_sales' cap must not exceed SaleFileStore.MaxLoadedSales — otherwise a single
     // comparison call can evict its own earlier sales from the in-memory LRU mid-request,
@@ -31,15 +35,18 @@ public class AssistantToolExecutor(
     // user hitting Dashboard/Analytics on those same sales.
     private const int MaxCompareSales = 4;
 
-    private static readonly Dictionary<string, (string Label, Func<Lot, string?> Selector)> BreakdownSelectors = new()
+    // Resolves through MasterDataResolver, same as AnalyticsController's own copy of this
+    // map, so the AI's get_breakdown tool merges admin-curated spelling aliases exactly like
+    // the Analytics page does instead of splitting a bucket the UI already consolidated.
+    private readonly Dictionary<string, (string Label, Func<Lot, string?> Selector)> _breakdownSelectors = new()
     {
-        ["broker"] = ("Broker", l => l.Broker),
-        ["grade"] = ("Grade", l => l.Grade),
-        ["category"] = ("Category", l => l.Category),
-        ["garden"] = ("Garden", l => l.Garden),
-        ["elevation"] = ("Elevation", l => l.Elevation),
-        ["region"] = ("Region", l => l.Region),
-        ["warehouse"] = ("Warehouse", l => l.Warehouse),
+        ["broker"] = ("Broker", l => masterData.Resolve(MasterDataEntityType.Broker, l.Broker)),
+        ["grade"] = ("Grade", l => masterData.Resolve(MasterDataEntityType.Grade, l.Grade)),
+        ["category"] = ("Category", l => masterData.Resolve(MasterDataEntityType.Category, l.Category)),
+        ["garden"] = ("Garden", l => masterData.Resolve(MasterDataEntityType.Garden, l.Garden)),
+        ["elevation"] = ("Elevation", l => masterData.Resolve(MasterDataEntityType.Elevation, l.Elevation)),
+        ["region"] = ("Region", l => masterData.Resolve(MasterDataEntityType.Region, l.Region)),
+        ["warehouse"] = ("Warehouse", l => masterData.Resolve(MasterDataEntityType.Warehouse, l.Warehouse)),
     };
 
     public static readonly IReadOnlyList<ToolDef> Definitions =
@@ -179,6 +186,42 @@ public class AssistantToolExecutor(
                 },
                 required = new[] { "catalogueId" },
             }),
+
+        new ToolDef(
+            "generate_report",
+            "Generate a structured report for a catalogue — the same computed data the Reports page shows (KPIs and/or " +
+            "group breakdowns), as JSON. Summarize/narrate this in your reply; never state a number that isn't in the " +
+            "tool result.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    catalogueId = new { type = "string", description = "The catalogue's id, from list_catalogues." },
+                    type = new
+                    {
+                        type = "string",
+                        @enum = ReportGenerator.Types,
+                        description = "executive (overview), or a per-dimension summary: broker/grade/category/garden, " +
+                            "plus classification and valuation.",
+                    },
+                },
+                required = new[] { "catalogueId", "type" },
+            }),
+
+        new ToolDef(
+            "get_performance_insights",
+            "Get cross-sale performance trends: which grades have had a sustained (3+ sale) streak of strengthening or " +
+            "weakening valuations, and which buyers have meaningfully increased or decreased their purchase volume " +
+            "versus their own recent average. Every finding is grounded in real computed numbers — never invent a " +
+            "trend beyond what this tool returns.",
+            new { type = "object", properties = new { }, required = Array.Empty<string>() }),
+
+        new ToolDef(
+            "get_upcoming_deadlines",
+            "Get catalogue closure deadlines that are approaching, imminent, or missed — which sale, how many lots still " +
+            "need valuation, and how much time is left. Only ever reports deadlines this tool actually returns.",
+            new { type = "object", properties = new { }, required = Array.Empty<string>() }),
     ];
 
     public static IReadOnlyList<ToolDef> DefinitionsFor(bool isAdmin) =>
@@ -214,7 +257,7 @@ public class AssistantToolExecutor(
                 "list_catalogues" => ListCatalogues(),
                 "search_lots" => await SearchLots(Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["query"]!.GetValue<string>(), ct),
                 "get_dashboard_stats" => await GetDashboardStats(Guid.Parse(args["catalogueId"]!.GetValue<string>()), ct),
-                "search_knowledge_base" => JsonSerializer.Serialize(await search.SearchAsync(args["query"]!.GetValue<string>(), ct)),
+                "search_knowledge_base" => JsonSerializer.Serialize(await knowledge.SearchKnowledgeAsync(args["query"]!.GetValue<string>(), ct)),
                 "compare_sales" => await CompareSales([.. args["catalogueIds"]!.AsArray().Select(n => Guid.Parse(n!.GetValue<string>()))], ct),
                 "get_valuation_accuracy" => await GetValuationAccuracy(
                     Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["breakdownBy"]?.GetValue<string>(), ct),
@@ -222,6 +265,9 @@ public class AssistantToolExecutor(
                 "get_market_insights" => await GetMarketInsights(Guid.Parse(args["catalogueId"]!.GetValue<string>()), ct),
                 "get_breakdown" => await GetBreakdown(Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["column"]!.GetValue<string>(), ct),
                 "get_top_prices" => GetTopPrices(Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["reportKey"]?.GetValue<string>() ?? "top-prices"),
+                "generate_report" => await GenerateReport(Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["type"]!.GetValue<string>(), ct),
+                "get_performance_insights" => JsonSerializer.Serialize(await performanceEngine.AllInsights(ct)),
+                "get_upcoming_deadlines" => JsonSerializer.Serialize(await deadlineEngine.GetUpcoming(ct)),
                 _ => JsonSerializer.Serialize(new { error = $"Unknown tool '{name}'." }),
             };
         }
@@ -326,7 +372,7 @@ public class AssistantToolExecutor(
         if (breakdownBy is null)
             return JsonSerializer.Serialize(MarketController.ComputeAccuracy(pairs));
 
-        if (!MarketController.BreakdownColumns.TryGetValue(breakdownBy, out var selector))
+        if (!MarketController.BreakdownColumns(masterData).TryGetValue(breakdownBy, out var selector))
             return JsonSerializer.Serialize(new { error = $"Unknown breakdownBy '{breakdownBy}'. Use broker, grade, or elevation." });
 
         return JsonSerializer.Serialize(MarketController.ComputeBreakdown(pairs, selector));
@@ -336,14 +382,14 @@ public class AssistantToolExecutor(
     {
         var merged = await LoadMerged(catalogueId, ct);
         if (merged is null) return JsonSerializer.Serialize(new { error = "Catalogue not found." });
-        return JsonSerializer.Serialize(AnalyticsController.ComputeBrokerStats(merged));
+        return JsonSerializer.Serialize(AnalyticsController.ComputeBrokerStats(merged, masterData));
     }
 
     private async Task<string> GetMarketInsights(Guid catalogueId, CancellationToken ct)
     {
         var pairs = await MarketController.BuildPairs(source, db, catalogueId, ct);
         if (pairs is null) return JsonSerializer.Serialize(new { error = "Catalogue not found." });
-        return JsonSerializer.Serialize(MarketController.ComputeInsights(pairs));
+        return JsonSerializer.Serialize(MarketController.ComputeInsights(pairs, masterData));
     }
 
     private async Task<string> GetBreakdown(Guid catalogueId, string column, CancellationToken ct)
@@ -354,7 +400,7 @@ public class AssistantToolExecutor(
         if (column == "classification")
             return JsonSerializer.Serialize(ReportGenerator.ClassificationSection(merged).Groups);
 
-        if (!BreakdownSelectors.TryGetValue(column, out var def))
+        if (!_breakdownSelectors.TryGetValue(column, out var def))
             return JsonSerializer.Serialize(new { error = $"Unknown breakdown column '{column}'." });
 
         return JsonSerializer.Serialize(ReportGenerator.GroupSection(def.Label, def.Label, merged, def.Selector).Groups);
@@ -395,5 +441,16 @@ public class AssistantToolExecutor(
 
         const int cap = 25;
         return JsonSerializer.Serialize(new { rows = rows.Take(cap), truncated = rows.Count > cap });
+    }
+
+    /// <summary>Same deterministic computation ReportsController.Generate uses — the model
+    /// only ever sees numbers this already-existing, already-tested code produced.</summary>
+    private async Task<string> GenerateReport(Guid catalogueId, string type, CancellationToken ct)
+    {
+        if (!ReportGenerator.Types.Contains(type))
+            return JsonSerializer.Serialize(new { error = $"Unknown report type '{type}'. Use one of: {string.Join(", ", ReportGenerator.Types)}." });
+
+        var report = await reportGenerator.Generate(type, catalogueId);
+        return report is null ? JsonSerializer.Serialize(new { error = "Catalogue not found." }) : JsonSerializer.Serialize(report);
     }
 }

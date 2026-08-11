@@ -3,6 +3,7 @@ using Asc.Api.Controllers;
 using Asc.Api.Data;
 using Asc.Api.Models;
 using Asc.Api.Modules.AuctionReports;
+using Asc.Api.Modules.MasterData;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -33,7 +34,7 @@ namespace Asc.Api.Modules.Market;
 [ApiController]
 [Route("api/v1/market")]
 [Authorize]
-public class MarketController(ICatalogueSource source, MongoContext db, CatalogueImportService importer) : ControllerBase
+public class MarketController(ICatalogueSource source, MongoContext db, CatalogueImportService importer, MasterDataResolver masterData) : ControllerBase
 {
     private static readonly string[] AllowedExtensions = ["xlsx", "xls", "csv"];
     private const long MaxUploadBytes = 10_000_000;
@@ -44,12 +45,15 @@ public class MarketController(ICatalogueSource source, MongoContext db, Catalogu
     private static readonly Regex BrokerColumnPattern = new("broker", RegexOptions.IgnoreCase);
 
     /// <summary>Internal, not private — Modules/Assistant reuses this selector map so the
-    /// get_valuation_accuracy tool's breakdown option stays in lockstep with this endpoint.</summary>
-    internal static readonly Dictionary<string, Func<Lot, string?>> BreakdownColumns = new()
+    /// get_valuation_accuracy tool's breakdown option stays in lockstep with this endpoint.
+    /// A method rather than a static field since the selectors resolve through a
+    /// MasterDataResolver instance (admin-curated spelling aliases merge into one bucket
+    /// instead of splitting it) — cheap to rebuild, only 3 entries.</summary>
+    internal static Dictionary<string, Func<Lot, string?>> BreakdownColumns(MasterDataResolver masterData) => new()
     {
-        ["broker"] = l => l.Broker,
-        ["grade"] = l => l.Grade,
-        ["elevation"] = l => l.Elevation,
+        ["broker"] = l => masterData.Resolve(MasterDataEntityType.Broker, l.Broker),
+        ["grade"] = l => masterData.Resolve(MasterDataEntityType.Grade, l.Grade),
+        ["elevation"] = l => masterData.Resolve(MasterDataEntityType.Elevation, l.Elevation),
     };
 
     [HttpPost("{catalogueId:guid}/import")]
@@ -190,7 +194,7 @@ public class MarketController(ICatalogueSource source, MongoContext db, Catalogu
     [HttpGet("{catalogueId:guid}/breakdown/{column}")]
     public async Task<ActionResult<List<AccuracyBucketDto>>> Breakdown(Guid catalogueId, string column, CancellationToken ct)
     {
-        if (!BreakdownColumns.TryGetValue(column, out var selector))
+        if (!BreakdownColumns(masterData).TryGetValue(column, out var selector))
             return BadRequest($"Unknown breakdown column '{column}'.");
 
         var pairs = await BuildPairs(source, db, catalogueId, ct);
@@ -205,7 +209,7 @@ public class MarketController(ICatalogueSource source, MongoContext db, Catalogu
         var pairs = await BuildPairs(source, db, catalogueId, ct);
         if (pairs is null) return NotFound();
 
-        return Ok(ComputeInsights(pairs));
+        return Ok(ComputeInsights(pairs, masterData));
     }
 
     /// <summary>Pure MAPE/RMSE/bias computation over already-built pairs — internal so the AI
@@ -242,13 +246,13 @@ public class MarketController(ICatalogueSource source, MongoContext db, Catalogu
 
     /// <summary>Internal so the AI assistant's get_market_insights tool can reuse the same
     /// over/under-valued findings this endpoint returns.</summary>
-    internal static List<MarketInsightDto> ComputeInsights(List<(Lot Lot, decimal Est, decimal Actual)> pairs)
+    internal static List<MarketInsightDto> ComputeInsights(List<(Lot Lot, decimal Est, decimal Actual)> pairs, MasterDataResolver masterData)
     {
         (string Dimension, Func<Lot, string?> Selector)[] dimensions =
         [
-            ("Grade", l => l.Grade),
-            ("Elevation", l => l.Elevation),
-            ("Broker", l => l.Broker),
+            ("Grade", l => masterData.Resolve(MasterDataEntityType.Grade, l.Grade)),
+            ("Elevation", l => masterData.Resolve(MasterDataEntityType.Elevation, l.Elevation)),
+            ("Broker", l => masterData.Resolve(MasterDataEntityType.Broker, l.Broker)),
         ];
 
         var insights = new List<MarketInsightDto>();

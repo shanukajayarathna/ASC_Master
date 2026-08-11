@@ -1,8 +1,12 @@
 using Asc.Api.Models;
 using Asc.Api.Modules.ApiKeys;
 using Asc.Api.Modules.Assistant;
+using Asc.Api.Modules.Audit;
 using Asc.Api.Modules.Auth;
+using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.MasterData;
+using Asc.Api.Modules.Notifications;
 using Asc.Api.Modules.Webhooks;
 using MongoDB.Driver;
 
@@ -50,6 +54,38 @@ public class MongoContext
         [
             new CreateIndexModel<Conversation>(Builders<Conversation>.IndexKeys.Ascending(c => c.UserId)),
         ]);
+
+        // The admin screen filters by entity type when reviewing/editing aliases.
+        // MasterDataResolver loads every row into memory regardless (a few hundred rows at
+        // most across nine types), so this index only serves that filtered list query.
+        MasterDataEntities.Indexes.CreateMany(
+        [
+            new CreateIndexModel<MasterDataEntity>(Builders<MasterDataEntity>.IndexKeys.Ascending(e => e.Type)),
+        ]);
+
+        // The audit log view is always "most recent first" — nothing else queries this
+        // collection.
+        AuditLogs.Indexes.CreateMany(
+        [
+            new CreateIndexModel<AuditLogEntry>(Builders<AuditLogEntry>.IndexKeys.Descending(e => e.Timestamp)),
+        ]);
+
+        // Every real query here is "this user's unread notifications" or "this user's
+        // notifications" — a compound index serves both.
+        Notifications.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Notification>(Builders<Notification>.IndexKeys.Ascending(n => n.UserId).Ascending(n => n.ReadAt)),
+        ]);
+
+        // DeadlineEngine upserts by (Type, EntityId) every check — a compound unique index
+        // both makes that lookup cheap and guarantees the "one tracking row per entity"
+        // invariant even under concurrent ticks.
+        Deadlines.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Deadline>(
+                Builders<Deadline>.IndexKeys.Ascending(d => d.Type).Ascending(d => d.EntityId),
+                new CreateIndexOptions { Unique = true }),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -74,4 +110,11 @@ public class MongoContext
 
     public IMongoCollection<ApiKey> ApiKeys => Database.GetCollection<ApiKey>("apiKeys");
     public IMongoCollection<WebhookSubscription> WebhookSubscriptions => Database.GetCollection<WebhookSubscription>("webhookSubscriptions");
+
+    public IMongoCollection<MasterDataEntity> MasterDataEntities => Database.GetCollection<MasterDataEntity>("masterDataEntities");
+
+    public IMongoCollection<AuditLogEntry> AuditLogs => Database.GetCollection<AuditLogEntry>("auditLogs");
+
+    public IMongoCollection<Notification> Notifications => Database.GetCollection<Notification>("notifications");
+    public IMongoCollection<Deadline> Deadlines => Database.GetCollection<Deadline>("deadlines");
 }

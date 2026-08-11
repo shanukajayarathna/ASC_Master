@@ -126,6 +126,18 @@ public class ReportsController(ReportGenerator generator, MongoContext db) : Con
         return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
+    [HttpGet("{catalogueId:guid}/{type}/pptx")]
+    public async Task<IActionResult> ExportPresentation(Guid catalogueId, string type)
+    {
+        if (!ReportGenerator.Types.Contains(type)) return BadRequest($"Unknown report type '{type}'.");
+        var report = await generator.Generate(type, catalogueId);
+        if (report is null) return NotFound();
+
+        var bytes = PresentationGenerator.Build(report);
+        var fileName = $"{ExportController.SanitizeFileName(report.Title)}.pptx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation", fileName);
+    }
+
     [HttpPost("saved")]
     public async Task<ActionResult<SavedReportDto>> Save(SaveReportRequestDto dto, CancellationToken ct)
     {

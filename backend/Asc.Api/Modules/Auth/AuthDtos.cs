@@ -8,6 +8,6 @@ public record UserDto(Guid Id, string Email, string DisplayName, List<string> Ro
 
 public record AuthResponseDto(string Token, UserDto User);
 
-public record SetRoleDto(string Role);
+public record SetRoleDto(List<string> Roles);
 
 public record ChangePasswordDto(string CurrentPassword, string NewPassword);

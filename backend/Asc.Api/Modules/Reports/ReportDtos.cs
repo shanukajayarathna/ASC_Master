@@ -12,6 +12,11 @@ public record GroupRowDto(string Label, int Count, decimal? AverageValue, double
 /// of a bespoke response shape per type.</summary>
 public record ReportSectionDto(string Title, List<KpiDto>? Kpis, string? GroupUnitLabel, List<GroupRowDto>? Groups);
 
+/// <summary>SourceName is one field for the whole report, not per-section, because every
+/// section today derives from the same single catalogue file. When a future data source
+/// (an MSL/OKLO/Tea Board import, a warehouse API, ...) starts feeding an individual
+/// *section* rather than the whole report, that's the point to add a per-section Source
+/// field to ReportSectionDto — not before, and not as a guess at that source's shape.</summary>
 public record ReportDto(string Type, string Title, string Subtitle, string SourceName, DateTime GeneratedAt, List<ReportSectionDto> Sections);
 
 public record SavedReportDto(Guid Id, string Type, string Title, Guid? CatalogueId, string? Source, DateTime CreatedAt);

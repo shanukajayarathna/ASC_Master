@@ -1,6 +1,7 @@
 using Asc.Api.Controllers;
 using Asc.Api.Data;
 using Asc.Api.Models;
+using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Reports;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,22 +14,24 @@ namespace Asc.Api.Modules.Analytics;
 /// Ports the original vanilla-JS Analysis module (js/analysis.js) — same 5 sections, moved
 /// to server-side aggregation as that stub's own description promised. Group Breakdown and
 /// Classification Distribution reuse Modules/Reports/ReportGenerator.cs's aggregation
-/// directly rather than re-deriving it.
+/// directly rather than re-deriving it. Broker/grade/category/garden/elevation/region/
+/// warehouse breakdowns resolve through MasterDataResolver first, so admin-curated spelling
+/// aliases merge into one row instead of splitting the group.
 /// </summary>
 [ApiController]
 [Route("api/v1/analytics")]
 [Authorize]
-public class AnalyticsController(ICatalogueSource source, MongoContext db) : ControllerBase
+public class AnalyticsController(ICatalogueSource source, MongoContext db, MasterDataResolver masterData) : ControllerBase
 {
-    private static readonly Dictionary<string, (string Label, Func<Lot, string?> Selector)> BreakdownColumns = new()
+    private readonly Dictionary<string, (string Label, Func<Lot, string?> Selector)> _breakdownColumns = new()
     {
-        ["broker"] = ("Broker", l => l.Broker),
-        ["grade"] = ("Grade", l => l.Grade),
-        ["category"] = ("Category", l => l.Category),
-        ["garden"] = ("Garden", l => l.Garden),
-        ["elevation"] = ("Elevation", l => l.Elevation),
-        ["region"] = ("Region", l => l.Region),
-        ["warehouse"] = ("Warehouse", l => l.Warehouse),
+        ["broker"] = ("Broker", l => masterData.Resolve(MasterDataEntityType.Broker, l.Broker)),
+        ["grade"] = ("Grade", l => masterData.Resolve(MasterDataEntityType.Grade, l.Grade)),
+        ["category"] = ("Category", l => masterData.Resolve(MasterDataEntityType.Category, l.Category)),
+        ["garden"] = ("Garden", l => masterData.Resolve(MasterDataEntityType.Garden, l.Garden)),
+        ["elevation"] = ("Elevation", l => masterData.Resolve(MasterDataEntityType.Elevation, l.Elevation)),
+        ["region"] = ("Region", l => masterData.Resolve(MasterDataEntityType.Region, l.Region)),
+        ["warehouse"] = ("Warehouse", l => masterData.Resolve(MasterDataEntityType.Warehouse, l.Warehouse)),
         ["saleNo"] = ("Sale No", l => l.SaleNo),
     };
 
@@ -43,7 +46,7 @@ public class AnalyticsController(ICatalogueSource source, MongoContext db) : Con
     [HttpGet("{catalogueId:guid}/breakdown/{column}")]
     public async Task<ActionResult<List<GroupRowDto>>> Breakdown(Guid catalogueId, string column, CancellationToken ct)
     {
-        if (!BreakdownColumns.TryGetValue(column, out var def))
+        if (!_breakdownColumns.TryGetValue(column, out var def))
             return BadRequest($"Unknown breakdown column '{column}'.");
         var merged = await LoadMerged(catalogueId, ct);
         if (merged is null) return NotFound();
@@ -63,22 +66,28 @@ public class AnalyticsController(ICatalogueSource source, MongoContext db) : Con
     {
         var merged = await LoadMerged(catalogueId, ct);
         if (merged is null) return NotFound();
-        return Ok(ComputeBrokerStats(merged));
+        return Ok(ComputeBrokerStats(merged, masterData));
     }
 
     /// <summary>Internal, not private — the AI assistant's get_broker_performance tool reuses
     /// this without re-deriving per-broker aggregation.</summary>
-    internal static List<BrokerStatsDto> ComputeBrokerStats(List<(Lot Lot, Valuation? Val)> merged)
+    internal static List<BrokerStatsDto> ComputeBrokerStats(List<(Lot Lot, Valuation? Val)> merged, MasterDataResolver masterData)
     {
         var totalLots = merged.Count;
+        string ResolvedBroker(Lot l)
+        {
+            var resolved = masterData.Resolve(MasterDataEntityType.Broker, l.Broker);
+            return string.IsNullOrWhiteSpace(resolved) ? "(unspecified)" : resolved;
+        }
+
         return merged
-            .GroupBy(x => string.IsNullOrWhiteSpace(x.Lot.Broker) ? "(unspecified)" : x.Lot.Broker!)
+            .GroupBy(x => ResolvedBroker(x.Lot))
             .Select(g =>
             {
                 var values = g.Where(x => x.Val?.EffectiveValue != null).Select(x => x.Val!.EffectiveValue!.Value).ToList();
-                var topGrade = g.Where(x => !string.IsNullOrWhiteSpace(x.Lot.Grade)).GroupBy(x => x.Lot.Grade!)
+                var topGrade = g.Where(x => !string.IsNullOrWhiteSpace(x.Lot.Grade)).GroupBy(x => masterData.Resolve(MasterDataEntityType.Grade, x.Lot.Grade)!)
                     .OrderByDescending(gg => gg.Count()).Select(gg => gg.Key).FirstOrDefault() ?? "—";
-                var topCategory = g.Where(x => !string.IsNullOrWhiteSpace(x.Lot.Category)).GroupBy(x => x.Lot.Category!)
+                var topCategory = g.Where(x => !string.IsNullOrWhiteSpace(x.Lot.Category)).GroupBy(x => masterData.Resolve(MasterDataEntityType.Category, x.Lot.Category)!)
                     .OrderByDescending(gg => gg.Count()).Select(gg => gg.Key).FirstOrDefault() ?? "—";
                 return new BrokerStatsDto(
                     g.Key,

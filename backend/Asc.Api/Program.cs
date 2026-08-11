@@ -2,12 +2,20 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using Asc.Api.Data;
+using Asc.Api.Modules.Agents;
 using Asc.Api.Modules.ApiKeys;
 using Asc.Api.Modules.Assistant;
+using Asc.Api.Modules.Audit;
 using Asc.Api.Modules.Auth;
+using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.Knowledge;
+using Asc.Api.Modules.MasterData;
+using Asc.Api.Modules.Notifications;
+using Asc.Api.Modules.Performance;
 using Asc.Api.Modules.Reports;
 using Asc.Api.Modules.Webhooks;
+using Asc.Api.Modules.Workflow;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -65,6 +73,12 @@ builder.Services.AddSingleton<IDocumentStore, LocalDocumentStore>();
 builder.Services.AddHttpClient<IEmbeddingProvider, OpenAiEmbeddingProvider>();
 builder.Services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
 
+// Knowledge Platform — the seam agents call instead of a search service or a raw file
+// directly (see Modules/Knowledge). One source today (uploaded documents); MSL/Tea Board/
+// OKLO become additional IKnowledgeSource registrations here, nothing else changes.
+builder.Services.AddSingleton<IKnowledgeSource, DocumentKnowledgeSource>();
+builder.Services.AddSingleton<IKnowledgeService, KnowledgeService>();
+
 // AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
 // OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own
 // wire format. Every tool any of them can call is read-only (Modules/Assistant/AssistantTools.cs).
@@ -79,6 +93,34 @@ builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GroqCha
 builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GeminiChatProvider>());
 builder.Services.AddScoped<AiGateway>();
 builder.Services.AddSingleton<AssistantToolExecutor>();
+
+// Agent Platform — User Request → AgentRouter → Selected Agent → KnowledgeService → LLM →
+// Agent Response (see Modules/Agents). Scoped, matching AiGateway's own lifetime: a scoped
+// service can never be safely captured by a singleton. One agent registered today; a second
+// (e.g. a narrower Auction-specific agent) is just another IAgent registration.
+builder.Services.AddScoped<IAgent, GeneralAgent>();
+builder.Services.AddScoped<AgentRouter>();
+
+// Master data — canonical broker/buyer/garden/grade/... names + spelling-variant aliases,
+// resolved at read time by Analytics/Market/Reports/Assistant. Lot and the file-backed
+// catalogue store (SaleFileStore) are never modified — see Modules/MasterData.
+builder.Services.AddSingleton<MasterDataResolver>();
+
+// Audit trail for admin-mutating actions (role changes, API key/webhook/master-data/
+// knowledge-base CRUD) — see Modules/Audit. A local persisted write, not an external
+// notification, so it's unrelated to WebhookSender despite the similar event-name shape.
+builder.Services.AddSingleton<IAuditLogger, AuditLogger>();
+
+// Cross-sale grade/buyer trend detection — the first analytics in this app that compares
+// one sale to another rather than summarizing a single one. See Modules/Performance.
+builder.Services.AddSingleton<PerformanceEngine>();
+
+// In-app notifications (no email/WhatsApp — no provider credentials exist yet) and the
+// deadline engine that's their first real producer. DeadlineCheckService is the first
+// *recurring* background job in this app (SaleMetaWarmer only runs once at startup).
+builder.Services.AddSingleton<INotificationService, NotificationService>();
+builder.Services.AddSingleton<DeadlineEngine>();
+builder.Services.AddHostedService<DeadlineCheckService>();
 
 // Reporting — no PDF library here on purpose; the frontend renders the report and the
 // browser's own Print → Save as PDF covers that leg (see Modules/Reports/ReportsController.cs).
@@ -96,6 +138,12 @@ builder.Services.AddSingleton<Asc.Api.Modules.Worksheet.WorksheetExcelBuilder>()
 // a short timeout since this fires inline inside user-facing requests and must never hang
 // one on a dead/slow external endpoint (see WebhookSender's own doc comment).
 builder.Services.AddHttpClient<IWebhookSender, WebhookSender>(client => client.Timeout = TimeSpan.FromSeconds(5));
+
+// Workflow Layer — n8n today, swappable for Temporal (or anything else) later behind
+// IWorkflowService (see Modules/Workflow). N8nWorkflowProvider is just a name over the
+// webhook sender above — wrapping an AddHttpClient-backed transient inside a singleton
+// factory, same pattern this file already uses for IChatProvider.
+builder.Services.AddSingleton<IWorkflowService>(sp => new N8nWorkflowProvider(sp.GetRequiredService<IWebhookSender>()));
 
 const string ApiKeyScheme = "ApiKey";
 const string SmartScheme = "Smart";
@@ -143,7 +191,21 @@ builder.Services
         };
     })
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyScheme, _ => { });
-builder.Services.AddAuthorization();
+
+// Named permission seams (see Modules/Auth/Policies.cs) — every one maps to
+// RequireRole(Admin) today, same as the [Authorize(Roles="Admin")] literals they replace, so
+// this is a zero-behavior-change naming layer, not a retrofit onto existing policies (there
+// were none before this).
+builder.Services.AddAuthorization(opts =>
+{
+    opts.AddPolicy(Policies.ManageUsers, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageApiKeys, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageWebhooks, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageMasterData, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageKnowledgeBase, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.UseAdminAiTools, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ViewAuditLog, p => p.RequireRole(RoleNames.Admin));
+});
 
 // Throttles login attempts per client IP so a stolen/guessed-at password list can't be
 // brute-forced against /api/v1/auth/login — there's no account lockout, so this is the
@@ -175,6 +237,11 @@ builder.Services.AddCors(opts =>
 });
 
 var app = builder.Build();
+
+// Master data resolution has to be synchronous (it runs inside LINQ grouping selectors), so
+// the alias table is loaded into memory once here rather than queried per lookup — see
+// MasterDataResolver. MasterDataController refreshes it again after every admin write.
+await app.Services.GetRequiredService<MasterDataResolver>().RefreshAsync();
 
 if (string.IsNullOrEmpty(builder.Configuration["Jwt:Key"]))
 {
