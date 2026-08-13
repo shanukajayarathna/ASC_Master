@@ -110,8 +110,17 @@ export default function ExportShareMenu({
     setBusy("share");
     setError(null);
     try {
-      // Share carries the same default (shown) columns as the quick export.
-      const blob = await api.exportExcel(lotRefs(), columnsFrom(new Set(defaultColumnIds)));
+      // Share carries the same default (shown) columns as the quick export, plus Invoice
+      // and the actual sold/purchased price even when hidden on-screen (both default to
+      // hidden for every catalogue, per CatalogueImportService's HiddenByDefault rule) —
+      // someone receiving a shared lot report needs the invoice to identify the lot and the
+      // real settled auction price, not just whatever columns the sender's own grid shows.
+      // Purchased Price is the actual price a buyer paid (populated for every broker's
+      // lots), distinct from this company's own pre-auction valuation.
+      const alwaysShared = availableColumns.filter(
+        (c) => c.kind === "raw" && (/invoice/i.test(c.key) || /purchased.?price/i.test(c.key))
+      );
+      const blob = await api.exportExcel(lotRefs(), columnsFrom(new Set([...defaultColumnIds, ...alwaysShared.map((c) => c.id)])));
       const file = new File([blob], `${fileBase}_lot_report.xlsx`, {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });

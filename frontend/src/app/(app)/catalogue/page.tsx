@@ -33,6 +33,7 @@ import Divider from "@mui/material/Divider";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
+import CircularProgress from "@mui/material/CircularProgress";
 import ListItemText from "@mui/material/ListItemText";
 import Tooltip from "@mui/material/Tooltip";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
@@ -42,7 +43,7 @@ import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 const WORKSHEET_HANDOFF_KEY = "asc:worksheet:pending";
 
@@ -77,6 +78,14 @@ const STATUS_LABELS: Record<string, string> = {
   full: "Ticket complete",
   partial: "In progress",
   empty: "Not started",
+};
+
+// Outlined-on-dark styling for the selection bar's buttons — MUI's default disabled grey
+// is unreadable on the dark bar, so the locked (bulk-in-flight) state gets its own colors.
+const DARK_BAR_BUTTON_SX = {
+  color: "#fff",
+  borderColor: "rgba(255,255,255,0.3)",
+  "&.Mui-disabled": { color: "rgba(255,255,255,0.45)", borderColor: "rgba(255,255,255,0.15)" },
 };
 
 const EMPTY_COMBINED: CombinedCatalogue = {
@@ -123,6 +132,10 @@ export default function CataloguePage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
   // Outcome of the last bulk classify, shown only when some lots were left unclassified.
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+  // Which bulk action is in flight — locks the whole action bar (the API call plus the
+  // sale reload behind it take a while on a big selection, and a second click would fire
+  // the same bulk update again) and puts the spinner on the button that was clicked.
+  const [bulkBusy, setBulkBusy] = useState<ClassificationValue | "clear" | null>(null);
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
@@ -252,16 +265,33 @@ export default function CataloguePage() {
     setSearch("");
   };
 
+  // The full filter pass below walks every pooled lot, which is far too slow to run inside
+  // the same render as a keystroke — so it runs against these deferred copies instead: the
+  // keystroke paints immediately, and the pass catches up in an interruptible background
+  // render. While the two disagree, `filtering` drives the same Updating… pill and dimmed
+  // grid treatment a sale reload already uses.
+  const dSearch = useDeferredValue(search);
+  const dColumnFilters = useDeferredValue(columnFilters);
+  const dStatusFilter = useDeferredValue(statusFilter);
+  const dClassificationFilter = useDeferredValue(classificationFilter);
+  const dYearFilter = useDeferredValue(yearFilter);
+  const filtering =
+    search !== dSearch ||
+    columnFilters !== dColumnFilters ||
+    statusFilter !== dStatusFilter ||
+    classificationFilter !== dClassificationFilter ||
+    yearFilter !== dYearFilter;
+
   const filteredLots = useMemo(
     () =>
       filterLots(lots, {
-        search,
-        columnFilters,
-        status: statusFilter,
-        classification: classificationFilter,
-        year: yearFilter,
+        search: dSearch,
+        columnFilters: dColumnFilters,
+        status: dStatusFilter,
+        classification: dClassificationFilter,
+        year: dYearFilter,
       }),
-    [lots, search, columnFilters, statusFilter, classificationFilter, yearFilter]
+    [lots, dSearch, dColumnFilters, dStatusFilter, dClassificationFilter, dYearFilter]
   );
 
   const activeFilterChips = useMemo(() => {
@@ -423,24 +453,38 @@ export default function CataloguePage() {
   };
 
   const bulkClassify = async (classification: ClassificationValue) => {
-    if (selected.length === 0) return;
-    const { updated, skipped } = await api.bulkClassify(selected.map((l) => l.id), classification);
-    setBulkNotice(
-      skipped > 0
-        ? `Classified ${updated.toLocaleString()} lot${updated === 1 ? "" : "s"} — ${skipped.toLocaleString()} skipped with no valuation yet.`
-        : null
-    );
-    invalidateLotSales(selected);
-    await reload();
-    setSelected([]);
+    if (selected.length === 0 || bulkBusy) return;
+    setBulkBusy(classification);
+    try {
+      const { updated, skipped } = await api.bulkClassify(selected.map((l) => l.id), classification);
+      setBulkNotice(
+        skipped > 0
+          ? `Classified ${updated.toLocaleString()} lot${updated === 1 ? "" : "s"} — ${skipped.toLocaleString()} skipped with no valuation yet.`
+          : null
+      );
+      invalidateLotSales(selected);
+      await reload();
+      setSelected([]);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Bulk classify failed");
+    } finally {
+      setBulkBusy(null);
+    }
   };
 
   const bulkClearNotes = async () => {
-    if (selected.length === 0) return;
-    await api.bulkClearNotes(selected.map((l) => l.id));
-    invalidateLotSales(selected);
-    await reload();
-    setSelected([]);
+    if (selected.length === 0 || bulkBusy) return;
+    setBulkBusy("clear");
+    try {
+      await api.bulkClearNotes(selected.map((l) => l.id));
+      invalidateLotSales(selected);
+      await reload();
+      setSelected([]);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Clearing notes failed");
+    } finally {
+      setBulkBusy(null);
+    }
   };
 
   if (!activeCatalogueId) {
@@ -642,7 +686,7 @@ export default function CataloguePage() {
           </Button>
         )}
         <span className="text-[12.5px] text-text-muted font-mono ml-auto flex items-center gap-2">
-          {loadingLots && lots.length > 0 && (
+          {((loadingLots && lots.length > 0) || filtering) && (
             <span className="inline-flex items-center gap-1 text-brass">
               <span className="w-1.5 h-1.5 rounded-full bg-brass animate-pulse" />
               Updating…
@@ -694,7 +738,7 @@ export default function CataloguePage() {
                   size="small"
                   variant="contained"
                   color="primary"
-                  disabled={workDisabled}
+                  disabled={workDisabled || bulkBusy !== null}
                   startIcon={<BoltIcon fontSize="small" />}
                   onClick={(e) => setWorkMenuAnchor(e.currentTarget)}
                 >
@@ -710,20 +754,30 @@ export default function CataloguePage() {
               ))}
             </Menu>
             <span className="w-px self-stretch bg-white/15 mx-0.5" />
-            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("SelectBest")}>
-              Mark all Select Best
-            </Button>
-            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("Best")}>
-              Mark all Best
-            </Button>
-            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("BelowBest")}>
-              Mark all Below Best
-            </Button>
-            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => bulkClassify("Poor")}>
-              Mark all Poor
-            </Button>
-            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={bulkClearNotes}>
-              Clear notes
+            {(["SelectBest", "Best", "BelowBest", "Poor"] as const).map((c) => (
+              <Button
+                key={c}
+                size="small"
+                variant="outlined"
+                disabled={bulkBusy !== null}
+                aria-busy={bulkBusy === c}
+                startIcon={bulkBusy === c ? <CircularProgress size={14} color="inherit" /> : undefined}
+                sx={DARK_BAR_BUTTON_SX}
+                onClick={() => bulkClassify(c)}
+              >
+                {bulkBusy === c ? "Marking…" : `Mark all ${CLASSIFICATION_LABELS[c]}`}
+              </Button>
+            ))}
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={bulkBusy !== null}
+              aria-busy={bulkBusy === "clear"}
+              startIcon={bulkBusy === "clear" ? <CircularProgress size={14} color="inherit" /> : undefined}
+              sx={DARK_BAR_BUTTON_SX}
+              onClick={bulkClearNotes}
+            >
+              {bulkBusy === "clear" ? "Clearing…" : "Clear notes"}
             </Button>
             <span className="w-px self-stretch bg-white/15 mx-0.5" />
             <ExportShareMenu
@@ -734,7 +788,7 @@ export default function CataloguePage() {
               defaultColumnIds={exportDefaultColumnIds}
               dark
             />
-            <Button size="small" variant="outlined" sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }} onClick={() => setSelected([])}>
+            <Button size="small" variant="outlined" disabled={bulkBusy !== null} sx={DARK_BAR_BUTTON_SX} onClick={() => setSelected([])}>
               Deselect
             </Button>
           </div>
@@ -802,7 +856,7 @@ export default function CataloguePage() {
       {loadingLots && lots.length === 0 ? (
         <p className="text-text-muted text-sm">Loading lots…</p>
       ) : headers.length > 0 ? (
-        <div className={loadingLots ? "opacity-60 transition-opacity pointer-events-none" : "transition-opacity"}>
+        <div className={loadingLots || filtering ? "opacity-60 transition-opacity pointer-events-none" : "transition-opacity"}>
           <CatalogueGrid
             lots={filteredLots}
             headers={headers}

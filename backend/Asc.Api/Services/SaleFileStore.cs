@@ -63,6 +63,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     private readonly Dictionary<int, (Signature Sig, SaleMeta Meta)> _meta = new();
     private long _touchCounter;
     private bool _metaFileLoaded;
+    private int _warmInFlight; // 0 = idle, 1 = a background catch-up warm pass is running
 
     private sealed record Signature(long Size, long MTimeTicks);
     private sealed record SaleFile(int SaleNo, string Path, Signature Sig);
@@ -122,6 +123,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     {
         EnsureMetaLoaded();
         var result = new List<Catalogue>();
+        var anyStale = false;
         foreach (var file in ScanFiles())
         {
             SaleMeta? meta;
@@ -129,18 +131,37 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             {
                 meta = _meta.TryGetValue(file.SaleNo, out var m) && m.Sig == file.Sig ? m.Meta : null;
             }
+            if (meta is null) anyStale = true;
             result.Add(new Catalogue
             {
                 Id = CatalogueIdFor(file.SaleNo),
                 SourceName = $"Sale {file.SaleNo} - 2026",
                 // Row count / headers are known once the sale has been parsed at least once
-                // (the warm pass or first open); until then the sale still lists, just bare.
+                // (the warm pass, an opportunistic re-warm below, or first open); until then
+                // the sale still lists, just bare.
                 RowCount = meta?.RowCount ?? 0,
                 Headers = meta?.Headers ?? new List<string>(),
                 ImportedAt = SaleDateFor(file.SaleNo),
             });
         }
+        // A file with no meta entry is either brand new or was replaced on disk (different
+        // size/mtime) since it was last parsed — SaleMetaWarmer only runs once at startup, so
+        // without this a sale edited/replaced while the app is already running would list as
+        // 0 lots until someone happened to open it or the app restarted. Non-blocking: this
+        // request still returns immediately with whatever's known now; the next ListCatalogues
+        // call sees the corrected count once the background pass catches up.
+        if (anyStale) TriggerBackgroundWarm();
         return result.OrderByDescending(c => c.ImportedAt).ToList();
+    }
+
+    private void TriggerBackgroundWarm()
+    {
+        if (Interlocked.CompareExchange(ref _warmInFlight, 1, 0) != 0) return;
+        _ = Task.Run(() =>
+        {
+            try { WarmMeta(); }
+            finally { Interlocked.Exchange(ref _warmInFlight, 0); }
+        });
     }
 
     /// <summary>The next unused sale number — the highest on disk + 1 (or 1 when the folder

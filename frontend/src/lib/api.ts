@@ -207,12 +207,20 @@ export const api = {
 
   searchDocuments: (q: string) => request<DocumentSearchResult[]>(`/api/v1/documents/search?q=${encodeURIComponent(q)}`),
 
+  syncPlatformDocs: () =>
+    request<{ added: number; updated: number; unchanged: number; failed: string[] }>(
+      "/api/v1/documents/sync-platform-docs",
+      { method: "POST" }
+    ),
+
   // ---- AI assistant ------------------------------------------------------------------
 
-  sendChatMessage: (message: string, conversationId?: string, provider?: string) =>
+  sendChatMessage: (message: string, conversationId?: string, provider?: string, catalogueId?: string) =>
     request<ChatResponse>("/api/v1/assistant/chat", {
       method: "POST",
-      body: JSON.stringify({ conversationId: conversationId ?? null, message, provider: provider ?? null }),
+      // catalogueId = the Topbar's active sale, so the assistant knows what "the current
+      // sale" means without a tool round-trip.
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, provider: provider ?? null, catalogueId: catalogueId ?? null }),
     }),
 
   listConversations: () => request<Conversation[]>("/api/v1/assistant/conversations"),

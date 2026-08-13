@@ -46,6 +46,11 @@ public class KnowledgeDocument
     /// computed at read time (see DocumentsController.List) to avoid a second write.</summary>
     [BsonRepresentation(BsonType.String)]
     public Guid? SupersedesDocumentId { get; set; }
+
+    /// <summary>SHA-256 of the source text, set only by PlatformDocsSyncService — lets a
+    /// re-sync skip unchanged files instead of re-embedding them. Null for uploads (they
+    /// have no re-sync path, so nothing would ever compare against it).</summary>
+    public string? ContentHash { get; set; }
 }
 
 public class DocumentChunk

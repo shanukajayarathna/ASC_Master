@@ -15,16 +15,21 @@ import {
   catalogueRemarkOf,
   catalogueStandardOf,
   hasValuation,
+  isReprintLot,
   markCodeOf,
   minimumLimitOf,
   noOfChestsOf,
+  purchasedPriceOf,
+  registeredBidOf,
+  reprintValueOf,
   sellingMarkOf,
+  statusOf,
   valuationPairOf,
   valuationToText,
   weightPerChestOf,
 } from "@/lib/lotDisplay";
 import { OUR_BROKER } from "@/lib/ourBroker";
-import { buildSharingIndex, sharingsFor } from "@/lib/sharings";
+import { buildSharingIndex, sharingsFor, sharingsInOtherSale } from "@/lib/sharings";
 import {
   parseValuationInput,
   parseValuationPair,
@@ -106,6 +111,9 @@ interface ValuationFocusProps {
   index: number;
   total: number;
   filters: FocusFilters;
+  /** Previous sale's lots (all of it, not just this mark+grade) — for the Sharings panel's
+   *  cross-sale comparison. Empty while it's still loading or there is no previous sale. */
+  previousSaleLots: Lot[];
   onNavigate: (index: number) => void;
   /** Jump straight to a lot picked from the filtered results strip. */
   onJump: (lotId: string) => void;
@@ -195,6 +203,7 @@ export default function ValuationFocus({
   index,
   total,
   filters,
+  previousSaleLots,
   onNavigate,
   onJump,
   onExit,
@@ -236,6 +245,12 @@ export default function ValuationFocus({
   const sharings = useMemo(
     () => sharingsFor(sharingIndex, lot).filter((l) => l.broker !== OUR_BROKER),
     [sharingIndex, lot]
+  );
+  // How this same mark + grade fared last sale — every broker's, since there's no "anchor
+  // lot" to exclude across sales the way there is for this-sale peers above.
+  const previousSaleSharings = useMemo(
+    () => sharingsInOtherSale(lot, previousSaleLots),
+    [lot, previousSaleLots]
   );
 
   // Per-lot media (photo + per-field voice notes), loaded once per lot. `mediaVersion` busts
@@ -703,6 +718,7 @@ export default function ValuationFocus({
     { label: "Selling Mark", value: sellingMarkOf(lot), strong: true },
     { label: "Mark Code", value: markCodeOf(lot) ?? lot.mark },
     { label: "Grade", value: lot.grade, strong: true },
+    { label: "RP", value: reprintValueOf(lot), strong: isReprintLot(lot) },
     { label: "Bags", value: noOfChestsOf(lot) },
     { label: "Wt / Bag (kg)", value: weightPerChestOf(lot) },
     // The broker's own Standard column, read-only — our sub-grade reads off the picker's
@@ -725,6 +741,13 @@ export default function ValuationFocus({
       style={{ background: "var(--surface-alt)" }}
       onKeyDown={(e) => {
         const onValuationLine = e.target === lineRefs.current.from || e.target === lineRefs.current.to;
+        // Free-text fields (search, remarks, adjective/liquor text…) get to keep every
+        // letter the taster types — "S" is far too common a letter to hijack there. The
+        // valuation lines are numeric-purpose, so "S" passing through them is harmless
+        // (sanitizeValuationSide strips it right back out) and this is also the device the
+        // shortcut is most useful on: a keyboard-equipped tablet, mid-entry.
+        const target = e.target as HTMLElement;
+        const typingFreeText = !onValuationLine && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
         if (e.key === "Escape") {
           e.preventDefault();
           onExit();
@@ -734,6 +757,18 @@ export default function ValuationFocus({
         } else if (e.key === "PageDown" || (e.key === "ArrowDown" && onValuationLine)) {
           e.preventDefault();
           goTo(index + 1);
+        } else if (
+          (e.key === "s" || e.key === "S") &&
+          !typingFreeText &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          (sharingsOpen || sharings.length > 0 || previousSaleSharings.length > 0)
+        ) {
+          // Toggles either way — opens when there's something to compare, and always
+          // closes on a second press even if the underlying data changed in between.
+          e.preventDefault();
+          setSharingsOpen((o) => !o);
         }
       }}
     >
@@ -937,6 +972,15 @@ export default function ValuationFocus({
               <span className="text-[15px] font-bold text-text-strong whitespace-nowrap">
                 {lot.lotNumber ? `Lot ${lot.lotNumber}` : lot.rowKey}
               </span>
+              {isReprintLot(lot) && (
+                <span
+                  title="Broker-flagged reprint lot"
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap"
+                  style={{ background: "var(--info)", color: "var(--paper-0)" }}
+                >
+                  RP
+                </span>
+              )}
               {sellingMarkOf(lot) && (
                 <span className="text-[15px] font-semibold text-text whitespace-nowrap">{sellingMarkOf(lot)}</span>
               )}
@@ -959,26 +1003,26 @@ export default function ValuationFocus({
                   labelled "Sharings (0)" says the same thing without the round trip. */}
               <button
                 type="button"
-                disabled={sharings.length === 0}
+                disabled={sharings.length === 0 && previousSaleSharings.length === 0}
                 onClick={() => setSharingsOpen((o) => !o)}
                 title={
-                  sharings.length === 0
+                  sharings.length === 0 && previousSaleSharings.length === 0
                     ? `No other broker is offering ${sellingMarkOf(lot) ?? "this mark"}${
                         lot.grade ? ` · ${lot.grade}` : ""
-                      } in this sale`
+                      } in this sale or the previous one`
                     : sharingsOpen
-                      ? "Hide the comparison"
-                      : "Compare the other brokers offering this same mark & grade — and price them here"
+                      ? "Hide the comparison (S)"
+                      : "Compare this same mark & grade against other brokers this sale and the previous sale — price it here (S)"
                 }
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] font-semibold touch-manipulation transition-transform enabled:cursor-pointer enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
                 style={{
-                  borderColor: sharings.length ? "var(--brass)" : "var(--border)",
+                  borderColor: sharings.length || previousSaleSharings.length ? "var(--brass)" : "var(--border)",
                   background: sharingsOpen ? "var(--brass-dim)" : "transparent",
-                  color: sharings.length ? "var(--text-strong)" : "var(--text-muted)",
+                  color: sharings.length || previousSaleSharings.length ? "var(--text-strong)" : "var(--text-muted)",
                 }}
               >
                 <CompareArrowsIcon sx={{ fontSize: 16 }} />
-                Sharings ({sharings.length})
+                Sharings ({sharings.length + previousSaleSharings.length})
               </button>
               {media && (
                 <LotPhoto lotId={lot.id} has={media.photo} version={mediaVersion} onChanged={refreshMedia} />
@@ -1223,6 +1267,71 @@ export default function ValuationFocus({
                     </div>
                   </>
                 )}
+
+                {/* How this same mark + grade fared last sale — status, the actual sold
+                    price if it cleared, or the best (registered) bid if it didn't. Read-only:
+                    the previous sale's lots aren't this sale's data to edit. */}
+                <div className="mt-4 pt-3 border-t border-dashed border-border">
+                  <p className="font-mono text-[10px] tracking-widest uppercase text-text-muted font-semibold mb-2">
+                    Previous Sale
+                  </p>
+                  {previousSaleSharings.length === 0 ? (
+                    <p className="text-[12.5px] text-text-muted m-0 leading-relaxed">
+                      No matching lot for{" "}
+                      <strong style={{ color: "var(--text-strong)" }}>{sellingMarkOf(lot) ?? "this mark"}</strong>
+                      {lot.grade ? ` · ${lot.grade}` : ""} in the previous sale.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto -mx-1 px-1">
+                      <table className="w-full border-collapse text-[13px]">
+                        <thead>
+                          <tr>
+                            {["Broker", "Lot", "Wt/Bag", "Status", "Price"].map((h) => (
+                              <th
+                                key={h}
+                                className="font-mono text-[9px] tracking-widest uppercase text-text-muted font-semibold px-2 py-1 text-left whitespace-nowrap"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previousSaleSharings.map((l) => {
+                            const sold = purchasedPriceOf(l);
+                            const bid = registeredBidOf(l);
+                            const wtBag = weightPerChestOf(l);
+                            const diffPacking = !!wtBag && !!currentWtBag && wtBag !== currentWtBag;
+                            return (
+                              <tr key={l.id}>
+                                <td className="px-2 py-2 whitespace-nowrap font-semibold" style={{ color: "var(--text)" }}>
+                                  {l.broker || "—"}
+                                </td>
+                                <td className="px-2 py-2 whitespace-nowrap font-mono">{l.lotNumber ?? "—"}</td>
+                                <td
+                                  className="px-2 py-2 whitespace-nowrap font-mono"
+                                  style={diffPacking ? { color: "var(--warn)", fontWeight: 700 } : undefined}
+                                  title={diffPacking ? "Different packing from your lot" : undefined}
+                                >
+                                  {wtBag ?? "—"}
+                                  {diffPacking ? " ≠" : ""}
+                                </td>
+                                <td className="px-2 py-2 whitespace-nowrap">{statusOf(l) ?? "—"}</td>
+                                <td
+                                  className="px-2 py-2 whitespace-nowrap font-mono font-bold"
+                                  style={{ color: sold ? "var(--sage-dark)" : bid ? "var(--warn)" : "var(--text-muted)" }}
+                                  title={sold ? "Actual price it sold for" : bid ? "Highest bid registered — didn't sell" : undefined}
+                                >
+                                  {sold ? `Rs. ${sold}` : bid ? `Bid Rs. ${bid}` : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
                   </div>
                 </div>
               </>
@@ -1497,7 +1606,13 @@ export default function ValuationFocus({
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          saveAndNext();
+                          // From a freshly-typed value, Enter moves to the range line first
+                          // rather than saving straight away — a range needs that line
+                          // reachable by keyboard too, not just the on-screen Range key.
+                          // Enter from the range line (or from an empty value line) saves
+                          // and advances, same as before.
+                          if (line === "from" && !rangeLineLocked) goToLine("to");
+                          else saveAndNext();
                         }
                       }}
                     />

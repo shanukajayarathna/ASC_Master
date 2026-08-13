@@ -1,0 +1,36 @@
+# Production override: adds Caddy (TLS termination + reverse proxy) in front of the two
+# app containers. Use together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Required extra environment (see DEPLOYMENT.md "Production on a VPS"):
+#   SITE_ADDRESS           e.g. hub.example.com — the one public domain
+#   PUBLIC_API_BASE_URL    https://<SITE_ADDRESS> (same origin as the site, so no CORS)
+#   CORS_ALLOWED_ORIGINS   https://<SITE_ADDRESS>
+#
+# Note: the base file still publishes 5058/3000 on the host (dev convenience; a compose
+# override can add but not remove port mappings). In production the firewall must only
+# allow 22/80/443 — see the ufw step in DEPLOYMENT.md — so those ports stay unreachable
+# from outside while Caddy serves the real traffic.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account state — losing this only means re-issuing certs,
+      # but keeping it avoids Let's Encrypt rate limits on repeated rebuilds.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  caddy-data:
+  caddy-config:

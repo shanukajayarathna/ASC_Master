@@ -1,6 +1,7 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
+import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import type { ChatMessage, Conversation, ProviderStatus } from "@/types/api";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
@@ -22,6 +23,9 @@ const SUGGESTED_PROMPTS = [
 ];
 
 export default function AssistantPage() {
+  // The Topbar's active sale rides along with every chat message, so the assistant knows
+  // what "the current sale" means without a tool round-trip.
+  const { activeCatalogueId } = useCatalogue();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,7 +70,7 @@ export default function AssistantPage() {
     setError(null);
 
     try {
-      const res = await api.sendChatMessage(text, activeId ?? undefined, provider);
+      const res = await api.sendChatMessage(text, activeId ?? undefined, provider, activeCatalogueId ?? undefined);
       setMessages((m) => [
         ...m,
         {

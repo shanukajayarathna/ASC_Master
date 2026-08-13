@@ -9,7 +9,7 @@ import FormControl from "@mui/material/FormControl";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
-import { useMemo } from "react";
+import { useDeferredValue, useMemo } from "react";
 
 const STATUS_OPTIONS: { value: TicketStatus | ""; label: string }[] = [
   { value: "", label: "All" },
@@ -140,6 +140,16 @@ export default function FilterPanel({
 }) {
   const isValuation = variant === "valuation";
 
+  // Deferred copies of the active filters, used only for deriving the option lists below.
+  // Each list derivation runs filterLots over the whole working set (once per dropdown), so
+  // doing it against the live values froze every keystroke in a filter field; against these,
+  // the keystroke paints immediately (the inputs stay bound to the live props) and the
+  // narrowing catches up in an interruptible background render right after.
+  const dColumnFilters = useDeferredValue(columnFilters);
+  const dStatus = useDeferredValue(status);
+  const dClassification = useDeferredValue(classification);
+  const dYear = useDeferredValue(year);
+
   // Direct-entry columns for the valuation variant, resolved with the same patterns
   // the curated dropdowns use.
   const lotNoHeader = useMemo(
@@ -156,10 +166,10 @@ export default function FilterPanel({
   // selection — so picking a Category narrows what Grade offers without a Grade pick
   // shrinking Grade's own list down to just itself.
   const lotsFor = (excludeHeader: string): Lot[] => {
-    if (Object.keys(columnFilters).length === 0 && !status && !classification && !year) return lots;
-    const rest = { ...columnFilters };
+    if (Object.keys(dColumnFilters).length === 0 && !dStatus && !dClassification && !dYear) return lots;
+    const rest = { ...dColumnFilters };
     delete rest[excludeHeader];
-    return filterLots(lots, { search: "", columnFilters: rest, status, classification, year });
+    return filterLots(lots, { search: "", columnFilters: rest, status: dStatus, classification: dClassification, year: dYear });
   };
 
   // Resolve the curated shortlist against this catalogue's real headers, and drop any
@@ -175,7 +185,7 @@ export default function FilterPanel({
       })
       .filter((x): x is NonNullable<typeof x> => x !== null && x.options.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headers, lots, isValuation, columnFilters, status, classification, year]);
+  }, [headers, lots, isValuation, dColumnFilters, dStatus, dClassification, dYear]);
 
   const ticks = useMemo(
     () =>
@@ -199,7 +209,7 @@ export default function FilterPanel({
         ? columnOptions(lotsFor(lotNoHeader), lotNoHeader).sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0))
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lots, lotNoHeader, columnFilters, status, classification, year]
+    [lots, lotNoHeader, dColumnFilters, dStatus, dClassification, dYear]
   );
   const invoiceValue = (() => {
     const f = invoiceHeader ? columnFilters[invoiceHeader] : undefined;
@@ -208,11 +218,11 @@ export default function FilterPanel({
 
   const years = useMemo(() => {
     const relevant =
-      Object.keys(columnFilters).length === 0 && !status && !classification
+      Object.keys(dColumnFilters).length === 0 && !dStatus && !dClassification
         ? lots
-        : filterLots(lots, { search: "", columnFilters, status, classification, year: "" });
+        : filterLots(lots, { search: "", columnFilters: dColumnFilters, status: dStatus, classification: dClassification, year: "" });
     return [...new Set(relevant.map((l) => l.saleYear).filter((y): y is string => !!y))].sort();
-  }, [lots, columnFilters, status, classification]);
+  }, [lots, dColumnFilters, dStatus, dClassification]);
 
   const selectedOf = (header: string): string[] => {
     const f = columnFilters[header];

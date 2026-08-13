@@ -42,7 +42,7 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import SearchIcon from "@mui/icons-material/Search";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlineOutlined";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 // The plain table below has no virtualization, so a ~12k-lot sale renders in chunks —
 // more rows stream in as the list scrolls (or when keyboard navigation walks past the end).
@@ -71,9 +71,15 @@ function catalogueSeedFor(lot: Lot, field: ExtraField): string | null {
 export default function ValuationCentrePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { activeCatalogueId, activeCatalogue } = useCatalogue();
+  const { activeCatalogueId, activeCatalogue, catalogues } = useCatalogue();
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(false);
+  // For the Sharings panel's previous-sale comparison — `catalogues` is already ordered
+  // newest-first (ListCatalogues on the backend), so the previous sale is just the next
+  // entry after the active one. Loaded through the same saleCache as everything else, so a
+  // sale already visited elsewhere in the app (Catalogue Manager, an earlier valuation
+  // session) is instant here too, and a sale nobody has opened yet is one lazy fetch.
+  const [previousSaleLots, setPreviousSaleLots] = useState<Lot[]>([]);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [savingId, setSavingId] = useState<string | null>(null);
   // Optional extra columns ("Also fill") worked in the same pass as the valuation.
@@ -122,11 +128,30 @@ export default function ValuationCentrePage() {
     setNoPrevDataId(null);
   }, [catalogueId]);
 
-  // Start over with a small mounted chunk whenever the list being walked changes shape.
+  // The filter pass walks the whole sale, far too slow for the render a keystroke lands in —
+  // so it runs against these deferred copies: typing paints immediately and the pass catches
+  // up in an interruptible background render, with `filtering` dimming the table meanwhile
+  // (the same treatment the catalogue grid uses).
+  const dSearch = useDeferredValue(search);
+  const dStatusFilter = useDeferredValue(statusFilter);
+  const dColumnFilters = useDeferredValue(columnFilters);
+  const dTicketStatusFilter = useDeferredValue(ticketStatusFilter);
+  const dClassificationFilter = useDeferredValue(classificationFilter);
+  const dYearFilter = useDeferredValue(yearFilter);
+  const filtering =
+    search !== dSearch ||
+    statusFilter !== dStatusFilter ||
+    columnFilters !== dColumnFilters ||
+    ticketStatusFilter !== dTicketStatusFilter ||
+    classificationFilter !== dClassificationFilter ||
+    yearFilter !== dYearFilter;
+
+  // Start over with a small mounted chunk whenever the list being walked changes shape —
+  // keyed to the deferred values so the reset lands with the recomputed list, not before it.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRenderLimit(RENDER_CHUNK);
-  }, [catalogueId, search, statusFilter, columnFilters, ticketStatusFilter, classificationFilter, yearFilter]);
+  }, [catalogueId, dSearch, dStatusFilter, dColumnFilters, dTicketStatusFilter, dClassificationFilter, dYearFilter]);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const clsRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -173,6 +198,29 @@ export default function ValuationCentrePage() {
     };
   }, [activeCatalogueId]);
 
+  // The previous sale's lots, for the Sharings panel's cross-sale comparison (same mark +
+  // grade last time round: status, sold price, best bid if it went unsold). `catalogues` is
+  // newest-first, so the previous sale is whatever comes right after the active one in that
+  // list — no catalogue not yet loaded (e.g. right after refreshList) just means no previous
+  // sale is found yet, which resolves itself once the list catches up.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPreviousSaleLots([]);
+    if (!activeCatalogueId) return;
+    const activeIdx = catalogues.findIndex((c) => c.id === activeCatalogueId);
+    const previous = activeIdx === -1 ? undefined : catalogues[activeIdx + 1];
+    if (!previous) return;
+    let cancelled = false;
+    loadSale(previous.id)
+      .then((entry) => {
+        if (!cancelled) setPreviousSaleLots(entry.lots);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCatalogueId, catalogues]);
+
   // The working set is the whole selected sale — every lot from every broker, valued or
   // not, ordered by sortForDisplay (our own lots first, ascending by lot number). Anything
   // still unvalued is always on the list; the status filter narrows it down when wanted.
@@ -183,22 +231,22 @@ export default function ValuationCentrePage() {
   // navigation and focus mode both walk this filtered list.
   const visibleLots = useMemo(() => {
     const base = filterLots(displayedLots, {
-      search,
-      columnFilters,
-      status: ticketStatusFilter,
-      classification: classificationFilter,
-      year: yearFilter,
+      search: dSearch,
+      columnFilters: dColumnFilters,
+      status: dTicketStatusFilter,
+      classification: dClassificationFilter,
+      year: dYearFilter,
     });
-    if (statusFilter === "all") return base;
+    if (dStatusFilter === "all") return base;
     return base.filter((l) => {
       const valued = hasValuation(l);
       const classified = isClassified(l);
-      if (statusFilter === "pending") return !(valued && classified);
-      if (statusFilter === "unvalued") return !valued;
-      if (statusFilter === "needs-classification") return valued && !classified;
+      if (dStatusFilter === "pending") return !(valued && classified);
+      if (dStatusFilter === "unvalued") return !valued;
+      if (dStatusFilter === "needs-classification") return valued && !classified;
       return valued && classified; // complete
     });
-  }, [displayedLots, search, statusFilter, columnFilters, ticketStatusFilter, classificationFilter, yearFilter]);
+  }, [displayedLots, dSearch, dStatusFilter, dColumnFilters, dTicketStatusFilter, dClassificationFilter, dYearFilter]);
 
   const columnFilterCount =
     Object.values(columnFilters).filter(isColumnFilterActive).length +
@@ -652,6 +700,7 @@ export default function ValuationCentrePage() {
         <ValuationFocus
           lot={focusLot}
           gradeStats={gradeStatsFor(prevStats, focusLot.grade)}
+          previousSaleLots={previousSaleLots}
           index={focusIndex}
           total={focusList.length}
           filters={{
@@ -735,6 +784,12 @@ export default function ValuationCentrePage() {
             >
               Filters{columnFilterCount > 0 ? ` (${columnFilterCount})` : ""}
             </Button>
+            {filtering && (
+              <span className="inline-flex items-center gap-1 text-brass text-[12px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-brass animate-pulse" />
+                Updating…
+              </span>
+            )}
             {filtersActive && (
               <>
                 <span className="text-[12px] text-text-muted">
@@ -798,7 +853,7 @@ export default function ValuationCentrePage() {
           </div>
 
           {visibleLots.length === 0 && (
-            <div className="text-center py-12 text-text-muted border border-border rounded-md bg-surface">
+            <div className={`text-center py-12 text-text-muted border border-border rounded-md bg-surface transition-opacity ${filtering ? "opacity-60" : ""}`}>
               <h3 className="font-display text-lg text-text mb-1">No lots match these filters</h3>
               <p className="m-0 text-[13px]">Adjust the search or status filter above, or clear the filters.</p>
             </div>
@@ -808,7 +863,12 @@ export default function ValuationCentrePage() {
           <TableContainer
             component={Paper}
             variant="outlined"
-            sx={{ maxHeight: "68vh", borderColor: "var(--border)" }}
+            sx={{
+              maxHeight: "68vh",
+              borderColor: "var(--border)",
+              transition: "opacity 150ms",
+              ...(filtering ? { opacity: 0.6, pointerEvents: "none" } : null),
+            }}
             onScroll={(e) => {
               // Nearing the bottom of the mounted rows mounts the next chunk.
               const el = e.currentTarget;

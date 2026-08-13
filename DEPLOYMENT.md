@@ -43,11 +43,52 @@ those (via an environment variable like `AiPricing__gpt-5.1__PromptPer1M`, or an
 `appsettings.Production.json`) if you want dollar figures rather than just token counts; a
 model with no configured price simply reports `estimatedCostUsd: null`, never a guessed number.
 
+## Production on a VPS (recommended)
+
+The recommended production target is a single small VPS running this same compose setup —
+the workload (a handful of users, weekly import spikes, one persistent `/data` volume,
+25-second Excel parses that want RAM and fast local disk, never horizontal scale) fits one
+4GB box far better than a PaaS. Concretely: a 2 vCPU / 4GB instance in a region near both
+the users and the Atlas cluster (DigitalOcean Bangalore ≈ $24/mo, or Hetzner Singapore as
+the budget option). Azure App Service (B2+, Linux containers) works too at roughly 2–4× the
+cost — a reasonable trade only if managed infrastructure is a requirement.
+
+`docker-compose.prod.yml` adds Caddy for TLS termination and reverse proxying, with
+`deploy/Caddyfile` routing `/api/*` and `/health` to the backend and everything else to the
+frontend — one domain, one certificate (automatic via Let's Encrypt), and because the
+frontend is built with `PUBLIC_API_BASE_URL` set to that same origin, no CORS in play at all.
+
+### Steps
+
+1. **Provision** — Ubuntu LTS, 2 vCPU / 4GB, in the region closest to the users/Atlas.
+   Install Docker (`curl -fsSL https://get.docker.com | sh`).
+2. **Firewall** — only SSH and the web ports; the base compose file's dev ports (5058/3000)
+   must not be reachable from outside:
+   `ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable`
+3. **DNS** — point the domain (e.g. `hub.example.com`) at the server's IP before first
+   start, so Caddy's certificate issuance succeeds immediately.
+4. **Atlas** — allow the server's IP in the Atlas cluster's network access list.
+5. **Configure** — clone the repo, `cp .env.example .env`, fill in the usual values plus:
+   `SITE_ADDRESS=hub.example.com`, `PUBLIC_API_BASE_URL=https://hub.example.com`,
+   `CORS_ALLOWED_ORIGINS=https://hub.example.com`.
+6. **Launch** —
+   `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
+   Verify `https://hub.example.com/health`, then log in and import a sale file.
+7. **Back up `/data`** — the one thing Atlas doesn't cover (sale files, documents, media —
+   see "Persistent data" above). Nightly cron on the server, kept off-box:
+   `docker run --rm -v asc-data:/data -v /root/backups:/backup alpine tar czf /backup/asc-data-$(date +%F).tar.gz -C /data .`
+   plus your provider's weekly machine snapshot.
+8. **Update** — `git pull` then re-run the launch command; the named volumes (`asc-data`,
+   Caddy's certificates) survive rebuilds.
+
+Keep `Local:Model` unset in production — the Ollama provider is a dev/testing tool and
+stays out of the provider list unless explicitly opted into.
+
 ## What's intentionally not here
 
-- **No reverse proxy / TLS termination** — put this behind whatever the deployment target
-  already provides (a platform load balancer, Caddy, nginx-ingress). Out of scope for these
-  Dockerfiles.
+- **No reverse proxy / TLS termination in the Dockerfiles** — TLS lives one level up: the
+  production compose override's Caddy container (above), or whatever a different deployment
+  target already provides (a platform load balancer, nginx-ingress).
 - **No Kubernetes manifests** — two services, one Atlas dependency, doesn't warrant it yet;
   `docker-compose.yml` is the right size for the current scale.
 - **No CI/CD pipeline** — building/pushing these images and deploying them is a separate,

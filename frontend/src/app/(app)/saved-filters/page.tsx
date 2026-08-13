@@ -8,6 +8,7 @@ import { isColumnFilterActive, type StoredFilterState } from "@/lib/lotFilters";
 import type { FilterPreset } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
@@ -31,6 +32,8 @@ export default function SavedFiltersPage() {
   const { catalogues } = useCatalogue();
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [loading, setLoading] = useState(true);
+  // Preset whose delete is in flight — its button locks so a double-click can't fire twice.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -46,8 +49,13 @@ export default function SavedFiltersPage() {
   }, []);
 
   const remove = async (id: string) => {
-    await api.deleteFilterPreset(id);
-    setPresets((p) => p.filter((x) => x.id !== id));
+    setDeletingId(id);
+    try {
+      await api.deleteFilterPreset(id);
+      setPresets((p) => p.filter((x) => x.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -82,9 +90,17 @@ export default function SavedFiltersPage() {
                 </IconButton>
               </Tooltip>
               <Tooltip title="Delete">
-                <IconButton size="small" onClick={() => remove(p.id)} aria-label={`Delete ${p.name}`}>
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => remove(p.id)}
+                    disabled={deletingId === p.id}
+                    aria-busy={deletingId === p.id}
+                    aria-label={`Delete ${p.name}`}
+                  >
+                    {deletingId === p.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                  </IconButton>
+                </span>
               </Tooltip>
             </div>
           ))}

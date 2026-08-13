@@ -141,7 +141,7 @@ export default function CombinedReportPage() {
 
               <AuctionReportView report={report} />
 
-              <div className="flex items-center gap-2.5 mt-5 print:hidden">
+              <div className="flex items-center gap-2.5 mt-5 flex-wrap print:hidden">
                 <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()}>
                   Print
                 </Button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { CLASSIFICATIONS } from "@/lib/classifications";
-import { markCodeOf, noOfChestsOf, hasValuation, sellingMarkOf, valuationToText, weightPerChestOf } from "@/lib/lotDisplay";
+import { isReprintLot, markCodeOf, noOfChestsOf, hasValuation, sellingMarkOf, valuationToText, weightPerChestOf } from "@/lib/lotDisplay";
 import { parseValuationInput, sanitizeValuationInput, valuationTypingFeedback } from "@/lib/valuationInput";
 import { effectiveOfParsed, formatTierRange, suggestTier, tierStatsFor, tierSummary } from "@/lib/previousSale";
 import type { ClassificationValue, GradeStats, Lot } from "@/types/api";
@@ -121,6 +121,7 @@ function LotRowImpl({
 
   const valued = hasValuation(lot);
   const classified = isClassified(lot);
+  const reprint = isReprintLot(lot);
   const complete = saved && classified;
   const clsNeeded = clsNeededExternally && !classified;
   const currentCls = lot.valuation?.classification ?? "Unclassified";
@@ -174,12 +175,24 @@ function LotRowImpl({
     <TableRow
       hover
       sx={{
-        "&:nth-of-type(even)": { bgcolor: "var(--surface-alt)" },
+        bgcolor: reprint ? "var(--info-light)" : undefined,
+        "&:nth-of-type(even)": { bgcolor: reprint ? "var(--info-light)" : "var(--surface-alt)" },
         ...(error && { outline: "1.5px solid var(--danger)", outlineOffset: "-1.5px" }),
         ...(complete && !error && { borderLeft: "3px solid var(--sage)" }),
       }}
     >
-      <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>{lot.lotNumber ?? "—"}</TableCell>
+      <TableCell sx={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>
+        {lot.lotNumber ?? "—"}
+        {reprint && (
+          <span
+            title="Broker-flagged reprint lot"
+            className="ml-1.5 px-1.5 py-0 rounded-full text-[9px] font-bold align-middle"
+            style={{ background: "var(--info)", color: "var(--paper-0)" }}
+          >
+            RP
+          </span>
+        )}
+      </TableCell>
       <TableCell sx={{ fontSize: 12.5 }}>{lot.grade || "—"}</TableCell>
       <TableCell sx={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{lot.broker || "—"}</TableCell>
       <TableCell sx={{ fontSize: 12.5 }}>

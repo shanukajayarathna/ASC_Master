@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { SavedReport } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
@@ -24,6 +25,8 @@ const REPORT_LABELS: Record<string, string> = {
 export default function SavedReportsPage() {
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [loading, setLoading] = useState(true);
+  // Report whose delete is in flight — its button locks so a double-click can't fire twice.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -39,8 +42,13 @@ export default function SavedReportsPage() {
   }, []);
 
   const remove = async (id: string) => {
-    await api.deleteSavedReport(id);
-    setReports((r) => r.filter((x) => x.id !== id));
+    setDeletingId(id);
+    try {
+      await api.deleteSavedReport(id);
+      setReports((r) => r.filter((x) => x.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -79,9 +87,17 @@ export default function SavedReportsPage() {
                 </IconButton>
               </Tooltip>
               <Tooltip title="Delete">
-                <IconButton size="small" onClick={() => remove(r.id)} aria-label={`Delete ${r.title}`}>
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => remove(r.id)}
+                    disabled={deletingId === r.id}
+                    aria-busy={deletingId === r.id}
+                    aria-label={`Delete ${r.title}`}
+                  >
+                    {deletingId === r.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                  </IconButton>
+                </span>
               </Tooltip>
             </div>
           ))}

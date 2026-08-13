@@ -47,3 +47,15 @@ export function sharingsFor(index: SharingIndex, lot: Lot): Lot[] {
   if (!group) return [];
   return sortForDisplay(group.filter((l) => l.id !== lot.id));
 }
+
+/**
+ * The same mark + grade in a *different* sale's lots — e.g. how this exact selling mark's
+ * grade fared in the previous sale, for comparison against this week's asking. Unlike
+ * sharingsFor (peers within the same sale), every match is relevant here, including our own
+ * broker's — there's no "exclude the anchor lot" concept across sales.
+ */
+export function sharingsInOtherSale(lot: Lot, otherSaleLots: Lot[]): Lot[] {
+  const key = sharingKey(lot);
+  if (!key) return [];
+  return sortForDisplay(otherSaleLots.filter((l) => sharingKey(l) === key));
+}

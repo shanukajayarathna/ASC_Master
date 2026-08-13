@@ -7,8 +7,10 @@ import { DOCUMENT_CATEGORIES, DOCUMENT_CATEGORY_LABELS } from "@/lib/documentCat
 import type { DocumentSearchResult, KnowledgeDocument } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
+import SyncOutlinedIcon from "@mui/icons-material/SyncOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -42,6 +44,11 @@ export default function KnowledgeBasePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Document whose delete is in flight — its button locks so a double-click can't fire twice.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Platform-docs sync: embeds every changed docs/*.md server-side, so it can take a minute.
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -104,9 +111,32 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const syncPlatformDocs = async () => {
+    setSyncing(true);
+    setSyncNotice(null);
+    setError(null);
+    try {
+      const r = await api.syncPlatformDocs();
+      const failed = r.failed.length > 0 ? ` ${r.failed.length} failed: ${r.failed.join("; ")}` : "";
+      setSyncNotice(
+        `Platform docs synced — ${r.added} added, ${r.updated} updated, ${r.unchanged} already up to date.${failed}`
+      );
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Platform docs sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    await api.deleteDocument(id);
-    setDocuments((docs) => docs.filter((d) => d.id !== id));
+    setDeletingId(id);
+    try {
+      await api.deleteDocument(id);
+      setDocuments((docs) => docs.filter((d) => d.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const runSearch = async (e: React.FormEvent) => {
@@ -179,17 +209,47 @@ export default function KnowledgeBasePage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-2.5">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2.5">
         <h2 className="font-mono text-[10px] tracking-widest uppercase text-text-muted m-0">Documents</h2>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<UploadFileOutlinedIcon fontSize="small" />}
-          onClick={() => setUploadOpen(true)}
-        >
-          Upload
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Tooltip title="Bring the platform's own documentation (every module guide) into the knowledge base so the AI Assistant can answer questions about how ASC Hub works. Safe to re-run — only changed docs are re-processed.">
+            <span>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={syncing ? <CircularProgress size={14} /> : <SyncOutlinedIcon fontSize="small" />}
+                onClick={syncPlatformDocs}
+                disabled={syncing}
+                aria-busy={syncing}
+              >
+                {syncing ? "Syncing…" : "Sync platform docs"}
+              </Button>
+            </span>
+          </Tooltip>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<UploadFileOutlinedIcon fontSize="small" />}
+            onClick={() => setUploadOpen(true)}
+          >
+            Upload
+          </Button>
+        </div>
       </div>
+
+      {syncNotice && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+          {syncNotice}
+          <button
+            type="button"
+            onClick={() => setSyncNotice(null)}
+            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
+            style={{ color: "var(--sage-dark)" }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-10">
@@ -222,9 +282,17 @@ export default function KnowledgeBasePage() {
                   )}
                 </div>
                 <Tooltip title="Delete">
-                  <IconButton size="small" onClick={() => handleDelete(d.id)} aria-label={`Delete ${d.fileName}`}>
-                    <DeleteOutlineIcon fontSize="small" />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleDelete(d.id)}
+                      disabled={deletingId === d.id}
+                      aria-busy={deletingId === d.id}
+                      aria-label={`Delete ${d.fileName}`}
+                    >
+                      {deletingId === d.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
                 </Tooltip>
               </div>
             );

@@ -17,7 +17,7 @@ namespace Asc.Api.Modules.Documents;
 [ApiController]
 [Route("api/v1/documents")]
 [Authorize]
-public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddingProvider embeddings, IDocumentSearchService search, IAuditLogger audit) : ControllerBase
+public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddingProvider embeddings, IDocumentSearchService search, PlatformDocsSyncService platformDocs, IAuditLogger audit) : ControllerBase
 {
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -133,6 +133,20 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
     [HttpGet("search")]
     public async Task<ActionResult<List<SearchResultDto>>> Search([FromQuery] string q, CancellationToken ct) =>
         Ok(await search.SearchAsync(q, ct));
+
+    /// <summary>Ingest/refresh the platform's own documentation (docs/*.md) into the
+    /// knowledge base — idempotent, so re-running after doc edits only re-embeds what
+    /// changed. See PlatformDocsSyncService.</summary>
+    [HttpPost("sync-platform-docs")]
+    [Authorize(Policy = Policies.ManageKnowledgeBase)]
+    public async Task<ActionResult<PlatformDocsSyncResult>> SyncPlatformDocs(CancellationToken ct)
+    {
+        var userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid) ? uid : Guid.Empty;
+        var result = await platformDocs.SyncAsync(userId, ct);
+        await audit.LogAsync(User, "knowledge_document.platform_docs_synced", "Document", null,
+            $"{result.Added} added, {result.Updated} updated, {result.Unchanged} unchanged, {result.Failed.Count} failed", ct);
+        return Ok(result);
+    }
 
     private static DocumentDto ToDto(KnowledgeDocument d, Guid? supersededBy) => new(
         d.Id, d.FileName, d.ContentType, d.SizeBytes, d.UploadedAt,

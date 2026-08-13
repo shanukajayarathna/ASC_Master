@@ -40,6 +40,37 @@ export function catalogueRemarkOf(lot: Lot): string | null {
   return findRaw(lot, /^remarks?$/i);
 }
 
+/** The catalogue's own "RP"/"Reprint" column (same header patterns as the Reprint tick
+ *  filter in filterConfig.ts) — a broker-flagged reprint lot, not something this app sets. */
+export function reprintValueOf(lot: Lot): string | null {
+  return findRaw(lot, /^rp$|^reprint$/i);
+}
+
+export function isReprintLot(lot: Lot): boolean {
+  const v = reprintValueOf(lot)?.toLowerCase();
+  return v === "yes" || v === "y" || v === "rp";
+}
+
+/** The catalogue's own post-auction Status column ("Sold"/"Outsold"/"Unsold", spelling
+ *  varies by broker) — not the ticket-completion status this app tracks elsewhere. */
+export function statusOf(lot: Lot): string | null {
+  return findRaw(lot, /^status$/i);
+}
+
+/** The actual auction sale price (Rs./kg), as opposed to this company's own pre-sale
+ *  valuation — populated for every broker's lots when the lot sold. See also
+ *  Lot.PurchasedPrice on the backend, which this mirrors from rawData (not a typed field
+ *  the API exposes to the frontend). */
+export function purchasedPriceOf(lot: Lot): string | null {
+  return findRaw(lot, /purchased.?price/i);
+}
+
+/** The highest bid registered against a lot that didn't sell — the closest indicator of
+ *  what it was worth even though the reserve wasn't met. */
+export function registeredBidOf(lot: Lot): string | null {
+  return findRaw(lot, /registered.?bid/i);
+}
+
 /** The broker's own Standard column — read-only catalogue data, never our sub-grade. Real
  *  sale files head it "Standard/Adjective"; anchored so a "Standard Price"-style column
  *  added later can't be mistaken for it. */

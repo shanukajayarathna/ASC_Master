@@ -47,13 +47,27 @@ export interface FilterOptions {
  *  saved preset always captures a concrete value ("" included) rather than an optional one. */
 export type StoredFilterState = FilterOptions & { year: string };
 
+// The universal search's per-lot haystack, cached per lot object — it re-runs on every
+// keystroke over every pooled lot, and rebuilding this string each pass dominated that
+// cost. Lot objects are replaced (never mutated) on update, so keying by reference is
+// safe: an updated lot simply gets a fresh entry and the old one is collected.
+const haystacks = new WeakMap<Lot, string>();
+
+function haystackOf(lot: Lot): string {
+  let hay = haystacks.get(lot);
+  if (hay === undefined) {
+    hay = Object.values(lot.rawData).join(" ").toLowerCase();
+    haystacks.set(lot, hay);
+  }
+  return hay;
+}
+
 export function filterLots(lots: Lot[], opts: FilterOptions): Lot[] {
   const search = opts.search.trim().toLowerCase();
 
   return lots.filter((lot) => {
     if (search) {
-      const hay = Object.values(lot.rawData).join(" ").toLowerCase();
-      if (!hay.includes(search)) return false;
+      if (!haystackOf(lot).includes(search)) return false;
     }
 
     for (const [header, f] of Object.entries(opts.columnFilters)) {

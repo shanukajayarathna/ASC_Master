@@ -3,7 +3,7 @@
 import { api, ApiError } from "@/lib/api";
 import { valuationValueError, VALUATION_MAX, VALUATION_MIN } from "@/lib/valuationInput";
 import { toggleKeyword, type RemarkKeywordField } from "@/lib/remarkKeywords";
-import { catalogueRemarkOf } from "@/lib/lotDisplay";
+import { catalogueRemarkOf, isReprintLot } from "@/lib/lotDisplay";
 import KeywordChips from "@/components/valuation/KeywordChips";
 import SubGradeChips from "@/components/valuation/SubGradeChips";
 import type { ClassificationValue, Lot } from "@/types/api";
@@ -176,9 +176,20 @@ function ValuationDrawerContent({
         <IconButton onClick={onClose} size="small" className="!absolute !top-3.5 !right-3.5 !text-white">
           <CloseIcon fontSize="small" />
         </IconButton>
-        <p className="font-mono text-xs text-brass-light tracking-wide m-0">
-          LOT {lot.lotNumber ?? "—"}
-          {lot.invoiceNo ? ` · INV ${lot.invoiceNo}` : ""}
+        <p className="font-mono text-xs text-brass-light tracking-wide m-0 flex items-center gap-1.5">
+          <span>
+            LOT {lot.lotNumber ?? "—"}
+            {lot.invoiceNo ? ` · INV ${lot.invoiceNo}` : ""}
+          </span>
+          {isReprintLot(lot) && (
+            <span
+              title="Broker-flagged reprint lot"
+              className="px-1.5 py-0 rounded-full text-[9px] font-bold tracking-normal"
+              style={{ background: "var(--info)", color: "var(--paper-0)" }}
+            >
+              RP
+            </span>
+          )}
         </p>
         <h2 className="font-display text-xl font-bold my-1">{title}</h2>
         <p className="text-xs text-white/65 m-0">{[lot.broker, lot.grade, lot.garden].filter(Boolean).join(" · ")}</p>

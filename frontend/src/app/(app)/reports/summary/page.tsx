@@ -230,7 +230,7 @@ export default function ReportsPage() {
             </div>
           ))}
 
-          <div className="flex items-center gap-2.5 print:hidden">
+          <div className="flex items-center gap-2.5 flex-wrap print:hidden">
             <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()}>
               Print / Save as PDF
             </Button>

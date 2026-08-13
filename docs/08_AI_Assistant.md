@@ -14,6 +14,8 @@ The `/assistant` route and `Modules/Assistant` backend module. Not the Knowledge
 ## Architecture
 `Modules/Assistant` (`api/v1/assistant` — chat, conversations), backed by OpenAI (`gpt-5.1`) with **read-only tool-calling** into the platform's own data. Conversations and messages persist to MongoDB (`conversations`/`conversationMessages`). Requires an `OpenAI:ApiKey` user secret (root README §1b) — the rest of the platform functions without one, but the Assistant does not.
 
+`AssistantController` never calls the LLM directly — it resolves an `IAgent` through `AgentRouter`/`IAgentRegistry` (`Modules/Agents`, see [`Modules/Agents/README.md`](../backend/Asc.Api/Modules/Agents/README.md) for the full routing/registration model) and delegates to it. **Two agents exist today**: `GeneralAgent` (this document's subject — broad, all 13 tools) and `AuctionAgent` (auction/sale analysis only, a narrower tool set — see the Agents README). `ChatRequestDto.Agent` selects between them; omitting it preserves the original behavior (always `GeneralAgent`), so every client written before agent selection existed is unaffected.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -50,6 +52,18 @@ Suggested-question prompts based on current sale state; proactive insights surfa
 
 ## Implementation notes
 Backend: `backend/Asc.Api/Modules/Assistant`. Frontend: `frontend/src/app/(app)/assistant/`. Requires `OpenAI:ApiKey` (dotnet user-secret, never in `appsettings.json`).
+
+### Local model for development/testing
+A fourth provider, `local` ("Local (Ollama)", `LocalChatProvider`), talks to any server exposing the OpenAI `/chat/completions` contract — no API key, no network egress, no per-token cost. It is opt-in: it only lists as configured once `Local:Model` is set, so it never shows as an option in an environment that hasn't chosen it.
+
+Setup with Ollama:
+
+```bash
+ollama pull llama3.1          # any tool-calling-capable model (llama3.1/3.2, qwen2.5, …)
+dotnet user-secrets set Local:Model "llama3.1"   # in backend/Asc.Api
+```
+
+Ollama's default URL (`http://localhost:11434/v1/chat/completions`) is assumed; override with `Local:BaseUrl` for LM Studio/vLLM/llama.cpp. The picked model must support tool calling or every answer comes back tool-blind. Local requests get a 10-minute HTTP timeout (CPU inference is slow); failures surface as the gateway's normal provider error, never a silent fallback to a hosted vendor. Embeddings (Knowledge Base) still use OpenAI — this provider covers chat only.
 
 ## Open questions
 - Tool surface (which read-only queries the Assistant can call) isn't formally documented anywhere — should be enumerated here once stable.

@@ -1,0 +1,23 @@
+# Production reverse proxy — single domain, automatic HTTPS (Let's Encrypt).
+#
+# SITE_ADDRESS comes from the environment (see docker-compose.prod.yml), e.g.
+# hub.example.com. Point the domain's DNS A record at the server before first
+# start — Caddy obtains and renews the certificate automatically.
+#
+# Single-domain layout on purpose: the frontend is built with
+# PUBLIC_API_BASE_URL set to this same https origin, so every API call is
+# same-origin — no CORS in play in production at all. Backend routes all live
+# under /api (plus /health); everything else is the Next.js frontend.
+{$SITE_ADDRESS}
+
+handle /api/* {
+	reverse_proxy backend:8080
+}
+
+handle /health {
+	reverse_proxy backend:8080
+}
+
+handle {
+	reverse_proxy frontend:3000
+}

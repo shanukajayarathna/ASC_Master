@@ -73,6 +73,10 @@ builder.Services.AddSingleton<IDocumentStore, LocalDocumentStore>();
 // single endpoint.
 builder.Services.AddHttpClient<IEmbeddingProvider, OpenAiEmbeddingProvider>();
 builder.Services.AddSingleton<IDocumentSearchService, DocumentSearchService>();
+// Platform-docs ingestion (docs/*.md → the same documents/documentChunks pipeline) —
+// triggered from the Knowledge page, not at startup: embedding costs money and needs the
+// OpenAI key, so it stays an explicit admin action.
+builder.Services.AddSingleton<PlatformDocsSyncService>();
 
 // Knowledge Platform — the seam agents call instead of a search service or a raw file
 // directly (see Modules/Knowledge). One source today (uploaded documents); MSL/Tea Board/
@@ -89,11 +93,19 @@ builder.Services.AddSingleton<IKnowledgeService, KnowledgeService>();
 builder.Services.AddHttpClient<OpenAiChatProvider>();
 builder.Services.AddHttpClient<GroqChatProvider>();
 builder.Services.AddHttpClient<GeminiChatProvider>();
+// Local model (Ollama et al.) for development/testing — opt-in via Local:Model, see
+// LocalChatProvider. CPU inference can take minutes per tool-calling turn, hence the
+// long timeout; a hosted vendor's client keeps the default.
+builder.Services.AddHttpClient<LocalChatProvider>(c => c.Timeout = TimeSpan.FromMinutes(10));
 builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<OpenAiChatProvider>());
 builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GroqChatProvider>());
 builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<GeminiChatProvider>());
+builder.Services.AddSingleton<IChatProvider>(sp => sp.GetRequiredService<LocalChatProvider>());
 builder.Services.AddScoped<AiGateway>();
 builder.Services.AddSingleton<AssistantToolExecutor>();
+// AuctionAgent's tool set — a curated subset of AssistantToolExecutor's tools (delegated to,
+// never re-implemented) plus one new tool (get_top_lots); see Modules/Agents/AuctionToolExecutor.cs.
+builder.Services.AddSingleton<AuctionToolExecutor>();
 
 // AI usage/cost tracking (Phase 8 — observability) — every AiGateway call, success or
 // failure, is recorded here; see Modules/Observability. Cost is only estimated for models
@@ -101,11 +113,15 @@ builder.Services.AddSingleton<AssistantToolExecutor>();
 builder.Services.AddSingleton<AiCostEstimator>();
 builder.Services.AddSingleton<IAiUsageLogger, AiUsageLogger>();
 
-// Agent Platform — User Request → AgentRouter → Selected Agent → KnowledgeService → LLM →
-// Agent Response (see Modules/Agents). Scoped, matching AiGateway's own lifetime: a scoped
-// service can never be safely captured by a singleton. One agent registered today; a second
-// (e.g. a narrower Auction-specific agent) is just another IAgent registration.
+// Agent Platform — User Request → AgentRouter → IAgentRegistry → Selected Agent →
+// KnowledgeService → LLM → Agent Response (see Modules/Agents/README.md). Scoped throughout,
+// matching AiGateway's own lifetime: a scoped service can never be safely captured by a
+// singleton. Two agents registered today — general (GeneralAgent) and auction (AuctionAgent),
+// the first business-specific one; a third is just another IAgent registration —
+// AgentRegistry/AgentRouter and every caller pick it up automatically.
 builder.Services.AddScoped<IAgent, GeneralAgent>();
+builder.Services.AddScoped<IAgent, AuctionAgent>();
+builder.Services.AddScoped<IAgentRegistry, AgentRegistry>();
 builder.Services.AddScoped<AgentRouter>();
 
 // Master data — canonical broker/buyer/garden/grade/... names + spelling-variant aliases,

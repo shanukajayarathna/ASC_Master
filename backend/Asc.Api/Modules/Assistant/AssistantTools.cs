@@ -82,7 +82,7 @@ public class AssistantToolExecutor(
 
         new ToolDef(
             "search_knowledge_base",
-            "Search uploaded documents (circulars, SOPs, policies) for relevant passages.",
+            "Search the knowledge base for relevant passages: uploaded documents (circulars, SOPs, policies) and the platform's own documentation (how every ASC Hub module works — dashboard, catalogue, valuation, reports, exports, and more). Use this for any how-does-the-app-work or what-does-this-feature-do question.",
             new
             {
                 type = "object",
@@ -93,8 +93,9 @@ public class AssistantToolExecutor(
         new ToolDef(
             "compare_sales",
             $"Compare aggregate stats (lot count, completion, avg/min/max value, most common broker/grade/category/elevation) " +
-            $"across 2 to {MaxCompareSales} sale catalogues. Call list_catalogues first to resolve sale numbers to catalogue ids. " +
-            "For a single sale use get_dashboard_stats instead.",
+            $"across 2 to {MaxCompareSales} sale catalogues in ONE call: pass a JSON array containing every catalogue id being " +
+            "compared — both ids when comparing two sales; never call this with a single id. Call list_catalogues first to " +
+            "resolve sale numbers to catalogue ids. For a single sale use get_dashboard_stats instead.",
             new
             {
                 type = "object",
@@ -227,6 +228,41 @@ public class AssistantToolExecutor(
     public static IReadOnlyList<ToolDef> DefinitionsFor(bool isAdmin) =>
         isAdmin ? Definitions : [.. Definitions.Where(d => !d.RequiresAdmin)];
 
+    /// <summary>Some providers (observed with Groq) send the literal JSON string "null" — not an
+    /// empty string — as arguments for a no-arg tool call. JsonNode.Parse("null") returns a null
+    /// node, so blindly null-forgiving it into a JsonObject would throw. Any parse result that
+    /// isn't actually an object (null, an array, a scalar) falls back to empty. Internal, not
+    /// private — AuctionToolExecutor's own tools (e.g. get_top_lots) parse arguments the same way
+    /// rather than re-deriving this normalization.</summary>
+    internal static JsonObject ParseArgs(string? argumentsJson)
+    {
+        var trimmed = argumentsJson?.Trim();
+        return string.IsNullOrEmpty(trimmed) || trimmed == "null"
+            ? new JsonObject()
+            : JsonNode.Parse(trimmed) as JsonObject ?? new JsonObject();
+    }
+
+    /// <summary>Tolerant catalogue-id-list parsing for compare_sales. The schema says
+    /// array-of-strings, but smaller models regularly send a JSON-encoded string
+    /// ("[\"id1\",\"id2\"]") or a comma-joined one instead — and catalogue ids are guids, so
+    /// extracting every guid-shaped token from whatever arrived accepts all of those shapes
+    /// without ever mis-reading a well-formed call. An unusable value just yields an empty
+    /// list, which CompareSales already answers with its own clear error.</summary>
+    internal static List<Guid> ParseCatalogueIds(JsonNode? node)
+    {
+        if (node is JsonArray arr)
+        {
+            var fromArray = new List<Guid>();
+            foreach (var item in arr)
+                if (item is not null && Guid.TryParse(item.GetValue<string>(), out var g)) fromArray.Add(g);
+            if (fromArray.Count > 0) return fromArray;
+        }
+        var text = node?.ToString() ?? "";
+        return [.. System.Text.RegularExpressions.Regex
+            .Matches(text, "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+            .Select(m => Guid.Parse(m.Value))];
+    }
+
     public async Task<string> ExecuteAsync(string name, string argumentsJson, bool isAdmin, CancellationToken ct = default)
     {
         var def = Definitions.FirstOrDefault(d => d.Name == name);
@@ -236,14 +272,7 @@ public class AssistantToolExecutor(
 
         logger.LogInformation("Assistant tool call: {Tool} isAdmin={IsAdmin} args={Args}", name, isAdmin, argumentsJson);
 
-        // Some providers (observed with Groq) send the literal JSON string "null" — not an
-        // empty string — as arguments for a no-arg tool call. JsonNode.Parse("null") returns a
-        // null node, so blindly null-forgiving it into a JsonObject would throw. Any parse
-        // result that isn't actually an object (null, an array, a scalar) falls back to empty.
-        var trimmed = argumentsJson?.Trim();
-        var args = string.IsNullOrEmpty(trimmed) || trimmed == "null"
-            ? new JsonObject()
-            : JsonNode.Parse(trimmed) as JsonObject ?? new JsonObject();
+        var args = ParseArgs(argumentsJson);
 
         // A less precise model can send a malformed/placeholder id (e.g. "latest") instead of
         // calling list_catalogues first, or omit a required field entirely. Turning that into a
@@ -258,7 +287,7 @@ public class AssistantToolExecutor(
                 "search_lots" => await SearchLots(Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["query"]!.GetValue<string>(), ct),
                 "get_dashboard_stats" => await GetDashboardStats(Guid.Parse(args["catalogueId"]!.GetValue<string>()), ct),
                 "search_knowledge_base" => JsonSerializer.Serialize(await knowledge.SearchKnowledgeAsync(args["query"]!.GetValue<string>(), ct)),
-                "compare_sales" => await CompareSales([.. args["catalogueIds"]!.AsArray().Select(n => Guid.Parse(n!.GetValue<string>()))], ct),
+                "compare_sales" => await CompareSales(ParseCatalogueIds(args["catalogueIds"]), ct),
                 "get_valuation_accuracy" => await GetValuationAccuracy(
                     Guid.Parse(args["catalogueId"]!.GetValue<string>()), args["breakdownBy"]?.GetValue<string>(), ct),
                 "get_broker_performance" => await GetBrokerPerformance(Guid.Parse(args["catalogueId"]!.GetValue<string>()), ct),
@@ -349,8 +378,10 @@ public class AssistantToolExecutor(
 
     private async Task<string> CompareSales(List<Guid> catalogueIds, CancellationToken ct)
     {
-        if (catalogueIds.Count is < 2 or > MaxCompareSales)
-            return JsonSerializer.Serialize(new { error = $"compare_sales supports 2 to {MaxCompareSales} catalogues per call — narrow your request." });
+        if (catalogueIds.Count < 2)
+            return JsonSerializer.Serialize(new { error = "compare_sales needs at least 2 catalogue ids in one call — pass every sale being compared as a JSON array of id strings (ids come from list_catalogues)." });
+        if (catalogueIds.Count > MaxCompareSales)
+            return JsonSerializer.Serialize(new { error = $"compare_sales supports at most {MaxCompareSales} catalogues per call — narrow your request." });
 
         var results = new List<object>();
         foreach (var id in catalogueIds)

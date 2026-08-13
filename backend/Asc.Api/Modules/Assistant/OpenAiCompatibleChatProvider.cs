@@ -25,7 +25,16 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
     protected abstract string ModelConfigKey { get; }
     protected abstract string DefaultModel { get; }
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(config[ApiKeyConfigKey]);
+    /// <summary>False for a local endpoint (Ollama and friends accept unauthenticated requests);
+    /// hosted vendors keep the default. When false, a placeholder bearer token is sent — harmless
+    /// to servers that ignore the Authorization header entirely.</summary>
+    protected virtual bool RequiresApiKey => true;
+
+    /// <summary>Vendor hook to adjust the request body before sending (e.g. pin sampling
+    /// parameters). Default: no change — hosted vendors get their own server-side defaults.</summary>
+    protected virtual void CustomizeRequestBody(JsonObject body) { }
+
+    public virtual bool IsConfigured => !RequiresApiKey || !string.IsNullOrWhiteSpace(config[ApiKeyConfigKey]);
 
     public string Model => config[ModelConfigKey] ?? DefaultModel;
 
@@ -39,8 +48,10 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
         var promptTokens = 0;
         var completionTokens = 0;
         var apiKey = config[ApiKeyConfigKey]
-            ?? throw new InvalidOperationException(
-                $"{ApiKeyConfigKey} is not configured. Set it with: dotnet user-secrets set {ApiKeyConfigKey} \"...\"");
+            ?? (RequiresApiKey
+                ? throw new InvalidOperationException(
+                    $"{ApiKeyConfigKey} is not configured. Set it with: dotnet user-secrets set {ApiKeyConfigKey} \"...\"")
+                : "not-needed");
         var model = Model;
 
         var messages = new JsonArray { new JsonObject { ["role"] = "system", ["content"] = systemPrompt } };
@@ -68,6 +79,7 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
                 ["messages"] = messages.DeepClone(),
                 ["tools"] = toolDefs.DeepClone(),
             };
+            CustomizeRequestBody(requestBody);
 
             using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl)
             {
@@ -97,7 +109,24 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
                 var toolCallId = call!["id"]!.GetValue<string>();
                 var fnName = call["function"]!["name"]!.GetValue<string>();
                 var fnArgs = call["function"]!["arguments"]!.GetValue<string>();
-                var result = await executeTool(fnName, fnArgs);
+                string result;
+                try
+                {
+                    result = await executeTool(fnName, fnArgs);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // A malformed tool call (wrong arg type, bad guid, missing field — local
+                    // models produce these regularly, hosted ones occasionally) used to abort
+                    // the whole chat turn from here. Feeding the failure back as the tool's
+                    // result instead gives the model the standard chance to correct itself and
+                    // retry — the same contract as a tool returning {"error": ...} on its own.
+                    result = JsonSerializer.Serialize(new { error = $"Tool call failed: {ex.Message}. Check the argument types against the tool's schema and try again." });
+                }
                 messages.Add(new JsonObject
                 {
                     ["role"] = "tool",
@@ -136,4 +165,34 @@ public class GroqChatProvider(HttpClient http, IConfiguration config) : OpenAiCo
     protected override string ApiKeyConfigKey => "Groq:ApiKey";
     protected override string ModelConfigKey => "Groq:Model";
     protected override string DefaultModel => "llama-3.3-70b-versatile";
+}
+
+/// <summary>
+/// A locally hosted model for development/testing — no API key, no network egress, no per-token
+/// cost. Points at any server exposing the OpenAI <c>/chat/completions</c> contract; the default
+/// URL is Ollama's (<c>ollama pull llama3.1 && ollama serve</c>, then set <c>Local:Model</c>), and
+/// LM Studio/vLLM/llama.cpp work by overriding <c>Local:BaseUrl</c>. Configured means
+/// <c>Local:Model</c> is set — an explicit opt-in, so this never lists as available in an
+/// environment that hasn't chosen it, and the picked model must support tool calling (e.g.
+/// llama3.1/3.2, qwen2.5) or every assistant question will come back tool-blind. If the server
+/// isn't actually running, requests fail with the gateway's normal clean provider error — never
+/// a silent fallback to a hosted vendor.
+/// </summary>
+public class LocalChatProvider(HttpClient http, IConfiguration config) : OpenAiCompatibleChatProvider(http, config)
+{
+    public override string Key => "local";
+    public override string DisplayName => "Local (Ollama) — testing only";
+    protected override string BaseUrl => config["Local:BaseUrl"] ?? "http://localhost:11434/v1/chat/completions";
+    protected override string ApiKeyConfigKey => "Local:ApiKey";
+    protected override string ModelConfigKey => "Local:Model";
+    protected override string DefaultModel => "llama3.1";
+    protected override bool RequiresApiKey => false;
+
+    public override bool IsConfigured => !string.IsNullOrWhiteSpace(config["Local:Model"]);
+
+    /// <summary>Greedy decoding for the local model: small models' tool-calling falls apart at
+    /// Ollama's default sampling temperature (verified directly against llama3.2 — flaky
+    /// content-instead-of-tool_calls responses at the 0.8 default, consistent correct tool
+    /// calls at 0). Hosted vendors are far less sensitive and keep their own defaults.</summary>
+    protected override void CustomizeRequestBody(JsonObject body) => body["temperature"] = 0;
 }

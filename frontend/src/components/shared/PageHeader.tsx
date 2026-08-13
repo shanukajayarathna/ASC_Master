@@ -56,7 +56,7 @@ export default function PageHeader({ title, subtitle, actions, backTo }: PageHea
           </p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
     </div>
   );
 }

@@ -2,14 +2,19 @@
 
 import PageHeader from "@/components/shared/PageHeader";
 import { dateStamp } from "@/lib/worksheetPdf";
+import { buildFactCategoryPdf, buildRankPdf } from "@/lib/weeklyFactPdf";
 import { computeDefaultRankHeaderText, runJob, type WeeklyJobResult } from "@/lib/weeklyFactReport";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import FolderZipOutlinedIcon from "@mui/icons-material/FolderZipOutlined";
+import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import TextField from "@mui/material/TextField";
 import { useRef, useState } from "react";
+
+const pdfNameOf = (xlsxName: string) => xlsxName.replace(/\.xlsx$/i, ".pdf");
 
 interface FileState {
   fileName: string;
@@ -132,6 +137,9 @@ export default function WeeklyFactReportsPage() {
 
   const [generating, setGenerating] = useState(false);
   const [zipping, setZipping] = useState(false);
+  // Filename of the PDF currently being built — locks that card's PDF button (logo load +
+  // rendering take a moment, and a double-click would build the same file twice).
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [job, setJob] = useState<WeeklyJobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -203,6 +211,36 @@ export default function WeeklyFactReportsPage() {
     setError(null);
   };
 
+  const downloadFactPdf = async (outcome: WeeklyJobResult["outcomes"][number]) => {
+    if (!job || pdfBusy) return;
+    const name = pdfNameOf(outcome.filename);
+    setPdfBusy(name);
+    setError(null);
+    try {
+      const blob = await buildFactCategoryPdf(outcome, job.saleDate, job.saleNumber);
+      triggerDownload(blob, name, "application/pdf");
+    } catch (e) {
+      setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
+  const downloadRankPdf = async () => {
+    if (!job?.rankWorkbook?.filename || pdfBusy) return;
+    const name = pdfNameOf(job.rankWorkbook.filename);
+    setPdfBusy(name);
+    setError(null);
+    try {
+      const blob = await buildRankPdf(job.rankTabs, job.rankHeaderText);
+      triggerDownload(blob, name, "application/pdf");
+    } catch (e) {
+      setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   const downloadAllZip = async () => {
     if (!job) return;
     const buffers = job.outcomes.filter((o) => o.buffer) as { filename: string; buffer: ArrayBuffer }[];
@@ -217,6 +255,13 @@ export default function WeeklyFactReportsPage() {
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
       buffers.forEach((o) => zip.file(o.filename, o.buffer));
+      // The PDF mirror of every workbook rides along in the same ZIP, one .pdf per .xlsx.
+      for (const o of job.outcomes) {
+        if (o.buffer) zip.file(pdfNameOf(o.filename), await buildFactCategoryPdf(o, job.saleDate, job.saleNumber));
+      }
+      if (job.rankWorkbook?.buffer && job.rankWorkbook.filename) {
+        zip.file(pdfNameOf(job.rankWorkbook.filename), await buildRankPdf(job.rankTabs, job.rankHeaderText));
+      }
       const content = await zip.generateAsync({ type: "blob" });
       const label = job.saleNumber != null ? job.saleNumber : "X";
       triggerDownload(content, `weekly_reports_sale${label}_${dateStamp()}.zip`, "application/zip");
@@ -320,6 +365,18 @@ export default function WeeklyFactReportsPage() {
                 >
                   {o.buffer ? `Download ${o.filename}` : "Not generated"}
                 </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  startIcon={pdfBusy === pdfNameOf(o.filename) ? <CircularProgress size={14} /> : <PictureAsPdfOutlinedIcon fontSize="small" />}
+                  sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
+                  disabled={!o.buffer || pdfBusy !== null}
+                  aria-busy={pdfBusy === pdfNameOf(o.filename)}
+                  onClick={() => downloadFactPdf(o)}
+                >
+                  {pdfBusy === pdfNameOf(o.filename) ? "Building PDF…" : `PDF — ${pdfNameOf(o.filename)}`}
+                </Button>
                 <Warnings warnings={o.warnings} tone={o.ok ? "warning" : "danger"} />
               </div>
             ))}
@@ -346,6 +403,26 @@ export default function WeeklyFactReportsPage() {
                   onClick={() => job.rankWorkbook?.buffer && triggerDownload(job.rankWorkbook.buffer, job.rankWorkbook.filename!, xlsxType)}
                 >
                   {job.rankWorkbook.buffer ? `Download ${job.rankWorkbook.filename}` : "Not generated"}
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  startIcon={
+                    job.rankWorkbook.filename && pdfBusy === pdfNameOf(job.rankWorkbook.filename) ? (
+                      <CircularProgress size={14} />
+                    ) : (
+                      <PictureAsPdfOutlinedIcon fontSize="small" />
+                    )
+                  }
+                  sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
+                  disabled={!job.rankWorkbook.buffer || pdfBusy !== null}
+                  aria-busy={!!job.rankWorkbook.filename && pdfBusy === pdfNameOf(job.rankWorkbook.filename)}
+                  onClick={downloadRankPdf}
+                >
+                  {job.rankWorkbook.filename && pdfBusy === pdfNameOf(job.rankWorkbook.filename)
+                    ? "Building PDF…"
+                    : `PDF — category tabs (Sheet1 excluded)`}
                 </Button>
                 <Warnings warnings={job.rankWarnings} tone={job.rankWorkbook.ok ? "warning" : "danger"} />
               </div>

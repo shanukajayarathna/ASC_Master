@@ -209,7 +209,7 @@ function NotificationsMenu() {
         open={!!anchor}
         onClose={close}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-        slotProps={{ paper: { sx: { width: 360, maxHeight: 440 } } }}
+        slotProps={{ paper: { sx: { width: "min(360px, calc(100vw - 32px))", maxHeight: 440 } } }}
       >
         <div className="flex items-center justify-between px-3 py-1.5">
           <span className="text-[11px] font-mono tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
@@ -271,7 +271,7 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
 
   return (
     <header
-      className="h-[68px] flex items-center gap-4 px-5 border-b border-border bg-surface sticky top-0 z-20"
+      className="min-h-[68px] flex items-center gap-x-4 gap-y-2 flex-wrap py-2 sm:py-0 px-4 sm:px-5 border-b border-border bg-surface sticky top-0 z-20"
       style={{ boxShadow: "var(--shadow-sm)" }}
     >
       <Tooltip title="Home">
@@ -299,7 +299,9 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
         <kbd className="font-mono text-[10.5px] px-1.5 py-0.5 rounded border border-border shrink-0 hidden md:inline">Ctrl + K</kbd>
       </button>
 
-      <div className="hidden sm:block min-w-0 w-[180px] lg:w-[220px]">
+      {/* On phones the picker drops to its own full-width row (order-last + wrap) rather
+          than disappearing — switching the active sale must stay possible on every device. */}
+      <div className="order-last w-full sm:order-none sm:w-[180px] lg:w-[220px] min-w-0">
         <Select
           size="small"
           value={activeCatalogueId ?? ""}

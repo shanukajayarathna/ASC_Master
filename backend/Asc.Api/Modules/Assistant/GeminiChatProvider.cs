@@ -106,7 +106,22 @@ public class GeminiChatProvider(HttpClient http, IConfiguration config) : IChatP
                 var fnName = call!["functionCall"]!["name"]!.GetValue<string>();
                 var argsNode = call["functionCall"]!["args"];
                 var argsJson = argsNode?.ToJsonString() ?? "{}";
-                var resultJson = await executeTool(fnName, argsJson);
+                string resultJson;
+                try
+                {
+                    resultJson = await executeTool(fnName, argsJson);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Same contract as OpenAiCompatibleChatProvider: a malformed tool call is
+                    // fed back as the tool's error result so the model can correct and retry,
+                    // instead of aborting the whole chat turn.
+                    resultJson = System.Text.Json.JsonSerializer.Serialize(new { error = $"Tool call failed: {ex.Message}. Check the argument types against the tool's schema and try again." });
+                }
 
                 responseParts.Add(new JsonObject
                 {

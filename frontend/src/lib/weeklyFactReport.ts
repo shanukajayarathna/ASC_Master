@@ -726,13 +726,30 @@ async function buildRankCategorySheet(
     });
   });
 
-  ws.pageSetup = ws.pageSetup || {};
-  // N rows are written at RANK_DATA_START_ROW..RANK_DATA_START_ROW+N-1 — the last row WITH data
-  // is one less than RANK_DATA_START_ROW + N, not equal to it (that lands one row past the last
-  // real row, pulling a blank trailing row into the printed range). Math.max keeps the floor at
-  // RANK_DATA_START_ROW itself when there are zero rows, so the empty table still prints its own
-  // row instead of the print area ending one row short of the data band entirely.
-  ws.pageSetup.printArea = `A1:J${Math.max(RANK_DATA_START_ROW, RANK_DATA_START_ROW + rowsSorted.length - 1)}`;
+  // Page setup is NOT carried over by the cell-by-cell template copy above (only cells, merges,
+  // widths and images are), so without this the generated sheet prints/exports with Excel's
+  // defaults — Letter paper, 100% scale, no fit — and a PDF export cuts the table's right-hand
+  // columns onto a separate page. A4 + fit-to-WIDTH-only pins all columns onto one A4 page
+  // width while rows flow onto as many pages as needed at full size (fitToHeight: 0): a long
+  // table is never vertically crushed onto one page, which is what the template's own 1×1
+  // fit (scale 74) would do. The column-title rows (16:17) repeat on every printed page so
+  // continuation pages stay readable without re-printing the whole banner.
+  ws.pageSetup = {
+    paperSize: 9, // A4
+    orientation: "portrait",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: { left: 0.35, right: 0.35, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    printTitlesRow: "16:17",
+    // N rows are written at RANK_DATA_START_ROW..RANK_DATA_START_ROW+N-1 — the last row WITH data
+    // is one less than RANK_DATA_START_ROW + N, not equal to it (that lands one row past the last
+    // real row, pulling a blank trailing row into the printed range). Math.max keeps the floor at
+    // RANK_DATA_START_ROW itself when there are zero rows, so the empty table still prints its own
+    // row instead of the print area ending one row short of the data band entirely.
+    printArea: `A1:J${Math.max(RANK_DATA_START_ROW, RANK_DATA_START_ROW + rowsSorted.length - 1)}`,
+  };
 
   return { rowCount: rowsSorted.length, warnings };
 }
@@ -755,6 +772,18 @@ async function buildRankSheet1(targetWb: ExcelJS.Workbook, wesArrayBuffer: Array
       if (v != null) ws.getCell(r, c).value = v;
     }
   }
+  // Same reason as the category tabs: a fresh worksheet has no page setup, so a PDF export
+  // sliced this wide reference sheet into column strips. Landscape A4 (it's the widest sheet
+  // in the workbook) with fit-to-width-only keeps every column on one page width and lets
+  // rows run to as many pages as needed at full size.
+  ws.pageSetup = {
+    paperSize: 9, // A4
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.35, right: 0.35, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+  };
 }
 
 export interface RankWorkbookResult {
@@ -813,6 +842,20 @@ export interface CategoryOutcome {
   benchmark: [number | null, number | null, number | null];
   warnings: string[];
   ok: boolean;
+  /** The estate rows exactly as written to the workbook (same sort) — the PDF mirror renders
+   *  from these rather than re-deriving them, so the two outputs can never disagree. */
+  sortedRows: WesRow[];
+}
+
+/** One RANK category tab's data, exactly as written to that tab (same filter/sort) — the PDF
+ *  mirror of the RANK workbook renders from these. Sheet1 (the raw WES working copy) is
+ *  deliberately absent: it's a working reference, not part of the client-facing report. */
+export interface RankTabData {
+  category: string;
+  tabName: string;
+  rows: WesRow[];
+  /** [sale avg, month-todate avg] — the two benchmark cells (J10/J11) on the tab. */
+  benchmark: [number | null, number | null];
 }
 
 export interface WeeklyJobResult {
@@ -820,6 +863,8 @@ export interface WeeklyJobResult {
   saleDate: string | null;
   outcomes: CategoryOutcome[];
   rankWorkbook: { filename: string | null; buffer: ArrayBuffer | null; ok: boolean } | null;
+  rankTabs: RankTabData[];
+  rankHeaderText: string;
   rankWarnings: string[];
   warnings: string[];
 }
@@ -899,7 +944,7 @@ export async function runJob(txtText: string, wesArrayBuffer: ArrayBuffer, overr
 
     if (!(category in wesReport.categories)) {
       catWarnings.push(`'${category}' not found in the WES file — file not generated.`);
-      outcomes.push({ category, filename, buffer: null, rowCount: 0, benchmark: [null, null, null], warnings: catWarnings, ok: false });
+      outcomes.push({ category, filename, buffer: null, rowCount: 0, benchmark: [null, null, null], warnings: catWarnings, ok: false, sortedRows: [] });
       continue;
     }
     const estateRows = wesReport.categories[category];
@@ -911,7 +956,7 @@ export async function runJob(txtText: string, wesArrayBuffer: ArrayBuffer, overr
     const result = await buildCategoryWorkbook({ templateKey: spec.templateKey, estateRows, benchmark, saleDate, saleNumber });
     catWarnings.push(...result.warnings);
 
-    outcomes.push({ category, filename, buffer: result.buffer, rowCount: result.rowCount, benchmark, warnings: catWarnings, ok: !!bench && estateRows.length > 0 });
+    outcomes.push({ category, filename, buffer: result.buffer, rowCount: result.rowCount, benchmark, warnings: catWarnings, ok: !!bench && estateRows.length > 0, sortedRows: sortEstateRows(estateRows) });
   }
 
   const rankHeaderText = overrides.rankHeaderText?.trim() || computeDefaultRankHeaderText(saleDate, saleNumber);
@@ -927,5 +972,17 @@ export async function runJob(txtText: string, wesArrayBuffer: ArrayBuffer, overr
     rankWarnings.push(`RANK workbook could not be built: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  return { saleNumber, saleDate, outcomes, rankWorkbook, rankWarnings, warnings };
+  // The same per-tab data buildRankWorkbook wrote (same filter, same sort, same benchmarks),
+  // exposed so the PDF mirror of the RANK workbook renders identical content.
+  const rankTabs: RankTabData[] = RANK_TAB_ORDER.filter((t) => t !== "SHEET1").map((tab) => {
+    const bench = txtReport.categories[tab];
+    return {
+      category: tab,
+      tabName: RANK_CATEGORY_SPEC[tab].tabName,
+      rows: rankSortRows(wesReport.categories[tab] || []),
+      benchmark: bench ? [bench.sale_avg, bench.mtd_avg] : [null, null],
+    };
+  });
+
+  return { saleNumber, saleDate, outcomes, rankWorkbook, rankTabs, rankHeaderText, rankWarnings, warnings };
 }

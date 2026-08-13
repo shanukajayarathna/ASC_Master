@@ -51,7 +51,12 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         AgentResponse response;
         try
         {
-            response = await agentRouter.Resolve(null).HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin), ct);
+            var agent = agentRouter.Resolve(dto.Agent);
+            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId), ct);
+        }
+        catch (UnknownAgentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
         }
         catch (ProviderUnavailableException ex)
         {
