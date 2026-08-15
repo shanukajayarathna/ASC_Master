@@ -508,3 +508,98 @@ export interface DashboardStats {
   avgNetWeight: number | null;
   avgGrossWeight: number | null;
 }
+
+// ---- MSL archive (master search over the 2013–present auction history) ----
+
+export interface MslAuctionLot {
+  saleYear: number;
+  saleNo: number;
+  saleDate: string;
+  broker: string | null;
+  brokerName: string | null;
+  isPrivate: boolean;
+  lotNo: string;
+  invoice: string | null;
+  factoryCode: string;
+  sellingMark: string;
+  grade: string;
+  quantityKg: number;
+  priceRs: number;
+  sold: boolean;
+  buyerCode: string | null;
+  buyerName: string | null;
+  estateName: string;
+  mslCode: string | null;
+  elevationCode: string | null;
+  elevation: string | null;
+  refuseTea: boolean;
+}
+
+export interface MslSearchAggregate {
+  lots: number;
+  soldLots: number;
+  totalQtyKg: number;
+  soldQtyKg: number;
+  weightedAvgRs: number | null;
+  minPriceRs: number | null;
+  maxPriceRs: number | null;
+}
+
+export interface MslSearchResult {
+  items: MslAuctionLot[];
+  total: number;
+  aggregate: MslSearchAggregate;
+}
+
+export interface MslAggregateRow {
+  key: string;
+  lots: number;
+  soldLots: number;
+  totalQtyKg: number;
+  soldQtyKg: number;
+  weightedAvgRs: number | null;
+  minPriceRs: number | null;
+  maxPriceRs: number | null;
+}
+
+export interface MslScanSummary {
+  filesImported: number;
+  rowsImported: number;
+  filesUpToDate: number;
+  filesRemoved: number;
+  errors: string[];
+  elapsed: string;
+}
+
+export interface MslYearStat {
+  year: number;
+  sales: number;
+  lots: number;
+}
+
+export interface MslStatus {
+  dataPath: string | null;
+  totalLots: number;
+  privateLots: number;
+  trackedFiles: number;
+  filesWithErrors: number;
+  lastScanAt: string | null;
+  lastScan: MslScanSummary | null;
+  years: MslYearStat[];
+  teaBoardMonths: number;
+}
+
+/** Shared filter set for /msl/search and /msl/aggregate. */
+export interface MslFilters {
+  q?: string;
+  broker?: string;
+  grade?: string;
+  elevation?: string;
+  buyer?: string;
+  factory?: string;
+  yearFrom?: number;
+  yearTo?: number;
+  saleNo?: number;
+  sold?: boolean;
+  isPrivate?: boolean;
+}

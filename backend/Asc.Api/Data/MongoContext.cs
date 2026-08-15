@@ -6,6 +6,7 @@ using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.MasterData;
+using Asc.Api.Modules.Msl;
 using Asc.Api.Modules.Notifications;
 using Asc.Api.Modules.Observability;
 using Asc.Api.Modules.Webhooks;
@@ -94,6 +95,26 @@ public class MongoContext
         [
             new CreateIndexModel<AiUsageLogEntry>(Builders<AiUsageLogEntry>.IndexKeys.Descending(e => e.CreatedAt)),
         ]);
+
+        // MSL archive — millions of lot rows, so every filter the master search offers gets
+        // an index: sale identity, the searchable name fields, buyer, and elevation. The
+        // SourceFile index backs the idempotent per-file delete+reinsert on re-import.
+        AuctionLots.Indexes.CreateMany(
+        [
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.SaleYear).Ascending(l => l.SaleNo)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.SellingMark)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.EstateName)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.FactoryCode)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.BuyerCode)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.ElevationCode).Ascending(l => l.SaleYear)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.SourceFile)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Descending(l => l.SaleDate)),
+        ]);
+        TeaBoardAverages.Indexes.CreateMany(
+        [
+            new CreateIndexModel<TeaBoardAverage>(Builders<TeaBoardAverage>.IndexKeys.Ascending(t => t.Year).Ascending(t => t.Month)),
+            new CreateIndexModel<TeaBoardAverage>(Builders<TeaBoardAverage>.IndexKeys.Ascending(t => t.SourceFile)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -127,4 +148,9 @@ public class MongoContext
     public IMongoCollection<Deadline> Deadlines => Database.GetCollection<Deadline>("deadlines");
 
     public IMongoCollection<AiUsageLogEntry> AiUsageLogs => Database.GetCollection<AiUsageLogEntry>("aiUsageLogs");
+
+    /// <summary>The imported MSL archive — every auction + private-sale lot, 2013–present.</summary>
+    public IMongoCollection<AuctionLot> AuctionLots => Database.GetCollection<AuctionLot>("auctionLots");
+    public IMongoCollection<TeaBoardAverage> TeaBoardAverages => Database.GetCollection<TeaBoardAverage>("teaBoardAverages");
+    public IMongoCollection<MslFileState> MslFiles => Database.GetCollection<MslFileState>("mslFiles");
 }

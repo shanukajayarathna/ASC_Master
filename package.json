@@ -4,9 +4,10 @@
   "version": "1.0.0",
   "description": "Root dev-orchestration for the ASC Tea Auction platform (frontend + backend run separately as their own projects).",
   "scripts": {
-    "dev": "concurrently -n API,WEB -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev": "npm run db:start && concurrently -n API,WEB -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
     "dev:backend": "dotnet run --project backend/Asc.Api --urls http://localhost:5058",
-    "dev:frontend": "npm run dev --prefix frontend"
+    "dev:frontend": "npm run dev --prefix frontend",
+    "db:start": "powershell -NoProfile -ExecutionPolicy Bypass -File data/mongodb/start-mongodb.ps1"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

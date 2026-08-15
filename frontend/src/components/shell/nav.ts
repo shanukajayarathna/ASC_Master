@@ -6,6 +6,7 @@ import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined
 import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
+import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import RequestQuoteOutlinedIcon from "@mui/icons-material/RequestQuoteOutlined";
@@ -115,6 +116,15 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CompareArrowsOutlinedIcon,
     gradient: 4,
     image: "https://images.unsplash.com/photo-1758519288905-38b7b00c1023",
+  },
+  {
+    href: "/master-search",
+    label: "Master Search",
+    section: "Intelligence",
+    status: "live",
+    description: "Search 13 years of auction history — every lot, price, buyer and estate.",
+    icon: ManageSearchOutlinedIcon,
+    gradient: 4,
   },
   {
     href: "/market",

@@ -26,6 +26,11 @@ import type {
   Lot,
   MarketInsight,
   MasterDataEntity,
+  MslAggregateRow,
+  MslFilters,
+  MslScanSummary,
+  MslSearchResult,
+  MslStatus,
   OverviewStats,
   PagedLots,
   PerformanceInsight,
@@ -549,6 +554,29 @@ export const api = {
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
     });
     if (!res.ok) throw new Error("Could not delete the voice note.");
+  },
+
+  // ---- MSL archive (master search) ----
+
+  mslStatus: () => request<MslStatus>("/api/v1/msl/status"),
+
+  mslRescan: (force = false) =>
+    request<MslScanSummary>(`/api/v1/msl/rescan?force=${force}`, { method: "POST" }),
+
+  mslSearch: (filters: MslFilters, page = 1, pageSize = 50) => {
+    const qs = new URLSearchParams();
+    Object.entries({ ...filters, page, pageSize }).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    });
+    return request<MslSearchResult>(`/api/v1/msl/search?${qs.toString()}`);
+  },
+
+  mslAggregate: (groupBy: string, filters: MslFilters, limit = 100) => {
+    const qs = new URLSearchParams({ groupBy, limit: String(limit) });
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    });
+    return request<MslAggregateRow[]>(`/api/v1/msl/aggregate?${qs.toString()}`);
   },
 
   /**

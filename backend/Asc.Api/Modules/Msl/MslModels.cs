@@ -1,0 +1,153 @@
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
+
+namespace Asc.Api.Modules.Msl;
+
+/// <summary>
+/// One lot row parsed from a broker MSL TXT file (the fixed-width weekly auction files,
+/// 2013–present) or a PVT private-sales file. Field names are shortened at the BSON level
+/// because this collection holds millions of rows — with ~20 fields per document the field
+/// names themselves would otherwise cost more disk than the values.
+/// </summary>
+public class AuctionLot
+{
+    [BsonId]
+    public ObjectId Id { get; set; }
+
+    [BsonElement("y")] public int SaleYear { get; set; }
+
+    /// <summary>0 for private-sale rows — PVT files accumulate per year without sale numbers.</summary>
+    [BsonElement("s")] public int SaleNo { get; set; }
+
+    [BsonElement("d")] public DateTime SaleDate { get; set; }
+
+    /// <summary>File code: AS, BTL, DES, EB, FBS, JK, LCB, MB. Null for PVT rows — the
+    /// private-sales files carry a running serial where the auction files carry the broker
+    /// digit, so the broker is not recorded per row there.</summary>
+    [BsonElement("b")] public string? Broker { get; set; }
+
+    [BsonElement("pv")] public bool IsPrivate { get; set; }
+
+    [BsonElement("l")] public string LotNo { get; set; } = string.Empty;
+
+    [BsonElement("i")] public string? Invoice { get; set; }
+
+    /// <summary>Space-stripped factory registration code, e.g. "MF0351", "MFA0890", "RT0271"
+    /// (RT = refuse-tea processing centre). Matches the sale Excel's "Trade Mark" column
+    /// after the same normalization.</summary>
+    [BsonElement("f")] public string FactoryCode { get; set; } = string.Empty;
+
+    [BsonElement("m")] public string SellingMark { get; set; } = string.Empty;
+
+    [BsonElement("g")] public string Grade { get; set; } = string.Empty;
+
+    [BsonElement("q")] public decimal QuantityKg { get; set; }
+
+    /// <summary>Sold price in Rs/kg; 0 means unsold.</summary>
+    [BsonElement("p")] public decimal PriceRs { get; set; }
+
+    [BsonElement("so")] public bool Sold { get; set; }
+
+    [BsonElement("bc")] public string? BuyerCode { get; set; }
+    [BsonElement("bn")] public string? BuyerName { get; set; }
+
+    [BsonElement("e")] public string EstateName { get; set; } = string.Empty;
+
+    [BsonElement("dc")] public string? DistrictCode { get; set; }
+
+    /// <summary>The MSL code: factory code + 2-digit region suffix, space-stripped
+    /// (e.g. "MF035111"). Stable across brokers for the same estate.</summary>
+    [BsonElement("mc")] public string? MslCode { get; set; }
+
+    /// <summary>Elevation category code: 11 UVA HIGH, 12 WESTERN HIGH, 21 UVA MEDIUM,
+    /// 22 WESTERN MEDIUM, 31 LOW.</summary>
+    [BsonElement("el")] public string? ElevationCode { get; set; }
+
+    /// <summary>Raw trailing class code (elevation + manufacture/subtype digits).</summary>
+    [BsonElement("cl")] public string? ClassCode { get; set; }
+
+    [BsonElement("rf")] public bool RefuseTea { get; set; }
+
+    /// <summary>Path relative to the MSL data root — the idempotent-import key: re-importing
+    /// a file first deletes everything with the same SourceFile.</summary>
+    [BsonElement("sf")] public string SourceFile { get; set; } = string.Empty;
+}
+
+/// <summary>One elevation row of a monthly Sri Lanka Tea Board national averages report.</summary>
+public class TeaBoardAverage
+{
+    [BsonId]
+    public ObjectId Id { get; set; }
+
+    public int Year { get; set; }
+    public int Month { get; set; }
+
+    /// <summary>ORTHODOX, CTC, COMBINED, GREEN, ORGANIC, SPECIAL, REFUSE or COMPOSITE.</summary>
+    public string Section { get; set; } = string.Empty;
+
+    /// <summary>UVA HIGH / WESTERN HIGH / UVA MEDIUM / WESTERN MEDIUM / LOW — plus the
+    /// composite section's HIGH GROWN / MEDIUM GROWN / LOW GROWN / ALL TEA / OTHER rows,
+    /// and TOTAL rows per section.</summary>
+    public string Elevation { get; set; } = string.Empty;
+
+    public decimal? MonthQtyKg { get; set; }
+    public decimal? MonthAvgRs { get; set; }
+    public decimal? TodateQtyKg { get; set; }
+    public decimal? TodateAvgRs { get; set; }
+
+    public string SourceFile { get; set; } = string.Empty;
+}
+
+/// <summary>Import bookkeeping — one row per data file, so the folder watcher and rescans
+/// only re-import files whose size or timestamp changed.</summary>
+public class MslFileState
+{
+    [BsonId]
+    public string RelativePath { get; set; } = string.Empty;
+
+    public long Length { get; set; }
+    public DateTime LastWriteUtc { get; set; }
+    public DateTime ImportedAt { get; set; }
+    public int RowCount { get; set; }
+    public string? Error { get; set; }
+}
+
+public static class MslBrokers
+{
+    /// <summary>Broker digit (column 2 of every auction row) → file/broker code.</summary>
+    public static readonly IReadOnlyDictionary<char, string> DigitToCode = new Dictionary<char, string>
+    {
+        ['1'] = "BTL", ['2'] = "DES", ['3'] = "FBS", ['4'] = "JK",
+        ['6'] = "EB", ['7'] = "MB", ['8'] = "AS", ['9'] = "LCB",
+    };
+
+    public static readonly IReadOnlyDictionary<string, string> CodeToName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["BTL"] = "Bartleet & Co",
+        ["DES"] = "Ceylon Tea Brokers",
+        ["FBS"] = "Forbes & Walker",
+        ["JK"] = "John Keells",
+        ["EB"] = "Eastern Brokers",
+        ["MB"] = "Mercantile Produce Brokers",
+        ["AS"] = "Asia Siyaka",
+        ["LCB"] = "Lanka Commodity Brokers",
+    };
+
+    /// <summary>Broker codes used by the weekly sale Excel files (data/sales/NN.xlsx) →
+    /// MSL file code. Verified row-level against real files: joining on (broker, lot no)
+    /// matches 99.7% of Excel rows to their MSL rows.</summary>
+    public static readonly IReadOnlyDictionary<string, string> ExcelCodeToMslCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ASC"] = "AS", ["BC"] = "BTL", ["CT"] = "DES", ["FW"] = "FBS",
+        ["JK"] = "JK", ["EB"] = "EB", ["MPB"] = "MB", ["LC"] = "LCB",
+    };
+
+    public static readonly IReadOnlyDictionary<string, string> ElevationNames = new Dictionary<string, string>
+    {
+        ["11"] = "UVA HIGH",
+        ["12"] = "WESTERN HIGH",
+        ["21"] = "UVA MEDIUM",
+        ["22"] = "WESTERN MEDIUM",
+        ["31"] = "LOW",
+    };
+}

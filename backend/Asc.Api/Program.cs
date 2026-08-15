@@ -11,6 +11,7 @@ using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Knowledge;
 using Asc.Api.Modules.MasterData;
+using Asc.Api.Modules.Msl;
 using Asc.Api.Modules.Notifications;
 using Asc.Api.Modules.Observability;
 using Asc.Api.Modules.Performance;
@@ -83,6 +84,12 @@ builder.Services.AddSingleton<PlatformDocsSyncService>();
 // OKLO become additional IKnowledgeSource registrations here, nothing else changes.
 builder.Services.AddSingleton<IKnowledgeSource, DocumentKnowledgeSource>();
 builder.Services.AddSingleton<IKnowledgeService, KnowledgeService>();
+
+// MSL archive — the historical auction/private-sale/Tea Board dataset (data/msl, see its
+// README). The watcher runs the initial backfill and then auto-imports whenever files in
+// the folder change, so dropping in a new week's files updates the database by itself.
+builder.Services.AddSingleton<MslImportService>();
+builder.Services.AddHostedService<MslWatcherService>();
 
 // AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
 // OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own
