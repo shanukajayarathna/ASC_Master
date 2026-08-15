@@ -1,5 +1,6 @@
 "use client";
 
+import BusyOverlay from "@/components/shared/BusyOverlay";
 import CatalogueGrid from "@/components/catalogue/CatalogueGrid";
 import FilterPanel from "@/components/catalogue/FilterPanel";
 import LotViewDialog from "@/components/catalogue/LotViewDialog";
@@ -490,6 +491,7 @@ export default function CataloguePage() {
   if (!activeCatalogueId) {
     return (
       <div>
+        {catalogueLoading && <BusyOverlay message="Importing sale file…" />}
         <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Catalogue Manager</h1>
         <p className="text-[13px] text-text-muted mb-6 max-w-xl">
           Upload a lot catalogue to begin — search, filter, value and dictate remarks for every lot.

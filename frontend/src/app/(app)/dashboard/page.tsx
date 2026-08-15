@@ -2,7 +2,7 @@
 
 import AiInsightsPanel, { type Insight } from "@/components/home/AiInsightsPanel";
 import AttentionList, { type AttentionEntry } from "@/components/home/AttentionList";
-import AutoSlidingKpiPanel, { type KpiSlide } from "@/components/home/AutoSlidingKpiPanel";
+import KpiSlidesPanel, { type KpiSlide } from "@/components/home/KpiSlidesPanel";
 import ModuleTile from "@/components/home/ModuleTile";
 import RecentActivityList, { type ActivityEntry } from "@/components/home/RecentActivityList";
 import Sparkline from "@/components/home/Sparkline";
@@ -111,6 +111,9 @@ export default function DashboardPage() {
   // (localStorage), never sent anywhere, so this is genuinely "their" personalization
   // rather than something the app is guessing at.
   const [pinnedHrefs, setPinnedHrefs] = useState<string[]>([]);
+  // The launchpad shows a first "page" of tiles so the activity/insights panels below
+  // aren't pushed under the fold by the full grid; one click expands to everything.
+  const [showAllTiles, setShowAllTiles] = useState(false);
   useEffect(() => {
     try {
       const stored = JSON.parse(window.localStorage.getItem(PINNED_TILES_KEY) ?? "[]");
@@ -284,10 +287,12 @@ export default function DashboardPage() {
     return [...pinned, ...rest];
   }, [pinnedHrefs]);
 
-  // The Assistant page has no prefill support today, so this can't hand a typed/suggested
-  // prompt over — it gets the taster there in one click rather than silently swallowing
-  // whatever they typed.
-  const goToAssistant = () => router.push("/assistant");
+  // Hands the typed (or suggested) prompt to the Assistant via ?q= — it lands prefilled
+  // in the input for review, never auto-sent. Nothing the user typed is ever discarded.
+  const goToAssistant = (q?: string) => {
+    const text = (q ?? prompt).trim();
+    router.push(text ? `/assistant?q=${encodeURIComponent(text)}` : "/assistant");
+  };
 
   const totalLotsAllSales = catalogues.reduce((sum, c) => sum + c.rowCount, 0);
   const avgValuationDeltaPct =
@@ -383,7 +388,7 @@ export default function DashboardPage() {
       <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-[26px] font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
-            {greeting()}{user ? `, ${user.displayName.split(" ")[0]}` : ""}! 👋
+            {greeting()}{user ? `, ${user.displayName.split(" ")[0]}` : ""}
           </h1>
           <p className="text-[13.5px] m-0" style={{ color: "var(--text-muted)" }}>
             {activeCatalogue
@@ -529,9 +534,9 @@ export default function DashboardPage() {
               icon: Inventory2OutlinedIcon,
               color: "var(--info)",
               bg: "var(--info-light)",
-              label: "Active Sales",
-              value: catalogues.length.toLocaleString(),
-              sub: "on file",
+              label: "Top Valuation",
+              value: formatCurrency(stats.maxValuation, 0),
+              sub: "highest in this sale",
               trend: undefined as number[] | undefined,
             },
           ].map((k, i) => (
@@ -620,7 +625,7 @@ export default function DashboardPage() {
 
       {/* ---- the same Valuation Range / Portfolio Composition / Weight & Volume detail as
            before, now one auto-rotating card instead of three stacked sections ---- */}
-      {activeCatalogueId && stats && <AutoSlidingKpiPanel slides={kpiSlides} />}
+      {activeCatalogueId && stats && <KpiSlidesPanel slides={kpiSlides} />}
       {activeCatalogueId && !stats && (
         <Skeleton variant="rounded" height={140} className="mb-6" sx={{ borderRadius: "var(--radius-lg)" }} />
       )}
@@ -638,7 +643,7 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-          {moduleTiles.map((item, i) => (
+          {(showAllTiles ? moduleTiles : moduleTiles.slice(0, 8)).map((item, i) => (
             <ModuleTile
               key={item.href}
               item={item}
@@ -648,6 +653,13 @@ export default function DashboardPage() {
             />
           ))}
         </div>
+        {moduleTiles.length > 8 && (
+          <div className="mt-3 text-center">
+            <Button size="small" onClick={() => setShowAllTiles((v) => !v)} sx={{ color: "var(--liquor)", textTransform: "none" }}>
+              {showAllTiles ? "Show fewer" : `Show all ${moduleTiles.length} modules`}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* ---- AI section ---- */}
@@ -684,7 +696,7 @@ export default function DashboardPage() {
             <button
               key={p}
               type="button"
-              onClick={goToAssistant}
+              onClick={() => goToAssistant(p)}
               className="px-3 py-1.5 rounded-full border border-border text-[12px] cursor-pointer"
               style={{ color: "var(--text)", background: "var(--surface-alt)" }}
             >
@@ -708,7 +720,7 @@ export default function DashboardPage() {
           ASC — Tea Auction Valuation &amp; Business Intelligence Platform
         </p>
         <p className="text-[11px] m-0" style={{ color: "var(--text-muted)" }}>
-          © {new Date().getFullYear()} Asia Siyaka Commodities (Pvt) Ltd. All rights reserved.
+          © {new Date().getFullYear()} Asia Siyaka Commodities PLC. All rights reserved.
         </p>
       </div>
     </div>

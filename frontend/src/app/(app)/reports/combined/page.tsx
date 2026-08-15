@@ -1,5 +1,6 @@
 "use client";
 
+import BusyOverlay from "@/components/shared/BusyOverlay";
 import AuctionReportView from "@/components/reports/AuctionReportView";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
@@ -75,6 +76,8 @@ export default function CombinedReportPage() {
 
   return (
     <div>
+      {exportingPdf && <BusyOverlay message="Building PDF…" />}
+      {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Combined Report"
         subtitle="Top Prices, CTC, Off Grades & Dust, Low Grown and Premium Flowery — ranked against every broker in the sale."

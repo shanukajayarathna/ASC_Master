@@ -1,5 +1,6 @@
 "use client";
 
+import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
@@ -597,6 +598,8 @@ export default function AskingPricePage() {
 
   return (
     <div>
+      {exportingPdf && <BusyOverlay message="Building PDF…" />}
+      {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Asking Price"
         subtitle="The same fast worksheet, for pre-auction asking prices. Nothing here saves to sale data — its own session, kept separate from Worksheet."

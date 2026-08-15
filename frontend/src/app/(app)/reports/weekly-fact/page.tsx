@@ -1,5 +1,6 @@
 "use client";
 
+import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import { dateStamp } from "@/lib/worksheetPdf";
 import { buildFactCategoryPdf, buildRankPdf } from "@/lib/weeklyFactPdf";
@@ -277,6 +278,7 @@ export default function WeeklyFactReportsPage() {
 
   return (
     <div>
+      {generating && <BusyOverlay message="Generating reports…" />}
       <PageHeader
         title="Weekly FACT Reports"
         subtitle="UVA/WESTERN High & Medium ranking workbooks, rebuilt from the CBAC elevation-average release and the WES factory-wise sale workbook."

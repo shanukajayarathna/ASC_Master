@@ -9,7 +9,8 @@ import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
-import CircularProgress from "@mui/material/CircularProgress";
+import BusyOverlay from "@/components/shared/BusyOverlay";
+import TeaLoader from "@/components/shared/TeaLoader";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
@@ -183,7 +184,7 @@ export default function ExportShareMenu({
         <MenuItem onClick={handleShare} disabled={busy !== null} aria-busy={busy === "share"}>
           <ListItemIcon>
             {busy === "share" ? (
-              <CircularProgress size={16} />
+              <TeaLoader size={16} />
             ) : typeof navigator !== "undefined" && "share" in navigator ? (
               <ShareOutlinedIcon fontSize="small" />
             ) : (
@@ -238,7 +239,7 @@ export default function ExportShareMenu({
             onClick={downloadExcel}
             disabled={busy === "excel" || picked.size === 0}
             aria-busy={busy === "excel"}
-            startIcon={busy === "excel" ? <CircularProgress size={15} /> : <FileDownloadOutlinedIcon fontSize="small" />}
+            startIcon={busy === "excel" ? <TeaLoader size={15} /> : <FileDownloadOutlinedIcon fontSize="small" />}
           >
             Download {picked.size} column{picked.size === 1 ? "" : "s"}
           </Button>
@@ -250,6 +251,12 @@ export default function ExportShareMenu({
           {error}
         </p>
       )}
+
+      {/* Click-proof branded overlay while the export/share is actually being built —
+          lazily-loaded exceljs + a large lot set can take long enough that an idle-looking
+          button invites double-clicks (docs/28: overlay for long ops). */}
+      {busy === "excel" && <BusyOverlay message="Building Excel workbook…" />}
+      {busy === "share" && <BusyOverlay message="Preparing share…" />}
     </>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
@@ -570,6 +571,8 @@ export default function WorksheetPage() {
 
   return (
     <div>
+      {exportingPdf && <BusyOverlay message="Building PDF…" />}
+      {exporting && <BusyOverlay message="Building worksheet…" />}
       <PageHeader
         title="Worksheet"
         subtitle="A rough pre-auction pricing copy. Nothing here saves to sale data — only Valuation Centre does that."

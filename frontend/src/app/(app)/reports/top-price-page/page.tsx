@@ -1,5 +1,6 @@
 "use client";
 
+import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
@@ -72,6 +73,8 @@ export default function TopPricePagePage() {
 
   return (
     <div>
+      {exportingPdf && <BusyOverlay message="Building PDF…" />}
+      {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Top Price Page"
         subtitle="Every ranked region — Low Grown through CTC Teas — combined into one executive bulletin, matching the original's exact Excel and PDF layout."
