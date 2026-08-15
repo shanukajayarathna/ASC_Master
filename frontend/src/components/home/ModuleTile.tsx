@@ -62,7 +62,7 @@ export default function ModuleTile({ item, pinned, onTogglePin, priority }: Modu
           aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
           aria-pressed={!!pinned}
           title={pinned ? "Unpin from top" : "Pin to top"}
-          className="absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full flex items-center justify-center cursor-pointer border-0"
+          className="tile-pin absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full flex items-center justify-center cursor-pointer border-0"
           style={{
             background: pinned ? "rgba(255,255,255,0.95)" : "rgba(0,0,0,0.28)",
             opacity: pinned ? 1 : undefined,
@@ -73,7 +73,10 @@ export default function ModuleTile({ item, pinned, onTogglePin, priority }: Modu
           ) : (
             <PushPinOutlinedIcon
               sx={{ fontSize: 15, color: "#fff" }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              // hover-reveal, not group-hover utilities: also shows on keyboard focus and
+              // stays permanently visible on touch screens, where an invisible-but-tappable
+              // control would be a trap (globals.css).
+              className="hover-reveal"
             />
           )}
         </button>
@@ -124,7 +127,7 @@ export default function ModuleTile({ item, pinned, onTogglePin, priority }: Modu
             </h3>
             <ArrowOutwardIcon
               sx={{ fontSize: 15, color: "var(--text-muted)" }}
-              className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity"
+              className="ml-auto hover-reveal"
             />
           </div>
           <p className="text-[12.5px] leading-snug m-0" style={{ color: "var(--text-muted)" }}>

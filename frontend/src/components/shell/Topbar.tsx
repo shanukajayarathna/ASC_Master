@@ -271,7 +271,9 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
 
   return (
     <header
-      className="min-h-[68px] flex items-center gap-x-4 gap-y-2 flex-wrap py-2 sm:py-0 px-4 sm:px-5 border-b border-border bg-surface sticky top-0 z-20"
+      // Paddings live in .app-topbar (globals.css), not utilities — they fold in the
+      // display-cutout safe-area insets for installed/standalone use on notched devices.
+      className="app-topbar min-h-[68px] flex items-center gap-x-4 gap-y-2 flex-wrap border-b border-border bg-surface sticky top-0 z-20"
       style={{ boxShadow: "var(--shadow-sm)" }}
     >
       <Tooltip title="Home">

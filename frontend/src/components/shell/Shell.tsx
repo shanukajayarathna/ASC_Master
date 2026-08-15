@@ -24,7 +24,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col min-h-screen bg-surface-alt">
       <Topbar onSearchClick={() => setPaletteOpen(true)} />
-      <main className="flex-1 p-5 md:p-8 overflow-x-hidden">{children}</main>
+      {/* Side/bottom paddings live in .app-main-safe (globals.css) so they can fold in the
+          display-cutout safe-area insets; only the top padding stays a plain utility. */}
+      <main className="app-main-safe flex-1 pt-5 md:pt-8 overflow-x-hidden">{children}</main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );

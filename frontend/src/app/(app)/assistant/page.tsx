@@ -114,7 +114,7 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 140px)" }}>
+    <div className="chat-vh flex flex-col">
       <PageHeader
         title="AI Assistant"
         subtitle="Ask about lots, valuations, and uploaded documents. Read-only — it can't edit anything."

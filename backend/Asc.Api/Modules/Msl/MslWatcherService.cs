@@ -68,6 +68,11 @@ public class MslWatcherService(MslImportService importer, MslRollupService rollu
         _watcher.Renamed += (_, e) => Touch(e.FullPath);
         logger.LogInformation("MSL watcher active on {Root}", root);
 
+        // Catch-up pass: files changed during the startup window (initial scan → warming →
+        // reference build → enrichment) happened before EnableRaisingEvents and were never
+        // seen. Queue one scan now — costs under a second when nothing actually changed.
+        Interlocked.Exchange(ref _pendingSince, DateTime.UtcNow.Ticks - Quiet.Ticks);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);

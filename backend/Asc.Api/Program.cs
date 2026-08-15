@@ -245,6 +245,7 @@ builder.Services.AddAuthorization(opts =>
     opts.AddPolicy(Policies.UseAdminAiTools, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ViewAuditLog, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ViewObservability, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageDataFiles, p => p.RequireRole(RoleNames.Admin));
 });
 
 // Liveness probe for container orchestration (Phase 9) — deliberately just "did the process

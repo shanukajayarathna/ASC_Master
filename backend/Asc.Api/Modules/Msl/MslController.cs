@@ -112,8 +112,10 @@ public class MslController(MongoContext db, MslImportService importer, ICatalogu
     }
 
     /// <summary>Manual rescan — the folder watcher already does this automatically; this
-    /// is for "I just changed files and don't want to wait" and for force re-imports.</summary>
+    /// is for "I just changed files and don't want to wait" and for force re-imports.
+    /// Admin-only: a force rescan re-imports the whole multi-million-row archive.</summary>
     [HttpPost("rescan")]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
     public async Task<ActionResult<MslScanSummary>> Rescan([FromQuery] bool force = false, CancellationToken ct = default)
         => await importer.ScanAsync(force, ct);
 

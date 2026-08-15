@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 /**
  * The app's one branded loading animation — a glass cup of hot Ceylon tea, brewing:
  * amber liquor with a gently moving surface seen through the glass, steam wisps rising
@@ -19,8 +21,9 @@ export default function TeaLoader({
 }: {
   size?: number;
   className?: string;
-  /** Full-screen overlays use a fixed dark backdrop regardless of theme — in light theme
-   *  the ambient tokens would resolve dark-on-dark there, so swap in legible fixed values. */
+  /** Set when rendering on a dark ground the ambient tokens can't be trusted on — the
+   *  dark theme's frosted overlay veil, the login cinematic — where light theme's ambient
+   *  tokens would resolve dark-on-dark; swaps in legible fixed values instead. */
   onDark?: boolean;
 }) {
   const outline = onDark ? "#E8DCC2" : "var(--ink-700)";
@@ -28,8 +31,10 @@ export default function TeaLoader({
   const liquorDeep = onDark ? "#B05A34" : "var(--liquor-dark)";
   const steam = onDark ? "rgba(247,243,232,0.85)" : "var(--ink-muted)";
   const leaf = onDark ? "#A8B45E" : "var(--sage-dark)";
-  // One clip id per instance so two loaders on one page can't cross-clip each other.
-  const clipId = `tea-brew-${Math.round(Math.random() * 1e9)}`;
+  // One clip id per instance so two loaders on one page can't cross-clip each other —
+  // useId rather than Math.random() so render stays pure and SSR/client markup match
+  // (stripped to characters that are safe inside a url(#…) reference).
+  const clipId = `tea-brew-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
 
   // Interior of the glass — slightly inset from the cup outline so the liquor never
   // bleeds through the glass wall.

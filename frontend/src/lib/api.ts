@@ -85,29 +85,66 @@ export class ApiError extends Error {
   }
 }
 
+// ---- in-flight request tracking ------------------------------------------------------
+// NavigationLoader keeps its route-transition overlay up until the destination page's data
+// has actually arrived — not just until the route commits, which is all `navigatesuccess`
+// can signal (every page here is a client component that fetches after mount; see docs/28).
+// Every page's primary data load funnels through `request()`, so a counter in this one
+// place is the "is the new page still loading?" signal, with zero changes at call sites.
+// The direct-`fetch` helpers further down (photo/voice blobs, file uploads, binary exports)
+// are deliberately NOT counted: they run on user actions inside an already-rendered page,
+// never as part of a page's first load — and a multi-minute upload must never pin a
+// navigation overlay over the whole app. Same for `lib/weather.ts`: best-effort external
+// decoration that shouldn't hold the door.
+let inFlightRequests = 0;
+const inFlightListeners = new Set<() => void>();
+
+/** How many `request()` calls are currently awaiting a response. */
+export function getInFlightRequestCount(): number {
+  return inFlightRequests;
+}
+
+/** Notifies on every in-flight count change; returns the unsubscribe function. */
+export function subscribeInFlightRequests(listener: () => void): () => void {
+  inFlightListeners.add(listener);
+  return () => {
+    inFlightListeners.delete(listener);
+  };
+}
+
+function trackInFlight(delta: 1 | -1) {
+  inFlightRequests += delta;
+  for (const listener of inFlightListeners) listener();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let body: unknown;
-    try {
-      body = text ? JSON.parse(text) : undefined;
-    } catch {
-      // Not JSON — plain-text error bodies (e.g. BadRequest("...")) are common here too.
+  trackInFlight(1);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let body: unknown;
+      try {
+        body = text ? JSON.parse(text) : undefined;
+      } catch {
+        // Not JSON — plain-text error bodies (e.g. BadRequest("...")) are common here too.
+      }
+      const message =
+        (body as { message?: string } | undefined)?.message || text || `Request failed: ${res.status} ${res.statusText}`;
+      throw new ApiError(message, res.status, body);
     }
-    const message =
-      (body as { message?: string } | undefined)?.message || text || `Request failed: ${res.status} ${res.statusText}`;
-    throw new ApiError(message, res.status, body);
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  } finally {
+    trackInFlight(-1);
   }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
 }
 
 export const api = {

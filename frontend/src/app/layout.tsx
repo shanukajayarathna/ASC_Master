@@ -42,6 +42,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Extend under display cutouts (notch/Dynamic Island) — the shell pads itself back out
+  // with env(safe-area-inset-*) (.app-topbar/.app-main-safe in globals.css), so the topbar
+  // surface fills the cutout band instead of showing a letterboxed stripe.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#717C21" },
     { media: "(prefers-color-scheme: dark)", color: "#16181D" },

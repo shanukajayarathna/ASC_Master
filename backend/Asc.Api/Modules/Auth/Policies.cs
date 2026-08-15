@@ -17,4 +17,9 @@ public static class Policies
     public const string UseAdminAiTools = "UseAdminAiTools";
     public const string ViewAuditLog = "ViewAuditLog";
     public const string ViewObservability = "ViewObservability";
+
+    /// <summary>Adding/replacing the system's source data files: weekly-sale catalogue
+    /// imports (which overwrite files in data/sales) and manual MSL archive rescans.
+    /// Day-to-day valuation work never needs this — it's the administrator's job.</summary>
+    public const string ManageDataFiles = "ManageDataFiles";
 }

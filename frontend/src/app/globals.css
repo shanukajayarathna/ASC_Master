@@ -47,6 +47,14 @@
   --brand-gradient: linear-gradient(135deg, var(--brand-olive-deep), var(--brand-olive) 58%, var(--brand-gold-deep));
   --rule-brand: linear-gradient(90deg, var(--brand-olive), var(--brand-gold));
 
+  /* Frosted veil for the full-screen loading overlays (NavigationLoader, BusyOverlay) — a
+     translucent wash of the page ground, paired with a backdrop blur at the point of use.
+     Translucent on purpose: the page stays faintly visible underneath, so a route change
+     reads as "the app is working on this page" rather than the page being torn down and
+     replaced by a solid screen. Opaque enough that the loader/status text stays legible
+     even where backdrop-filter isn't supported. */
+  --overlay-veil: rgba(249,250,251,0.62);
+
   /* Soft-premium radius scale — the launchpad redesign's tiles/cards/inputs read as
      rounded-and-calm rather than the old flat-enterprise 6px everywhere. */
   --radius-sm: 10px; --radius-md: 16px; --radius-lg: 22px; --radius-xl: 28px;
@@ -88,6 +96,8 @@
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 2px 8px rgba(0,0,0,0.45), 0 8px 20px rgba(0,0,0,0.35);
   --shadow-lg: 0 10px 32px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.4);
+
+  --overlay-veil: rgba(16,18,23,0.62);
 }
 
 @theme inline {
@@ -159,6 +169,110 @@ body {
     transition: none;
     transform: none;
   }
+}
+/* Touch screens emulate :hover on tap and then leave it stuck — a tapped tile would stay
+   "lifted" until the next tap somewhere else. The lift is hover feedback; no hover, no lift. */
+@media (hover: none) {
+  .lift-on-hover:hover {
+    transform: none;
+  }
+}
+
+/* ---- Cross-device / touch conventions ------------------------------------------------
+   The same build serves PC, tablets and phones (tablets are a primary field device for
+   tasters). Everything here is additive on top of the responsive layouts: it only changes
+   behaviour where the device actually differs (no hover, coarse pointer, display cutouts),
+   so desktop density and visuals stay exactly as designed. */
+
+/* Hover-gated affordances (the launchpad tile's pin + open-arrow icons). On pointer
+   devices they appear on .group hover; on keyboards when focus lands inside the tile
+   (previously they never appeared for keyboard users at all); on touch screens — where
+   hover doesn't exist and an invisible-but-tappable control is a trap — they're simply
+   always visible. */
+.hover-reveal {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.group:hover .hover-reveal,
+.group:focus-within .hover-reveal {
+  opacity: 1;
+}
+@media (hover: none) {
+  .hover-reveal {
+    opacity: 1;
+  }
+}
+
+/* Comfortable touch targets, coarse pointers only: MUI's size="small" icon buttons hit
+   ~34px and the launchpad pin 28px — under the 40–44px Apple/Android guidelines. Desktop
+   keeps its compact density. */
+@media (pointer: coarse) {
+  /* Double class to out-rank MUI's emotion-generated single-class padding rule, which
+     ties on specificity and wins on order otherwise. 10px around the 20px small icon
+     lands the full hit area on the 40px guideline. */
+  .MuiIconButton-root.MuiIconButton-sizeSmall {
+    padding: 10px;
+  }
+  .tile-pin {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+}
+
+/* iOS Safari force-zooms the whole page into any focused form control whose font-size is
+   under 16px — the single biggest "feels broken on a phone" behaviour. Bump controls to
+   16px on phone-width touch screens only; tablet/desktop keep the designed 13–14px. The
+   !important is required to beat MUI's emotion-generated per-component font sizes. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .MuiInputBase-input,
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Display-cutout safe areas (iPhone notch/Dynamic Island + home indicator, Android
+   camera cutouts). The manifest uses black-translucent + viewport-fit=cover, so in an
+   installed/standalone app the webview extends under the status bar — without these the
+   clock sits on top of the topbar. The sticky topbar carries the top inset (its surface
+   fills the cutout band); the page body carries the side/bottom insets. env() is 0 in a
+   plain browser tab, so these resolve to exactly the paddings the Tailwind classes used
+   to set. Replaces px/py utilities on the two shell elements — keep in sync with
+   Shell.tsx/Topbar.tsx. */
+.app-topbar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+  padding-bottom: 0.5rem;
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+.app-main-safe {
+  padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 640px) {
+  .app-topbar {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: 0;
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+  }
+}
+@media (min-width: 768px) {
+  .app-main-safe {
+    padding-left: max(2rem, env(safe-area-inset-left, 0px));
+    padding-right: max(2rem, env(safe-area-inset-right, 0px));
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* The Assistant's chat column fills the visible viewport minus the shell chrome. dvh
+   tracks the phone URL bar collapsing/expanding; plain vh (kept as the fallback for
+   pre-dvh engines) would leave the send box hidden under the browser chrome. */
+.chat-vh {
+  height: calc(100vh - 140px);
+  height: calc(100dvh - 140px);
 }
 
 /* The brand rule — a 3px olive→gold bar. Used to cap dark headers (sidebar, drawer,

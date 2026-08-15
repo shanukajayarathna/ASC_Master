@@ -8,6 +8,7 @@ import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
+import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { buildExportColumns, defaultExportColumnIds } from "@/lib/exportColumns";
@@ -100,6 +101,10 @@ const EMPTY_COMBINED: CombinedCatalogue = {
 export default function CataloguePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  // Sale files are the system's source data — importing (which can overwrite a sale on
+  // disk) is the administrator's job; everyone else works with what's already loaded.
+  const canManageDataFiles = user?.roles.includes("Admin") ?? false;
   const {
     catalogues,
     activeCatalogueId,
@@ -489,6 +494,22 @@ export default function CataloguePage() {
   };
 
   if (!activeCatalogueId) {
+    if (!canManageDataFiles) {
+      // Non-admins can't upload sale files — with nothing loaded yet there's nothing for
+      // them to do here but wait for an administrator to bring the data in.
+      return (
+        <div>
+          <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Catalogue Manager</h1>
+          <div className="max-w-2xl mx-auto border-2 border-dashed border-brass rounded-lg bg-surface p-14 text-center">
+            <h2 className="font-display text-2xl text-text-strong mb-2">No sales loaded yet</h2>
+            <p className="text-[13.5px] text-text-muted m-0">
+              Sale catalogues are added by an administrator. Once a sale file has been uploaded, it will appear
+              here automatically.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div>
         {catalogueLoading && <BusyOverlay message="Importing sale file…" />}
@@ -596,16 +617,18 @@ export default function CataloguePage() {
             >
               Columns
             </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<UploadFileOutlinedIcon fontSize="small" />}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={catalogueLoading}
-              aria-busy={catalogueLoading}
-            >
-              {catalogueLoading ? "Importing…" : "Import file"}
-            </Button>
+            {canManageDataFiles && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<UploadFileOutlinedIcon fontSize="small" />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={catalogueLoading}
+                aria-busy={catalogueLoading}
+              >
+                {catalogueLoading ? "Importing…" : "Import file"}
+              </Button>
+            )}
           </>
         }
       />

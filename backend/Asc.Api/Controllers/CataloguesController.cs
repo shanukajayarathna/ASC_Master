@@ -17,7 +17,9 @@ namespace Asc.Api.Controllers;
 /// Requires login — every caller is already authenticated by the time it reaches here
 /// (CatalogueProvider only mounts inside the app's auth-gated route group), and Import
 /// overwrites a sale file outright, so this was the security-audit gap referenced in
-/// frontend/src/app/(app)/layout.tsx's doc comment.
+/// frontend/src/app/(app)/layout.tsx's doc comment. Import is further gated to Admin
+/// (Policies.ManageDataFiles): managing the system's source data files is the
+/// administrator's job, while reads and valuation stay open to every signed-in user.
 /// </summary>
 [ApiController]
 [Route("api/catalogues")]
@@ -56,6 +58,7 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     /// </summary>
     [HttpPost("import")]
     [RequestSizeLimit(100_000_000)]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
     public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
