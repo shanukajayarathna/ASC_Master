@@ -18,7 +18,7 @@ public record MslScanSummary(
 /// file first deletes its previous rows (keyed by SourceFile), so repeated scans never
 /// duplicate. Deleting a file from the folder removes its rows on the next scan.
 /// </summary>
-public class MslImportService(MongoContext db, IConfiguration config, IWebHostEnvironment env, ILogger<MslImportService> logger)
+public class MslImportService(MongoContext db, IConfiguration config, IWebHostEnvironment env, MslRollupService rollups, MslEnrichmentService enrichment, ILogger<MslImportService> logger)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -29,6 +29,10 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
     /// status/aggregate results stay cached until an import actually lands.</summary>
     public int DataVersion => _dataVersion;
     private int _dataVersion;
+
+    /// <summary>For out-of-band data changes (e.g. startup Excel enrichment) that must
+    /// invalidate the analytics caches without a file import.</summary>
+    public void BumpDataVersion() => Interlocked.Increment(ref _dataVersion);
 
     /// <summary>Resolved MSL data root. Configurable (Msl:DataPath) for deployment; in
     /// development it finds the repo's data/msl by walking up from the content root.</summary>
@@ -67,6 +71,7 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
             var known = (await db.MslFiles.Find(FilterDefinition<MslFileState>.Empty).ToListAsync(ct))
                 .ToDictionary(f => f.RelativePath);
             var seen = new HashSet<string>();
+            var affectedSales = new HashSet<(int Year, int SaleNo)>();
             int imported = 0, rows = 0, upToDate = 0;
             var errors = new List<string>();
 
@@ -76,7 +81,7 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
                 var rel = Path.GetRelativePath(root, file.FullName).Replace('\\', '/');
                 seen.Add(rel);
                 if (!force && known.TryGetValue(rel, out var state) &&
-                    state.Length == file.Length && state.LastWriteUtc == file.LastWriteTimeUtc &&
+                    state.Length == file.Length && state.LastWriteUtc == TruncateToMs(file.LastWriteTimeUtc) &&
                     state.Error is null)
                 {
                     upToDate++;
@@ -84,7 +89,7 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
                 }
                 try
                 {
-                    var count = await ImportFileAsync(file, rel, ct);
+                    var count = await ImportFileAsync(file, rel, affectedSales, ct);
                     imported++;
                     rows += count;
                     await SaveStateAsync(rel, file, count, null, ct);
@@ -97,14 +102,26 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
                 }
             }
 
-            // Files that vanished from the folder: remove their rows + state.
+            // Files that vanished from the folder: remove their rows + state (noting which
+            // sales lose rows so their rollups rebuild too).
             int removed = 0;
             foreach (var gone in known.Keys.Where(k => !seen.Contains(k)))
             {
+                foreach (var sale in await db.AuctionLots.Find(l => l.SourceFile == gone)
+                             .Project(l => new { l.SaleYear, l.SaleNo }).ToListAsync(ct))
+                    affectedSales.Add((sale.SaleYear, sale.SaleNo));
                 await db.AuctionLots.DeleteManyAsync(l => l.SourceFile == gone, ct);
                 await db.TeaBoardAverages.DeleteManyAsync(t => t.SourceFile == gone, ct);
                 await db.MslFiles.DeleteOneAsync(f => f.RelativePath == gone, ct);
                 removed++;
+            }
+
+            if (affectedSales.Count > 0)
+            {
+                // Re-imported rows lost their Excel-joined fields — enrich BEFORE the
+                // rollups so bags/packing land, then rebuild the materialized stats.
+                await enrichment.EnrichAsync(affectedSales, ct);
+                await rollups.RebuildForSalesAsync(affectedSales, ct);
             }
 
             var summary = new MslScanSummary(imported, rows, upToDate, removed, errors, DateTime.UtcNow - started);
@@ -147,7 +164,7 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
                 yield return f;
     }
 
-    private async Task<int> ImportFileAsync(FileInfo file, string rel, CancellationToken ct)
+    private async Task<int> ImportFileAsync(FileInfo file, string rel, ISet<(int Year, int SaleNo)> affectedSales, CancellationToken ct)
     {
         if (rel.StartsWith("tea-board/", StringComparison.OrdinalIgnoreCase))
         {
@@ -162,6 +179,14 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
         MslTxtParser.ParseResult parsed;
         await using (var stream = file.OpenRead())
             parsed = MslTxtParser.ParseFile(stream, isPrivate);
+
+        foreach (var l in parsed.Lots)
+        {
+            affectedSales.Add((l.SaleDate.Year, l.SaleNo));
+            // Private files previously imported under a synthetic sale 0 — rebuild that
+            // bucket too so its stale rollups are cleared on re-import.
+            if (isPrivate) affectedSales.Add((l.SaleDate.Year, 0));
+        }
 
         await db.AuctionLots.DeleteManyAsync(l => l.SourceFile == rel, ct);
         foreach (var batch in parsed.Lots.Chunk(4000))
@@ -198,6 +223,12 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
         return parsed.Lots.Count;
     }
 
+    /// <summary>BSON DateTimes carry millisecond precision while NTFS mtimes carry
+    /// 100-ns ticks — both sides of the change check must truncate identically or every
+    /// file looks modified on every scan and the whole archive re-imports each time.</summary>
+    private static DateTime TruncateToMs(DateTime t) =>
+        new(t.Ticks - t.Ticks % TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
+
     private Task SaveStateAsync(string rel, FileInfo file, int rowCount, string? error, CancellationToken ct) =>
         db.MslFiles.ReplaceOneAsync(
             f => f.RelativePath == rel,
@@ -205,7 +236,7 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
             {
                 RelativePath = rel,
                 Length = file.Length,
-                LastWriteUtc = file.LastWriteTimeUtc,
+                LastWriteUtc = TruncateToMs(file.LastWriteTimeUtc),
                 ImportedAt = DateTime.UtcNow,
                 RowCount = rowCount,
                 Error = error,

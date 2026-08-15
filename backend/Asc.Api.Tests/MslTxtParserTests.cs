@@ -99,10 +99,14 @@ public class MslTxtParserTests
     [Fact]
     public void Parses_private_sale_file_line()
     {
+        // PVT rows use the same header as auction rows — broker digit, lot, sale no.
+        // Verified against the Power BI portal: sale-scoped totals only reconcile to the
+        // cent when private rows join their real sale under their real broker.
         Assert.True(MslTxtParser.TryParseLine(PvtLine2026, true, out var lot));
         Assert.True(lot!.IsPrivate);
-        Assert.Null(lot.Broker); // PVT rows carry a serial, not a broker digit
-        Assert.Equal(0, lot.SaleNo);
+        Assert.Equal("BTL", lot.Broker);
+        Assert.Equal("3450", lot.LotNo);
+        Assert.Equal(1, lot.SaleNo);
         Assert.Equal(new DateTime(2026, 1, 2), lot.SaleDate.Date);
         Assert.Equal("GTOPA2", lot.Grade);
         Assert.Equal(900.00m, lot.QuantityKg);

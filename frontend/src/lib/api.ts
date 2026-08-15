@@ -24,9 +24,12 @@ import type {
   ImportStatus,
   KnowledgeDocument,
   Lot,
+  FilteredAnalytics,
   MarketInsight,
   MasterDataEntity,
   MslAggregateRow,
+  MslAnalyticsFilter,
+  MslFilterOptions,
   MslFilters,
   MslScanSummary,
   MslSearchResult,
@@ -35,6 +38,8 @@ import type {
   PagedLots,
   PerformanceInsight,
   PreviousGradeStats,
+  SaleAnalytics,
+  SaleSummary,
   ProviderStatus,
   Report,
   ReportGroupRow,
@@ -555,6 +560,30 @@ export const api = {
     });
     if (!res.ok) throw new Error("Could not delete the voice note.");
   },
+
+  // ---- MSL analytics (Analysis page) ----
+
+  mslAnalyticsSales: (year?: number) =>
+    request<SaleSummary[]>(`/api/v1/msl/analytics/sales${year ? `?year=${year}` : ""}`),
+
+  mslSaleAnalytics: (year: number, saleNo: number) =>
+    request<SaleAnalytics>(`/api/v1/msl/analytics/${year}/${saleNo}`),
+
+  mslFilterOptions: () => request<MslFilterOptions>("/api/v1/msl/analytics/filter-options"),
+
+  mslFilteredAnalytics: (filter: MslAnalyticsFilter) =>
+    request<FilteredAnalytics>("/api/v1/msl/analytics/filtered", {
+      method: "POST",
+      body: JSON.stringify(filter),
+    }),
+
+  /** Chat routed to a specific agent (e.g. "analytics" for the Analysis page's dock).
+   *  `provider` should be a configured provider key — see getProviderStatuses(). */
+  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string) =>
+    request<ChatResponse>("/api/v1/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null }),
+    }),
 
   // ---- MSL archive (master search) ----
 

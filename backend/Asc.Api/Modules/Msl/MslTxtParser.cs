@@ -85,18 +85,13 @@ public static class MslTxtParser
         if (line.Length < 199) line = line.PadRight(199);
 
         // ---- header ----
-        string? broker = null;
-        string lotNo;
-        if (isPrivateFile)
-        {
-            lotNo = line[1..7].Trim().TrimStart('0');
-        }
-        else
-        {
-            broker = MslBrokers.DigitToCode.TryGetValue(line[1], out var b) ? b : null;
-            if (broker is null) return false;
-            lotNo = line[2..7].Trim().TrimStart('0');
-        }
+        // One layout for auction AND private files: broker digit, lot, sale-type flag,
+        // sale number, date, invoice. (Verified against the Power BI portal to the cent:
+        // PVT rows carry a real broker and sale number, and the portal counts them inside
+        // that sale — an earlier reading of this header as an opaque serial was wrong.)
+        var broker = MslBrokers.DigitToCode.TryGetValue(line[1], out var b) ? b : null;
+        if (broker is null) return false;
+        var lotNo = line[2..7].Trim().TrimStart('0');
         if (lotNo.Length == 0) return false;
 
         bool isPrivate = line[7] == '2' || isPrivateFile;
@@ -137,7 +132,7 @@ public static class MslTxtParser
         refuse |= factory.StartsWith("RT", StringComparison.Ordinal);
 
         lot = new ParsedLot(
-            broker, isPrivate, lotNo, isPrivateFile ? 0 : saleNo, saleDate,
+            broker, isPrivate, lotNo, saleNo, saleDate,
             invoice.Length == 0 ? null : invoice,
             factory, mark, grade, qty, price,
             buyerCode.Length == 0 ? null : buyerCode,

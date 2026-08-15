@@ -115,7 +115,7 @@ export default function MasterSearchPage() {
       <div className="flex flex-wrap gap-2 mb-3 items-center">
         <input
           className={`${inputCls} w-64`}
-          placeholder="Estate, mark, factory code or buyer…"
+          placeholder="Estate, mark, factory or buyer (starts with)…"
           defaultValue={filters.q ?? ""}
           onChange={(e) => setFilter({ q: e.target.value || undefined }, true)}
         />

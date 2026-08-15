@@ -16,14 +16,14 @@ public class AuctionLot
 
     [BsonElement("y")] public int SaleYear { get; set; }
 
-    /// <summary>0 for private-sale rows — PVT files accumulate per year without sale numbers.</summary>
+    /// <summary>The auction sale the lot belongs to — private-sale rows carry their real
+    /// sale number too (the PVT files tag every transaction with the week's sale).</summary>
     [BsonElement("s")] public int SaleNo { get; set; }
 
     [BsonElement("d")] public DateTime SaleDate { get; set; }
 
-    /// <summary>File code: AS, BTL, DES, EB, FBS, JK, LCB, MB. Null for PVT rows — the
-    /// private-sales files carry a running serial where the auction files carry the broker
-    /// digit, so the broker is not recorded per row there.</summary>
+    /// <summary>File code: AS, BTL, DES, EB, FBS, JK, LCB, MB — present on auction AND
+    /// private rows (both carry the broker digit in the row header).</summary>
     [BsonElement("b")] public string? Broker { get; set; }
 
     [BsonElement("pv")] public bool IsPrivate { get; set; }
@@ -71,6 +71,11 @@ public class AuctionLot
     /// <summary>Path relative to the MSL data root — the idempotent-import key: re-importing
     /// a file first deletes everything with the same SourceFile.</summary>
     [BsonElement("sf")] public string SourceFile { get; set; } = string.Empty;
+
+    /// <summary>Bags and per-bag packing (kg) — not in the MSL files; enriched from the
+    /// weekly sale Excel catalogues where one exists (2026+), null otherwise.</summary>
+    [BsonElement("bg")] public int? Bags { get; set; }
+    [BsonElement("pk")] public decimal? PackingKg { get; set; }
 }
 
 /// <summary>One elevation row of a monthly Sri Lanka Tea Board national averages report.</summary>
@@ -96,6 +101,45 @@ public class TeaBoardAverage
     public decimal? TodateAvgRs { get; set; }
 
     public string SourceFile { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Materialized analytics rollup: one row per (sale, dimension, key) with every measure the
+/// Analysis screens need. Rebuilt per-sale after each import (one in-memory pass over that
+/// sale's lots), so the pre/post-auction dashboards read a few hundred tiny rows instead of
+/// aggregating millions — this is what makes the analytics render instantly.
+/// SaleNo 0 holds a year's private-sale rows.
+/// </summary>
+public class MslSaleStat
+{
+    [BsonId]
+    public ObjectId Id { get; set; }
+
+    public int Year { get; set; }
+    public int SaleNo { get; set; }
+    public DateTime SaleDate { get; set; }
+
+    /// <summary>total | broker | grade | elevation | buyer | mark | factory | priceRange.</summary>
+    public string Dimension { get; set; } = string.Empty;
+
+    /// <summary>The dimension member ("AS", "BOPF", "12", buyer code, mark, bucket label);
+    /// "all" for the total row.</summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>Display label where Key is a code (buyer name for buyer codes, elevation
+    /// name for elevation codes); null when Key is already presentable.</summary>
+    public string? Label { get; set; }
+
+    public long Lots { get; set; }
+    public long SoldLots { get; set; }
+    public decimal TotalQtyKg { get; set; }
+    public decimal SoldQtyKg { get; set; }
+
+    /// <summary>Sum of price × quantity over sold lots (Rs) — the portal's "proceeds".</summary>
+    public decimal ProceedsRs { get; set; }
+
+    public decimal? MinPriceRs { get; set; }
+    public decimal? MaxPriceRs { get; set; }
 }
 
 /// <summary>Import bookkeeping — one row per data file, so the folder watcher and rescans

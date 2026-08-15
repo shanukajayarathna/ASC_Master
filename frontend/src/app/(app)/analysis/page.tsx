@@ -1,22 +1,26 @@
 "use client";
 
+import AnalyticsChat from "@/components/analytics/AnalyticsChat";
 import BarChart from "@/components/analytics/BarChart";
+import FilterPanel from "@/components/analytics/FilterPanel";
+import MarketAnalytics from "@/components/analytics/MarketAnalytics";
 import KpiSection from "@/components/dashboard/KpiSection";
 import KpiTile from "@/components/dashboard/KpiTile";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classificationBadge";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import type { DataQuality, OverviewStats, ReportGroupRow, TopBottomLot } from "@/types/api";
+import type { DataQuality, FilteredAnalytics, MslAnalyticsFilter, MslFilterOptions, OverviewStats, ReportGroupRow, SaleSummary, TopBottomLot } from "@/types/api";
 import PageHeader from "@/components/shared/PageHeader";
 import { SkeletonCard, SkeletonRows } from "@/components/shared/SkeletonBlock";
+import TeaLoader from "@/components/shared/TeaLoader";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const BREAKDOWN_COLUMNS: { value: string; label: string; reportType?: string }[] = [
   { value: "broker", label: "Broker", reportType: "broker" },
@@ -39,7 +43,9 @@ const DISTRIBUTION_LEGEND = Object.keys(CLASSIFICATION_COLOR).map((key) => ({
   color: CLASSIFICATION_COLOR[key].fg,
 }));
 
-export default function AnalysisPage() {
+/** The original valuation-centric analysis of the active catalogue — now the "Valuations"
+ *  view inside the tabbed Analysis page (market pre/post-auction views live alongside). */
+function ValuationAnalysis() {
   const { activeCatalogueId, activeCatalogue, error: catalogueError } = useCatalogue();
 
   const [overview, setOverview] = useState<OverviewStats | null>(null);
@@ -105,11 +111,6 @@ export default function AnalysisPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Analysis"
-        subtitle="Statistical breakdown of the valued catalogue — computed server-side."
-      />
-
       {catalogueError && (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
           Couldn&apos;t reach the API ({catalogueError}). Is the backend running at{" "}
@@ -285,6 +286,105 @@ export default function AnalysisPage() {
           <p className="text-[11.5px] text-text-muted mt-2">
             {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots
           </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================================
+   ANALYSIS — tabbed: Post Auction / Pre Auction (MSL archive, replaces
+   the external Power BI portal's two report sets) + the original
+   Valuations view. Year + sale selectors default to the latest
+   (ongoing) sale; the Analytics Agent chatbot is docked beside the
+   market views.
+   ===================================================================== */
+
+export default function AnalysisPage() {
+  const [filterOptions, setFilterOptions] = useState<MslFilterOptions | null>(null);
+  const [mode, setMode] = useState<"post" | "pre" | "valuations">("post");
+  const [filter, setFilter] = useState<MslAnalyticsFilter>({});
+  const [salesError, setSalesError] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<FilteredAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // One debounced fetch drives everything: the dashboards AND the cascading filter
+  // options both come from the same filtered payload.
+  useEffect(() => {
+    if (!filter.years) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    let cancelled = false;
+    debounceRef.current = setTimeout(() => {
+      api
+        .mslFilteredAnalytics(filter)
+        .then((d) => !cancelled && setAnalytics(d))
+        .catch((e) => !cancelled && setAnalyticsError(e instanceof Error ? e.message : "Couldn't load analytics"))
+        .finally(() => !cancelled && setAnalyticsLoading(false));
+    }, 250);
+    return () => {
+      cancelled = true;
+    };
+  }, [filter]);
+
+  useEffect(() => {
+    api
+      .mslAnalyticsSales()
+      .then((s) => {
+        // Default to the latest real (non-private) sale — the ongoing one.
+        const latest = s.find((x) => x.saleNo > 0) ?? s[0];
+        if (latest) setFilter({ years: [latest.year], saleNos: [latest.saleNo] });
+      })
+      .catch((e) => setSalesError(e instanceof Error ? e.message : "Couldn't load the sales list"));
+    api.mslFilterOptions().then(setFilterOptions).catch(() => {});
+  }, []);
+
+  // The chatbot's "this sale" context follows the filtration panel's selection.
+  const chatYear = filter.years?.[0] ?? new Date().getFullYear();
+  const chatSale = filter.saleNos?.[0] ?? 0;
+  const marketReady = filter.years !== undefined;
+
+  return (
+    <div>
+      <PageHeader
+        title="Analysis"
+        subtitle="Pre- and post-auction market analytics from the full MSL archive, plus the valued catalogue's statistics."
+      />
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)}>
+          <ToggleButton value="post" sx={{ fontSize: 12.5, px: 1.5 }}>Post Auction</ToggleButton>
+          <ToggleButton value="pre" sx={{ fontSize: 12.5, px: 1.5 }}>Pre Auction</ToggleButton>
+          <ToggleButton value="valuations" sx={{ fontSize: 12.5, px: 1.5 }}>Valuations</ToggleButton>
+        </ToggleButtonGroup>
+      </div>
+
+      {mode === "valuations" ? (
+        <ValuationAnalysis />
+      ) : salesError ? (
+        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
+          {salesError} — has the MSL archive been imported?
+        </div>
+      ) : !marketReady ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-24" role="status" aria-live="polite">
+          <TeaLoader size={72} />
+          <p className="text-[13px] text-text-muted m-0">Brewing your analysis…</p>
+        </div>
+      ) : (
+        <>
+          {filterOptions && (
+            <FilterPanel options={filterOptions} available={analytics?.available ?? null} filter={filter} onChange={setFilter} />
+          )}
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <MarketAnalytics data={analytics} loading={analyticsLoading} error={analyticsError} mode={mode} />
+            <div className="xl:sticky xl:top-4 self-start w-full">
+              <AnalyticsChat year={chatYear} saleNo={chatSale} />
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -106,6 +106,9 @@ public class MongoContext
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.EstateName)),
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.FactoryCode)),
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.BuyerCode)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.BuyerName)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.Grade).Ascending(l => l.SaleYear)),
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.MslCode)),
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.ElevationCode).Ascending(l => l.SaleYear)),
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.SourceFile)),
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Descending(l => l.SaleDate)),
@@ -114,6 +117,16 @@ public class MongoContext
         [
             new CreateIndexModel<TeaBoardAverage>(Builders<TeaBoardAverage>.IndexKeys.Ascending(t => t.Year).Ascending(t => t.Month)),
             new CreateIndexModel<TeaBoardAverage>(Builders<TeaBoardAverage>.IndexKeys.Ascending(t => t.SourceFile)),
+        ]);
+
+        // Analytics rollups are always read per sale (all dimensions at once) or as the
+        // "total" series across sales — one compound index covers both access paths.
+        MslSaleStats.Indexes.CreateMany(
+        [
+            new CreateIndexModel<MslSaleStat>(Builders<MslSaleStat>.IndexKeys
+                .Ascending(s => s.Year).Ascending(s => s.SaleNo).Ascending(s => s.Dimension)),
+            new CreateIndexModel<MslSaleStat>(Builders<MslSaleStat>.IndexKeys
+                .Ascending(s => s.Dimension).Ascending(s => s.Year)),
         ]);
     }
 
@@ -153,4 +166,5 @@ public class MongoContext
     public IMongoCollection<AuctionLot> AuctionLots => Database.GetCollection<AuctionLot>("auctionLots");
     public IMongoCollection<TeaBoardAverage> TeaBoardAverages => Database.GetCollection<TeaBoardAverage>("teaBoardAverages");
     public IMongoCollection<MslFileState> MslFiles => Database.GetCollection<MslFileState>("mslFiles");
+    public IMongoCollection<MslSaleStat> MslSaleStats => Database.GetCollection<MslSaleStat>("mslSaleStats");
 }

@@ -603,3 +603,153 @@ export interface MslFilters {
   sold?: boolean;
   isPrivate?: boolean;
 }
+
+// ---- MSL analytics rollups (Analysis page: pre/post auction dashboards) ----
+
+export interface SaleStatRow {
+  key: string;
+  label: string | null;
+  lots: number;
+  soldLots: number;
+  totalQtyKg: number;
+  soldQtyKg: number;
+  proceedsRs: number;
+  avgPriceRs: number | null;
+  minPriceRs: number | null;
+  maxPriceRs: number | null;
+}
+
+export interface SaleSummary {
+  year: number;
+  saleNo: number;
+  saleDate: string;
+  lots: number;
+  soldLots: number;
+  totalQtyKg: number;
+  soldQtyKg: number;
+  proceedsRs: number;
+  avgPriceRs: number | null;
+}
+
+export interface SaleAnalytics {
+  year: number;
+  saleNo: number;
+  saleDate: string;
+  isPrivateBucket: boolean;
+  total: SaleStatRow;
+  brokers: SaleStatRow[];
+  elevations: SaleStatRow[];
+  grades: SaleStatRow[];
+  buyers: SaleStatRow[];
+  marks: SaleStatRow[];
+  priceRanges: SaleStatRow[];
+  recentSales: SaleSummary[];
+}
+
+// ---- MSL cross-filtered analytics (Analysis page filter panel) ----
+
+export interface MslAnalyticsFilter {
+  years?: number[];
+  saleNos?: number[];
+  months?: number[];
+  quarters?: number[];
+  brokers?: string[];
+  elevations?: string[];
+  grades?: string[];
+  categories?: string[];
+  gradeTypes?: string[];
+  teaTypes?: string[];
+  manufactures?: string[];
+  buyers?: string[];
+  marks?: string[];
+  factories?: string[];
+  markTypes?: string[];
+  groups?: string[];
+  saleType?: "public" | "private" | null;
+  soldStatus?: "sold" | "unsold" | null;
+  refuseTea?: "only" | "exclude" | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  markSearch?: string | null;
+  buyerSearch?: string | null;
+  lotNos?: string[];
+  invoices?: string[];
+  bags?: number[];
+  packings?: number[];
+  districts?: string[];
+  sharingStatus?: "asc" | "other" | null;
+  organic?: "organic" | "non" | null;
+}
+
+export interface FilteredSectionRow {
+  key: string;
+  label: string | null;
+  lots: number;
+  soldLots: number;
+  totalQtyKg: number;
+  soldQtyKg: number;
+  proceedsRs: number;
+  avgPriceRs: number | null;
+  maxPriceRs: number | null;
+}
+
+export interface OptionRow {
+  key: string;
+  label: string | null;
+  lots: number;
+}
+
+export interface AvailableOptions {
+  grades: OptionRow[];
+  buyers: OptionRow[];
+  marks: OptionRow[];
+  factories: OptionRow[];
+  groups: OptionRow[];
+  lotNos: OptionRow[];
+  invoices: OptionRow[];
+  bags: OptionRow[];
+  packings: OptionRow[];
+  districts: OptionRow[];
+  saleNos: OptionRow[];
+  years: OptionRow[];
+  months: OptionRow[];
+  brokers: OptionRow[];
+  elevations: OptionRow[];
+  saleTypes: OptionRow[];
+  soldStatuses: OptionRow[];
+  refuseTea: OptionRow[];
+}
+
+export interface FilteredAnalytics {
+  total: FilteredSectionRow;
+  byBroker: FilteredSectionRow[];
+  byElevation: FilteredSectionRow[];
+  byGrade: FilteredSectionRow[];
+  byCategory: FilteredSectionRow[];
+  byBuyer: FilteredSectionRow[];
+  byMark: FilteredSectionRow[];
+  byFactory: FilteredSectionRow[];
+  byPriceRange: FilteredSectionRow[];
+  bySale: FilteredSectionRow[];
+  available: AvailableOptions;
+  elapsedMs: number;
+}
+
+export interface MslFilterOptions {
+  years: number[];
+  sales: SaleSummary[];
+  brokers: string[];
+  elevations: FilteredSectionRow[];
+  grades: string[];
+  gradeCategories: Record<string, string>;
+  /** grade → [category, gradeType, teaType, manufacture] */
+  gradeClasses: Record<string, string[]>;
+  categories: string[];
+  gradeTypes: string[];
+  teaTypes: string[];
+  manufactures: string[];
+  markTypes: string[];
+  groups: string[];
+  buyers: string[];
+  buyerNames: Record<string, string>;
+}

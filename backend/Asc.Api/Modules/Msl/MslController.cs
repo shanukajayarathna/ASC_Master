@@ -295,7 +295,10 @@ public class MslController(MongoContext db, MslImportService importer, ICatalogu
         var filters = new List<FilterDefinition<AuctionLot>>();
         if (!string.IsNullOrWhiteSpace(q))
         {
-            var re = new BsonRegularExpression(Regex.Escape(q.Trim()), "i");
+            // Anchored, case-sensitive, uppercased: every name field in the MSL data is
+            // uppercase, and only anchored case-sensitive regexes can walk the indexes —
+            // this is what keeps a 7M-row search at milliseconds instead of a full scan.
+            var re = new BsonRegularExpression("^" + Regex.Escape(q.Trim().ToUpperInvariant()));
             filters.Add(fb.Or(
                 fb.Regex(l => l.SellingMark, re),
                 fb.Regex(l => l.EstateName, re),

@@ -1,3 +1,5 @@
+using MongoDB.Driver;
+
 namespace Asc.Api.Modules.Msl;
 
 /// <summary>
@@ -7,7 +9,7 @@ namespace Asc.Api.Modules.Msl;
 /// raises dozens of change events, so the watcher waits for the folder to go quiet for a
 /// few seconds and then runs one scan covering everything that arrived.
 /// </summary>
-public class MslWatcherService(MslImportService importer, ILogger<MslWatcherService> logger) : BackgroundService
+public class MslWatcherService(MslImportService importer, MslRollupService rollups, MslReferenceService reference, MslEnrichmentService enrichment, Asc.Api.Data.MongoContext db, ILogger<MslWatcherService> logger) : BackgroundService
 {
     private static readonly TimeSpan Quiet = TimeSpan.FromSeconds(4);
     private FileSystemWatcher? _watcher;
@@ -19,6 +21,27 @@ public class MslWatcherService(MslImportService importer, ILogger<MslWatcherServ
         try
         {
             await importer.ScanAsync(ct: stoppingToken);
+            // Rollups for sales imported before rollups existed (or after a wiped stats
+            // collection) — incremental imports handle their own rebuilds inside ScanAsync.
+            await rollups.RebuildMissingAsync(ct: stoppingToken);
+
+            // Warm the current year's documents into WiredTiger's cache: the Analysis
+            // screen's cross-filter queries are year-scoped by default, and pulling this
+            // year off disk lazily costs seconds on the first filter click otherwise.
+            var year = DateTime.UtcNow.Year;
+            var warmed = await db.AuctionLots.Find(l => l.SaleYear == year)
+                .Project(l => new { l.QuantityKg })
+                .ToListAsync(stoppingToken);
+            logger.LogInformation("MSL cache warmed: {Count} lots of {Year} paged in", warmed.Count, year);
+
+            // Build the factory→group reference now (parses every sale Excel once) so the
+            // first Analysis request doesn't pay ~50s for the lazy build.
+            _ = reference.ByFactory;
+
+            // Bags/packing enrichment from the sale Excels for any sale not yet enriched;
+            // enriched data must invalidate the analytics caches.
+            if (await enrichment.EnrichAsync(ct: stoppingToken) > 0)
+                importer.BumpDataVersion();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

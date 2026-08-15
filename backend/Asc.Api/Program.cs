@@ -88,8 +88,15 @@ builder.Services.AddSingleton<IKnowledgeService, KnowledgeService>();
 // MSL archive — the historical auction/private-sale/Tea Board dataset (data/msl, see its
 // README). The watcher runs the initial backfill and then auto-imports whenever files in
 // the folder change, so dropping in a new week's files updates the database by itself.
+// MslRollupService materializes per-sale analytics (mslSaleStats) after each import —
+// the Analysis screens and the Analytics Agent read those rollups, never raw lots.
+builder.Services.AddSingleton<MslRollupService>();
 builder.Services.AddSingleton<MslImportService>();
 builder.Services.AddHostedService<MslWatcherService>();
+// Factory → plantation-group reference, learned from the weekly sale Excel catalogues —
+// powers the Analysis screen's Group filter across all MSL years.
+builder.Services.AddSingleton<MslReferenceService>();
+builder.Services.AddSingleton<MslEnrichmentService>();
 
 // AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
 // OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own
@@ -128,6 +135,8 @@ builder.Services.AddSingleton<IAiUsageLogger, AiUsageLogger>();
 // AgentRegistry/AgentRouter and every caller pick it up automatically.
 builder.Services.AddScoped<IAgent, GeneralAgent>();
 builder.Services.AddScoped<IAgent, AuctionAgent>();
+builder.Services.AddSingleton<AnalyticsToolExecutor>();
+builder.Services.AddScoped<IAgent, AnalyticsAgent>();
 builder.Services.AddScoped<IAgentRegistry, AgentRegistry>();
 builder.Services.AddScoped<AgentRouter>();
 
@@ -280,7 +289,17 @@ builder.Services.AddCors(opts =>
     });
 });
 
+// The Analysis screen's filtered payload carries large option lists (~0.5 MB JSON);
+// Brotli/Gzip shrink it ~10×, which is most of the perceived latency on repeat queries.
+builder.Services.AddResponseCompression(opts =>
+{
+    opts.EnableForHttps = true;
+    opts.MimeTypes = ["application/json"];
+});
+
 var app = builder.Build();
+
+app.UseResponseCompression();
 
 // Master data resolution has to be synchronous (it runs inside LINQ grouping selectors), so
 // the alias table is loaded into memory once here rather than queried per lookup — see
