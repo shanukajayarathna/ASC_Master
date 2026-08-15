@@ -166,40 +166,41 @@ body {
 .brand-rule { background: var(--rule-brand); }
 
 /* TeaLoader (components/shared/TeaLoader.tsx) — the app's one loading animation, used
-   everywhere something takes a moment (route navigation, in particular). A tea leaf that
-   steadily fills with tea liquor: the liquid group rises (transform), its surface wave
-   slides sideways (transform), and the whole leaf keeps a gentle float — transform/opacity
-   only, same reasoning as .lift-on-hover above (cheap on a weak GPU/tablet). */
-.tea-fill-float {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: tea-fill-fade-in 0.5s ease both, tea-fill-sway 4s ease-in-out infinite;
+   everywhere something takes a moment (route navigation, in particular). A glass cup of
+   hot tea, brewing: the liquor's surface wave slides sideways and the liquid gently bobs
+   (transform), while steam wisps rise and dissolve on staggered clocks (transform +
+   opacity) — the continuous steam is what reads as activity, no reset jump anywhere.
+   Transform/opacity only, same reasoning as .lift-on-hover above (cheap on a weak GPU). */
+.tea-brew-root {
+  animation: tea-brew-fade-in 0.5s ease both;
 }
-@keyframes tea-fill-fade-in {
+@keyframes tea-brew-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes tea-fill-sway {
-  0%, 100% { transform: rotate(-1.5deg); }
-  50%      { transform: rotate(1.5deg); }
+.tea-brew-liquid {
+  animation: tea-brew-bob 3.2s ease-in-out infinite;
 }
-/* The fill cycle: rise from the stem to near the tip, hold a beat while full, then fade
-   and restart — the restart happens at zero opacity so the loop never visibly "drains". */
-.tea-fill-rise {
-  animation: tea-fill-rise 2.8s ease-in-out infinite;
+@keyframes tea-brew-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1.6px); }
 }
-@keyframes tea-fill-rise {
-  0%   { transform: translateY(80px); opacity: 1; }
-  8%   { transform: translateY(74px); opacity: 1; }
-  72%  { transform: translateY(2px);  opacity: 1; }
-  88%  { transform: translateY(2px);  opacity: 1; }
-  100% { transform: translateY(2px);  opacity: 0; }
+.tea-brew-wave {
+  animation: tea-brew-wave 1.7s linear infinite;
 }
-.tea-fill-wave {
-  animation: tea-fill-wave 1.3s linear infinite;
+@keyframes tea-brew-wave {
+  to { transform: translateX(32px); }
 }
-@keyframes tea-fill-wave {
-  to { transform: translateX(40px); }
+.tea-brew-wisp {
+  animation: tea-brew-wisp 2.6s ease-out infinite;
+}
+.tea-brew-wisp2 { animation-delay: 0.9s; }
+.tea-brew-wisp3 { animation-delay: 1.7s; }
+@keyframes tea-brew-wisp {
+  0%   { opacity: 0;    transform: translateY(5px); }
+  25%  { opacity: 0.7; }
+  60%  { opacity: 0.35; }
+  100% { opacity: 0;    transform: translateY(-11px); }
 }
 /* AI Assistant's "thinking" indicator (app/(app)/assistant/page.tsx) — three dots, same
    nth-child stagger technique as .tea-loader-flow's sibling pieces above. */
@@ -232,11 +233,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tea-fill-float, .tea-fill-rise, .tea-fill-wave, .typing-dot {
+  .tea-brew-root, .tea-brew-liquid, .tea-brew-wave, .tea-brew-wisp, .typing-dot {
     animation: none;
   }
-  /* Static two-thirds-filled leaf — still reads as "busy" without any motion. */
-  .tea-fill-rise { transform: translateY(28px); opacity: 1; }
+  /* Static cup with faint fixed steam — still reads as "busy" without any motion. */
+  .tea-brew-wisp { opacity: 0.35; }
   .typing-dot { opacity: 0.7; }
   .fsl-logo, .fsl-loader, .fsl-message {
     animation: none;

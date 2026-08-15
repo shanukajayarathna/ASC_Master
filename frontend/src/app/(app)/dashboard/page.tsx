@@ -114,6 +114,25 @@ export default function DashboardPage() {
   // The launchpad shows a first "page" of tiles so the activity/insights panels below
   // aren't pushed under the fold by the full grid; one click expands to everything.
   const [showAllTiles, setShowAllTiles] = useState(false);
+  // How many columns the auto-fill grid actually resolved to at the current viewport —
+  // read from the computed style so the collapsed view can always show exactly two FULL
+  // rows. A fixed cap (the previous 8) left a ragged, half-empty second row whenever the
+  // width fit 5 or 6 columns.
+  const tileGridRef = useRef<HTMLDivElement | null>(null);
+  const [tileCols, setTileCols] = useState(4);
+  useEffect(() => {
+    const el = tileGridRef.current;
+    if (!el) return;
+    const measure = () => {
+      const tracks = getComputedStyle(el).gridTemplateColumns.split(" ").filter(Boolean).length;
+      setTileCols((prev) => (tracks > 0 && tracks !== prev ? tracks : prev));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const collapsedTileCount = tileCols * 2;
   useEffect(() => {
     try {
       const stored = JSON.parse(window.localStorage.getItem(PINNED_TILES_KEY) ?? "[]");
@@ -642,8 +661,8 @@ export default function DashboardPage() {
             </span>
           )}
         </div>
-        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-          {(showAllTiles ? moduleTiles : moduleTiles.slice(0, 8)).map((item, i) => (
+        <div ref={tileGridRef} className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+          {(showAllTiles ? moduleTiles : moduleTiles.slice(0, collapsedTileCount)).map((item, i) => (
             <ModuleTile
               key={item.href}
               item={item}
@@ -653,7 +672,7 @@ export default function DashboardPage() {
             />
           ))}
         </div>
-        {moduleTiles.length > 8 && (
+        {moduleTiles.length > collapsedTileCount && (
           <div className="mt-3 text-center">
             <Button size="small" onClick={() => setShowAllTiles((v) => !v)} sx={{ color: "var(--liquor)", textTransform: "none" }}>
               {showAllTiles ? "Show fewer" : `Show all ${moduleTiles.length} modules`}

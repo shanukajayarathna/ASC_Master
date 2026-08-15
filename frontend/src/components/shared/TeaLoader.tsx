@@ -1,11 +1,12 @@
 /**
- * The app's one branded loading animation — a Ceylon tea leaf silhouette steadily FILLING
- * with tea liquor, like liquor rising in a tasting glass: outline of the leaf in brand
- * olive, amber liquid rising inside it with a gently moving surface wave. Reads instantly
- * as "working on it" (the fill is the activity) while staying unmistakably this company's
- * mark. Pure inline SVG + CSS (keyframes in globals.css, `.tea-fill-*`), transform/opacity
- * only so it stays cheap on a weak GPU/tablet — no filters, no JS animation loop. Respects
- * prefers-reduced-motion (static two-thirds-filled leaf).
+ * The app's one branded loading animation — a glass cup of hot Ceylon tea, brewing:
+ * amber liquor with a gently moving surface seen through the glass, steam wisps rising
+ * continuously above the rim, and a small brand leaf resting on the saucer. The steam's
+ * constant rise is what reads as "working" — no bar, no spinner, no reset jump. It also
+ * mirrors the glass-cup scene in the login cinematic, so the loading mark and the brand
+ * film share one visual. Pure inline SVG + CSS (keyframes in globals.css, `.tea-brew-*`),
+ * transform/opacity only so it stays cheap on a weak GPU/tablet — no filters, no JS
+ * animation loop. Respects prefers-reduced-motion (static cup, faint fixed steam).
  *
  * Used bare (this component alone) for small inline "this list is loading" spots; composed
  * with the real brand mark and a status line via `FullScreenLoader` for boot/route-transition
@@ -19,19 +20,20 @@ export default function TeaLoader({
   size?: number;
   className?: string;
   /** Full-screen overlays use a fixed dark backdrop regardless of theme — in light theme
-   *  the ambient tokens would resolve dark-on-dark there, so swap in the dark-theme token
-   *  values directly (same reasoning as the previous leaf design). */
+   *  the ambient tokens would resolve dark-on-dark there, so swap in legible fixed values. */
   onDark?: boolean;
 }) {
-  const leafStroke = onDark ? "#A8B45E" : "var(--sage-dark)";
+  const outline = onDark ? "#E8DCC2" : "var(--ink-700)";
   const liquor = onDark ? "#DE8B62" : "var(--liquor)";
-  const liquorDeep = onDark ? "#C87249" : "var(--liquor-dark)";
+  const liquorDeep = onDark ? "#B05A34" : "var(--liquor-dark)";
+  const steam = onDark ? "rgba(247,243,232,0.85)" : "var(--ink-muted)";
+  const leaf = onDark ? "#A8B45E" : "var(--sage-dark)";
   // One clip id per instance so two loaders on one page can't cross-clip each other.
-  const clipId = `tea-fill-${Math.round(Math.random() * 1e9)}`;
+  const clipId = `tea-brew-${Math.round(Math.random() * 1e9)}`;
 
-  // The leaf silhouette — drawn once for the outline, reused as the liquid's clip.
-  const LEAF_PATH =
-    "M50,10 C69,20 76,45 59,67 C55,72 52,78 50,85 C48,78 45,72 41,67 C24,45 31,20 50,10 Z";
+  // Interior of the glass — slightly inset from the cup outline so the liquor never
+  // bleeds through the glass wall.
+  const BOWL = "M30,44 C30,63 36,76 50,76 C64,76 70,63 70,44 Z";
 
   return (
     <svg
@@ -44,42 +46,60 @@ export default function TeaLoader({
     >
       <defs>
         <clipPath id={clipId}>
-          <path d={LEAF_PATH} />
+          <path d={BOWL} />
         </clipPath>
       </defs>
 
-      <g className="tea-fill-float">
-        {/* Empty leaf: faint body so the unfilled part reads as glass, not a hole */}
-        <path d={LEAF_PATH} style={{ fill: leafStroke, fillOpacity: 0.1 }} />
+      <g className="tea-brew-root">
+        {/* Steam — three staggered wisps rising and dissolving above the rim */}
+        <g fill="none" style={{ stroke: steam }} strokeWidth={2.4} strokeLinecap="round">
+          <path className="tea-brew-wisp" d="M40,34 C43,29 37,24 40,17" />
+          <path className="tea-brew-wisp tea-brew-wisp2" d="M50,32 C53,26 47,21 50,13" />
+          <path className="tea-brew-wisp tea-brew-wisp3" d="M60,34 C63,29 57,24 60,18" />
+        </g>
 
-        {/* The rising liquor, clipped to the leaf. Outer group rises; the wave path inside
-            slides horizontally so the surface keeps moving while it climbs. */}
+        {/* Liquor inside the glass: wave surface sliding sideways + a slow bob, with a
+            deeper tone below the surface so the tea has body */}
         <g clipPath={`url(#${clipId})`}>
-          <g className="tea-fill-rise">
+          <g className="tea-brew-liquid">
             <path
-              className="tea-fill-wave"
-              d="M-60,12 q10,-6 20,0 t20,0 t20,0 t20,0 t20,0 t20,0 t20,0 t20,0 L160,120 L-60,120 Z"
+              className="tea-brew-wave"
+              d="M-60,49 q8,-4 16,0 t16,0 t16,0 t16,0 t16,0 t16,0 t16,0 t16,0 L160,110 L-60,110 Z"
               style={{ fill: liquor }}
             />
-            {/* deeper tone below the surface so the liquid has body, not a flat swatch */}
-            <rect x="-60" y="30" width="220" height="90" style={{ fill: liquorDeep }} opacity={0.55} />
+            <rect x="-60" y="60" width="220" height="60" style={{ fill: liquorDeep }} opacity={0.6} />
+            {/* glass-side light catch on the liquor */}
+            <rect x="35" y="50" width="3.5" height="22" rx="1.75" fill="#FFFFFF" opacity={0.28} />
           </g>
         </g>
 
-        {/* Leaf outline + midrib on top of the liquid */}
+        {/* Glass cup — outline with a faint wall fill so the empty part reads as glass */}
         <path
-          d={LEAF_PATH}
-          fill="none"
-          style={{ stroke: leafStroke }}
-          strokeWidth={2.4}
+          d="M28,40 C28,64 35,78 50,78 C65,78 72,64 72,40 Z"
+          style={{ fill: outline, fillOpacity: 0.07, stroke: outline }}
+          strokeWidth={2.2}
           strokeLinejoin="round"
         />
+        {/* handle */}
         <path
-          d="M50,16 C53,38 53,60 50,80"
+          d="M72,46 C81,45 85,52 80,59 C77,63 74,64 72,63"
           fill="none"
-          style={{ stroke: leafStroke }}
-          strokeWidth={1.3}
-          opacity={0.5}
+          style={{ stroke: outline }}
+          strokeWidth={2.2}
+          strokeLinecap="round"
+        />
+        {/* saucer */}
+        <path
+          d="M24,84 L76,84"
+          style={{ stroke: outline }}
+          strokeWidth={2.6}
+          strokeLinecap="round"
+          opacity={0.85}
+        />
+        {/* small brand leaf resting on the saucer */}
+        <path
+          d="M20,82 C24,76 31,76 34,80 C31,83 24,84 20,82 Z"
+          style={{ fill: leaf, fillOpacity: 0.85 }}
         />
       </g>
     </svg>
