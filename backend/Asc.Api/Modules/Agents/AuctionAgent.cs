@@ -55,7 +55,9 @@ public class AuctionAgent(AiGateway gateway, AuctionToolExecutor tools, Asc.Api.
 
     public async Task<AgentResponse> HandleAsync(AgentRequest request, CancellationToken ct = default)
     {
-        var systemPrompt = SystemPrompt + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        // Same multilingual contract as GeneralAgent — language behavior must not depend on
+        // which capability answered (docs/29 "multi-language orchestration").
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History, AuctionToolExecutor.DefinitionsFor(request.IsAdmin),
             (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct), ct);

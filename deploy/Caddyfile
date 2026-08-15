@@ -10,6 +10,12 @@
 # under /api (plus /health); everything else is the Next.js frontend.
 {$SITE_ADDRESS}
 
+# Compress everything that isn't already compressed (Caddy skips responses that arrive
+# with a Content-Encoding, so the backend's own Brotli/gzip passes through untouched).
+# This mainly covers the Next.js side — HTML, JS chunks, CSS — for slow connections
+# and low-end devices; zstd/gzip are negotiated per-client via Accept-Encoding.
+encode zstd gzip
+
 handle /api/* {
 	reverse_proxy backend:8080
 }

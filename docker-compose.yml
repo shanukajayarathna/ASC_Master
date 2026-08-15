@@ -18,6 +18,11 @@ services:
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       Groq__ApiKey: ${GROQ_API_KEY:-}
       Gemini__ApiKey: ${GEMINI_API_KEY:-}
+      # Local (Ollama) provider — opt-in via LOCAL_MODEL (see LocalChatProvider). Inside a
+      # container "localhost" is the container itself, so the base URL must point at the
+      # host's Ollama via host.docker.internal.
+      Local__Model: ${LOCAL_MODEL:-}
+      Local__BaseUrl: ${LOCAL_BASE_URL:-}
     volumes:
       # Sale-import Excel files, uploaded knowledge-base documents, and lot media all live
       # here (see Dockerfile's comment on the ContentRootPath/../../data convention) — a

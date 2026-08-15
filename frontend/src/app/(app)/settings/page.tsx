@@ -4,6 +4,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
+import { useUiLang } from "@/lib/i18n";
 import { api, ApiError } from "@/lib/api";
 import { ROLE_LABELS, ROLES, roleLabel } from "@/lib/roles";
 import type { ApiKeySummary, AuditLogEntry, AuthUser, MasterDataEntity, UnmappedMasterDataValue, WebhookSummary } from "@/types/api";
@@ -69,6 +70,27 @@ function AppearanceSection() {
         >
           System
         </Button>
+      </div>
+    </SettingsSection>
+  );
+}
+
+/** The ONE UI-language setting (docs/29 multilingual UI) — dashboard labels only, adopted
+ *  incrementally across surfaces. AI conversation language is automatic per message and is
+ *  deliberately not controlled here. */
+function LanguageSection() {
+  const { lang, setLang } = useUiLang();
+  return (
+    <SettingsSection
+      title="Language"
+      subtitle="Dashboard labels. The AI Assistant detects your language automatically in every message — English, සිංහල, தமிழ் or Singlish."
+    >
+      <div className="flex items-center gap-3">
+        {([["en", "English"], ["si", "සිංහල"], ["ta", "தமிழ்"]] as const).map(([code, label]) => (
+          <Button key={code} variant={lang === code ? "contained" : "outlined"} size="small" onClick={() => setLang(code)}>
+            {label}
+          </Button>
+        ))}
       </div>
     </SettingsSection>
   );
@@ -1098,6 +1120,7 @@ export default function SettingsPage() {
       <PageHeader title="Settings" subtitle="Account, appearance and workspace access." />
 
       <AppearanceSection />
+      <LanguageSection />
       <AccountSection />
       {isAdmin && <UsersSection />}
       {isAdmin && <ApiKeysSection />}

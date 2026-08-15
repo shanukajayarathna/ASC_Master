@@ -18,6 +18,24 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
         "insights, reports, and uploaded documents, grounded in the platform's own data. Read-only.";
     public IReadOnlyList<string> Capabilities { get; } = ["general", "documents", "valuations", "market-insights"];
 
+    /// <summary>Shared multilingual contract (docs/29): users write in English, Sinhala,
+    /// Tamil, Singlish (Sinhala in Latin script), or naturally mixed language — the model
+    /// detects the language itself from the message (and conversation context for short
+    /// ambiguous ones) and mirrors it. Appended to every agent's prompt so language behavior
+    /// never depends on which capability answered.</summary>
+    internal const string LanguageInstructions =
+        " Users may write in English, Sinhala (සිංහල script), Tamil (தமிழ் script), Singlish " +
+        "(Sinhala written in English letters, e.g. 'tea price eka kohomada?', often with imperfect " +
+        "spelling), or a natural mix of these in one sentence. Detect the language and style from the " +
+        "message itself — never ask the user to pick a language, and for short ambiguous messages use " +
+        "the conversation's earlier language. Reply in the same language and style the user wrote in: " +
+        "Sinhala gets natural Sinhala, Tamil gets natural Tamil, Singlish gets natural Singlish, mixed " +
+        "gets a natural matching mix — understand business terms in any of these (auction, lot, grade, " +
+        "broker, valuation and their Sinhala/Tamil equivalents). If the user asks to switch language " +
+        "('explain in English' / 'sinhalen kiyanna'), switch immediately and stay switched until they " +
+        "change again. Keep numbers, lot numbers, grades (BOP, BOPF…), and 'Rs.' amounts in their " +
+        "standard form in every language — never translate or transliterate codes and figures.";
+
     private const string SystemPrompt =
         "You are the AI Assistant for Asia Siyaka Commodities' tea auction Intelligence Hub. " +
         "Answer questions about lots, valuations, sale comparisons, valuation accuracy, broker " +
@@ -50,7 +68,7 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
 
     public async Task<AgentResponse> HandleAsync(AgentRequest request, CancellationToken ct = default)
     {
-        var systemPrompt = SystemPrompt + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        var systemPrompt = SystemPrompt + LanguageInstructions + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History, AssistantToolExecutor.DefinitionsFor(request.IsAdmin),
             (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct), ct);

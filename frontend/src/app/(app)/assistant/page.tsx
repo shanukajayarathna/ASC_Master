@@ -1,5 +1,6 @@
 "use client";
 
+import MicButton from "@/components/assistant/MicButton";
 import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
@@ -39,6 +40,15 @@ export default function AssistantPage() {
   useEffect(() => {
     api.listConversations().then(setConversations).catch(() => {});
     api.getProviderStatuses().then(setProviders).catch(() => {});
+    // Prefill handed over from the dashboard's Ask ASC box (?q=...) — lands in the input
+    // for review, never auto-sent. Read from window.location rather than useSearchParams
+    // so this statically-prerendered page needs no Suspense boundary.
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInput(q);
+      window.history.replaceState(null, "", "/assistant"); // don't re-prefill on refresh
+    }
   }, []);
 
   useEffect(() => {
@@ -219,12 +229,17 @@ export default function AssistantPage() {
           e.preventDefault();
           sendText(input);
         }}
-        className="mt-3 flex gap-2.5"
+        className="mt-3 flex items-center gap-2.5"
       >
+        {/* Voice input: the transcript lands here for review — never auto-sent. */}
+        <MicButton
+          disabled={sending}
+          onTranscript={(text) => setInput((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))}
+        />
         <TextField
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the assistant…"
+          placeholder="Ask anything — English, සිංහල, தமிழ், or Singlish…"
           size="small"
           fullWidth
           disabled={sending}
