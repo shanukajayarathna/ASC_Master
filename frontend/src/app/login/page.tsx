@@ -1,14 +1,16 @@
 "use client";
 
+import TeaCinematic from "@/components/auth/TeaCinematic";
 import BrandLogo from "@/components/shell/BrandLogo";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
 import FullScreenLoader from "@/components/shared/FullScreenLoader";
+import TeaLoader from "@/components/shared/TeaLoader";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function LoginPage() {
   const { user, loading, login } = useAuth();
@@ -16,6 +18,19 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The "Ceylon Tea Journey" intro overlay (TeaCinematic) — purely visual, plays above the
+  // form once per page visit and never blocks it. Component-local state on purpose: docs/28's
+  // no-global-loading-state rule applies to this too.
+  const [introDone, setIntroDone] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+
+  // Focus the email field only once the intro has cleared. A plain autoFocus would grab
+  // focus at mount — while the cinematic still covers the form — and the browser's email
+  // autofill suggestion list renders in its own native layer, so it would pop up floating
+  // over the intro. Deferring focus keeps autofill exactly where it belongs: on the form.
+  useEffect(() => {
+    if (introDone) emailRef.current?.focus();
+  }, [introDone]);
 
   // Already signed in and landed here anyway (e.g. a stale bookmark) — the app, not the
   // login form, is where that session belongs.
@@ -38,17 +53,15 @@ export default function LoginPage() {
 
   if (loading || user) {
     return (
-      <div className="flex items-center justify-center min-h-screen" style={{ background: "var(--brand-gradient)" }}>
+      <div className="login-bg flex items-center justify-center min-h-screen">
         <FullScreenLoader message="Preparing your workspace…" onDark />
       </div>
     );
   }
 
   return (
-    <div
-      className="flex items-center justify-center min-h-screen px-5"
-      style={{ background: "var(--brand-gradient)" }}
-    >
+    <div className="login-bg flex items-center justify-center min-h-screen px-5">
+      {!introDone && <TeaCinematic onDone={() => setIntroDone(true)} />}
       <div
         className="w-full max-w-[380px] rounded-lg overflow-hidden"
         style={{ background: "var(--paper-0)", boxShadow: "var(--shadow-lg)" }}
@@ -86,7 +99,7 @@ export default function LoginPage() {
               autoComplete="email"
               size="small"
               required
-              autoFocus
+              inputRef={emailRef}
               fullWidth
               disabled={submitting}
             />
@@ -112,7 +125,16 @@ export default function LoginPage() {
             aria-busy={submitting}
             size="large"
           >
-            {submitting ? "Logging in…" : "Log in"}
+            {submitting ? (
+              // Compact branded processing state — the house TeaLoader at button scale,
+              // never a replay of the intro cinematic (docs/28 decision rule 3).
+              <span className="inline-flex items-center gap-2">
+                <TeaLoader size={20} onDark />
+                Logging in…
+              </span>
+            ) : (
+              "Log in"
+            )}
           </Button>
         </form>
       </div>

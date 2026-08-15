@@ -166,28 +166,40 @@ body {
 .brand-rule { background: var(--rule-brand); }
 
 /* TeaLoader (components/shared/TeaLoader.tsx) — the app's one loading animation, used
-   everywhere something takes a moment (route navigation, in particular). A refined leaf that
-   settles into a slow, continuous float, plus a thin "data flowing along a path" line beneath
-   it (animated stroke-dashoffset, not a particle system) — transform/opacity/dashoffset only,
-   same reasoning as .lift-on-hover above (cheap on a weak GPU/tablet). */
-.tea-loader-leaf {
+   everywhere something takes a moment (route navigation, in particular). A tea leaf that
+   steadily fills with tea liquor: the liquid group rises (transform), its surface wave
+   slides sideways (transform), and the whole leaf keeps a gentle float — transform/opacity
+   only, same reasoning as .lift-on-hover above (cheap on a weak GPU/tablet). */
+.tea-fill-float {
   transform-box: fill-box;
   transform-origin: center;
-  animation: tea-leaf-fade-in 0.6s ease both, tea-leaf-float 3.2s ease-in-out infinite;
+  animation: tea-fill-fade-in 0.5s ease both, tea-fill-sway 4s ease-in-out infinite;
 }
-@keyframes tea-leaf-fade-in {
+@keyframes tea-fill-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes tea-leaf-float {
-  0%, 100% { transform: translateY(0) rotate(-3deg); }
-  50%      { transform: translateY(-3px) rotate(3deg); }
+@keyframes tea-fill-sway {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50%      { transform: rotate(1.5deg); }
 }
-.tea-loader-flow {
-  animation: tea-flow-dash 2.4s linear infinite;
+/* The fill cycle: rise from the stem to near the tip, hold a beat while full, then fade
+   and restart — the restart happens at zero opacity so the loop never visibly "drains". */
+.tea-fill-rise {
+  animation: tea-fill-rise 2.8s ease-in-out infinite;
 }
-@keyframes tea-flow-dash {
-  to { stroke-dashoffset: -24; }
+@keyframes tea-fill-rise {
+  0%   { transform: translateY(80px); opacity: 1; }
+  8%   { transform: translateY(74px); opacity: 1; }
+  72%  { transform: translateY(2px);  opacity: 1; }
+  88%  { transform: translateY(2px);  opacity: 1; }
+  100% { transform: translateY(2px);  opacity: 0; }
+}
+.tea-fill-wave {
+  animation: tea-fill-wave 1.3s linear infinite;
+}
+@keyframes tea-fill-wave {
+  to { transform: translateX(40px); }
 }
 /* AI Assistant's "thinking" indicator (app/(app)/assistant/page.tsx) — three dots, same
    nth-child stagger technique as .tea-loader-flow's sibling pieces above. */
@@ -220,12 +232,289 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tea-loader-leaf, .tea-loader-flow, .typing-dot {
+  .tea-fill-float, .tea-fill-rise, .tea-fill-wave, .typing-dot {
     animation: none;
   }
-  .tea-loader-flow { opacity: 0.35; }
+  /* Static two-thirds-filled leaf — still reads as "busy" without any motion. */
+  .tea-fill-rise { transform: translateY(28px); opacity: 1; }
   .typing-dot { opacity: 0.7; }
   .fsl-logo, .fsl-loader, .fsl-message {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* TeaCinematic (components/auth/TeaCinematic.tsx) — the login page's "Ceylon Tea Journey"
+   intro. Crossfaded full-bleed scenes with transform-only Ken Burns moves: opacity and
+   transform exclusively (no filter/backdrop blur, no canvas, no JS animation loop), the
+   same weak-GPU budget as .lift-on-hover and .tea-loader-*. The overlay never intercepts
+   pointer events except its Skip button, so the login form beneath stays usable the whole
+   time. TeaCinematic itself swaps to a single static frame under prefers-reduced-motion;
+   the media block below also kills the Ken Burns/steam motion as defence in depth. */
+.tea-cine-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* above the login card; below nothing else — login has no other chrome */
+  background: #0C0F07; /* scene-1 ground, so first paint and scene gaps read as one ground */
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+.tea-cine-leaving { opacity: 0; }
+
+.tea-cine-scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.tea-cine-scene.tea-cine-active { opacity: 1; }
+/* The scene being crossfaded away from: held fully opaque (no transition) under the
+   incoming one, so transitions never dip through to the brand base layer. */
+.tea-cine-scene.tea-cine-under { opacity: 1; transition: none; }
+
+/* Branded ground under the scene stack — the ASC mark + house TeaLoader on the dark
+   ground. Visible exactly when scene imagery hasn't painted yet (first paint, slow
+   network, failed asset), so a loading wait always reads as the company, never a blank. */
+.tea-cine-base {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.tea-cine-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* responsive composition — the subject stays centred at every size */
+}
+
+/* Ken Burns treatments — each runs longer than any scene holds, so motion never visibly
+   ends; scale is generous enough that the pan never exposes an edge. */
+.tea-cine-drift    { animation: tea-cine-drift 3s ease-out both; }
+.tea-cine-zoom-in  { animation: tea-cine-zoom-in 3.5s ease-out both; }
+.tea-cine-pan      { animation: tea-cine-pan 4s ease-in-out both; }
+.tea-cine-zoom-out { animation: tea-cine-zoom-out 3.5s ease-out both; }
+.tea-cine-settle   { animation: tea-cine-settle 3.5s ease-out both; }
+@keyframes tea-cine-drift {
+  from { transform: scale(1.12) translateX(-1.5%); opacity: 0.6; }
+  to   { transform: scale(1.04) translateX(0);     opacity: 1; }
+}
+@keyframes tea-cine-zoom-in {
+  from { transform: scale(1.02); }
+  to   { transform: scale(1.14); }
+}
+@keyframes tea-cine-pan {
+  from { transform: scale(1.14) translateX(1.5%); }
+  to   { transform: scale(1.08) translateX(-1.5%); }
+}
+@keyframes tea-cine-zoom-out {
+  from { transform: scale(1.16); }
+  to   { transform: scale(1.04); }
+}
+@keyframes tea-cine-settle {
+  from { transform: scale(1.1); }
+  to   { transform: scale(1.02); }
+}
+
+/* Steam over the tea-cup scene — three soft wisps built from radial gradients (no filter
+   blur), rising on transform/opacity only. Positioned relative to the scene so the wisps
+   track the cup at every viewport size. */
+.tea-cine-steam {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  width: 0;
+  height: 0;
+}
+.tea-cine-steam span {
+  position: absolute;
+  bottom: 0;
+  width: 60px;
+  height: 150px;
+  border-radius: 9999px;
+  background: radial-gradient(ellipse 45% 50% at 50% 55%, rgba(247, 243, 232, 0.4), rgba(247, 243, 232, 0));
+  animation: tea-cine-steam-rise 2.6s ease-out infinite;
+}
+.tea-cine-steam span:nth-child(1) { left: -70px; }
+.tea-cine-steam span:nth-child(2) { left: -22px; animation-delay: 0.9s; }
+.tea-cine-steam span:nth-child(3) { left: 26px;  animation-delay: 1.7s; }
+@keyframes tea-cine-steam-rise {
+  0%   { opacity: 0;    transform: translateY(30px)  scaleY(0.85) rotate(0deg); }
+  30%  { opacity: 0.55; }
+  100% { opacity: 0;    transform: translateY(-130px) scaleY(1.25) rotate(6deg); }
+}
+
+/* Final scene — steam's cream tone resolves into the ASC mark on the same dark ground. */
+.tea-cine-logo-scene { background: #0C0F07; }
+.tea-cine-logo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  animation: tea-cine-logo-in 0.7s ease both;
+}
+@keyframes tea-cine-logo-in {
+  from { opacity: 0; transform: scale(1.05); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Login page backdrop — the CC0 Nuwara Eliya terraces (public/tea/intro) with the blur
+   and darkening BAKED INTO the asset (public/tea/login-bg*.webp, 20 KB), never a runtime
+   CSS filter (the weak-GPU rule). Brand gradient stays underneath as the loading/failure
+   fallback. */
+.login-bg {
+  background-image: url("/tea/login-bg.webp"), var(--brand-gradient);
+  background-size: cover;
+  background-position: center;
+}
+@media (max-width: 767px) {
+  .login-bg {
+    background-image: url("/tea/login-bg-sm.webp"), var(--brand-gradient);
+  }
+}
+
+/* Cinematic captions — bottom-left kicker + display-serif line over each scene, the
+   restrained tea-commercial register: small gold uppercase overline, one elegant
+   Fraunces line in warm cream, soft shadow for legibility on photography. */
+.tea-cine-caption {
+  position: absolute;
+  left: clamp(24px, 7vw, 96px);
+  bottom: clamp(40px, 12vh, 130px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(78vw, 560px);
+}
+/* Soft bottom scrim under the captions — a plain gradient (no blur/filter), dark enough
+   that the type reads on bright footage without dimming the whole scene. */
+.tea-cine-scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 46%;
+  background: linear-gradient(180deg, rgba(8, 10, 5, 0) 0%, rgba(8, 10, 5, 0.38) 45%, rgba(8, 10, 5, 0.72) 100%);
+  pointer-events: none;
+}
+.tea-cine-caption-kicker {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #EFCE74;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  animation: tea-cine-data-in 0.45s ease both;
+}
+.tea-cine-caption-line {
+  font-family: var(--font-display), serif;
+  font-size: clamp(24px, 3.4vw, 40px);
+  font-weight: 700;
+  line-height: 1.18;
+  color: #FFFDF7;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85), 0 6px 22px rgba(0, 0, 0, 0.6);
+  animation: tea-cine-data-in 0.55s ease 0.12s both;
+}
+
+/* Logo scene's company line + capability points. */
+.tea-cine-logo-tag {
+  font-size: clamp(17px, 2vw, 22px);
+  font-weight: 600;
+  color: rgba(250, 247, 240, 0.95);
+  margin-top: 6px;
+  animation: tea-cine-data-in 0.5s ease 0.25s both;
+}
+.tea-cine-logo-points {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(247, 243, 232, 0.6);
+  animation: tea-cine-data-in 0.5s ease 0.45s both;
+}
+
+/* "Tea becomes data" overlay on the grading scene — a small block of clean, staggered
+   typography (lot, grade, value) over the graded-tea macro. Premium-information-design
+   restraint: small cream text, thin rule, no glow, no panels. */
+.tea-cine-data {
+  position: absolute;
+  right: clamp(24px, 7vw, 96px);
+  bottom: clamp(48px, 16vh, 160px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  text-align: right;
+}
+.tea-cine-data-line {
+  font-family: var(--font-mono), monospace;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #FBF6EC;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9), 0 4px 16px rgba(0, 0, 0, 0.6);
+  animation: tea-cine-data-in 0.5s ease both;
+}
+.tea-cine-data-line:nth-child(2) { animation-delay: 0.35s; }
+.tea-cine-data-rule {
+  width: 120px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(227, 185, 63, 0), rgba(227, 185, 63, 0.8));
+  animation: tea-cine-data-in 0.5s ease 0.6s both;
+}
+.tea-cine-data-dim {
+  font-size: 11px;
+  color: rgba(247, 243, 232, 0.78);
+  animation-delay: 0.75s;
+}
+@keyframes tea-cine-data-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tea-cine-skip {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  pointer-events: auto; /* the one interactive element on the overlay */
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(247, 243, 232, 0.55);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.tea-cine-skip:hover { color: rgba(247, 243, 232, 0.9); }
+.tea-cine-skip:focus-visible {
+  outline: 2px solid var(--brand-gold-soft);
+  outline-offset: 2px;
+  border-radius: 4px;
+  color: rgba(247, 243, 232, 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tea-cine-drift, .tea-cine-zoom-in, .tea-cine-pan, .tea-cine-zoom-out, .tea-cine-settle,
+  .tea-cine-steam span {
+    animation: none;
+  }
+  .tea-cine-steam span { opacity: 0.25; }
+  .tea-cine-logo { animation: none; }
+  .tea-cine-data-line, .tea-cine-data-rule,
+  .tea-cine-caption-kicker, .tea-cine-caption-line,
+  .tea-cine-logo-tag, .tea-cine-logo-points {
     animation: none;
     opacity: 1;
     transform: none;
