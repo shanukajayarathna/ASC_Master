@@ -43,8 +43,19 @@ public class MslWatcherService(MslImportService importer, MslRollupService rollu
             if (await enrichment.EnrichAsync(ct: stoppingToken) > 0)
                 importer.BumpDataVersion();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            // The app itself is shutting down — not a failure, nothing to log or recover from.
+        }
+        catch (Exception ex)
+        {
+            // Must catch even OperationCanceledException-derived types here: a MongoDB call
+            // that times out or gets canceled for reasons unrelated to app shutdown (load,
+            // a transient network hiccup) throws TaskCanceledException too, and `ex is not
+            // OperationCanceledException` used to let that slip through uncaught — which
+            // BackgroundService's default StopHost behavior turns into the ENTIRE API host
+            // going down over one background rollup rebuild. Confirmed in production: a
+            // RebuildMissingAsync TaskCanceledException crashed the whole app on 2026-08-16.
             logger.LogError(ex, "Initial MSL scan failed");
         }
 
@@ -86,8 +97,14 @@ public class MslWatcherService(MslImportService importer, MslRollupService rollu
                     logger.LogInformation("MSL auto-import: {Files} file(s), {Rows} rows",
                         summary.FilesImported, summary.RowsImported);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                // App shutdown mid-scan — not a failure.
+            }
+            catch (Exception ex)
+            {
+                // Same reasoning as the initial-scan catch above: a non-shutdown
+                // TaskCanceledException must not be allowed to propagate and crash the host.
                 logger.LogError(ex, "MSL auto-import failed");
             }
         }

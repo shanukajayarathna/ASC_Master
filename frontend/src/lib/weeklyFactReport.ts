@@ -319,11 +319,29 @@ type TemplateKey = "UH" | "UM" | "WH" | "WM";
 
 const templateCache = new Map<string, ArrayBuffer>();
 
-async function loadTemplate(url: string): Promise<ArrayBuffer> {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A whole report pulls in up to 9 of these template files sequentially; on a machine under
+ *  real memory pressure a `fetch()` can reject outright ("Failed to fetch" — a transient
+ *  network-level failure, not a 404) partway through that run. A couple of short-backoff
+ *  retries turns a one-off blip into a silent success instead of failing the whole build;
+ *  failures are only reported to the user after every attempt is exhausted. */
+async function loadTemplate(url: string, attempt = 1): Promise<ArrayBuffer> {
   const cached = templateCache.get(url);
   if (cached) return cached.slice(0);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Could not load template ${url}`);
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    if (attempt >= 3) {
+      throw new Error(
+        `Could not reach ${url} after ${attempt} attempts (${err instanceof Error ? err.message : String(err)}) — check the app server is running and try again.`
+      );
+    }
+    await sleep(300 * attempt);
+    return loadTemplate(url, attempt + 1);
+  }
+  if (!res.ok) throw new Error(`Could not load template ${url} (HTTP ${res.status}).`);
   const buf = await res.arrayBuffer();
   templateCache.set(url, buf);
   return buf.slice(0);

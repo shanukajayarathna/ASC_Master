@@ -39,6 +39,15 @@ ThreadPool.SetMinThreads(Math.Max(Environment.ProcessorCount * 4, 16), Math.Max(
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Defense in depth: ASP.NET Core's default (StopHost) takes the ENTIRE API down if any
+// BackgroundService (MslWatcherService, DeadlineCheckService, ...) throws an unhandled
+// exception — including a transient MongoDB TaskCanceledException that has nothing to do
+// with a real failure. Every BackgroundService in this app is already written to catch and
+// log its own exceptions per-tick (never let a bad tick kill the loop), so this is a safety
+// net for a future one that doesn't get that right — not a substitute for those catches.
+builder.Services.Configure<Microsoft.Extensions.Hosting.HostOptions>(opts =>
+    opts.BackgroundServiceExceptionBehavior = Microsoft.Extensions.Hosting.BackgroundServiceExceptionBehavior.Ignore);
+
 builder.Services.AddControllers()
     .AddJsonOptions(opts =>
     {

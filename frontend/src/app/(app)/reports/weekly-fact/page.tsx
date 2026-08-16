@@ -19,14 +19,22 @@ import type { SaleSummary } from "@/types/api";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FolderZipOutlinedIcon from "@mui/icons-material/FolderZipOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
+import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
+import Accordion from "@mui/material/Accordion";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import AccordionSummary from "@mui/material/AccordionSummary";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
-import { useEffect, useMemo, useRef, useState } from "react";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 /** Either the uploaded WES workbook, or the database-computed equivalent for a sale picked
  *  via the "generate from database" panel — see MslWeeklyReportService's own doc comment for
@@ -146,6 +154,90 @@ function Warnings({ warnings, tone }: { warnings: string[]; tone: "warning" | "d
   );
 }
 
+/** One row's-worth of "loaded" confirmation, styled to match the Dropzone's own bottom line
+ *  — used for the database-load path, which has no file to drop but needs the same at-a-
+ *  -glance "is something ready?" signal. */
+function LoadedLine({ ready, text }: { ready: boolean; text: string }) {
+  return (
+    <div className="mt-2 text-[12.5px] flex items-center gap-1.5" style={{ color: ready ? "var(--sage)" : "var(--text-muted)" }}>
+      {ready && <CheckCircleOutlineIcon sx={{ fontSize: 15 }} />}
+      {text}
+    </div>
+  );
+}
+
+/** The shared skeleton every generated-workbook card uses: an eyebrow label, a big count,
+ *  a one-line caption under it, free-form description content, a download + a PDF button,
+ *  and any warnings — kept in one place so the FACT/RANK/LOW cards can't visually drift from
+ *  each other despite having slightly different data shapes underneath. */
+function ResultCard({
+  eyebrow,
+  count,
+  countLabel,
+  ok,
+  description,
+  hasBuffer,
+  downloadLabel,
+  onDownload,
+  pdfName,
+  pdfLabel,
+  pdfBusy,
+  onPdf,
+  warnings,
+}: {
+  eyebrow: string;
+  count: number;
+  countLabel: string;
+  ok: boolean;
+  description: ReactNode;
+  hasBuffer: boolean;
+  downloadLabel: string;
+  onDownload: () => void;
+  pdfName: string | null;
+  pdfLabel: string;
+  pdfBusy: string | null;
+  onPdf: () => void;
+  warnings: string[];
+}) {
+  const pdfIsBusy = pdfName !== null && pdfBusy === pdfName;
+  return (
+    <div className="border rounded-lg bg-surface p-4" style={{ borderColor: ok ? "var(--brass)" : "var(--border)" }}>
+      <div className="text-[11px] font-medium text-text-muted">{eyebrow}</div>
+      <div className="font-display text-2xl font-bold text-text-strong">{count}</div>
+      <div className="text-[11px] text-text-muted mb-2.5">{countLabel}</div>
+      <div className="text-[12.5px] leading-relaxed text-text-strong">{description}</div>
+      <Button
+        fullWidth
+        variant="outlined"
+        size="small"
+        startIcon={<DownloadOutlinedIcon fontSize="small" />}
+        sx={{ mt: 1.75, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
+        disabled={!hasBuffer}
+        onClick={onDownload}
+      >
+        {hasBuffer ? downloadLabel : "Not generated"}
+      </Button>
+      <Button
+        fullWidth
+        variant="outlined"
+        size="small"
+        startIcon={pdfIsBusy ? <CircularProgress size={14} /> : <PictureAsPdfOutlinedIcon fontSize="small" />}
+        sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
+        disabled={!hasBuffer || pdfBusy !== null}
+        aria-busy={pdfIsBusy}
+        onClick={onPdf}
+      >
+        {pdfIsBusy ? "Building PDF…" : pdfLabel}
+      </Button>
+      <Warnings warnings={warnings} tone={ok ? "warning" : "danger"} />
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return <div className="text-[11px] font-semibold tracking-wide uppercase text-text-muted mb-2">{children}</div>;
+}
+
 export default function WeeklyFactReportsPage() {
   const [txtData, setTxtData] = useState<{ fileName: string; text: string } | null>(null);
   const [wesSource, setWesSource] = useState<WesSource | null>(null);
@@ -177,6 +269,10 @@ export default function WeeklyFactReportsPage() {
   const [dbYear, setDbYear] = useState<number | "">("");
   const [dbSaleNo, setDbSaleNo] = useState<number | "">("");
   const [dbLoading, setDbLoading] = useState(false);
+  // Which WES input method is showing — purely a UI toggle; wesSource (whichever one actually
+  // succeeded) is what generate() reads from, so switching tabs to look around never loses it.
+  const [wesMode, setWesMode] = useState<"upload" | "database">("upload");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -403,307 +499,291 @@ export default function WeeklyFactReportsPage() {
 
       {error && <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>}
 
-      <div className="grid sm:grid-cols-2 gap-4 mb-4">
+      <SectionLabel>1. Source files</SectionLabel>
+      <div className="grid sm:grid-cols-2 gap-4 mb-5">
         <Dropzone label="CBAC weekly elevation average report" hint=".txt" accept=".txt" file={txtData} onFile={handleTxtFile} />
 
         <div className="border border-border rounded-lg bg-surface p-4">
-          <h3 className="font-display text-[14px] font-semibold text-text-strong m-0 mb-3">WES master factory-wise sale file</h3>
-          <Dropzone
-            label=""
-            hint=".xlsx"
-            accept=".xlsx"
-            file={
-              wesSource
-                ? {
-                    fileName:
-                      wesSource.kind === "upload"
-                        ? wesSource.fileName
-                        : `Sale ${wesSource.saleNo} of ${wesSource.saleYear} — loaded from database (${wesSource.categoryCounts.reduce((n, [, c]) => n + c, 0)} factory rows)`,
-                  }
-                : null
-            }
-            onFile={handleWesFile}
-          />
-          <div className="mt-3 pt-3 border-t border-border">
-            <div className="text-[12px] font-semibold text-text-strong mb-2 flex items-center gap-1.5">
-              <StorageOutlinedIcon sx={{ fontSize: 15 }} />
-              Or generate from the database
-            </div>
-            {dbSalesError ? (
-              <div className="text-[12px] text-text-muted">Couldn&apos;t load the sale list — use the upload option above instead.</div>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <TextField
-                    select
-                    size="small"
-                    label="Year"
-                    value={dbYear === "" ? "" : String(dbYear)}
-                    disabled={!dbSales || dbSales.length === 0}
-                    onChange={(e) => {
-                      const y = Number(e.target.value);
-                      setDbYear(y);
-                      const forYear = (dbSales ?? []).filter((s) => s.year === y).sort((a, b) => b.saleNo - a.saleNo);
-                      setDbSaleNo(forYear[0]?.saleNo ?? "");
-                    }}
-                  >
-                    {dbYears.map((y) => (
-                      <MenuItem key={y} value={y}>
-                        {y}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField
-                    select
-                    size="small"
-                    label="Sale No"
-                    value={dbSaleNo === "" ? "" : String(dbSaleNo)}
-                    disabled={dbSalesForYear.length === 0}
-                    onChange={(e) => setDbSaleNo(Number(e.target.value))}
-                  >
-                    {dbSalesForYear.map((s) => (
-                      <MenuItem key={s.saleNo} value={s.saleNo}>
-                        Sale {s.saleNo} — {new Date(s.saleDate).toLocaleDateString("en-GB")}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                </div>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  startIcon={dbLoading ? <CircularProgress size={14} /> : <StorageOutlinedIcon fontSize="small" />}
-                  disabled={dbYear === "" || dbSaleNo === "" || dbLoading}
-                  onClick={loadWesFromDatabase}
-                >
-                  {dbLoading ? "Loading…" : "Load from database"}
-                </Button>
-                <p className="text-[11px] text-text-muted mt-1.5 mb-0 leading-relaxed">
-                  Only sales already imported into the archive are listed. Week-level figures match the real WES file almost exactly;
-                  year-to-date can drift slightly — review the loaded row counts and the generated reports before sending them out.
-                </p>
-              </>
-            )}
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="font-display text-[14px] font-semibold text-text-strong m-0">WES master factory-wise sale file</h3>
+            <ToggleButtonGroup size="small" exclusive value={wesMode} onChange={(_, v) => v && setWesMode(v)}>
+              <ToggleButton value="upload" sx={{ fontSize: 11.5, px: 1.25, py: 0.25 }}>
+                <UploadFileOutlinedIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                Upload
+              </ToggleButton>
+              <ToggleButton value="database" sx={{ fontSize: 11.5, px: 1.25, py: 0.25 }}>
+                <StorageOutlinedIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                Database
+              </ToggleButton>
+            </ToggleButtonGroup>
           </div>
+
+          {wesMode === "upload" ? (
+            <Dropzone label="" hint=".xlsx" accept=".xlsx" file={wesSource?.kind === "upload" ? { fileName: wesSource.fileName } : null} onFile={handleWesFile} />
+          ) : dbSalesError ? (
+            <div className="text-[12px] text-text-muted py-2">Couldn&apos;t load the sale list — switch to Upload instead.</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <TextField
+                  select
+                  size="small"
+                  label="Year"
+                  value={dbYear === "" ? "" : String(dbYear)}
+                  disabled={!dbSales || dbSales.length === 0}
+                  onChange={(e) => {
+                    const y = Number(e.target.value);
+                    setDbYear(y);
+                    const forYear = (dbSales ?? []).filter((s) => s.year === y).sort((a, b) => b.saleNo - a.saleNo);
+                    setDbSaleNo(forYear[0]?.saleNo ?? "");
+                  }}
+                >
+                  {dbYears.map((y) => (
+                    <MenuItem key={y} value={y}>
+                      {y}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Sale No"
+                  value={dbSaleNo === "" ? "" : String(dbSaleNo)}
+                  disabled={dbSalesForYear.length === 0}
+                  onChange={(e) => setDbSaleNo(Number(e.target.value))}
+                >
+                  {dbSalesForYear.map((s) => (
+                    <MenuItem key={s.saleNo} value={s.saleNo}>
+                      Sale {s.saleNo} — {new Date(s.saleDate).toLocaleDateString("en-GB")}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </div>
+              <Button
+                fullWidth
+                variant="outlined"
+                size="small"
+                startIcon={dbLoading ? <CircularProgress size={14} /> : <StorageOutlinedIcon fontSize="small" />}
+                disabled={dbYear === "" || dbSaleNo === "" || dbLoading}
+                onClick={loadWesFromDatabase}
+              >
+                {dbLoading ? "Loading…" : "Load from database"}
+              </Button>
+              <p className="text-[11px] text-text-muted mt-1.5 mb-0 leading-relaxed">
+                Only sales already imported are listed. Week-level figures match the real WES file almost exactly; year-to-date can
+                drift slightly — review the generated reports before sending them out.
+              </p>
+            </>
+          )}
+
+          <LoadedLine
+            ready={!!wesSource}
+            text={
+              wesSource
+                ? wesSource.kind === "upload"
+                  ? `Using upload: ${wesSource.fileName}`
+                  : `Using database: Sale ${wesSource.saleNo} of ${wesSource.saleYear} (${wesSource.categoryCounts.reduce((n, [, c]) => n + c, 0)} factory rows)`
+                : "No WES data loaded yet."
+            }
+          />
         </div>
       </div>
 
-      <div className="border border-border rounded-lg bg-surface p-4 mb-5">
-        <div className="grid sm:grid-cols-2 gap-3 mb-3.5">
+      <Accordion
+        expanded={advancedOpen}
+        onChange={(_, v) => setAdvancedOpen(v)}
+        disableGutters
+        square={false}
+        sx={{
+          border: "1px solid var(--border)",
+          borderRadius: "8px !important",
+          bgcolor: "var(--surface) !important",
+          boxShadow: "none",
+          mb: 3,
+          "&:before": { display: "none" },
+        }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-text-strong">
+            <TuneOutlinedIcon sx={{ fontSize: 17 }} />
+            Sale details &amp; header text
+            <span className="font-normal text-text-muted">
+              {saleDate || saleNumberOverride ? ` — Sale ${saleNumberOverride || "?"}, ${saleDate || "date auto"}` : " (auto-filled from the TXT)"}
+            </span>
+          </div>
+        </AccordionSummary>
+        <AccordionDetails sx={{ pt: 0 }}>
+          <div className="grid sm:grid-cols-2 gap-3 mb-3.5">
+            <TextField
+              size="small"
+              label="Sale date (report header)"
+              placeholder="Auto, from TXT"
+              value={saleDate}
+              onChange={(e) => setSaleDate(e.target.value)}
+            />
+            <TextField
+              size="small"
+              label="Sale No (report header)"
+              placeholder="Auto, from TXT"
+              value={saleNumberOverride}
+              onChange={(e) => setSaleNumberOverride(e.target.value)}
+            />
+          </div>
           <TextField
             size="small"
-            label="Sale date (report header)"
-            placeholder="Auto, from TXT"
-            value={saleDate}
-            onChange={(e) => setSaleDate(e.target.value)}
+            fullWidth
+            label="RANK workbook header text"
+            helperText="Auto-filled from the sale date — check it against the real date range before generating; it's typed by hand each week in practice, so spacing/wording can vary."
+            placeholder="e.g. Sale No. 30- 04TH AUG / 05TH AUG 2026"
+            value={rankHeaderText}
+            onChange={(e) => setRankHeaderText(e.target.value)}
+            sx={{ mb: 2 }}
           />
           <TextField
             size="small"
-            label="Sale No (report header)"
-            placeholder="Auto, from TXT"
-            value={saleNumberOverride}
-            onChange={(e) => setSaleNumberOverride(e.target.value)}
+            fullWidth
+            label="RANK/MARK WISE (LOW) workbooks header text"
+            helperText="The LOW workbooks' own date-range line (a different hand-typed format from the RANK one) — auto-filled from the sale date, editable the same way."
+            placeholder="e.g.  Sale No. 31 - 11th  / 12th  AUGUST 2026"
+            value={lowHeaderText}
+            onChange={(e) => setLowHeaderText(e.target.value)}
           />
-        </div>
-        <TextField
-          size="small"
-          fullWidth
-          label="RANK workbook header text"
-          helperText="Auto-filled from the sale date — check it against the real date range before generating; it's typed by hand each week in practice, so spacing/wording can vary."
-          placeholder="e.g. Sale No. 30- 04TH AUG / 05TH AUG 2026"
-          value={rankHeaderText}
-          onChange={(e) => setRankHeaderText(e.target.value)}
-          sx={{ mb: 2 }}
-        />
-        <TextField
-          size="small"
-          fullWidth
-          label="RANK/MARK WISE (LOW) workbooks header text"
-          helperText="The LOW workbooks' own date-range line (a different hand-typed format from the RANK one) — auto-filled from the sale date, editable the same way."
-          placeholder="e.g.  Sale No. 31 - 11th  / 12th  AUGUST 2026"
-          value={lowHeaderText}
-          onChange={(e) => setLowHeaderText(e.target.value)}
-          sx={{ mb: 2 }}
-        />
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="contained" onClick={generate} disabled={!txtData || !wesSource || generating}>
-            {generating ? "Generating…" : "Generate reports"}
-          </Button>
-          <Button variant="outlined" onClick={clearAll}>
-            Clear uploads
-          </Button>
-        </div>
+        </AccordionDetails>
+      </Accordion>
+
+      <div className="flex gap-2 flex-wrap mb-5">
+        <Button variant="contained" size="large" onClick={generate} disabled={!txtData || !wesSource || generating}>
+          {generating ? "Generating…" : "Generate reports"}
+        </Button>
+        <Button variant="outlined" size="large" onClick={clearAll}>
+          Clear all
+        </Button>
       </div>
 
       {job ? (
         <>
-          <div className="border border-border rounded-lg bg-surface p-4 mb-4">
-            <h2 className="font-display text-lg font-semibold text-text-strong m-0">
-              {job.saleNumber != null ? `Sale ${job.saleNumber}` : "Sale —"}
-              {job.saleDate ? ` — ${job.saleDate}` : ""}
-            </h2>
-            <Warnings warnings={job.warnings} tone="warning" />
+          <div className="border border-border rounded-lg bg-surface p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="font-display text-lg font-semibold text-text-strong m-0">
+                {job.saleNumber != null ? `Sale ${job.saleNumber}` : "Sale —"}
+                {job.saleDate ? ` — ${job.saleDate}` : ""}
+              </h2>
+              <Warnings warnings={job.warnings} tone="warning" />
+            </div>
+            {anyBuffers && (
+              <Button variant="contained" startIcon={<FolderZipOutlinedIcon fontSize="small" />} onClick={downloadAllZip} disabled={zipping}>
+                {zipping ? "Building ZIP…" : "Download all as ZIP"}
+              </Button>
+            )}
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          <SectionLabel>FACT ranking workbooks</SectionLabel>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
             {job.outcomes.map((o) => (
-              <div
+              <ResultCard
                 key={o.category}
-                className="border rounded-lg bg-surface p-4"
-                style={{ borderColor: o.ok ? "var(--brass)" : "var(--border)" }}
-              >
-                <div className="text-[11px] font-medium text-text-muted">{o.category}</div>
-                <div className="font-display text-2xl font-bold text-text-strong">{o.rowCount}</div>
-                <div className="text-[11px] text-text-muted mb-2.5">estate rows</div>
-                <div className="text-[12.5px] leading-relaxed text-text-strong">
-                  Sale Avr: <strong>{fmtAvg(o.benchmark[0])}</strong>
-                  <br />
-                  MTD Avr: <strong>{fmtAvg(o.benchmark[1])}</strong>
-                  <br />
-                  YTD Avr: <strong>{fmtAvg(o.benchmark[2])}</strong>
-                </div>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  startIcon={<DownloadOutlinedIcon fontSize="small" />}
-                  sx={{ mt: 1.75, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-                  disabled={!o.buffer}
-                  onClick={() => o.buffer && triggerDownload(o.buffer, o.filename, xlsxType)}
-                >
-                  {o.buffer ? `Download ${o.filename}` : "Not generated"}
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  startIcon={pdfBusy === pdfNameOf(o.filename) ? <CircularProgress size={14} /> : <PictureAsPdfOutlinedIcon fontSize="small" />}
-                  sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-                  disabled={!o.buffer || pdfBusy !== null}
-                  aria-busy={pdfBusy === pdfNameOf(o.filename)}
-                  onClick={() => downloadFactPdf(o)}
-                >
-                  {pdfBusy === pdfNameOf(o.filename) ? "Building PDF…" : `PDF — ${pdfNameOf(o.filename)}`}
-                </Button>
-                <Warnings warnings={o.warnings} tone={o.ok ? "warning" : "danger"} />
-              </div>
-            ))}
-
-            {job.rankWorkbook && (
-              <div
-                className="border rounded-lg bg-surface p-4"
-                style={{ borderColor: job.rankWorkbook.ok ? "var(--brass)" : "var(--border)" }}
-              >
-                <div className="text-[11px] font-medium text-text-muted">RANK FAC (combined)</div>
-                <div className="font-display text-2xl font-bold text-text-strong">5</div>
-                <div className="text-[11px] text-text-muted mb-2.5">sheets — WM, Sheet1, WH, UM, UH</div>
-                <div className="text-[12.5px] leading-relaxed text-text-strong">
-                  Sheet1 is a raw copy of the WES file; each category tab lists only estates that sold this week, ranked, with a DEF
-                  +/- vs the month-todate benchmark.
-                </div>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  startIcon={<DownloadOutlinedIcon fontSize="small" />}
-                  sx={{ mt: 1.75, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-                  disabled={!job.rankWorkbook.buffer}
-                  onClick={() => job.rankWorkbook?.buffer && triggerDownload(job.rankWorkbook.buffer, job.rankWorkbook.filename!, xlsxType)}
-                >
-                  {job.rankWorkbook.buffer ? `Download ${job.rankWorkbook.filename}` : "Not generated"}
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  startIcon={
-                    job.rankWorkbook.filename && pdfBusy === pdfNameOf(job.rankWorkbook.filename) ? (
-                      <CircularProgress size={14} />
-                    ) : (
-                      <PictureAsPdfOutlinedIcon fontSize="small" />
-                    )
-                  }
-                  sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-                  disabled={!job.rankWorkbook.buffer || pdfBusy !== null}
-                  aria-busy={!!job.rankWorkbook.filename && pdfBusy === pdfNameOf(job.rankWorkbook.filename)}
-                  onClick={downloadRankPdf}
-                >
-                  {job.rankWorkbook.filename && pdfBusy === pdfNameOf(job.rankWorkbook.filename)
-                    ? "Building PDF…"
-                    : `PDF — category tabs (Sheet1 excluded)`}
-                </Button>
-                <Warnings warnings={job.rankWarnings} tone={job.rankWorkbook.ok ? "warning" : "danger"} />
-              </div>
-            )}
-
-            {(
-              [
-                {
-                  variant: "rank" as const,
-                  wbk: job.lowRankWorkbook,
-                  rows: job.lowRankRows,
-                  label: "RANK WISE (LOW)",
-                  blurb: "The WES file's LOW block ranked by month-todate rank, with the LOW-ORTHODOX benchmarks and a DEF +/- formula per row.",
-                },
-                {
-                  variant: "mark" as const,
-                  wbk: job.lowMarkWorkbook,
-                  rows: job.lowMarkRows,
-                  label: "MARK WISE (LOW)",
-                  blurb: "The same LOW sheet sorted alphabetically by factory name — identical data to RANK WISE, different row order.",
-                },
-              ]
-            ).map(({ variant, wbk, rows, label, blurb }) =>
-              wbk ? (
-                <div key={variant} className="border rounded-lg bg-surface p-4" style={{ borderColor: wbk.ok ? "var(--brass)" : "var(--border)" }}>
-                  <div className="text-[11px] font-medium text-text-muted">{label}</div>
-                  <div className="font-display text-2xl font-bold text-text-strong">{rows.length}</div>
-                  <div className="text-[11px] text-text-muted mb-2.5">factory rows</div>
-                  <div className="text-[12.5px] leading-relaxed text-text-strong">
-                    {blurb}
+                eyebrow={o.category}
+                count={o.rowCount}
+                countLabel="estate rows"
+                ok={o.ok}
+                hasBuffer={!!o.buffer}
+                downloadLabel={`Download ${o.filename}`}
+                onDownload={() => o.buffer && triggerDownload(o.buffer, o.filename, xlsxType)}
+                pdfName={pdfNameOf(o.filename)}
+                pdfLabel={`PDF — ${pdfNameOf(o.filename)}`}
+                pdfBusy={pdfBusy}
+                onPdf={() => downloadFactPdf(o)}
+                warnings={o.warnings}
+                description={
+                  <>
+                    Sale Avr: <strong>{fmtAvg(o.benchmark[0])}</strong>
                     <br />
-                    Weekly Avg: <strong>{fmtAvg(job.lowBenchmark[0])}</strong> · MTD Avg: <strong>{fmtAvg(job.lowBenchmark[1])}</strong>
-                  </div>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    size="small"
-                    startIcon={<DownloadOutlinedIcon fontSize="small" />}
-                    sx={{ mt: 1.75, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-                    disabled={!wbk.buffer}
-                    onClick={() => wbk.buffer && triggerDownload(wbk.buffer, wbk.filename!, xlsxType)}
-                  >
-                    {wbk.buffer ? `Download ${wbk.filename}` : "Not generated"}
-                  </Button>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    size="small"
-                    startIcon={
-                      wbk.filename && pdfBusy === pdfNameOf(wbk.filename) ? <CircularProgress size={14} /> : <PictureAsPdfOutlinedIcon fontSize="small" />
-                    }
-                    sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-                    disabled={!wbk.buffer || pdfBusy !== null}
-                    aria-busy={!!wbk.filename && pdfBusy === pdfNameOf(wbk.filename)}
-                    onClick={() => downloadLowPdf(variant)}
-                  >
-                    {wbk.filename && pdfBusy === pdfNameOf(wbk.filename) ? "Building PDF…" : `PDF — ${wbk.filename ? pdfNameOf(wbk.filename) : "…"}`}
-                  </Button>
-                  <Warnings warnings={job.lowWarnings} tone={wbk.ok ? "warning" : "danger"} />
-                </div>
-              ) : null
-            )}
+                    MTD Avr: <strong>{fmtAvg(o.benchmark[1])}</strong>
+                    <br />
+                    YTD Avr: <strong>{fmtAvg(o.benchmark[2])}</strong>
+                  </>
+                }
+              />
+            ))}
           </div>
 
-          {anyBuffers && (
-            <Button variant="contained" startIcon={<FolderZipOutlinedIcon fontSize="small" />} onClick={downloadAllZip} disabled={zipping}>
-              {zipping ? "Building ZIP…" : "Download all as ZIP"}
-            </Button>
+          {job.rankWorkbook && (
+            <>
+              <SectionLabel>Combined RANK workbook</SectionLabel>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                <ResultCard
+                  eyebrow="RANK FAC (combined)"
+                  count={5}
+                  countLabel="sheets — WM, Sheet1, WH, UM, UH"
+                  ok={job.rankWorkbook.ok}
+                  hasBuffer={!!job.rankWorkbook.buffer}
+                  downloadLabel={`Download ${job.rankWorkbook.filename}`}
+                  onDownload={() => job.rankWorkbook?.buffer && triggerDownload(job.rankWorkbook.buffer, job.rankWorkbook.filename!, xlsxType)}
+                  pdfName={job.rankWorkbook.filename ? pdfNameOf(job.rankWorkbook.filename) : null}
+                  pdfLabel="PDF — category tabs (Sheet1 excluded)"
+                  pdfBusy={pdfBusy}
+                  onPdf={downloadRankPdf}
+                  warnings={job.rankWarnings}
+                  description="Sheet1 is a raw copy of the WES file; each category tab lists only estates that sold this week, ranked, with a DEF +/- vs the month-todate benchmark."
+                />
+              </div>
+            </>
+          )}
+
+          {(job.lowRankWorkbook || job.lowMarkWorkbook) && (
+            <>
+              <SectionLabel>LOW RANK/MARK WISE workbooks</SectionLabel>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                {(
+                  [
+                    {
+                      variant: "rank" as const,
+                      wbk: job.lowRankWorkbook,
+                      rows: job.lowRankRows,
+                      label: "RANK WISE (LOW)",
+                      blurb: "The WES file's LOW block ranked by month-todate rank, with the LOW-ORTHODOX benchmarks and a DEF +/- formula per row.",
+                    },
+                    {
+                      variant: "mark" as const,
+                      wbk: job.lowMarkWorkbook,
+                      rows: job.lowMarkRows,
+                      label: "MARK WISE (LOW)",
+                      blurb: "The same LOW sheet sorted alphabetically by factory name — identical data to RANK WISE, different row order.",
+                    },
+                  ]
+                ).map(({ variant, wbk, rows, label, blurb }) =>
+                  wbk ? (
+                    <ResultCard
+                      key={variant}
+                      eyebrow={label}
+                      count={rows.length}
+                      countLabel="factory rows"
+                      ok={wbk.ok}
+                      hasBuffer={!!wbk.buffer}
+                      downloadLabel={`Download ${wbk.filename}`}
+                      onDownload={() => wbk.buffer && triggerDownload(wbk.buffer, wbk.filename!, xlsxType)}
+                      pdfName={wbk.filename ? pdfNameOf(wbk.filename) : null}
+                      pdfLabel={`PDF — ${wbk.filename ? pdfNameOf(wbk.filename) : "…"}`}
+                      pdfBusy={pdfBusy}
+                      onPdf={() => downloadLowPdf(variant)}
+                      warnings={job.lowWarnings}
+                      description={
+                        <>
+                          {blurb}
+                          <br />
+                          Weekly Avg: <strong>{fmtAvg(job.lowBenchmark[0])}</strong> · MTD Avg: <strong>{fmtAvg(job.lowBenchmark[1])}</strong>
+                        </>
+                      }
+                    />
+                  ) : null
+                )}
+              </div>
+            </>
           )}
         </>
       ) : (
         <div className="text-center py-16 text-text-muted border border-dashed border-border rounded-lg">
-          No reports generated yet. Upload the CBAC TXT report and the WES master file, then click &quot;Generate reports&quot;.
+          No reports generated yet. Provide the CBAC TXT report and the WES data, then click &quot;Generate reports&quot;.
         </div>
       )}
     </div>

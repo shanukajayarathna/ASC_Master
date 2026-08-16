@@ -1,4 +1,6 @@
 using Asc.Api.Data;
+using Microsoft.Extensions.Caching.Memory;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Asc.Api.Modules.Msl;
@@ -43,11 +45,26 @@ public record WesEquivalentDto(
 ///     (verified: HAVENWEWA/MFD0878 sells almost entirely WESTERN MEDIUM tea but a 5,000kg
 ///     LOW-classed lot in sale 30 still counts toward its WESTERN MEDIUM total). Home
 ///     elevation here is whichever category holds the factory's largest year-to-date
-///     quantity — computed once per request from the same year-window query already needed
-///     for the year-to-date figures, so no extra query is required.
+///     quantity.
+///
+/// The heavy lifting (matching + summing a whole year of lots — up to several hundred
+/// thousand documents by the back half of the year) runs as a MongoDB aggregation, grouped
+/// by (reporting factory code, elevation) server-side, the same way MslFilteredAnalyticsController's
+/// $facet pass does for the Analysis screen. Only one row per (factory, elevation) pair — a
+/// few hundred to a couple thousand, never the raw lot count — crosses the wire; the C# side
+/// then folds each factory's elevation sub-groups into its home elevation and does the
+/// (small, cheap) ranking pass. An earlier version pulled every raw lot into the app and
+/// grouped in LINQ: 5-27s for a single sale depending on how far into the year it fell, slow
+/// enough to be genuinely fragile (this machine can lose a long-running dotnet process under
+/// memory pressure — see [[docker-env-setup]]/ui-smoke-test-workflow) for what's meant to be
+/// a button click, not a background job. Results are additionally cached per
+/// (year, saleNo, DataVersion) like the rest of the MSL analytics layer, so a repeat request
+/// for the same sale is instant.
 /// </summary>
-public class MslWeeklyReportService(MongoContext db)
+public class MslWeeklyReportService(MongoContext db, MslImportService importer, IMemoryCache cache)
 {
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
+
     private static readonly Dictionary<string, string> ElevationNames = new()
     {
         ["11"] = "UVA HIGH",
@@ -57,12 +74,20 @@ public class MslWeeklyReportService(MongoContext db)
         ["31"] = "LOW",
     };
 
-    private sealed record LotProjection(string? MslCode, string FactoryCode, string? ElevationCode, string EstateName, decimal QuantityKg, decimal PriceRs);
+    public Task<WesEquivalentDto?> BuildAsync(int year, int saleNo, CancellationToken ct)
+    {
+        var key = $"msl:weeklyreport:wes:{importer.DataVersion}:{year}:{saleNo}";
+        return cache.GetOrCreateAsync(key, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
+            return await BuildUncachedAsync(year, saleNo, ct);
+        })!;
+    }
 
-    private static string ReportingFactoryCode(LotProjection l) =>
-        !string.IsNullOrEmpty(l.MslCode) && l.MslCode.Length > 2 ? l.MslCode[..^2] : l.FactoryCode;
+    private sealed record FactoryElevGroup(string Factory, string? Elevation, string Estate,
+        decimal Qty, decimal Val, decimal MonthQty, decimal MonthVal, decimal WeekQty, decimal WeekVal);
 
-    public async Task<WesEquivalentDto?> BuildAsync(int year, int saleNo, CancellationToken ct)
+    private async Task<WesEquivalentDto?> BuildUncachedAsync(int year, int saleNo, CancellationToken ct)
     {
         var saleDate = await db.AuctionLots
             .Find(l => l.SaleYear == year && l.SaleNo == saleNo)
@@ -75,50 +100,37 @@ public class MslWeeklyReportService(MongoContext db)
         var monthStart = new DateTime(saleDate.Year, saleDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var yearStart = new DateTime(saleDate.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        var ytdLots = await FetchSoldLots(yearStart, throughExclusive, ct);
-        if (ytdLots.Count == 0) warnings.Add("No sold lots found in the database for this year.");
-
-        var byFactory = ytdLots.GroupBy(ReportingFactoryCode).ToList();
-        var homeElevation = new Dictionary<string, string>();
-        var estateNameOf = new Dictionary<string, string>();
-        var yearFigure = new Dictionary<string, (decimal Qty, decimal Avg)?>();
-        foreach (var g in byFactory)
-        {
-            var byElev = g.Where(l => l.ElevationCode is not null && ElevationNames.ContainsKey(l.ElevationCode))
-                .GroupBy(l => l.ElevationCode!)
-                .Select(eg => (Elev: eg.Key, Qty: eg.Sum(x => x.QuantityKg)))
-                .OrderByDescending(x => x.Qty)
-                .ToList();
-            if (byElev.Count == 0) continue; // never appears in a known elevation category
-            homeElevation[g.Key] = byElev[0].Elev;
-            estateNameOf[g.Key] = g.GroupBy(l => l.EstateName).OrderByDescending(x => x.Count()).First().Key;
-            var qty = g.Sum(l => l.QuantityKg);
-            var val = g.Sum(l => l.QuantityKg * l.PriceRs);
-            yearFigure[g.Key] = (qty, Math.Round(val / qty, 2));
-        }
-
-        var monthLots = await FetchSoldLots(monthStart, throughExclusive, ct);
-        var monthFigure = AggregateByFactory(monthLots);
-
-        var weekLots = await db.AuctionLots
-            .Find(l => l.SaleYear == year && l.SaleNo == saleNo && l.Sold)
-            .Project(l => new LotProjection(l.MslCode, l.FactoryCode, l.ElevationCode, l.EstateName, l.QuantityKg, l.PriceRs))
-            .ToListAsync(ct);
-        var weekFigure = AggregateByFactory(weekLots);
+        var groups = await AggregateFactoryElevationsAsync(yearStart, throughExclusive, monthStart, saleNo, ct);
+        if (groups.Count == 0) warnings.Add("No sold lots found in the database for this year.");
 
         var rows = new Dictionary<string, List<(string Code, WesFactoryRowDto Row)>>();
         foreach (var name in ElevationNames.Values) rows[name] = [];
-        foreach (var (code, elev) in homeElevation)
+
+        foreach (var factoryGroup in groups.GroupBy(g => g.Factory))
         {
-            var w = weekFigure.GetValueOrDefault(code);
-            var m = monthFigure.GetValueOrDefault(code);
-            var y = yearFigure.GetValueOrDefault(code);
-            if (w is null && m is null && y is null) continue;
-            var row = new WesFactoryRowDto(
-                estateNameOf[code], code,
-                w?.Qty, w?.Avg, m?.Qty, m?.Avg, y?.Qty, y?.Avg,
-                null, null, null);
-            rows[ElevationNames[elev]].Add((code, row));
+            // Only sub-groups tagged with one of the 5 known elevation codes count toward a
+            // home elevation — an unrecognised/missing code on a stray lot shouldn't crown
+            // itself the winner just because nothing else claims that key.
+            var known = factoryGroup.Where(g => g.Elevation is not null && ElevationNames.ContainsKey(g.Elevation)).ToList();
+            if (known.Count == 0) continue;
+
+            var home = known.OrderByDescending(g => g.Qty).First();
+            var qty = known.Sum(g => g.Qty);
+            var val = known.Sum(g => g.Val);
+            var monthQty = known.Sum(g => g.MonthQty);
+            var monthVal = known.Sum(g => g.MonthVal);
+            var weekQty = known.Sum(g => g.WeekQty);
+            var weekVal = known.Sum(g => g.WeekVal);
+
+            decimal? YAvg() => qty > 0 ? Math.Round(val / qty, 2) : null;
+            decimal? MAvg() => monthQty > 0 ? Math.Round(monthVal / monthQty, 2) : null;
+            decimal? WAvg() => weekQty > 0 ? Math.Round(weekVal / weekQty, 2) : null;
+
+            decimal? yQty = qty > 0 ? qty : null, mQty = monthQty > 0 ? monthQty : null, wQty = weekQty > 0 ? weekQty : null;
+            if (wQty is null && mQty is null && yQty is null) continue;
+
+            var row = new WesFactoryRowDto(home.Estate, factoryGroup.Key, wQty, WAvg(), mQty, MAvg(), yQty, YAvg(), null, null, null);
+            rows[ElevationNames[home.Elevation!]].Add((factoryGroup.Key, row));
         }
 
         var categories = new Dictionary<string, List<WesFactoryRowDto>>();
@@ -127,12 +139,16 @@ public class MslWeeklyReportService(MongoContext db)
             var weekRank = DenseRank(catRows, r => r.Row.WeekAvgRs);
             var monthRank = DenseRank(catRows, r => r.Row.MonthAvgRs);
             var yearRank = DenseRank(catRows, r => r.Row.YearAvgRs);
+            // Dictionary<,>.GetValueOrDefault returns 0 (a real rank!) for a missing key, not
+            // null — a row with no figure for a period must come back with no rank for it,
+            // so this has to be a real TryGetValue, not the shorthand.
+            static int? RankOf(Dictionary<string, int> ranks, string code) => ranks.TryGetValue(code, out var r) ? r : null;
             categories[catName] = catRows
                 .Select(r => r.Row with
                 {
-                    WeekRank = weekRank.GetValueOrDefault(r.Code),
-                    MonthRank = monthRank.GetValueOrDefault(r.Code),
-                    YearRank = yearRank.GetValueOrDefault(r.Code),
+                    WeekRank = RankOf(weekRank, r.Code),
+                    MonthRank = RankOf(monthRank, r.Code),
+                    YearRank = RankOf(yearRank, r.Code),
                 })
                 .ToList();
         }
@@ -140,19 +156,66 @@ public class MslWeeklyReportService(MongoContext db)
         return new WesEquivalentDto(saleNo, saleDate, categories, warnings);
     }
 
-    private async Task<List<LotProjection>> FetchSoldLots(DateTime from, DateTime toExclusive, CancellationToken ct) =>
-        await db.AuctionLots
-            .Find(l => l.SaleDate >= from && l.SaleDate < toExclusive && l.Sold)
-            .Project(l => new LotProjection(l.MslCode, l.FactoryCode, l.ElevationCode, l.EstateName, l.QuantityKg, l.PriceRs))
-            .ToListAsync(ct);
-
-    private static Dictionary<string, (decimal Qty, decimal Avg)?> AggregateByFactory(IEnumerable<LotProjection> lots) =>
-        lots.GroupBy(ReportingFactoryCode).ToDictionary(g => g.Key, g =>
+    /// <summary>One row per (reporting factory code, elevation) pair for the year window —
+    /// the MSL-code-minus-region-suffix computation (see class doc comment #1) runs as a
+    /// $substrBytes so the grouping key itself never has to leave MongoDB.</summary>
+    private async Task<List<FactoryElevGroup>> AggregateFactoryElevationsAsync(
+        DateTime yearStart, DateTime throughExclusive, DateTime monthStart, int saleNo, CancellationToken ct)
+    {
+        var factoryCodeExpr = new BsonDocument("$cond", new BsonArray
         {
-            var qty = g.Sum(l => l.QuantityKg);
-            var val = g.Sum(l => l.QuantityKg * l.PriceRs);
-            return ((decimal Qty, decimal Avg)?)(qty, Math.Round(val / qty, 2));
+            new BsonDocument("$and", new BsonArray
+            {
+                new BsonDocument("$ne", new BsonArray { "$mc", BsonNull.Value }),
+                new BsonDocument("$gt", new BsonArray
+                {
+                    new BsonDocument("$strLenBytes", new BsonDocument("$ifNull", new BsonArray { "$mc", "" })), 2,
+                }),
+            }),
+            new BsonDocument("$substrBytes", new BsonArray
+            {
+                "$mc", 0, new BsonDocument("$subtract", new BsonArray { new BsonDocument("$strLenBytes", "$mc"), 2 }),
+            }),
+            "$f",
         });
+
+        BsonDocument SumIf(BsonDocument cond, BsonValue whenTrue) =>
+            new("$sum", new BsonDocument("$cond", new BsonArray { cond, whenTrue, 0 }));
+
+        var isThisMonth = new BsonDocument("$gte", new BsonArray { "$d", monthStart });
+        var isThisSale = new BsonDocument("$eq", new BsonArray { "$s", saleNo });
+        var qtyPrice = new BsonDocument("$multiply", new BsonArray { "$q", "$p" });
+
+        var stages = new List<BsonDocument>
+        {
+            new("$match", new BsonDocument { ["d"] = new BsonDocument { ["$gte"] = yearStart, ["$lt"] = throughExclusive }, ["so"] = true }),
+            new("$addFields", new BsonDocument("fac", factoryCodeExpr)),
+            new("$group", new BsonDocument
+            {
+                ["_id"] = new BsonDocument { ["fac"] = "$fac", ["el"] = "$el" },
+                ["estate"] = new BsonDocument("$first", "$e"),
+                ["qty"] = new BsonDocument("$sum", "$q"),
+                ["val"] = new BsonDocument("$sum", qtyPrice),
+                ["monthQty"] = SumIf(isThisMonth, "$q"),
+                ["monthVal"] = SumIf(isThisMonth, qtyPrice),
+                ["weekQty"] = SumIf(isThisSale, "$q"),
+                ["weekVal"] = SumIf(isThisSale, qtyPrice),
+            }),
+        };
+
+        var docs = await db.AuctionLots.Aggregate<BsonDocument>(stages, new AggregateOptions { AllowDiskUse = true }, ct).ToListAsync(ct);
+        return docs.Select(d =>
+        {
+            var id = d["_id"].AsBsonDocument;
+            var elev = id.TryGetValue("el", out var elVal) && !elVal.IsBsonNull ? elVal.AsString : null;
+            var estate = d.TryGetValue("estate", out var estVal) && !estVal.IsBsonNull ? estVal.AsString : "";
+            return new FactoryElevGroup(
+                id["fac"].AsString, elev, estate,
+                d["qty"].ToDecimal(), d["val"].ToDecimal(),
+                d["monthQty"].ToDecimal(), d["monthVal"].ToDecimal(),
+                d["weekQty"].ToDecimal(), d["weekVal"].ToDecimal());
+        }).ToList();
+    }
 
     /// <summary>Dense rank by average price descending — ties share a rank, next rank
     /// resumes at the row count (matches Excel/the archive's own rank column).</summary>
