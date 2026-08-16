@@ -15,7 +15,12 @@ namespace Asc.Api.Modules.Assistant;
 /// </summary>
 public class AiGateway(IEnumerable<IChatProvider> providers, IAiUsageLogger usageLogger, ILogger<AiGateway> logger)
 {
-    private const string DefaultProviderKey = "openai";
+    // "local" (Ollama) is the standing default while the company runs on free hosted tiers
+    // (Gemini/Groq) that are quota-constrained and OpenAI isn't configured yet — it's the one
+    // provider with zero per-token cost and no external quota, so an unspecified/"auto" request
+    // never fails just because a caller forgot to pick one. Once OpenAI is configured, this is
+    // the one line to flip.
+    private const string DefaultProviderKey = "local";
 
     public IReadOnlyList<ProviderStatusDto> GetStatuses() => providers
         .Select(p => new ProviderStatusDto(p.Key, p.DisplayName, p.IsConfigured ? p.Model : null, p.IsConfigured))

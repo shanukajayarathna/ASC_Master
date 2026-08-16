@@ -1,16 +1,17 @@
 "use client";
 
-import AnalyticsChat from "@/components/analytics/AnalyticsChat";
+import FloatingAnalyticsChat from "@/components/analytics/FloatingAnalyticsChat";
 import BarChart from "@/components/analytics/BarChart";
 import FilterPanel from "@/components/analytics/FilterPanel";
 import MarketAnalytics from "@/components/analytics/MarketAnalytics";
+import ReportsLauncher from "@/components/analytics/ReportsLauncher";
 import KpiSection from "@/components/dashboard/KpiSection";
 import KpiTile from "@/components/dashboard/KpiTile";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classificationBadge";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import type { DataQuality, FilteredAnalytics, MslAnalyticsFilter, MslFilterOptions, OverviewStats, ReportGroupRow, SaleSummary, TopBottomLot } from "@/types/api";
+import type { DataQuality, FilteredAnalytics, MslAnalyticsFilter, MslFilterOptions, OverviewStats, ReportGroupRow, TopBottomLot } from "@/types/api";
 import PageHeader from "@/components/shared/PageHeader";
 import { SkeletonCard, SkeletonRows } from "@/components/shared/SkeletonBlock";
 import TeaLoader from "@/components/shared/TeaLoader";
@@ -133,7 +134,12 @@ function ValuationAnalysis() {
       )}
 
       {activeCatalogueId && loading && !overview && (
-        <div aria-busy="true" className="flex flex-col gap-4">
+        <div aria-busy="true" className="relative flex flex-col gap-4">
+          <div className="absolute inset-0 z-10 flex flex-col items-center pt-24 gap-3"
+            style={{ backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", background: "color-mix(in srgb, var(--paper-0) 35%, transparent)" }}>
+            <TeaLoader size={64} />
+            <span className="text-[13px] font-medium text-text-strong">Brewing the valuation analysis…</span>
+          </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             {Array.from({ length: 8 }).map((_, i) => (
               <SkeletonCard key={i} height={70} />
@@ -305,6 +311,7 @@ export default function AnalysisPage() {
   const [mode, setMode] = useState<"post" | "pre" | "valuations">("post");
   const [filter, setFilter] = useState<MslAnalyticsFilter>({});
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<FilteredAnalytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -340,12 +347,9 @@ export default function AnalysisPage() {
         if (latest) setFilter({ years: [latest.year], saleNos: [latest.saleNo] });
       })
       .catch((e) => setSalesError(e instanceof Error ? e.message : "Couldn't load the sales list"));
-    api.mslFilterOptions().then(setFilterOptions).catch(() => {});
+    api.mslFilterOptions().then(setFilterOptions).catch((e) => setOptionsError(e instanceof Error ? e.message : "Couldn't load filter options"));
   }, []);
 
-  // The chatbot's "this sale" context follows the filtration panel's selection.
-  const chatYear = filter.years?.[0] ?? new Date().getFullYear();
-  const chatSale = filter.saleNos?.[0] ?? 0;
   const marketReady = filter.years !== undefined;
 
   return (
@@ -364,26 +368,61 @@ export default function AnalysisPage() {
       </div>
 
       {mode === "valuations" ? (
-        <ValuationAnalysis />
+        <div key="valuations" className="fade-in-soft"><ValuationAnalysis /></div>
       ) : salesError ? (
         <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
           {salesError} — has the MSL archive been imported?
         </div>
-      ) : !marketReady ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-24" role="status" aria-live="polite">
+      ) : optionsError && !filterOptions ? (
+        <div className="mb-4 p-3 rounded border border-danger bg-danger-light text-[13px] text-liquor-dark flex items-center gap-3">
+          Filter panel failed to load ({optionsError}).
+          <button
+            className="underline font-medium"
+            onClick={() => {
+              setOptionsError(null);
+              api.mslFilterOptions().then(setFilterOptions).catch((e) => setOptionsError(e instanceof Error ? e.message : "Couldn't load filter options"));
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : !marketReady || !filterOptions || !analytics ? (
+        /* One unified arrival state: nothing appears piecemeal — the cup holds the whole
+           page (filtration panel included) until filters AND data are both ready. */
+        <div className="flex flex-col items-center justify-center gap-3 py-28" role="status" aria-live="polite">
           <TeaLoader size={72} />
-          <p className="text-[13px] text-text-muted m-0">Brewing your analysis…</p>
+          <p className="text-[13.5px] font-medium text-text-strong m-0">Brewing your analysis…</p>
+          <p className="text-[11.5px] text-text-muted m-0">filters, dashboards and reports load together</p>
         </div>
       ) : (
         <>
-          {filterOptions && (
-            <FilterPanel options={filterOptions} available={analytics?.available ?? null} filter={filter} onChange={setFilter} />
-          )}
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <MarketAnalytics data={analytics} loading={analyticsLoading} error={analyticsError} mode={mode} />
-            <div className="xl:sticky xl:top-4 self-start w-full">
-              <AnalyticsChat year={chatYear} saleNo={chatSale} />
+          <FilterPanel options={filterOptions} available={analytics?.available ?? null} filter={filter} onChange={setFilter} />
+          <div className="relative">
+            {/* Whole-results blur while a filter change loads: the previous page stays
+                visible but frosted, the brewing cup marks the work — nothing looks frozen
+                and nothing half-filtered is clickable. */}
+            {analyticsLoading && (
+              <div
+                className="absolute inset-0 z-20 flex items-start justify-center rounded-md"
+                role="status"
+                aria-live="polite"
+                style={{
+                  backdropFilter: "blur(3px)",
+                  WebkitBackdropFilter: "blur(3px)",
+                  background: "color-mix(in srgb, var(--paper-0) 35%, transparent)",
+                }}
+              >
+                <div className="sticky top-40 flex flex-col items-center gap-3 pt-40 pb-10">
+                  <TeaLoader size={68} />
+                  <span className="text-[13px] font-medium text-text-strong">Filtering… brewing the full page</span>
+                </div>
+              </div>
+            )}
+            <div key={mode} className="flex flex-col gap-4 min-w-0 fade-in-soft">
+              <MarketAnalytics data={analytics} error={analyticsError} mode={mode} options={filterOptions} />
+              <ReportsLauncher filter={filter} />
             </div>
+            <FloatingAnalyticsChat filter={filter} />
           </div>
         </>
       )}

@@ -31,6 +31,7 @@
    ===================================================================== */
 
 import ExcelJS from "exceljs";
+import type { WesEquivalentApi } from "@/types/api";
 
 // ---- TXT PARSER — mirrors tea_report_app/core/txt_parser.py -------------------------------
 
@@ -756,13 +757,20 @@ async function buildRankCategorySheet(
 
 /** Sheet1 is a straight copy (values + column widths only — this tab is a working reference,
  *  not a client-facing report) of the WES master sheet the four category tabs above are built
- *  from, matching the manually-built workbooks this was reverse engineered from. */
-async function buildRankSheet1(targetWb: ExcelJS.Workbook, wesArrayBuffer: ArrayBuffer): Promise<void> {
+ *  from, matching the manually-built workbooks this was reverse engineered from. When the WES
+ *  data came from the database rather than an uploaded file (see runJob's WesInput), there's
+ *  no source workbook to copy — the tab gets a short note instead so the workbook still opens
+ *  with its usual 5 sheets. */
+async function buildRankSheet1(targetWb: ExcelJS.Workbook, wesArrayBuffer: ArrayBuffer | null): Promise<void> {
+  const ws = targetWb.addWorksheet("Sheet1");
+  if (wesArrayBuffer === null) {
+    ws.getCell(1, 1).value = "Generated from the ASC database — no source WES file to copy here.";
+    return;
+  }
   const srcWb = new ExcelJS.Workbook();
   await srcWb.xlsx.load(wesArrayBuffer);
   const srcWs = srcWb.worksheets[0];
 
-  const ws = targetWb.addWorksheet("Sheet1");
   srcWs.columns.forEach((col, idx) => {
     if (col && col.width) ws.getColumn(idx + 1).width = col.width;
   });
@@ -795,7 +803,7 @@ export interface RankWorkbookResult {
 async function buildRankWorkbook(opts: {
   txtReport: TxtReport;
   wesReport: WesReport;
-  wesArrayBuffer: ArrayBuffer;
+  wesArrayBuffer: ArrayBuffer | null;
   rankHeaderText: string;
   saleLabel: string;
   year: string;
@@ -823,6 +831,161 @@ async function buildRankWorkbook(opts: {
   const filename = `RANK FAC${saleLabel}${year}.xlsx`;
   const buffer = await wb.xlsx.writeBuffer();
   return { filename, buffer: buffer as ArrayBuffer, warnings };
+}
+
+// ---- LOW "RANK WISE" / "MARK WISE" WORKBOOK BUILDER ---------------------------------------
+// Two more weekly outputs, reverse engineered from the hand-built "RANK WISE SALE NO 0NN.xlsx"
+// and "MARK WISE SALE NO 0NN.xlsx" archives (sales 30/31 of 2026): both are the SAME single
+// "LOW FAC-{sale}" sheet — the RANK-tab layout (B Factory, C MF code, D/E/F Weekly qty/avg/
+// rank, G/H Month-todate qty/avg, I DEF +/- as a live =H{r}-$J$11 formula, J month-todate
+// rank) applied to the WES file's LOW block, with the benchmarks (J10/J11) from the TXT's
+// "SUMMARY OF LOW-OTHODOX" section — differing ONLY in row order: RANK WISE sorts by
+// month-todate rank, MARK WISE alphabetically by factory name. Row membership matches the
+// RANK tabs' rule (only estates holding a month-todate rank; verified: the 36 WES LOW rows
+// without one are exactly the rows absent from both archives). MF codes are written with
+// their internal whitespace stripped ("MF 1387  " -> "MF1387"), unlike every other report —
+// verified across both archive sales. The template is the real sale-30 RANK WISE file
+// verbatim (same approach as the FACT templates); only its data band is replaced. Its
+// second tab, a near-empty "Sheet1" holding just the company logo, is preserved untouched —
+// replicating the archives exactly (confirmed choice) rather than copying the WES master in
+// like the combined RANK FAC workbook does.
+
+const LOW_TEMPLATE_URL = "/templates/low/low-wise.xlsx";
+const LOW_DATA_START_ROW = 18;
+const LOW_DATA_COLS = [2, 3, 4, 5, 6, 7, 8, 9, 10]; // B..J
+// Below-average rows in the archives carry NO fill at all (patternType absent) with a red
+// font — unlike the RANK FAC tabs' explicit white fill. Above-average rows keep the exact
+// fill captured from the template's own row 18 (theme 0, tint -0.25 — a light grey), so the
+// theme-based color round-trips untouched instead of being approximated with a literal ARGB.
+const LOW_BELOW_FONT = "FFFF0000";
+
+/** Excel's default A→Z text sort — which the MARK WISE archives were built with — ignores
+ *  hyphens and apostrophes when comparing text ("COOLBAWN TEA PLANTATIONS" sorts before
+ *  "CO-OP LANKA", verified in both archive sales; a plain string compare puts them the other
+ *  way around). Same row membership as rankSortRows: only estates holding a month-todate
+ *  rank. */
+function markSortKey(estate: string): string {
+  return estate.toUpperCase().replace(/[-']/g, "");
+}
+
+function markSortRows(rows: WesRow[]): WesRow[] {
+  return rows
+    .filter((r) => typeof r.month_rank === "number" && isFinite(r.month_rank))
+    .slice()
+    .sort((a, b) => {
+      const ka = markSortKey(a.estate);
+      const kb = markSortKey(b.estate);
+      if (ka !== kb) return ka < kb ? -1 : 1;
+      // Two factories can share a name (LANTERN HILL runs under MF1235 and MFB0416) — the
+      // archives break that tie by MF code ascending, in both sales, so this does too.
+      const ca = a.code.replace(/\s+/g, "");
+      const cb = b.code.replace(/\s+/g, "");
+      return ca < cb ? -1 : ca > cb ? 1 : 0;
+    });
+}
+
+async function buildLowWiseWorkbook(opts: {
+  /** Already filtered/sorted for the variant being built, codes already whitespace-stripped. */
+  rows: WesRow[];
+  benchmark: [number | null, number | null];
+  headerText: string;
+  saleNumber: number | null;
+}): Promise<{ buffer: ArrayBuffer }> {
+  const { rows, benchmark, headerText, saleNumber } = opts;
+  const [saleAvg, mtdAvg] = benchmark;
+
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await loadTemplate(LOW_TEMPLATE_URL));
+  const ws = wb.worksheets[0]; // the "LOW FAC-30" tab; Sheet1 rides along untouched
+  const origRowCount = ws.rowCount;
+
+  ws.name = `LOW FAC-${saleNumber != null ? saleNumber : "X"}`;
+  if (headerText) ws.getCell(4, 3).value = headerText;
+  ws.getCell(10, 10).value = saleAvg;
+  ws.getCell(11, 10).value = mtdAvg;
+
+  // Row 18 of the template is an above-average data row — its per-column style (border, number
+  // format, the theme-based grey fill) is the master copy for every row written below.
+  const styleSource: CapturedStyle[] = LOW_DATA_COLS.map((c) => {
+    const src = ws.getCell(LOW_DATA_START_ROW, c);
+    return { font: cloneStyle(src.font), border: cloneStyle(src.border), alignment: cloneStyle(src.alignment), numFmt: src.numFmt, fill: cloneStyle(src.fill) };
+  });
+
+  const lastDataRow = LOW_DATA_START_ROW + rows.length - 1;
+  const clearThrough = Math.max(origRowCount, lastDataRow);
+  clearRowBand(ws, LOW_DATA_START_ROW, clearThrough, 23);
+  // The archives end exactly at their last data row (no styled tail below it) — so rows the
+  // template's own longer data band occupied past the new extent are stripped back to a plain
+  // blank style, not just blank values.
+  for (let r = lastDataRow + 1; r <= clearThrough; r++) {
+    LOW_DATA_COLS.forEach((c) => {
+      ws.getCell(r, c).style = {} as ExcelJS.Style;
+    });
+  }
+
+  rows.forEach((row, offset) => {
+    const r = LOW_DATA_START_ROW + offset;
+    // Same ToNumber note as buildRankCategorySheet: rows here always hold a month-todate rank,
+    // so month_avg is numeric in practice; Number() is for TypeScript's benefit.
+    const defVal = row.month_avg != null && mtdAvg != null ? Number(row.month_avg) - mtdAvg : null;
+    const above = defVal != null && Number.isFinite(defVal) ? defVal >= 0 : true;
+    // DEF +/- is a live formula in the archives (=H{r}-$J$11), not a baked value like the RANK
+    // FAC tabs — the cached result rides along so Excel shows it without needing a recalc.
+    const defCell: ExcelJS.CellValue =
+      defVal != null && Number.isFinite(defVal) ? { formula: `H${r}-$J$11`, result: defVal } : { formula: `H${r}-$J$11` };
+    const cells: (RawValue | ExcelJS.CellValue)[] = [row.estate, row.code, row.week_qty, row.week_avg, row.week_rank, row.month_qty, row.month_avg, defCell, row.month_rank];
+    LOW_DATA_COLS.forEach((c, idx) => {
+      const cell = ws.getCell(r, c);
+      const style = cloneStyle(styleSource[idx]) as ExcelJS.Style;
+      if (!above) {
+        delete (style as Partial<ExcelJS.Style>).fill;
+        style.font = { ...(style.font || {}), color: { argb: LOW_BELOW_FONT } };
+      }
+      cell.style = style;
+      cell.value = cells[idx] as ExcelJS.CellValue;
+    });
+  });
+
+  // Same print treatment as the RANK FAC category tabs (see buildRankCategorySheet's comment):
+  // A4, all columns pinned to one page width, column-title rows repeated on every page.
+  ws.pageSetup = {
+    paperSize: 9, // A4
+    orientation: "portrait",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: { left: 0.35, right: 0.35, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    printTitlesRow: "16:17",
+    printArea: `A1:J${Math.max(LOW_DATA_START_ROW, lastDataRow)}`,
+  };
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return { buffer: buffer as ArrayBuffer };
+}
+
+/** Best-effort default for the LOW workbooks' C4 date-range header — the archives show a
+ *  consistent " Sale No. {N} - {d-1}th  / {d}th  {MONTH} {YEAR}" shape (leading space,
+ *  zero-padded days, lowercase ordinals, double spaces, month spelled out in caps — e.g.
+ *  " Sale No. 31 - 11th  / 12th  AUGUST 2026"), but like the RANK FAC header it's typed by
+ *  hand each week, so the field stays user-editable. */
+export function computeDefaultLowHeaderText(saleDate: string | null, saleNumber: number | null): string {
+  if (!saleDate || saleNumber == null) return "";
+  const [dd, mm, yyyy] = saleDate.split("/").map(Number);
+  if (!dd || !mm || !yyyy) return "";
+  const saleDay = new Date(yyyy, mm - 1, dd);
+  const prevDay = new Date(saleDay);
+  prevDay.setDate(prevDay.getDate() - 1);
+  const ordinal = (n: number) => {
+    const h = n % 100;
+    if (h >= 11 && h <= 13) return "th";
+    return n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
+  };
+  const day = (d: Date) => `${String(d.getDate()).padStart(2, "0")}${ordinal(d.getDate())}`;
+  // Both archive sales ran inside one month; when a sale straddles a month boundary the first
+  // day carries its own month name so the range still reads correctly.
+  const crossMonth = prevDay.getMonth() !== saleDay.getMonth() ? ` ${MONTH_NAMES[prevDay.getMonth()]}` : "";
+  return ` Sale No. ${saleNumber} - ${day(prevDay)}${crossMonth}  / ${day(saleDay)}  ${MONTH_NAMES[saleDay.getMonth()]} ${saleDay.getFullYear()}`;
 }
 
 // ---- PIPELINE — mirrors tea_report_app/core/pipeline.py -----------------------------------
@@ -866,6 +1029,19 @@ export interface WeeklyJobResult {
   rankTabs: RankTabData[];
   rankHeaderText: string;
   rankWarnings: string[];
+  /** The LOW-grown "RANK WISE SALE NO 0NN.xlsx" workbook (LOW block ranked by month-todate
+   *  rank) and its alphabetical twin "MARK WISE SALE NO 0NN.xlsx" — same sheet, same data,
+   *  different row order. */
+  lowRankWorkbook: { filename: string | null; buffer: ArrayBuffer | null; ok: boolean } | null;
+  lowMarkWorkbook: { filename: string | null; buffer: ArrayBuffer | null; ok: boolean } | null;
+  /** Rows exactly as written to each workbook (same filter/sort/code-stripping) — the PDF
+   *  mirrors render from these, same contract as sortedRows/rankTabs. */
+  lowRankRows: WesRow[];
+  lowMarkRows: WesRow[];
+  /** [sale avg, month-todate avg] from the TXT's LOW-OTHODOX section (J10/J11). */
+  lowBenchmark: [number | null, number | null];
+  lowHeaderText: string;
+  lowWarnings: string[];
   warnings: string[];
 }
 
@@ -876,6 +1052,10 @@ export interface SaleOverrides {
    *  — see computeDefaultRankHeaderText's own comment for why this can't be auto-generated with
    *  full confidence and is offered as an editable field instead. */
   rankHeaderText?: string;
+  /** The LOW RANK/MARK WISE workbooks' C4 date-range header (e.g. " Sale No. 31 - 11th  /
+   *  12th  AUGUST 2026") — hand-typed each week like the RANK one, so equally editable; see
+   *  computeDefaultLowHeaderText. */
+  lowHeaderText?: string;
 }
 
 const MONTH_NAMES = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
@@ -899,14 +1079,48 @@ export function computeDefaultRankHeaderText(saleDate: string | null, saleNumber
   return `Sale No. ${saleNumber}- ${fmt(prevDay)} / ${fmt(saleDay)} ${saleDay.getFullYear()}`;
 }
 
+/** Maps the backend's WES-equivalent JSON (MslWeeklyReportService) onto the same WesReport
+ *  shape parseWes produces from an uploaded workbook, so everything downstream (rank/sort
+ *  logic, the FACT/RANK/LOW builders, the PDF mirrors) is oblivious to which source it came
+ *  from. */
+export function wesReportFromDatabase(dto: WesEquivalentApi): WesReport {
+  const categories: Record<string, WesRow[]> = {};
+  for (const [category, rows] of Object.entries(dto.categories)) {
+    categories[category] = rows.map((r) => ({
+      estate: r.estate,
+      code: r.code,
+      week_qty: r.weekQtyKg,
+      week_avg: r.weekAvgRs,
+      month_qty: r.monthQtyKg,
+      month_avg: r.monthAvgRs,
+      year_qty: r.yearQtyKg,
+      year_avg: r.yearAvgRs,
+      week_rank: r.weekRank,
+      month_rank: r.monthRank,
+      year_rank: r.yearRank,
+    }));
+  }
+  return { saleNumber: dto.saleNo, categories, warnings: dto.warnings };
+}
+
+/** The WES data source: either the uploaded master workbook (parsed client-side, as always),
+ *  or the database-computed equivalent from the Weekly FACT Reports page's "generate from
+ *  database" option (see MslWeeklyReportService on the backend — only sales already imported
+ *  into the MSL archive can be loaded this way; the upload path stays the fallback). Both
+ *  produce the same WesReport shape everything downstream already consumes. The combined RANK
+ *  workbook's Sheet1 (a raw copy of the WES file) is the one place the two paths differ in
+ *  output — see buildRankSheet1's own comment. */
+export type WesInput = { source: "upload"; arrayBuffer: ArrayBuffer } | { source: "database"; report: WesReport };
+
 /** overrides.saleDate/saleNumber, when given, replace the values parsed from the TXT for the
  *  report header (B5) and filenames — for the rare week where the TXT's own header is missing,
  *  malformed, or just needs correcting by hand. The TXT/WES mismatch check below still compares
  *  the two files' OWN parsed sale numbers, since that check is about catching a wrong-file
  *  upload, not about the override. */
-export async function runJob(txtText: string, wesArrayBuffer: ArrayBuffer, overrides: SaleOverrides = {}): Promise<WeeklyJobResult> {
+export async function runJob(txtText: string, wesInput: WesInput, overrides: SaleOverrides = {}): Promise<WeeklyJobResult> {
   const txtReport = parseTxt(txtText);
-  const wesReport = await parseWes(wesArrayBuffer);
+  const wesReport = wesInput.source === "upload" ? await parseWes(wesInput.arrayBuffer) : wesInput.report;
+  const wesArrayBufferForSheet1 = wesInput.source === "upload" ? wesInput.arrayBuffer : null;
 
   const warnings = [...txtReport.warnings, ...wesReport.warnings];
 
@@ -963,8 +1177,11 @@ export async function runJob(txtText: string, wesArrayBuffer: ArrayBuffer, overr
 
   let rankWorkbook: WeeklyJobResult["rankWorkbook"] = null;
   const rankWarnings: string[] = [];
+  if (wesInput.source === "database") {
+    rankWarnings.push("WES data came from the database — the combined RANK workbook's Sheet1 (normally a raw copy of the WES file) holds a note instead.");
+  }
   try {
-    const rankResult = await buildRankWorkbook({ txtReport, wesReport, wesArrayBuffer, rankHeaderText, saleLabel, year });
+    const rankResult = await buildRankWorkbook({ txtReport, wesReport, wesArrayBuffer: wesArrayBufferForSheet1, rankHeaderText, saleLabel, year });
     rankWorkbook = { filename: rankResult.filename, buffer: rankResult.buffer, ok: true };
     rankWarnings.push(...rankResult.warnings);
   } catch (err) {
@@ -984,5 +1201,57 @@ export async function runJob(txtText: string, wesArrayBuffer: ArrayBuffer, overr
     };
   });
 
-  return { saleNumber, saleDate, outcomes, rankWorkbook, rankTabs, rankHeaderText, rankWarnings, warnings };
+  // ---- LOW RANK WISE / MARK WISE workbooks (see buildLowWiseWorkbook's own comment) ----
+  const lowHeaderText = overrides.lowHeaderText?.trim() || computeDefaultLowHeaderText(saleDate, saleNumber);
+  const lowWarnings: string[] = [];
+  const lowBench = txtReport.categories["LOW"];
+  const lowBenchmark: [number | null, number | null] = lowBench ? [lowBench.sale_avg, lowBench.mtd_avg] : [null, null];
+  if (!lowBench || lowBench.sale_avg == null || lowBench.mtd_avg == null) {
+    lowWarnings.push("'LOW-OTHODOX' benchmark missing from TXT — RANK/MARK WISE benchmark cells (J10/J11) left blank.");
+  }
+  const lowSource = wesReport.categories["LOW"] || [];
+  if (!("LOW" in wesReport.categories)) {
+    lowWarnings.push("'LOW' block not found in the WES file — RANK/MARK WISE workbooks left empty.");
+  }
+  // The archives write MF codes with their whitespace stripped ("MF 1387  " -> "MF1387") —
+  // the only report that does; every other output carries the WES cell through verbatim.
+  const stripLowCode = (r: WesRow): WesRow => ({ ...r, code: r.code.replace(/\s+/g, "") });
+  const lowRankRows = rankSortRows(lowSource).map(stripLowCode);
+  const lowMarkRows = markSortRows(lowSource).map(stripLowCode);
+  if (lowSource.length > 0 && lowRankRows.length === 0) {
+    lowWarnings.push("No LOW estates hold a month-todate rank — RANK/MARK WISE sheet bodies left empty.");
+  }
+
+  const lowSalePad = saleNumber != null ? String(saleNumber).padStart(3, "0") : "X";
+  let lowRankWorkbook: WeeklyJobResult["lowRankWorkbook"] = null;
+  let lowMarkWorkbook: WeeklyJobResult["lowMarkWorkbook"] = null;
+  try {
+    const lowOk = !!lowBench && lowRankRows.length > 0;
+    const rankWise = await buildLowWiseWorkbook({ rows: lowRankRows, benchmark: lowBenchmark, headerText: lowHeaderText, saleNumber });
+    lowRankWorkbook = { filename: `RANK WISE SALE NO ${lowSalePad}.xlsx`, buffer: rankWise.buffer, ok: lowOk };
+    const markWise = await buildLowWiseWorkbook({ rows: lowMarkRows, benchmark: lowBenchmark, headerText: lowHeaderText, saleNumber });
+    lowMarkWorkbook = { filename: `MARK WISE SALE NO ${lowSalePad}.xlsx`, buffer: markWise.buffer, ok: lowOk };
+  } catch (err) {
+    lowRankWorkbook = lowRankWorkbook ?? { filename: null, buffer: null, ok: false };
+    lowMarkWorkbook = { filename: null, buffer: null, ok: false };
+    lowWarnings.push(`RANK/MARK WISE workbooks could not be built: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return {
+    saleNumber,
+    saleDate,
+    outcomes,
+    rankWorkbook,
+    rankTabs,
+    rankHeaderText,
+    rankWarnings,
+    lowRankWorkbook,
+    lowMarkWorkbook,
+    lowRankRows,
+    lowMarkRows,
+    lowBenchmark,
+    lowHeaderText,
+    lowWarnings,
+    warnings,
+  };
 }

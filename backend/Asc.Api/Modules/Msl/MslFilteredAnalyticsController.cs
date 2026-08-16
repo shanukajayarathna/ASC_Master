@@ -48,9 +48,19 @@ public record MslAnalyticsFilter(
 
 public record FilteredSectionRow(
     string Key, string? Label, long Lots, long SoldLots, decimal TotalQtyKg, decimal SoldQtyKg,
-    decimal ProceedsRs, decimal? AvgPriceRs, decimal? MaxPriceRs);
+    decimal ProceedsRs, decimal? AvgPriceRs, decimal? MaxPriceRs, decimal? AskingAvgRs = null);
 
 public record OptionRow(string Key, string? Label, long Lots);
+
+public record FilteredLotsRequest(MslAnalyticsFilter? Filter, int? Page, int? PageSize, string? Search);
+
+public record FilteredLotRowDto(
+    int SaleYear, int SaleNo, DateTime SaleDate, string? Broker, bool IsPrivate,
+    string LotNo, string? Invoice, string FactoryCode, string SellingMark, string Grade,
+    string Category, decimal QuantityKg, decimal PriceRs, bool Sold, string? Buyer,
+    int? Bags, decimal? PackingKg);
+
+public record FilteredLotsDto(List<FilteredLotRowDto> Rows, int Page, bool HasMore);
 
 /// <summary>The values each filter can still take INSIDE the current slice — this is what
 /// makes the panel cascade: pick 2026 and every dropdown shrinks to what 2026 contains.</summary>
@@ -84,7 +94,12 @@ public record FilteredAnalyticsDto(
     List<FilteredSectionRow> ByMark,
     List<FilteredSectionRow> ByFactory,
     List<FilteredSectionRow> ByPriceRange,
+    /// <summary>Per-bag packing (kg) — "(none)" for rows without the Excel join.</summary>
+    List<FilteredSectionRow> ByPacking,
     List<FilteredSectionRow> BySale,
+    /// <summary>Sold / Outsold / Unsold decomposition — OKLO status where the Excel join
+    /// exists; MSL sold/unsold fills the gaps (private rows, pre-Excel years).</summary>
+    List<FilteredSectionRow> ByOkloStatus,
     AvailableOptionsDto Available,
     long ElapsedMs);
 
@@ -209,9 +224,51 @@ public class MslFilteredAnalyticsController(
         return result!;
     }
 
-    private async Task<FilteredAnalyticsDto> ComputeAsync(MslAnalyticsFilter f, CancellationToken ct)
+    /// <summary>Lot-line detail under the FULL filter object — the reports' "Invoice Line
+    /// Details" source. Same filter semantics as /filtered, paged.</summary>
+    [HttpPost("filtered/lots")]
+    public async Task<ActionResult<FilteredLotsDto>> FilteredLots([FromBody] FilteredLotsRequest req, CancellationToken ct)
     {
-        var started = DateTime.UtcNow;
+        var pageSize = Math.Clamp(req.PageSize ?? 200, 1, 500);
+        var page = Math.Max(req.Page ?? 1, 1);
+        if (req.Filter is null) return BadRequest("A filter object is required.");
+        var stages = await MatchStagesAsync(req.Filter, ct);
+        // In-report quick search: prefix match over mark/estate/buyer/grade/invoice/lot.
+        if (!string.IsNullOrWhiteSpace(req.Search))
+        {
+            var term = System.Text.RegularExpressions.Regex.Escape(req.Search.Trim().ToUpperInvariant());
+            var re = new BsonRegularExpression("^" + term);
+            stages.Add(new BsonDocument("$match", new BsonDocument("$or", new BsonArray
+            {
+                new BsonDocument("m", re), new BsonDocument("e", re), new BsonDocument("bn", re),
+                new BsonDocument("g", re), new BsonDocument("i", re), new BsonDocument("l", req.Search.Trim().TrimStart('0')),
+            })));
+        }
+        // Numeric lot order (string sort would give 1, 10, 100, 1000, …).
+        stages.Add(new BsonDocument("$addFields", new BsonDocument("ln",
+            new BsonDocument("$convert", new BsonDocument { ["input"] = "$l", ["to"] = "int", ["onError"] = 999999999 }))));
+        stages.Add(new BsonDocument("$sort", new BsonDocument { ["y"] = -1, ["s"] = -1, ["b"] = 1, ["ln"] = 1 }));
+        stages.Add(new BsonDocument("$skip", (page - 1) * pageSize));
+        stages.Add(new BsonDocument("$limit", pageSize));
+        // Drop the synthetic sort key — AuctionLot has no member for it and the driver
+        // treats unknown elements as a deserialization error.
+        stages.Add(new BsonDocument("$unset", "ln"));
+        var docs = await db.AuctionLots.Aggregate<AuctionLot>(
+            stages, new AggregateOptions { AllowDiskUse = true }, ct).ToListAsync(ct);
+        var rows = docs.Select(l => new FilteredLotRowDto(
+            l.SaleYear, l.SaleNo, l.SaleDate, l.Broker, l.IsPrivate, l.LotNo, l.Invoice,
+            l.FactoryCode, l.SellingMark, l.Grade,
+            // Catalogue section from the Excel join where it exists (2026+); the grade
+            // classification approximates it for pre-Excel years.
+            l.SaleCategory ?? MslClassification.Classify(l.Grade).Category,
+            l.QuantityKg, l.PriceRs, l.Sold, l.BuyerName ?? l.BuyerCode, l.Bags, l.PackingKg)).ToList();
+        return new FilteredLotsDto(rows, page, rows.Count == pageSize);
+    }
+
+    /// <summary>Builds the aggregation prologue (indexed $match + optional month/quarter
+    /// $expr match) for a filter — shared by the analytics facets and the lot-line report.</summary>
+    private async Task<List<BsonDocument>> MatchStagesAsync(MslAnalyticsFilter f, CancellationToken ct)
+    {
         var fb = Builders<AuctionLot>.Filter;
         var filters = new List<FilterDefinition<AuctionLot>>();
 
@@ -317,6 +374,13 @@ public class MslFilteredAnalyticsController(
         var stages = new List<BsonDocument> { new("$match", match) };
         if (monthConds.Count > 0)
             stages.Add(new BsonDocument("$match", new BsonDocument("$expr", new BsonDocument("$and", monthConds))));
+        return stages;
+    }
+
+    private async Task<FilteredAnalyticsDto> ComputeAsync(MslAnalyticsFilter f, CancellationToken ct)
+    {
+        var started = DateTime.UtcNow;
+        var stages = await MatchStagesAsync(f, ct);
         // Slim each document to the facet fields before fan-out — the $facet stage copies
         // its input once per facet, so dropping the wide name/text fields pays 9× over.
         stages.Add(new BsonDocument("$project", new BsonDocument
@@ -324,7 +388,7 @@ public class MslFilteredAnalyticsController(
             ["b"] = 1, ["el"] = 1, ["g"] = 1, ["bc"] = 1, ["m"] = 1, ["f"] = 1,
             ["q"] = 1, ["p"] = 1, ["so"] = 1, ["y"] = 1, ["s"] = 1,
             ["l"] = 1, ["i"] = 1, ["bg"] = 1, ["pk"] = 1, ["dc"] = 1,
-            ["d"] = 1, ["pv"] = 1, ["rf"] = 1,
+            ["d"] = 1, ["pv"] = 1, ["rf"] = 1, ["st"] = 1, ["ak"] = 1,
         }));
 
         BsonArray OptionsAsc(BsonValue id, int limit) =>
@@ -362,6 +426,14 @@ public class MslFilteredAnalyticsController(
                 ["value"] = new BsonDocument("$sum", new BsonDocument("$cond", new BsonArray
                     { "$so", new BsonDocument("$multiply", new BsonArray { "$q", "$p" }), 0 })),
                 ["maxP"] = new BsonDocument("$max", "$p"),
+                ["askVal"] = new BsonDocument("$sum", new BsonDocument("$cond", new BsonArray
+                    {
+                        new BsonDocument("$gt", new BsonArray { "$ak", 0 }),
+                        new BsonDocument("$multiply", new BsonArray { "$q", "$ak" }),
+                        0,
+                    })),
+                ["askQty"] = new BsonDocument("$sum", new BsonDocument("$cond", new BsonArray
+                    { new BsonDocument("$gt", new BsonArray { "$ak", 0 }), "$q", 0 })),
             }),
             sort ?? new BsonDocument("$sort", new BsonDocument("totalQty", -1)),
             new BsonDocument("$limit", limit),
@@ -384,16 +456,17 @@ public class MslFilteredAnalyticsController(
             ["total"] = Facet(BsonNull.Value, 1),
             ["byBroker"] = Facet("$b", 12),
             ["byElevation"] = Facet("$el", 8),
-            ["byGrade"] = Facet("$g", 120),
+            ["byGrade"] = Facet("$g", 800),
             ["byBuyer"] = Facet(new BsonDocument("$ifNull", new BsonArray { "$bc", "(none)" }), 60),
             ["byMark"] = Facet("$m", 120),
             ["byFactory"] = Facet("$f", 120),
             ["byPriceRange"] = Facet(priceBucketId, 12),
+            ["byPacking"] = Facet(new BsonDocument("$ifNull", new BsonArray { "$pk", BsonNull.Value }), 80),
             ["bySale"] = Facet(new BsonDocument { ["y"] = "$y", ["s"] = "$s" }, 400,
                 new BsonDocument("$sort", new BsonDocument("_id", 1))),
             // Option facets: keys + counts only, wider limits — these drive the cascading
             // filter dropdowns (what values remain available inside this slice).
-            ["optGrades"] = Options("$g", 400),
+            ["optGrades"] = Options("$g", 800),
             ["optBuyers"] = Options("$bc", 800),
             ["optMarks"] = Options("$m", 1500),
             ["optFactories"] = Options("$f", 1500),
@@ -406,6 +479,7 @@ public class MslFilteredAnalyticsController(
             ["optSaleTypes"] = OptionsAsc("$pv", 2),
             ["optSold"] = OptionsAsc("$so", 2),
             ["optRefuse"] = OptionsAsc("$rf", 2),
+            ["byOklo"] = Facet(new BsonDocument { ["st"] = new BsonDocument("$ifNull", new BsonArray { "$st", "" }), ["so"] = "$so" }, 12),
         }));
 
         var doc = await db.AuctionLots.Aggregate<BsonDocument>(stages, new AggregateOptions { AllowDiskUse = true }, ct)
@@ -418,12 +492,15 @@ public class MslFilteredAnalyticsController(
                 var (key, label) = keyFn?.Invoke(d["_id"]) ?? (d["_id"].IsBsonNull ? "(none)" : d["_id"].ToString() ?? "(none)", null);
                 var soldQty = d["soldQty"].ToDecimal();
                 var value = d["value"].ToDecimal();
+                var askQty = d.Contains("askQty") ? d["askQty"].ToDecimal() : 0;
+                var askVal = d.Contains("askVal") ? d["askVal"].ToDecimal() : 0;
                 return new FilteredSectionRow(
                     key, label,
                     d["lots"].ToInt64(), d["soldLots"].ToInt64(),
                     Math.Round(d["totalQty"].ToDecimal(), 2), Math.Round(soldQty, 2), Math.Round(value, 2),
                     soldQty > 0 ? Math.Round(value / soldQty, 2) : null,
-                    d["maxP"].ToDecimal() is var mx and > 0 ? mx : null);
+                    d["maxP"].ToDecimal() is var mx and > 0 ? mx : null,
+                    askQty > 0 ? Math.Round(askVal / askQty, 2) : null);
             }).ToList();
 
         var buyerNames = await BuyerNamesAsync(ct);
@@ -464,9 +541,46 @@ public class MslFilteredAnalyticsController(
                 return (code, label);
             }),
             Rows("byPriceRange"),
+            Rows("byPacking", id => (id.IsBsonNull ? "(none)" : id.ToString() ?? "(none)", null)),
             Rows("bySale", id => ($"{id["s"].ToInt32():00}/{id["y"].ToInt32()}", null)),
+            BuildOklo(),
             BuildOptions(),
             (long)(DateTime.UtcNow - started).TotalMilliseconds);
+
+        List<FilteredSectionRow> BuildOklo()
+        {
+            // Fold the (status, msl-sold) pairs into the portal's three buckets.
+            var buckets = new Dictionary<string, (long Lots, long SoldLots, decimal Qty, decimal SoldQty, decimal Value, decimal? Max)>();
+            void Fold(string key, BsonDocument d)
+            {
+                var soldQty = d["soldQty"].ToDecimal();
+                var cur = buckets.GetValueOrDefault(key);
+                var max = d["maxP"].ToDecimal();
+                buckets[key] = (cur.Lots + d["lots"].ToInt64(), cur.SoldLots + d["soldLots"].ToInt64(),
+                    cur.Qty + d["totalQty"].ToDecimal(), cur.SoldQty + soldQty,
+                    cur.Value + d["value"].ToDecimal(),
+                    max > 0 ? Math.Max(cur.Max ?? 0, max) : cur.Max);
+            }
+            foreach (var v in doc["byOklo"].AsBsonArray)
+            {
+                var d = v.AsBsonDocument;
+                var st = d["_id"]["st"].AsString;
+                var mslSold = d["_id"]["so"].AsBoolean;
+                var key = st switch
+                {
+                    "Outsold" => "Outsold",
+                    "Sold" => "Sold",
+                    "Unsold" or "Pending" => "Unsold",
+                    _ => mslSold ? "Sold" : "Unsold", // no Excel status (private / pre-2026)
+                };
+                Fold(key, d);
+            }
+            return buckets.Select(kv => new FilteredSectionRow(
+                kv.Key, null, kv.Value.Lots, kv.Value.SoldLots,
+                Math.Round(kv.Value.Qty, 2), Math.Round(kv.Value.SoldQty, 2), Math.Round(kv.Value.Value, 2),
+                kv.Value.SoldQty > 0 ? Math.Round(kv.Value.Value / kv.Value.SoldQty, 2) : null,
+                kv.Value.Max)).OrderByDescending(r => r.TotalQtyKg).ToList();
+        }
 
         AvailableOptionsDto BuildOptions()
         {

@@ -97,6 +97,11 @@ builder.Services.AddHostedService<MslWatcherService>();
 // powers the Analysis screen's Group filter across all MSL years.
 builder.Services.AddSingleton<MslReferenceService>();
 builder.Services.AddSingleton<MslEnrichmentService>();
+builder.Services.AddSingleton<MslExcelExportService>();
+builder.Services.AddSingleton<MslReportExportService>();
+// Weekly FACT Reports' "generate from database" option — reproduces the WES master
+// workbook's factory rows from already-imported auctionLots (see its own doc comment).
+builder.Services.AddSingleton<MslWeeklyReportService>();
 
 // AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
 // OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own

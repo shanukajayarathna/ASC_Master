@@ -25,6 +25,7 @@ import type {
   KnowledgeDocument,
   Lot,
   FilteredAnalytics,
+  FilteredLots,
   MarketInsight,
   MasterDataEntity,
   MslAggregateRow,
@@ -40,6 +41,7 @@ import type {
   PreviousGradeStats,
   SaleAnalytics,
   SaleSummary,
+  WesEquivalentApi,
   ProviderStatus,
   Report,
   ReportGroupRow,
@@ -603,6 +605,12 @@ export const api = {
   mslAnalyticsSales: (year?: number) =>
     request<SaleSummary[]>(`/api/v1/msl/analytics/sales${year ? `?year=${year}` : ""}`),
 
+  /** Weekly FACT Reports' "generate from database" option — the WES master workbook's
+   *  factory rows, reproduced from already-imported auctionLots. 404s when the sale hasn't
+   *  been imported yet (the page falls back to asking for a manual upload). */
+  mslWeeklyReportWes: (year: number, saleNo: number) =>
+    request<WesEquivalentApi>(`/api/v1/msl/weekly-report/wes?year=${year}&saleNo=${saleNo}`),
+
   mslSaleAnalytics: (year: number, saleNo: number) =>
     request<SaleAnalytics>(`/api/v1/msl/analytics/${year}/${saleNo}`),
 
@@ -612,6 +620,47 @@ export const api = {
     request<FilteredAnalytics>("/api/v1/msl/analytics/filtered", {
       method: "POST",
       body: JSON.stringify(filter),
+    }),
+
+  /** Turns a chat-rendered table into a real .xlsx download (server-built via NPOI). */
+  downloadTableAsExcel: async (headers: string[], rows: string[][], fileName: string, title?: string) => {
+    const res = await fetch(`${API_BASE}/api/v1/msl/analytics/export/table`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: JSON.stringify({ fileName, title: title ?? null, headers, rows }),
+    });
+    if (!res.ok) throw new ApiError(await res.text().catch(() => "Export failed"), res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  /** Downloads an authenticated file (e.g. an agent-generated Excel) via blob + save. */
+  downloadAuthedFile: async (path: string, filename: string) => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new ApiError(await res.text().catch(() => "Download failed"), res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  mslFilteredLots: (filter: MslAnalyticsFilter, page = 1, pageSize = 200, search?: string) =>
+    request<FilteredLots>("/api/v1/msl/analytics/filtered/lots", {
+      method: "POST",
+      body: JSON.stringify({ filter, page, pageSize, search: search || null }),
     }),
 
   /** Chat routed to a specific agent (e.g. "analytics" for the Analysis page's dock).

@@ -56,7 +56,7 @@ const REPORT_TILES: NavItem[] = [
     label: "Weekly FACT Reports",
     section: "Reports",
     status: "live",
-    description: "UVA/WESTERN High & Medium ranking workbooks, from the CBAS release + factory workbook.",
+    description: "UVA/WESTERN High & Medium + LOW rank/mark-wise workbooks, from the CBAS release + factory workbook.",
     icon: FactCheckOutlinedIcon,
     gradient: 4,
   },

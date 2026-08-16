@@ -17,7 +17,7 @@ namespace Asc.Api.Modules.Assistant;
 public class GeminiChatProvider(HttpClient http, IConfiguration config) : IChatProvider
 {
     // Same bound as the OpenAI-compatible providers — see OpenAiCompatibleChatProvider's comment.
-    private const int MaxToolIterations = 5;
+    private const int MaxToolIterations = 8;
 
     public string Key => "gemini";
     public string DisplayName => "Gemini";
@@ -89,23 +89,46 @@ public class GeminiChatProvider(HttpClient http, IConfiguration config) : IChatP
 
             var functionCalls = parts.Where(p => p!["functionCall"] is not null).ToList();
 
+            var namedCalls = new List<(string Name, string ArgsJson)>();
             if (functionCalls.Count == 0)
             {
                 var text = string.Concat(parts.Select(p => p!["text"]?.GetValue<string>() ?? string.Empty));
-                return new ChatCompletionResult(text, promptTokens, completionTokens);
+
+                // Same rescue as the OpenAI-compatible providers: a model that narrates a tool
+                // call as text instead of using Gemini's own function-calling channel must not
+                // have that raw JSON shown to the user. Rewrite it as a synthetic function
+                // call/response pair and keep the loop going.
+                var leaked = ToolCallRescue.TryExtract(text, tools.Select(t => t.Name));
+                if (leaked is null)
+                    return new ChatCompletionResult(text, promptTokens, completionTokens);
+
+                contents.Add(new JsonObject
+                {
+                    ["role"] = "model",
+                    ["parts"] = new JsonArray { new JsonObject
+                    {
+                        ["functionCall"] = new JsonObject
+                        {
+                            ["name"] = leaked.Value.Name,
+                            ["args"] = JsonNode.Parse(leaked.Value.Arguments) ?? new JsonObject(),
+                        },
+                    } },
+                });
+                namedCalls.Add((leaked.Value.Name, leaked.Value.Arguments));
+            }
+            else
+            {
+                // Echo the model's own turn back into history before appending the tool results,
+                // so Gemini sees its own call on the next turn. contentNode is already a full
+                // {"role":"model","parts":[...]} entry — clone it as-is, don't re-wrap it.
+                contents.Add(contentNode!.DeepClone());
+                namedCalls.AddRange(functionCalls.Select(call =>
+                    (call!["functionCall"]!["name"]!.GetValue<string>(), call["functionCall"]!["args"]?.ToJsonString() ?? "{}")));
             }
 
-            // Echo the model's own turn back into history before appending the tool results, so
-            // Gemini sees its own call on the next turn. contentNode is already a full
-            // {"role":"model","parts":[...]} entry — clone it as-is, don't re-wrap it.
-            contents.Add(contentNode!.DeepClone());
-
             var responseParts = new JsonArray();
-            foreach (var call in functionCalls)
+            foreach (var (fnName, argsJson) in namedCalls)
             {
-                var fnName = call!["functionCall"]!["name"]!.GetValue<string>();
-                var argsNode = call["functionCall"]!["args"];
-                var argsJson = argsNode?.ToJsonString() ?? "{}";
                 string resultJson;
                 try
                 {

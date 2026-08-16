@@ -34,12 +34,21 @@ export default function AssistantPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
-  const [provider, setProvider] = useState("openai");
+  const [provider, setProvider] = useState("local");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.listConversations().then(setConversations).catch(() => {});
-    api.getProviderStatuses().then(setProviders).catch(() => {});
+    api.getProviderStatuses().then((ps) => {
+      setProviders(ps);
+      // Land on a provider that's actually usable — "local" (Ollama) first while the hosted
+      // free tiers are quota-limited and OpenAI isn't configured, rather than silently sitting
+      // on an unconfigured default until the user notices and switches it manually.
+      const configured = ps.filter((p) => p.configured).map((p) => p.key);
+      const preferred = ["local", "gemini", "groq", "openai"];
+      const ordered = [...preferred, ...configured.filter((k) => !preferred.includes(k))].filter((k) => configured.includes(k));
+      if (ordered.length > 0) setProvider(ordered[0]);
+    }).catch(() => {});
     // Prefill handed over from the dashboard's Ask ASC box (?q=...) — lands in the input
     // for review, never auto-sent. Read from window.location rather than useSearchParams
     // so this statically-prerendered page needs no Suspense boundary.

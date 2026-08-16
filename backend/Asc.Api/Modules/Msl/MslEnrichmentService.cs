@@ -26,16 +26,17 @@ public class MslEnrichmentService(MongoContext db, ICatalogueSource catalogues, 
             if (onlySales is not null && !onlySales.Contains((year, saleNo))) continue;
 
             // Skip already-enriched sales on the routine pass (a re-import wipes the
-            // fields with the rows, so affected sales re-enrich naturally).
+            // fields with the rows, so affected sales re-enrich naturally). AskingRs is
+            // the newest enriched field, so its presence marks a fully-enriched sale.
             if (onlySales is null &&
-                await db.AuctionLots.Find(l => l.SaleYear == year && l.SaleNo == saleNo && l.PackingKg != null)
+                await db.AuctionLots.Find(l => l.SaleYear == year && l.SaleNo == saleNo && l.AskingRs != null)
                     .Limit(1).AnyAsync(ct))
                 continue;
 
             var excelLots = catalogues.GetLots(cat.Id);
             if (excelLots is null || excelLots.Count == 0) continue;
 
-            var byKey = new Dictionary<(string Broker, string Lot), (int? Bags, decimal? Packing)>();
+            var byKey = new Dictionary<(string Broker, string Lot), (int? Bags, decimal? Packing, string? Category, string? Status, decimal? Asking)>();
             foreach (var lot in excelLots)
             {
                 if (lot.Broker is null || lot.LotNumber is null) continue;
@@ -48,7 +49,15 @@ public class MslEnrichmentService(MongoContext db, ICatalogueSource catalogues, 
                     packing = perBag;
                 else if (lot.NetWeight is > 0 && lot.Bags is > 0)
                     packing = Math.Round(lot.NetWeight.Value / lot.Bags.Value, 2);
-                byKey[(msl, lot.LotNumber.Trim().TrimStart('0'))] = (lot.Bags, packing);
+                decimal? asking = null;
+                if (lot.RawData.TryGetValue("Asking Price", out var askRaw) &&
+                    decimal.TryParse(askRaw, out var askVal) && askVal > 0)
+                    asking = askVal;
+                byKey[(msl, lot.LotNumber.Trim().TrimStart('0'))] =
+                    (lot.Bags, packing,
+                     string.IsNullOrWhiteSpace(lot.Category) ? null : lot.Category.Trim(),
+                     string.IsNullOrWhiteSpace(lot.Status) ? null : lot.Status.Trim(),
+                     asking);
             }
             if (byKey.Count == 0) continue;
 
@@ -61,16 +70,18 @@ public class MslEnrichmentService(MongoContext db, ICatalogueSource catalogues, 
             foreach (var t in targets)
             {
                 if (t.Broker is null || !byKey.TryGetValue((t.Broker, t.LotNo), out var v)) continue;
-                if (v.Bags is null && v.Packing is null) continue;
+                if (v.Bags is null && v.Packing is null && v.Category is null && v.Status is null && v.Asking is null) continue;
                 ops.Add(new UpdateOneModel<AuctionLot>(
                     Builders<AuctionLot>.Filter.Eq(l => l.Id, t.Id),
-                    Builders<AuctionLot>.Update.Set(l => l.Bags, v.Bags).Set(l => l.PackingKg, v.Packing)));
+                    Builders<AuctionLot>.Update.Set(l => l.Bags, v.Bags).Set(l => l.PackingKg, v.Packing)
+                        .Set(l => l.SaleCategory, v.Category).Set(l => l.OkloStatus, v.Status)
+                        .Set(l => l.AskingRs, v.Asking)));
             }
             if (ops.Count > 0)
             {
                 await db.AuctionLots.BulkWriteAsync(ops, new BulkWriteOptions { IsOrdered = false }, ct);
                 totalOps += ops.Count;
-                logger.LogInformation("MSL enrichment: sale {Sale}/{Year} — bags/packing set on {Count} lots",
+                logger.LogInformation("MSL enrichment: sale {Sale}/{Year} — bags/packing/category/status set on {Count} lots",
                     saleNo, year, ops.Count);
             }
         }

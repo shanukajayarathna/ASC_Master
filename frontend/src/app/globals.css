@@ -668,3 +668,31 @@ body {
     width: 100%;
   }
 }
+
+
+/* Soft content fade for mode switches on the Analysis page. */
+@keyframes fadeInSoft { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.fade-in-soft { animation: fadeInSoft 0.22s ease; }
+
+
+/* Floating Analytics Agent pill: soft glow pulse + a brief wiggle to invite the click.
+   Stops after the first open. */
+@keyframes agentGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 178, 60, 0.45); }
+  50% { box-shadow: 0 0 0 12px rgba(224, 178, 60, 0); }
+}
+@keyframes agentWiggle {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(-5deg); }
+  40% { transform: rotate(4deg); }
+  60% { transform: rotate(-2.5deg); }
+  80% { transform: rotate(1.5deg); }
+}
+.agent-attention { animation: agentGlow 2.2s ease-in-out infinite, agentWiggle 0.7s ease 1.2s 2; }
+@media (prefers-reduced-motion: reduce) { .agent-attention { animation: none; box-shadow: 0 0 14px rgba(224, 178, 60, 0.5); } }
+
+
+/* Breathing amber pool under the Analytics Agent pill. */
+@keyframes agentUnderglow { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.95; } }
+.agent-underglow { animation: agentUnderglow 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .agent-underglow { animation: none; opacity: 0.7; } }

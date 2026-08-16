@@ -16,7 +16,7 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
 {
     // Bounds a single chat turn's tool-calling loop — read-only tools on modest data, five
     // round trips is generous headroom without risking a runaway loop.
-    private const int MaxToolIterations = 5;
+    private const int MaxToolIterations = 8;
 
     public abstract string Key { get; }
     public abstract string DisplayName { get; }
@@ -99,10 +99,59 @@ public abstract class OpenAiCompatibleChatProvider(HttpClient http, IConfigurati
             promptTokens += parsed["usage"]?["prompt_tokens"]?.GetValue<int>() ?? 0;
             completionTokens += parsed["usage"]?["completion_tokens"]?.GetValue<int>() ?? 0;
 
-            messages.Add(message.DeepClone());
-
             if (finishReason != "tool_calls")
-                return new ChatCompletionResult(message["content"]?.GetValue<string>() ?? string.Empty, promptTokens, completionTokens);
+            {
+                var content = message["content"]?.GetValue<string>() ?? string.Empty;
+
+                // Smaller models sometimes narrate a tool call as text instead of emitting
+                // tool_calls ('Here's the JSON: {"name":"mark_history",...}'). Recover it as
+                // a real call rather than showing the user raw JSON: rewrite the turn as a
+                // proper tool round trip and let the loop continue.
+                var leaked = ToolCallRescue.TryExtract(content, tools.Select(t => t.Name));
+                if (leaked is null)
+                {
+                    messages.Add(message.DeepClone());
+                    return new ChatCompletionResult(content, promptTokens, completionTokens);
+                }
+                var callId = $"rescued_{iteration}";
+                messages.Add(new JsonObject
+                {
+                    ["role"] = "assistant",
+                    ["content"] = null,
+                    ["tool_calls"] = new JsonArray(new JsonObject
+                    {
+                        ["id"] = callId,
+                        ["type"] = "function",
+                        ["function"] = new JsonObject
+                        {
+                            ["name"] = leaked.Value.Name,
+                            ["arguments"] = leaked.Value.Arguments,
+                        },
+                    }),
+                });
+                string rescuedResult;
+                try
+                {
+                    rescuedResult = await executeTool(leaked.Value.Name, leaked.Value.Arguments);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    rescuedResult = JsonSerializer.Serialize(new { error = $"Tool call failed: {ex.Message}. Check the argument types against the tool's schema and try again." });
+                }
+                messages.Add(new JsonObject
+                {
+                    ["role"] = "tool",
+                    ["tool_call_id"] = callId,
+                    ["content"] = rescuedResult,
+                });
+                continue;
+            }
+
+            messages.Add(message.DeepClone());
 
             foreach (var call in message["tool_calls"]!.AsArray())
             {

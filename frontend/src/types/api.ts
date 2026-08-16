@@ -646,6 +646,29 @@ export interface SaleAnalytics {
   recentSales: SaleSummary[];
 }
 
+// ---- Weekly FACT Reports: "generate WES from database" ----
+
+export interface WesFactoryRowApi {
+  estate: string;
+  code: string;
+  weekQtyKg: number | null;
+  weekAvgRs: number | null;
+  monthQtyKg: number | null;
+  monthAvgRs: number | null;
+  yearQtyKg: number | null;
+  yearAvgRs: number | null;
+  weekRank: number | null;
+  monthRank: number | null;
+  yearRank: number | null;
+}
+
+export interface WesEquivalentApi {
+  saleNo: number;
+  saleDate: string;
+  categories: Record<string, WesFactoryRowApi[]>;
+  warnings: string[];
+}
+
 // ---- MSL cross-filtered analytics (Analysis page filter panel) ----
 
 export interface MslAnalyticsFilter {
@@ -691,6 +714,7 @@ export interface FilteredSectionRow {
   proceedsRs: number;
   avgPriceRs: number | null;
   maxPriceRs: number | null;
+  askingAvgRs: number | null;
 }
 
 export interface OptionRow {
@@ -720,6 +744,32 @@ export interface AvailableOptions {
   refuseTea: OptionRow[];
 }
 
+export interface FilteredLotRow {
+  saleYear: number;
+  saleNo: number;
+  saleDate: string;
+  broker: string | null;
+  isPrivate: boolean;
+  lotNo: string;
+  invoice: string | null;
+  factoryCode: string;
+  sellingMark: string;
+  grade: string;
+  category: string;
+  quantityKg: number;
+  priceRs: number;
+  sold: boolean;
+  buyer: string | null;
+  bags: number | null;
+  packingKg: number | null;
+}
+
+export interface FilteredLots {
+  rows: FilteredLotRow[];
+  page: number;
+  hasMore: boolean;
+}
+
 export interface FilteredAnalytics {
   total: FilteredSectionRow;
   byBroker: FilteredSectionRow[];
@@ -730,7 +780,10 @@ export interface FilteredAnalytics {
   byMark: FilteredSectionRow[];
   byFactory: FilteredSectionRow[];
   byPriceRange: FilteredSectionRow[];
+  byPacking: FilteredSectionRow[];
   bySale: FilteredSectionRow[];
+  /** Sold / Outsold / Unsold decomposition (OKLO status where Excel exists). */
+  byOkloStatus: FilteredSectionRow[];
   available: AvailableOptions;
   elapsedMs: number;
 }

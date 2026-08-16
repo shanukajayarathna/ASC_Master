@@ -1,5 +1,6 @@
 "use client";
 
+import { brokerCode, brokerColorVar, brokerName, brokerPaletteCss } from "@/lib/brokers";
 import type { FilteredSectionRow } from "@/types/api";
 import Tooltip from "@mui/material/Tooltip";
 import { useMemo } from "react";
@@ -16,25 +17,13 @@ import { useMemo } from "react";
    rank — AS is always blue no matter how the filter reorders sizes.
    ===================================================================== */
 
-const LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
-const DARK = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
-const BROKER_ORDER = ["AS", "BTL", "DES", "EB", "FBS", "JK", "LCB", "MB", "PVT"];
-
-/** Fixed broker→slot assignment; PVT (private) reuses the last slot it can get. */
-function slotOf(broker: string): number {
-  const i = BROKER_ORDER.indexOf(broker);
-  return i === -1 || i > 7 ? 7 : i;
-}
-
 const nf = new Intl.NumberFormat("en-US");
 const nf2 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const mkg = (v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(2)}M` : nf.format(Math.round(v)));
 
-/** Per-broker CSS color that adapts to the app's dark mode. */
+/** Per-broker CSS color (company palette), adapting to the app's dark mode. */
 function BrokerPaletteStyle() {
-  const light = BROKER_ORDER.slice(0, 9).map((b) => `--viz-${b}: ${LIGHT[slotOf(b)]};`).join(" ");
-  const dark = BROKER_ORDER.slice(0, 9).map((b) => `--viz-${b}: ${DARK[slotOf(b)]};`).join(" ");
-  return <style>{`:root { ${light} } :root[data-theme="dark"] { ${dark} }`}</style>;
+  return <style>{brokerPaletteCss()}</style>;
 }
 
 export function BrokerDonut({ rows }: { rows: FilteredSectionRow[] }) {
@@ -46,10 +35,15 @@ export function BrokerDonut({ rows }: { rows: FilteredSectionRow[] }) {
   if (total === 0) return <p className="text-[12px] text-text-muted m-0">Nothing in this slice.</p>;
 
   const size = 240, cx = size / 2, cy = size / 2, rOuter = 108, rInner = 66;
-  let angle = -Math.PI / 2;
-  const slices = data.map((r) => {
-    const frac = r.totalQtyKg / total;
-    const a0 = angle, a1 = (angle += frac * 2 * Math.PI);
+  // Pre-accumulate slice angles (render-pure: no mutation during map).
+  const fracs = data.map((r) => r.totalQtyKg / total);
+  const starts = fracs.reduce<number[]>((acc, f, i) => {
+    acc.push(i === 0 ? -Math.PI / 2 : acc[i - 1] + fracs[i - 1] * 2 * Math.PI);
+    return acc;
+  }, []);
+  const slices = data.map((r, i) => {
+    const frac = fracs[i];
+    const a0 = starts[i], a1 = a0 + frac * 2 * Math.PI;
     const large = a1 - a0 > Math.PI ? 1 : 0;
     const p = (rad: number, a: number) => `${cx + rad * Math.cos(a)},${cy + rad * Math.sin(a)}`;
     const mid = (a0 + a1) / 2;
@@ -64,15 +58,22 @@ export function BrokerDonut({ rows }: { rows: FilteredSectionRow[] }) {
     <div className="flex flex-wrap items-center gap-4">
       <BrokerPaletteStyle />
       <svg viewBox={`0 0 ${size} ${size}`} className="w-[240px] shrink-0" role="img" aria-label="Broker-wise catalogue quantity">
-        {slices.map(({ r, frac, path }) => (
-          <path key={r.key} d={path} fill={`var(--viz-${r.key}, var(--brand-gold))`} stroke="var(--paper-0)" strokeWidth="2">
-            <title>{`${r.key}${r.label ? ` — ${r.label}` : ""}: ${mkg(r.totalQtyKg)} kg (${(frac * 100).toFixed(1)}%) · ${nf.format(r.lots)} lots`}</title>
+        {data.length === 1 && (
+          /* A full 360-degree arc collapses to nothing in SVG - draw the lone broker as a ring. */
+          <circle cx={cx} cy={cy} r={(rOuter + rInner) / 2} fill="none"
+            stroke={brokerColorVar(data[0].key)} strokeWidth={rOuter - rInner}>
+            <title>{`${brokerCode(data[0].key)}: ${mkg(data[0].totalQtyKg)} kg (100%)`}</title>
+          </circle>
+        )}
+        {data.length > 1 && slices.map(({ r, frac, path }) => (
+          <path key={r.key} d={path} fill={brokerColorVar(r.key)} stroke="var(--paper-0)" strokeWidth="2">
+            <title>{`${brokerCode(r.key)}${brokerName(r.key) ? ` — ${brokerName(r.key)}` : ""}: ${mkg(r.totalQtyKg)} kg (${(frac * 100).toFixed(1)}%) · ${nf.format(r.lots)} lots`}</title>
           </path>
         ))}
-        {slices.filter((s) => s.frac >= 0.06).map(({ r, frac, labelAt }) => (
+        {data.length > 1 && slices.filter((s) => s.frac >= 0.06).map(({ r, frac, labelAt }) => (
           <text key={r.key} x={labelAt.x} y={labelAt.y} textAnchor="middle" dominantBaseline="middle"
             fontSize="10" className="fill-[var(--ink-700)]">
-            {r.key} {(frac * 100).toFixed(0)}%
+            {brokerCode(r.key)} {(frac * 100).toFixed(0)}%
           </text>
         ))}
         <text x={cx} y={cy - 6} textAnchor="middle" fontSize="17" fontWeight="600" className="fill-[var(--ink-900)]">
@@ -85,9 +86,9 @@ export function BrokerDonut({ rows }: { rows: FilteredSectionRow[] }) {
       <ul className="m-0 p-0 list-none flex flex-col gap-1 min-w-[190px] flex-1">
         {data.map((r) => (
           <li key={r.key} className="flex items-center gap-2 text-[12px]">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: `var(--viz-${r.key}, var(--brand-gold))` }} />
-            <span className="text-text-strong font-medium">{r.key}</span>
-            <span className="text-text-muted truncate flex-1">{r.label ?? ""}</span>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: brokerColorVar(r.key) }} />
+            <span className="text-text-strong font-medium">{brokerCode(r.key)}</span>
+            <span className="text-text-muted truncate flex-1">{brokerName(r.key) ?? r.label ?? ""}</span>
             <span className="tabular-nums text-text">{mkg(r.totalQtyKg)}</span>
             <span className="tabular-nums text-text-muted w-[46px] text-right">{((r.totalQtyKg / total) * 100).toFixed(1)}%</span>
           </li>
@@ -130,15 +131,15 @@ export function BrokerAvgBars({ rows, totalAvg }: { rows: FilteredSectionRow[]; 
           </g>
         )}
         {data.map((r, i) => (
-          <Tooltip key={r.key} title={`${r.key}${r.label ? ` — ${r.label}` : ""}: Rs ${nf2.format(r.avgPriceRs!)} · ${nf.format(r.soldLots)} sold lots`} placement="top" arrow>
+          <Tooltip key={r.key} title={`${brokerCode(r.key)}${brokerName(r.key) ? ` — ${brokerName(r.key)}` : ""}: Rs ${nf2.format(r.avgPriceRs!)} · ${nf.format(r.soldLots)} sold lots`} placement="top" arrow>
             <g>
               <rect x={x(i) - bw / 2} y={y(r.avgPriceRs!)} width={bw} height={h - pyBot - y(r.avgPriceRs!)}
-                rx="4" fill={`var(--viz-${r.key}, var(--brand-gold))`} stroke="var(--paper-0)" strokeWidth="1" />
+                rx="4" fill={brokerColorVar(r.key)} stroke="var(--paper-0)" strokeWidth="1" />
               <text x={x(i)} y={y(r.avgPriceRs!) - 5} textAnchor="middle" fontSize="10" className="fill-[var(--ink-700)]">
                 {nf.format(Math.round(r.avgPriceRs!))}
               </text>
               <text x={x(i)} y={h - pyBot + 13} textAnchor="middle" fontSize="10.5" className="fill-[var(--ink-700)]">
-                {r.key}
+                {brokerCode(r.key)}
               </text>
             </g>
           </Tooltip>

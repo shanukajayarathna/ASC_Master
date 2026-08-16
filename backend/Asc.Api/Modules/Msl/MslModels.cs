@@ -76,6 +76,20 @@ public class AuctionLot
     /// weekly sale Excel catalogues where one exists (2026+), null otherwise.</summary>
     [BsonElement("bg")] public int? Bags { get; set; }
     [BsonElement("pk")] public decimal? PackingKg { get; set; }
+
+    /// <summary>The catalogue section the lot was offered under ("Ex-estate",
+    /// "High and Medium", …) — Excel-enriched like bags/packing; not present in MSL files
+    /// (verified: the class-code digits do not encode it). Null for private rows and
+    /// pre-Excel years.</summary>
+    [BsonElement("ct")] public string? SaleCategory { get; set; }
+
+    /// <summary>The OKLO auction system's outcome ("Sold", "Outsold", "Unsold", "Pending")
+    /// from the sale Excel's Status column — distinguishes outsold lots, which the MSL
+    /// settlement records as plain sold. Excel-enriched, 2026+ only.</summary>
+    [BsonElement("st")] public string? OkloStatus { get; set; }
+
+    /// <summary>The broker's asking price (Rs/kg) from the sale Excel — Excel-enriched.</summary>
+    [BsonElement("ak")] public decimal? AskingRs { get; set; }
 }
 
 /// <summary>One elevation row of a monthly Sri Lanka Tea Board national averages report.</summary>
