@@ -17,7 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
+    <!-- Pins NPOI's transitive System.Security.Cryptography.Xml (used internally for OOXML
+         digital-signature support NPOI ships but this app's read-only cell-value parsing never
+         touches) up from 8.0.2, which carries 8 High-severity advisories, to a patched release
+         on the same 9.x line as the rest of this project's Microsoft.* packages. -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.19" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.17" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.17" />
     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="9.0.17" />

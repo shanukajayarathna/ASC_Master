@@ -4,7 +4,7 @@ import type { AvailableOptions, MslAnalyticsFilter, MslFilterOptions, OptionRow 
 import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
 import { brokerCode, brokerName } from "@/lib/brokers";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 /* =====================================================================
    FILTRATION PANEL — Power BI-slicer style, like the portal screenshots:
@@ -141,14 +141,28 @@ export default function FilterPanel({
   // A box's own selection must never shrink its own option list (multi-select would be
   // impossible): while a box has ticks its list is FROZEN to what it showed before the
   // first tick; other boxes keep cascading. Clearing the box resumes live cascading.
-  const frozenRef = useRef<Record<string, OptionRow[]>>({});
+  // State (not a ref) so the freeze/unfreeze transition is a normal setState-during-render
+  // adjustment rather than a render-phase mutation — React re-renders once more with the
+  // updated map, same as the ref version did, but without reading/writing mutable state
+  // that render is supposed to treat as a snapshot.
+  const [frozen, setFrozen] = useState<Record<string, OptionRow[]>>({});
   const ownRows = (dim: string, live: OptionRow[], selectedCount: number): OptionRow[] => {
     if (selectedCount === 0) {
-      delete frozenRef.current[dim];
+      if (dim in frozen) {
+        setFrozen((f) => {
+          if (!(dim in f)) return f;
+          const next = { ...f };
+          delete next[dim];
+          return next;
+        });
+      }
       return live;
     }
-    frozenRef.current[dim] ??= live;
-    return frozenRef.current[dim];
+    if (!(dim in frozen)) {
+      setFrozen((f) => (dim in f ? f : { ...f, [dim]: live }));
+      return live;
+    }
+    return frozen[dim];
   };
 
   const gradeRows = available?.grades ?? options.grades.map((g) => ({ key: g, label: null, lots: 0 }));

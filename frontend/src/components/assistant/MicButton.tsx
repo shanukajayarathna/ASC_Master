@@ -54,6 +54,7 @@ export default function MicButton({ onTranscript, disabled }: { onTranscript: (t
   const recRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from a browser-only API (SpeechRecognition feature check), not derivable during SSR render
     setSupported(getRecognitionCtor() !== null);
     const stored = window.localStorage.getItem(MIC_LANG_KEY);
     const idx = MIC_LANGS.findIndex((l) => l.tag === stored);

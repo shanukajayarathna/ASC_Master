@@ -50,10 +50,13 @@ export default function TeaCinematic({ onDone }: { onDone: () => void }) {
     setTimeout(onDone, 500);
   }, [onDone]);
 
-  // Decide the sequence on mount (localStorage + media queries are browser-only).
+  // Decide the sequence on mount (localStorage + media queries are browser-only — SSR has
+  // no window, so this can't be a lazy useState initializer without a server/client mismatch
+  // on first paint; `!scenes` below covers that first frame with a mode-agnostic cover).
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const narrow = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from a browser-only API (matchMedia), not derivable during SSR render
     setSmall(narrow);
     let seen = false;
     try {
@@ -96,11 +99,13 @@ export default function TeaCinematic({ onDone }: { onDone: () => void }) {
   }, [finish]);
 
   // A scene whose asset failed to load is skipped the moment it becomes (or is) active —
-  // never a blank hold. The dark overlay ground itself is plain CSS and cannot fail.
-  const failed = useRef(new Set<string>());
+  // never a blank hold. The dark overlay ground itself is plain CSS and cannot fail. State
+  // (not a ref) since render reads it — a ref read during render isn't guaranteed the same
+  // value across render passes the way state is.
+  const [failed, setFailed] = useState<Set<string>>(new Set());
   const onSceneError = useCallback(
     (scene: TeaScene, i: number) => {
-      failed.current.add(scene.id);
+      setFailed((f) => (f.has(scene.id) ? f : new Set(f).add(scene.id)));
       setIndex((cur) => (i === cur ? cur + 1 : cur));
     },
     [],
@@ -155,10 +160,11 @@ export default function TeaCinematic({ onDone }: { onDone: () => void }) {
                 {scene.video.webm && <source src={scene.video.webm} type="video/webm" />}
                 {scene.video.mp4 && <source src={scene.video.mp4} type="video/mp4" />}
               </video>
-            ) : failed.current.has(scene.id) ? null : (
-              // eslint-disable-next-line @next/next/no-img-element -- full-bleed decorative
-              // scene art; next/image's layout machinery buys nothing for an absolutely
-              // positioned cover image and its wrapper breaks the crossfade stacking.
+            ) : failed.has(scene.id) ? null : (
+              // full-bleed decorative scene art; next/image's layout machinery buys nothing
+              // for an absolutely positioned cover image and its wrapper breaks the crossfade
+              // stacking.
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 className={`tea-cine-media tea-cine-${scene.motion}`}
                 src={srcFor(scene)}

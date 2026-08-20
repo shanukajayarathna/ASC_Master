@@ -16,6 +16,16 @@
 # and low-end devices; zstd/gzip are negotiated per-client via Accept-Encoding.
 encode zstd gzip
 
+# Baseline security headers — this is the one edge every production request actually
+# crosses (the app itself sets none, relying on this layer, since it doesn't know at
+# build time whether it's sitting behind Caddy, a different proxy, or bare).
+header {
+	Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	X-Content-Type-Options "nosniff"
+	X-Frame-Options "DENY"
+	Referrer-Policy "strict-origin-when-cross-origin"
+}
+
 handle /api/* {
 	reverse_proxy backend:8080
 }

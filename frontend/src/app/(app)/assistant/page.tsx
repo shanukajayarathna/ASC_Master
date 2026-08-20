@@ -78,6 +78,7 @@ export default function AssistantPage() {
     if (!text || sending) return;
 
     const optimisticUser: ChatMessage = {
+      // eslint-disable-next-line react-hooks/purity -- sendText only ever runs from a click/submit handler, never during render
       id: `pending-${Date.now()}`,
       role: "user",
       content: text,
