@@ -1,3 +1,4 @@
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 import CloudDownloadOutlinedIcon from "@mui/icons-material/CloudDownloadOutlined";
@@ -35,6 +36,10 @@ export interface NavItem {
    *  params), verified individually (HTTP 200 + visual check) before being wired in.
    *  Optional: a tile with none falls back to the plain gradient + icon treatment. */
   image?: string;
+  /** Hidden from the launchpad grid and command palette for anyone without the Admin role —
+   *  checked at each consumption site (dashboard tile grid, CommandPalette), same pattern as
+   *  Settings' admin-gated sections. */
+  adminOnly?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -190,10 +195,23 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Settings",
     section: "System",
     status: "live",
-    description: "Users, roles, API keys, webhooks and appearance.",
+    description: "Your account, appearance and language.",
     icon: TuneOutlinedIcon,
     gradient: 8,
     image: "https://images.unsplash.com/photo-1563641749712-028dfeab14b3",
+  },
+  {
+    href: "/admin",
+    label: "Admin Panel",
+    section: "System",
+    status: "live",
+    description: "Users, roles, API keys, webhooks, master data and system files — full control.",
+    icon: AdminPanelSettingsOutlinedIcon,
+    gradient: 4,
+    // No `image` — unlike the other tiles, deliberately left as the plain gradient + icon
+    // treatment rather than wiring in an unverified Unsplash URL (see the `image` doc comment
+    // above: every other tile's photo was checked individually before being added).
+    adminOnly: true,
   },
   {
     href: "/help",

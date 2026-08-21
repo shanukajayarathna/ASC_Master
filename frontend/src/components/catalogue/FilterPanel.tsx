@@ -127,8 +127,8 @@ export default function FilterPanel({
   /**
    * "valuation" tailors the panel to the Valuation Centre: the auction-outcome tick
    * groups (Sale Status / Reprint / Rainforest) don't apply while valuing and are
-   * hidden, and the Lot Number / Invoice No dropdowns become a lot-number range and a
-   * free-text invoice search.
+   * hidden, and the Invoice No dropdown becomes a free-text search. (Lot Number always
+   * gets its own range + pick-any-lot controls, in every variant — see lotNoHeader.)
    */
   variant?: "default" | "valuation";
   /**
@@ -150,11 +150,13 @@ export default function FilterPanel({
   const dClassification = useDeferredValue(classification);
   const dYear = useDeferredValue(year);
 
-  // Direct-entry columns for the valuation variant, resolved with the same patterns
-  // the curated dropdowns use.
+  // Direct-entry Lot Number column, resolved with the same patterns the curated dropdowns
+  // use. A sale can carry thousands of distinct lot numbers (they restart per broker), far
+  // too many for the type-ahead combo below to browse usefully — every variant gets the
+  // numeric range + pick-any-lot controls instead (see lotFilter/lotOptions).
   const lotNoHeader = useMemo(
-    () => (isValuation ? resolveHeader(headers, CURATED_FILTERS.find((d) => d.label === "Lot Number")!.patterns) : null),
-    [headers, isValuation]
+    () => resolveHeader(headers, CURATED_FILTERS.find((d) => d.label === "Lot Number")!.patterns),
+    [headers]
   );
   const invoiceHeader = useMemo(
     () => (isValuation ? resolveHeader(headers, CURATED_FILTERS.find((d) => d.label === "Invoice No")!.patterns) : null),
@@ -177,7 +179,7 @@ export default function FilterPanel({
   // other active filter.
   const curated = useMemo(() => {
     return CURATED_FILTERS.filter(
-      (def) => !(isValuation && (def.label === "Lot Number" || def.label === "Invoice No"))
+      (def) => def.label !== "Lot Number" && !(isValuation && def.label === "Invoice No")
     )
       .map((def) => {
         const header = resolveHeader(headers, def.patterns);

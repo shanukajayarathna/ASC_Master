@@ -1,6 +1,7 @@
 import type {
   AccuracyBucket,
   AccuracyOverview,
+  AdminAssetStatus,
   ApiKeyCreated,
   ApiKeySummary,
   AppNotification,
@@ -171,6 +172,13 @@ export const api = {
 
   deleteUser: (id: string) => request<void>(`/api/v1/auth/users/${id}`, { method: "DELETE" }),
 
+  /** Admin-only: change another user's email, display name and/or reset their password
+   *  directly (no current-password check — see AuthController.UpdateCredentials). Any field
+   *  may be omitted; pass only what's changing. displayName is what the dashboard greeting
+   *  and Topbar show. */
+  updateUserCredentials: (id: string, fields: { email?: string; newPassword?: string; displayName?: string }) =>
+    request<AuthUser>(`/api/v1/auth/users/${id}/credentials`, { method: "PATCH", body: JSON.stringify(fields) }),
+
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>("/api/v1/auth/change-password", {
       method: "POST",
@@ -219,6 +227,43 @@ export const api = {
 
   listAuditLog: (skip: number, take: number) =>
     request<AuditLogEntry[]>(`/api/v1/audit-log?skip=${skip}&take=${take}`),
+
+  // ---- admin assets (report templates + branding logo, admin-uploadable overrides of --
+  // ---- what otherwise ships baked into the frontend build / data/branding) -----------
+
+  listAdminAssets: () => request<AdminAssetStatus[]>("/api/v1/admin/assets"),
+
+  /** Slot ids that currently have an admin override — see weeklyFactReport.ts's
+   *  loadTemplate, which calls this once per report run instead of probing every slot. */
+  listAssetOverrideIds: () => request<string[]>("/api/v1/assets/overrides"),
+
+  uploadAdminAsset: async (slotId: string, file: File): Promise<AdminAssetStatus> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/admin/assets/${slotId}`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Upload failed");
+    }
+    return res.json();
+  },
+
+  revertAdminAsset: (slotId: string) => request<void>(`/api/v1/admin/assets/${slotId}`, { method: "DELETE" }),
+
+  /** Fetches the current override for a slot as raw bytes, or null when the slot has no
+   *  override (the caller should fall back to its own bundled default in that case). */
+  fetchAssetOverride: async (slotId: string): Promise<ArrayBuffer | null> => {
+    const res = await fetch(`${API_BASE}/api/v1/assets/${slotId}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Could not load asset override '${slotId}' (HTTP ${res.status}).`);
+    return res.arrayBuffer();
+  },
 
   // ---- knowledge base ---------------------------------------------------------------
   // Unlike every call below this point, these endpoints actually require login — so the
@@ -677,6 +722,33 @@ export const api = {
 
   mslRescan: (force = false) =>
     request<MslScanSummary>(`/api/v1/msl/rescan?force=${force}`, { method: "POST" }),
+
+  /** Admin upload into the MSL archive — see data/msl/README.md's "Adding new data" routine
+   *  (this drives the same placement, just from the Admin Panel). `type` is "auction",
+   *  "private" or "teaboard"; `year`/`saleNo`/`month` are required per type (see
+   *  MslController.Upload). Triggers an immediate scan, so the returned summary reflects it. */
+  uploadMslFile: async (
+    type: "auction" | "private" | "teaboard",
+    file: File,
+    fields: { year?: number; saleNo?: number; month?: number }
+  ): Promise<MslScanSummary> => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("type", type);
+    if (fields.year != null) form.append("year", String(fields.year));
+    if (fields.saleNo != null) form.append("saleNo", String(fields.saleNo));
+    if (fields.month != null) form.append("month", String(fields.month));
+    const res = await fetch(`${API_BASE}/api/v1/msl/upload`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Upload failed");
+    }
+    return res.json();
+  },
 
   mslSearch: (filters: MslFilters, page = 1, pageSize = 50) => {
     const qs = new URLSearchParams();

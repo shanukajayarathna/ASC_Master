@@ -79,6 +79,9 @@ builder.Services.AddSingleton<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>
 // Uploaded documents for the knowledge base — disk-backed for now (data/documents) behind
 // the same kind of swappable seam as lot media, above.
 builder.Services.AddSingleton<IDocumentStore, LocalDocumentStore>();
+// Admin-uploadable report templates + branding logo (data/templates, data/branding) — same
+// swappable local-disk seam as the stores above.
+builder.Services.AddSingleton<Asc.Api.Modules.AdminAssets.IAdminAssetStore, Asc.Api.Modules.AdminAssets.LocalAdminAssetStore>();
 // Embeddings go through OpenAI — a plain HttpClient, not the OpenAI SDK, since this is a
 // single endpoint.
 builder.Services.AddHttpClient<IEmbeddingProvider, OpenAiEmbeddingProvider>();

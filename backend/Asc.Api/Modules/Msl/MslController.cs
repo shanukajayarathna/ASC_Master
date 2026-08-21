@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Asc.Api.Data;
+using Asc.Api.Modules.Audit;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -53,7 +54,7 @@ public record TeaBoardRowDto(
 [ApiController]
 [Route("api/v1/msl")]
 [Authorize]
-public class MslController(MongoContext db, MslImportService importer, ICatalogueSource catalogues, IMemoryCache cache) : ControllerBase
+public class MslController(MongoContext db, MslImportService importer, ICatalogueSource catalogues, IMemoryCache cache, IAuditLogger audit) : ControllerBase
 {
     /// <summary>Heavy whole-collection results (status, aggregates) are cached keyed on the
     /// importer's DataVersion — instant on repeat views, recomputed only after an import
@@ -118,6 +119,80 @@ public class MslController(MongoContext db, MslImportService importer, ICatalogu
     [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
     public async Task<ActionResult<MslScanSummary>> Rescan([FromQuery] bool force = false, CancellationToken ct = default)
         => await importer.ScanAsync(force, ct);
+
+    /// <summary>
+    /// Admin upload for the MSL archive (see data/msl/README.md's "Adding new data" routine
+    /// — this is that same manual drop-a-file-in-the-right-folder step, done from the Admin
+    /// Panel instead of a filesystem copy). Placement is exactly what the README documents:
+    /// auction broker files go under auction/&lt;year&gt;/sale-&lt;NN&gt;/ (the importer reads
+    /// the actual sale year/number back out of each file's rows, so this folder is purely
+    /// organizational — see MslImportService.ImportFileAsync), private-sale files replace
+    /// private-sales/PVT&lt;yy&gt;.TXT, and Tea Board reports are saved under tea-board/ by a
+    /// fixed name. The folder watcher would pick any of these up within a few seconds
+    /// regardless; a scan is triggered immediately here so the admin sees the result now.
+    /// </summary>
+    [HttpPost("upload")]
+    [RequestSizeLimit(20_000_000)]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
+    public async Task<ActionResult<MslScanSummary>> Upload(
+        IFormFile file, [FromForm] string type, CancellationToken ct,
+        [FromForm] int? year = null, [FromForm] int? saleNo = null, [FromForm] int? month = null)
+    {
+        if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
+        var root = importer.DataPath;
+        if (root is null) return BadRequest("MSL data folder not found — set Msl:DataPath or create data/msl.");
+
+        var ext = Path.GetExtension(file.FileName);
+        string targetPath;
+        string relForAudit;
+
+        switch (type)
+        {
+            case "auction":
+                if (!string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest("Auction sale broker files are .TXT (fixed-width, 199 chars/line).");
+                if (year is null or < 2000 or > 2100) return BadRequest("Enter a valid year.");
+                if (saleNo is null or < 1 or > 60) return BadRequest("Enter a valid sale number (1-60).");
+                var auctionDir = Path.Combine(root, "auction", year.ToString()!, $"sale-{saleNo:00}");
+                Directory.CreateDirectory(auctionDir);
+                targetPath = Path.Combine(auctionDir, file.FileName);
+                relForAudit = $"auction/{year}/sale-{saleNo:00}/{file.FileName}";
+                break;
+
+            case "private":
+                if (!string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest("Private-sale files are .TXT.");
+                var pvtDir = Path.Combine(root, "private-sales");
+                Directory.CreateDirectory(pvtDir);
+                targetPath = Path.Combine(pvtDir, file.FileName);
+                relForAudit = $"private-sales/{file.FileName}";
+                break;
+
+            case "teaboard":
+                if (!string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest("Tea Board reports are .pdf.");
+                if (year is null or < 2000 or > 2100) return BadRequest("Enter a valid year.");
+                if (month is null or < 1 or > 12) return BadRequest("Enter a valid month (1-12).");
+                var tbDir = Path.Combine(root, "tea-board");
+                Directory.CreateDirectory(tbDir);
+                var tbName = $"national-averages-{year:0000}-{month:00}.pdf";
+                targetPath = Path.Combine(tbDir, tbName);
+                relForAudit = $"tea-board/{tbName}";
+                break;
+
+            default:
+                return BadRequest($"Unknown upload type '{type}'. Use 'auction', 'private' or 'teaboard'.");
+        }
+
+        await using (var stream = System.IO.File.Create(targetPath))
+        {
+            await file.CopyToAsync(stream, ct);
+        }
+
+        var summary = await importer.ScanAsync(force: false, ct);
+        await audit.LogAsync(User, "msl.uploaded", "MslFile", relForAudit, $"{file.FileName}, {file.Length:N0} bytes", ct);
+        return Ok(summary);
+    }
 
     [HttpGet("search")]
     public async Task<ActionResult<MslSearchResultDto>> Search(

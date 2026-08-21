@@ -58,19 +58,14 @@ public class WorksheetExcelBuilder(IWebHostEnvironment env)
     private const double LogoHeightIn = 0.72;
     private const double LogoWidthIn = 1.33;
 
-    private static byte[]? _logoBytes;
-    private static readonly Lock LogoLock = new();
-
+    // Deliberately not cached: data/branding/logo.png can now be replaced live from the
+    // Admin Panel (see Modules/AdminAssets), and this reads a tiny PNG only once per
+    // worksheet export — a process-lifetime cache here would keep serving a stale logo
+    // until the next restart.
     private byte[] LoadLogo()
     {
-        if (_logoBytes is not null) return _logoBytes;
-        lock (LogoLock)
-        {
-            if (_logoBytes is not null) return _logoBytes;
-            var path = Path.GetFullPath(Path.Combine(env.ContentRootPath, "..", "..", "data", "branding", "logo.png"));
-            _logoBytes = File.Exists(path) ? File.ReadAllBytes(path) : [];
-            return _logoBytes;
-        }
+        var path = Path.GetFullPath(Path.Combine(env.ContentRootPath, "..", "..", "data", "branding", "logo.png"));
+        return File.Exists(path) ? File.ReadAllBytes(path) : [];
     }
 
     public XSSFWorkbook Build(

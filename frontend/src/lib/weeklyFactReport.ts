@@ -31,6 +31,7 @@
    ===================================================================== */
 
 import ExcelJS from "exceljs";
+import { api } from "@/lib/api";
 import type { WesEquivalentApi } from "@/types/api";
 
 // ---- TXT PARSER — mirrors tea_report_app/core/txt_parser.py -------------------------------
@@ -321,32 +322,68 @@ const templateCache = new Map<string, ArrayBuffer>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// An Admin can replace any of these templates from the Admin Panel (Modules/AdminAssets on
+// the backend) without a redeploy; the override lives on the server's local disk and takes
+// over from the bundled default in /templates below. Checking per-slot would mean an extra
+// round trip for every one of the up to 9 templates a report pulls in even when nothing was
+// ever overridden, so the set of overridden slot ids is fetched once per page session and
+// reused — a slot only gets its own fetch when it's actually in that set.
+let overrideIdsPromise: Promise<Set<string>> | null = null;
+function overrideIds(): Promise<Set<string>> {
+  if (!overrideIdsPromise) {
+    overrideIdsPromise = api.listAssetOverrideIds().then(
+      (ids) => new Set(ids),
+      () => new Set<string>() // Can't reach the API — behave as if nothing is overridden.
+    );
+  }
+  return overrideIdsPromise;
+}
+
 /** A whole report pulls in up to 9 of these template files sequentially; on a machine under
  *  real memory pressure a `fetch()` can reject outright ("Failed to fetch" — a transient
  *  network-level failure, not a 404) partway through that run. A couple of short-backoff
  *  retries turns a one-off blip into a silent success instead of failing the whole build;
- *  failures are only reported to the user after every attempt is exhausted. */
-async function loadTemplate(url: string, attempt = 1): Promise<ArrayBuffer> {
-  const cached = templateCache.get(url);
+ *  failures are only reported to the user after every attempt is exhausted.
+ *
+ *  `slotId` identifies the admin-overridable asset slot (see AdminAssetCatalog.cs); when an
+ *  admin has uploaded a replacement it's served from the backend, otherwise this falls back
+ *  to `fallbackUrl`, the version bundled in /public/templates. */
+async function loadTemplate(slotId: string, fallbackUrl: string, attempt = 1): Promise<ArrayBuffer> {
+  const cached = templateCache.get(slotId);
   if (cached) return cached.slice(0);
+
+  if ((await overrideIds()).has(slotId)) {
+    try {
+      const override = await api.fetchAssetOverride(slotId);
+      if (override) {
+        templateCache.set(slotId, override);
+        return override.slice(0);
+      }
+    } catch {
+      // Override fetch failed (or raced with a revert) — fall through to the bundled default.
+    }
+  }
+
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(fallbackUrl);
   } catch (err) {
     if (attempt >= 3) {
       throw new Error(
-        `Could not reach ${url} after ${attempt} attempts (${err instanceof Error ? err.message : String(err)}) — check the app server is running and try again.`
+        `Could not reach ${fallbackUrl} after ${attempt} attempts (${err instanceof Error ? err.message : String(err)}) — check the app server is running and try again.`
       );
     }
     await sleep(300 * attempt);
-    return loadTemplate(url, attempt + 1);
+    return loadTemplate(slotId, fallbackUrl, attempt + 1);
   }
-  if (!res.ok) throw new Error(`Could not load template ${url} (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(`Could not load template ${fallbackUrl} (HTTP ${res.status}).`);
   const buf = await res.arrayBuffer();
-  templateCache.set(url, buf);
+  templateCache.set(slotId, buf);
   return buf.slice(0);
 }
 
+const factTemplateSlot = (key: TemplateKey) => `fact-${key.toLowerCase()}`;
+const rankTemplateSlot = (key: TemplateKey) => `rank-${key.toLowerCase()}`;
 const factTemplateUrl = (key: TemplateKey) => `/templates/fact/fact-${key.toLowerCase()}.xlsx`;
 const rankTemplateUrl = (key: TemplateKey) => `/templates/rank/rank-${key.toLowerCase()}.xlsx`;
 
@@ -457,7 +494,7 @@ async function buildCategoryWorkbook(opts: {
   const [saleAvg, mtdAvg, ytdAvg] = benchmark;
 
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(await loadTemplate(factTemplateUrl(templateKey)));
+  await wb.xlsx.load(await loadTemplate(factTemplateSlot(templateKey), factTemplateUrl(templateKey)));
   const ws = wb.worksheets[0];
   const origRowCount = ws.rowCount;
 
@@ -628,7 +665,7 @@ async function buildRankCategorySheet(
 ): Promise<{ rowCount: number; warnings: string[] }> {
   const warnings: string[] = [];
   const tmpWb = new ExcelJS.Workbook();
-  await tmpWb.xlsx.load(await loadTemplate(rankTemplateUrl(spec.templateKey)));
+  await tmpWb.xlsx.load(await loadTemplate(rankTemplateSlot(spec.templateKey), rankTemplateUrl(spec.templateKey)));
   const srcWs = tmpWb.worksheets[0];
 
   const ws = targetWb.addWorksheet(spec.tabName);
@@ -868,6 +905,7 @@ async function buildRankWorkbook(opts: {
 // replicating the archives exactly (confirmed choice) rather than copying the WES master in
 // like the combined RANK FAC workbook does.
 
+const LOW_TEMPLATE_SLOT = "low-wise";
 const LOW_TEMPLATE_URL = "/templates/low/low-wise.xlsx";
 const LOW_DATA_START_ROW = 18;
 const LOW_DATA_COLS = [2, 3, 4, 5, 6, 7, 8, 9, 10]; // B..J
@@ -913,7 +951,7 @@ async function buildLowWiseWorkbook(opts: {
   const [saleAvg, mtdAvg] = benchmark;
 
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(await loadTemplate(LOW_TEMPLATE_URL));
+  await wb.xlsx.load(await loadTemplate(LOW_TEMPLATE_SLOT, LOW_TEMPLATE_URL));
   const ws = wb.worksheets[0]; // the "LOW FAC-30" tab; Sheet1 rides along untouched
   const origRowCount = ws.rowCount;
 
@@ -1006,6 +1044,198 @@ export function computeDefaultLowHeaderText(saleDate: string | null, saleNumber:
   return ` Sale No. ${saleNumber} - ${day(prevDay)}${crossMonth}  / ${day(saleDay)}  ${MONTH_NAMES[saleDay.getMonth()]} ${saleDay.getFullYear()}`;
 }
 
+// ---- ALL BROKERS CATALOGUED TOTALS parser + MARKET SHARE builder --------------------------
+// A third, independent weekly source (not the WES factory workbook): a market-wide, all-broker
+// "ALL BROKERS CATALOGUED TOTALS" workbook generated when that week's catalogues close. Sheet1
+// lists one three-row block per broker — an "HM" sub-row, a "{code} L" sub-row and a "Total"
+// row — each carrying that broker's own "Without Re-Prints %" (col W) and current-year Fresh
+// Qty (col Z) for its slice (HM row = High&Medium+Ex-Estate+Off/Dust/PremFlowery-that-graded-
+// high, "L" row = Low-grown Leafy/SemiLeafy/Tippy/Off/Dust/PremFlowery, Total row = everything).
+// The "MARKET SHARE" workbook derived from it is a 100%-mechanical extract, reverse-engineered
+// and verified digit-for-digit against two real archived outputs (sales 34 and 35): each of its
+// four tables (TOTAL / EX-ESTATE / HIGH & MEDIUM / LOW) is just that same source column, per
+// broker, ranked by quantity descending — EX-ESTATE alone uses the Total row's Ex-Estate Qty
+// (col C) directly rather than the Without-Reprints % column, since Ex-Estate isn't split by
+// reprint status. Brokers with no volume in a table (e.g. a broker sitting out that category
+// entirely) are simply left out, exactly as the real archives do.
+const CT_EXESTATE_QTY_COL = 3; // column C, read off the broker's Total row
+const CT_WITHOUT_PCT_COL = 23; // column W — "Without Re-Prints %"
+const CT_FRESH_QTY_COL = 26; // column Z — this year's Fresh Qty
+
+export interface MarketShareBrokerRow {
+  code: string;
+  exEstateQty: number | null;
+  hmQty: number | null;
+  lowQty: number | null;
+  totalQty: number | null;
+}
+
+export interface CatalogueTotalsReport {
+  saleNumber: number | null;
+  brokers: MarketShareBrokerRow[];
+  warnings: string[];
+}
+
+function ctNum(v: ExcelJS.CellValue): number | null {
+  const raw = rawCellValue(v);
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") {
+    const n = parseFloat(raw.replace(/,/g, "").trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Parses the "ALL BROKERS CATALOGUED TOTALS" workbook — located defensively (an "HM" row
+ *  immediately above, and a "Total" row immediately below, every "{code} L" row) rather than
+ *  by fixed row numbers, since the broker count/order isn't guaranteed to hold from week to
+ *  week the way the WES file's category blocks do. */
+export async function parseCatalogueTotals(arrayBuffer: ArrayBuffer): Promise<CatalogueTotalsReport> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(arrayBuffer);
+  const ws = wb.worksheets[0];
+  const warnings: string[] = [];
+
+  let saleNumber: number | null = null;
+  const saleCell = rawCellValue(ws.getCell(1, 2).value);
+  const saleDigits = saleCell != null ? String(saleCell).match(/\d+/) : null;
+  if (saleDigits) saleNumber = parseInt(saleDigits[0], 10);
+  else warnings.push("Could not find the sale number on the catalogued-totals sheet (cell B1).");
+
+  const maxRow = ws.rowCount;
+  const brokers: MarketShareBrokerRow[] = [];
+  for (let r = 1; r <= maxRow; r++) {
+    const cellText = ws.getCell(r, 1).value;
+    const text = typeof cellText === "string" ? cellText.trim() : "";
+    const m = text.match(/^([A-Z]{2,4})\s*L$/);
+    if (!m) continue;
+    const code = m[1];
+    // The "Total" row below every "{code} L" row is a reliable anchor (verified across all 9
+    // brokers of both real archive files) — a genuine mismatch there means this isn't the block
+    // shape expected, so the broker is skipped. The "HM" row immediately above is NOT reliably
+    // labelled, though: one real archive (sale 35) has it blank for one broker (its own label
+    // text landed one row higher instead) while every other broker's HM row is labelled
+    // correctly — so position, not text, is what's trusted here; a wrong-looking label only
+    // warns.
+    const hmLabel = String(rawCellValue(ws.getCell(r - 1, 1).value) ?? "").trim();
+    const totalLabel = String(rawCellValue(ws.getCell(r + 1, 1).value) ?? "").trim();
+    if (totalLabel !== "Total") {
+      warnings.push(`Broker '${code}': expected a 'Total' row below its 'L' row — found '${totalLabel}'; skipped.`);
+      continue;
+    }
+    if (hmLabel !== "" && hmLabel !== "HM") {
+      warnings.push(`Broker '${code}': the row above its 'L' row is labelled '${hmLabel}', not 'HM' — used it anyway (by position), but double-check this broker's High & Medium figures.`);
+    }
+    brokers.push({
+      code,
+      exEstateQty: ctNum(ws.getCell(r + 1, CT_EXESTATE_QTY_COL).value),
+      hmQty: ctNum(ws.getCell(r - 1, CT_FRESH_QTY_COL).value),
+      lowQty: ctNum(ws.getCell(r, CT_FRESH_QTY_COL).value),
+      totalQty: ctNum(ws.getCell(r + 1, CT_FRESH_QTY_COL).value),
+    });
+  }
+
+  if (brokers.length === 0) {
+    warnings.push("No broker rows found — is this the 'ALL BROKERS CATALOGUED TOTALS' workbook?");
+  }
+  return { saleNumber, brokers, warnings };
+}
+
+const MARKET_SHARE_TEMPLATE_SLOT = "market-share";
+const MARKET_SHARE_TEMPLATE_URL = "/templates/market-share/market-share.xlsx";
+const MARKET_SHARE_ROWS_PER_TABLE = 8;
+
+interface MarketShareTableSpec {
+  titleRow: number;
+  dataStartRow: number;
+  /** True for the one table (LOW) whose #1 row carries a live "lead over #2" margin in col F. */
+  hasLeadMargin: boolean;
+}
+
+const MARKET_SHARE_TABLES: [key: keyof MarketShareBrokerRow | "exEstateQty", MarketShareTableSpec][] = [
+  ["totalQty", { titleRow: 3, dataStartRow: 6, hasLeadMargin: false }],
+  ["exEstateQty", { titleRow: 16, dataStartRow: 19, hasLeadMargin: false }],
+  ["hmQty", { titleRow: 29, dataStartRow: 32, hasLeadMargin: false }],
+  ["lowQty", { titleRow: 42, dataStartRow: 45, hasLeadMargin: true }],
+];
+
+export interface MarketShareWorkbookResult {
+  buffer: ArrayBuffer;
+  filename: string;
+  rowsByTable: Record<string, { code: string; qty: number }[]>;
+  warnings: string[];
+}
+
+/** Builds the "MARKET SHARE" workbook from a parsed CatalogueTotalsReport, writing into the
+ *  real archived template verbatim (same approach as the FACT/RANK/LOW templates) — only the
+ *  Broker (C) and Qty (E) cells of each of the four tables' 8 rows change, plus the "SALE NO:"
+ *  title text. The template's own % (col D, `=E/$E$total*100`), rank (col B) and LOW's lead-
+ *  margin (F45, `=E45-E46`) are all row-relative, so they're rewritten here as fresh per-row
+ *  formulas (with the result cached, so the numbers are right even before Excel recalculates)
+ *  rather than reused as shared formulas — simpler and equally correct, since a shared formula
+ *  spanning a range that might now hold fewer live rows is exactly the kind of thing that's
+ *  easy to get subtly wrong. */
+export async function buildMarketShareWorkbook(opts: {
+  report: CatalogueTotalsReport;
+  saleNumber: number | null;
+}): Promise<MarketShareWorkbookResult> {
+  const { report, saleNumber } = opts;
+  const warnings: string[] = [...report.warnings];
+  const rowsByTable: Record<string, { code: string; qty: number }[]> = {};
+
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await loadTemplate(MARKET_SHARE_TEMPLATE_SLOT, MARKET_SHARE_TEMPLATE_URL));
+  const ws = wb.worksheets[0];
+
+  const saleLabel = saleNumber != null ? String(saleNumber) : report.saleNumber != null ? String(report.saleNumber) : "X";
+
+  for (const [field, spec] of MARKET_SHARE_TABLES) {
+    const titleCell = ws.getCell(spec.titleRow, 2);
+    const title = String(rawCellValue(titleCell.value) ?? "");
+    titleCell.value = title.replace(/^(SALE NO:)\d+/, `$1${saleLabel}`);
+
+    const ranked = report.brokers
+      .map((b) => ({ code: b.code, qty: b[field] }))
+      .filter((b): b is { code: string; qty: number } => typeof b.qty === "number" && b.qty > 0)
+      .sort((a, b) => b.qty - a.qty);
+    rowsByTable[field] = ranked.slice(0, MARKET_SHARE_ROWS_PER_TABLE);
+
+    if (ranked.length > MARKET_SHARE_ROWS_PER_TABLE) {
+      warnings.push(
+        `${field}: ${ranked.length} brokers show volume but the template only has ${MARKET_SHARE_ROWS_PER_TABLE} rows — the lowest-ranked ${ranked.length - MARKET_SHARE_ROWS_PER_TABLE} were left off.`
+      );
+    }
+
+    const totalQty = ranked.slice(0, MARKET_SHARE_ROWS_PER_TABLE).reduce((sum, b) => sum + b.qty, 0);
+    const totalRow = spec.dataStartRow + MARKET_SHARE_ROWS_PER_TABLE;
+
+    for (let i = 0; i < MARKET_SHARE_ROWS_PER_TABLE; i++) {
+      const row = spec.dataStartRow + i;
+      const entry = ranked[i];
+      ws.getCell(row, 2).value = entry ? i + 1 : null; // rank
+      ws.getCell(row, 3).value = entry ? entry.code : null; // broker
+      ws.getCell(row, 4).value = entry // % of the table's own total
+        ? ({ formula: `E${row}/$E$${totalRow}*100`, result: totalQty > 0 ? (entry.qty / totalQty) * 100 : 0 } as ExcelJS.CellValue)
+        : null;
+      ws.getCell(row, 5).value = entry ? entry.qty : null; // qty
+    }
+
+    ws.getCell(totalRow, 5).value = { formula: `SUM(E${spec.dataStartRow}:E${totalRow - 1})`, result: totalQty } as ExcelJS.CellValue;
+
+    if (spec.hasLeadMargin) {
+      const marginRow = spec.dataStartRow;
+      const first = ranked[0];
+      const second = ranked[1];
+      ws.getCell(marginRow, 6).value =
+        first && second ? ({ formula: `E${marginRow}-E${marginRow + 1}`, result: first.qty - second.qty } as ExcelJS.CellValue) : null;
+    }
+  }
+
+  const filename = `SN${saleLabel}3026MARKET SHRE.xlsx`;
+  const buffer = await wb.xlsx.writeBuffer();
+  return { buffer: buffer as ArrayBuffer, filename, rowsByTable, warnings };
+}
+
 // ---- PIPELINE — mirrors tea_report_app/core/pipeline.py -----------------------------------
 
 const CATEGORY_SPEC: Record<string, { templateKey: TemplateKey; suffix: string }> = {
@@ -1060,6 +1290,15 @@ export interface WeeklyJobResult {
   lowBenchmark: [number | null, number | null];
   lowHeaderText: string;
   lowWarnings: string[];
+  /** The "SN{sale}3026MARKET SHRE.xlsx" workbook, built from the optional third source file
+   *  (the "ALL BROKERS CATALOGUED TOTALS" workbook) — null when that file wasn't provided,
+   *  same as the other optional outputs. */
+  marketShareWorkbook: { filename: string | null; buffer: ArrayBuffer | null; ok: boolean } | null;
+  /** Each table's rows exactly as written to the workbook (post rank/filter), keyed by
+   *  MarketShareBrokerRow field name ("totalQty" | "exEstateQty" | "hmQty" | "lowQty") — the
+   *  PDF mirror renders from these, same contract as sortedRows/rankTabs/lowRankRows. */
+  marketShareRowsByTable: Record<string, { code: string; qty: number }[]>;
+  marketShareWarnings: string[];
   warnings: string[];
 }
 
@@ -1135,7 +1374,15 @@ export type WesInput = { source: "upload"; arrayBuffer: ArrayBuffer } | { source
  *  malformed, or just needs correcting by hand. The TXT/WES mismatch check below still compares
  *  the two files' OWN parsed sale numbers, since that check is about catching a wrong-file
  *  upload, not about the override. */
-export async function runJob(txtText: string, wesInput: WesInput, overrides: SaleOverrides = {}): Promise<WeeklyJobResult> {
+export async function runJob(
+  txtText: string,
+  wesInput: WesInput,
+  overrides: SaleOverrides = {},
+  /** The optional third source file's raw bytes — the "ALL BROKERS CATALOGUED TOTALS"
+   *  workbook. Omit (or pass null/undefined) to skip the MARKET SHARE workbook entirely; every
+   *  other output is unaffected either way. */
+  catalogueTotalsArrayBuffer?: ArrayBuffer | null
+): Promise<WeeklyJobResult> {
   const txtReport = parseTxt(txtText);
   const wesReport = wesInput.source === "upload" ? await parseWes(wesInput.arrayBuffer) : wesInput.report;
   const wesArrayBufferForSheet1 = wesInput.source === "upload" ? wesInput.arrayBuffer : null;
@@ -1255,6 +1502,32 @@ export async function runJob(txtText: string, wesInput: WesInput, overrides: Sal
     lowWarnings.push(`RANK/MARK WISE workbooks could not be built: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ---- MARKET SHARE workbook (see buildMarketShareWorkbook's own comment) — entirely
+  // optional: skipped with no warning at all when the third source file wasn't provided,
+  // exactly like the WES-database path leaves rankWorkbook's Sheet1 as the only casualty
+  // rather than failing the whole job.
+  let marketShareWorkbook: WeeklyJobResult["marketShareWorkbook"] = null;
+  let marketShareRowsByTable: WeeklyJobResult["marketShareRowsByTable"] = {};
+  const marketShareWarnings: string[] = [];
+  if (catalogueTotalsArrayBuffer) {
+    try {
+      const ctReport = await parseCatalogueTotals(catalogueTotalsArrayBuffer);
+      marketShareWarnings.push(...ctReport.warnings);
+      if (ctReport.saleNumber != null && saleNumber != null && ctReport.saleNumber !== saleNumber) {
+        marketShareWarnings.push(
+          `Sale number mismatch: the CBAC/WES files say sale ${saleNumber}, the catalogued-totals file says sale ${ctReport.saleNumber}. Double-check you uploaded matching files for the same week.`
+        );
+      }
+      const msResult = await buildMarketShareWorkbook({ report: ctReport, saleNumber });
+      marketShareWarnings.push(...msResult.warnings);
+      marketShareRowsByTable = msResult.rowsByTable;
+      marketShareWorkbook = { filename: msResult.filename, buffer: msResult.buffer, ok: ctReport.brokers.length > 0 };
+    } catch (err) {
+      marketShareWorkbook = { filename: null, buffer: null, ok: false };
+      marketShareWarnings.push(`MARKET SHARE workbook could not be built: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   return {
     saleNumber,
     saleDate,
@@ -1270,6 +1543,9 @@ export async function runJob(txtText: string, wesInput: WesInput, overrides: Sal
     lowBenchmark,
     lowHeaderText,
     lowWarnings,
+    marketShareWorkbook,
+    marketShareRowsByTable,
+    marketShareWarnings,
     warnings,
   };
 }

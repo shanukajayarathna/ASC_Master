@@ -1,6 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import type { DocumentSearchResult } from "@/types/api";
 import { NAV_ITEMS, type NavItem } from "./nav";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
@@ -28,6 +29,9 @@ type Entry =
  */
 export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.roles.includes("Admin") ?? false;
+  const visibleNavItems = useMemo(() => NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin), [isAdmin]);
   const [query, setQuery] = useState("");
   const [docResults, setDocResults] = useState<DocumentSearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -46,11 +50,11 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const navMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return NAV_ITEMS;
-    return NAV_ITEMS.filter(
+    if (!q) return visibleNavItems;
+    return visibleNavItems.filter(
       (item) => item.label.toLowerCase().includes(q) || item.description.toLowerCase().includes(q)
     );
-  }, [query]);
+  }, [query, visibleNavItems]);
 
   // Knowledge Base search — only once the query looks like a real search, not on every
   // keystroke of a 1-character query, and only while the palette is open.

@@ -806,3 +806,17 @@ export interface MslFilterOptions {
   buyers: string[];
   buyerNames: Record<string, string>;
 }
+
+/** One admin-uploadable file slot (a report template, the export letterhead logo) — see
+ *  backend Modules/AdminAssets/AdminAssetCatalog.cs, the source of truth for the slot list. */
+export interface AdminAssetStatus {
+  id: string;
+  group: string;
+  label: string;
+  description: string;
+  fileName: string;
+  hasOverride: boolean;
+  sizeBytes: number | null;
+  uploadedAtUtc: string | null;
+  uploadedBy: string | null;
+}

@@ -266,3 +266,78 @@ export async function buildRankPdf(tabs: RankTabData[], rankHeaderText: string):
 
   return doc.output("blob");
 }
+
+/** One MARKET SHARE table's rows, exactly as written to the workbook (ranked, top-8) — the
+ *  PDF renders straight from these, same contract as the other mirrors. */
+export interface MarketShareTablePdfData {
+  title: string;
+  rows: { code: string; qty: number }[];
+}
+
+// The template's own top-3 highlight (verified off the real archived cell fills — see
+// weeklyFactReport.ts's MARKET_SHARE_TABLES comment).
+const MARKET_SHARE_HIGHLIGHT: [number, number, number] = [0xff, 0xff, 0x00];
+
+/** The MARKET SHARE workbook's PDF mirror: one page (spilling to a second if it runs long),
+ *  the four tables in the workbook's own order (Total / Ex-Estate / High & Medium / Low),
+ *  each ranked by qty with the top 3 rows highlighted exactly like the source cells. % is
+ *  recomputed from the same rows the workbook itself sums (its own table total), so the two
+ *  can never disagree. */
+export async function buildMarketSharePdf(tables: MarketShareTablePdfData[], saleNumber: number | null): Promise<Blob> {
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const logo = await loadImage("/brand/tea-auction-logo.png");
+
+  let y = drawLetterhead(doc, logo, [COMPANY_NAME, COMPANY_ADDRESS, COMPANY_TEL, COMPANY_WEB]);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(`MARKET SHARE${saleNumber != null ? ` — Sale ${saleNumber}` : ""}`, MARGIN, y);
+  y += 14;
+
+  const pageBottom = doc.internal.pageSize.getHeight() - MARGIN;
+
+  tables.forEach((table) => {
+    if (y > pageBottom - 100) {
+      doc.addPage();
+      y = MARGIN;
+    }
+    const totalQty = table.rows.reduce((sum, r) => sum + r.qty, 0);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(table.title, MARGIN, y);
+
+    const head: RowInput[] = [["", "BROKER", "%", "QTY."]];
+    const body: RowInput[] = table.rows.map((r, i) => {
+      const pct = totalQty > 0 ? (r.qty / totalQty) * 100 : 0;
+      const styles = i < 3 ? { fillColor: MARKET_SHARE_HIGHLIGHT } : {};
+      return [
+        { content: String(i + 1), styles },
+        { content: r.code, styles },
+        { content: pct.toFixed(2), styles },
+        { content: r.qty.toLocaleString("en-US"), styles },
+      ];
+    });
+
+    autoTable(doc, {
+      head,
+      body,
+      startY: y + 8,
+      margin: { left: MARGIN, right: MARGIN },
+      tableWidth: 280,
+      theme: "grid",
+      styles: { fontSize: 8.5, cellPadding: 3, textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.5 },
+      headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
+      columnStyles: {
+        0: { halign: "center", cellWidth: 22 },
+        1: { halign: "left", cellWidth: 70 },
+        2: { halign: "right", cellWidth: 80 },
+        3: { halign: "right", cellWidth: 100 },
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lastAutoTable isn't in jsPDF's own types; added by the autotable plugin at runtime
+    y = (doc as any).lastAutoTable.finalY + 26;
+  });
+
+  return doc.output("blob");
+}

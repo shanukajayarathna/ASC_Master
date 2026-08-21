@@ -149,6 +149,62 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         return Ok(ToDto(user));
     }
 
+    /// <summary>Admin edit of another user's email, display name and/or password — the
+    /// counterpart to self-service ChangePassword below, for when an Admin needs to fix a
+    /// typo'd email/name or reset a password on someone else's behalf (no email/reset-token
+    /// infra exists in this app, so this is the only path besides delete-and-recreate).
+    /// DisplayName is what the dashboard greeting and Topbar show, so this also covers
+    /// "the wrong name shows up when they log in," not just credentials.</summary>
+    [HttpPatch("users/{id:guid}/credentials")]
+    [Authorize(Policy = Policies.ManageUsers)]
+    public async Task<ActionResult<UserDto>> UpdateCredentials(Guid id, AdminUpdateUserDto dto, CancellationToken ct)
+    {
+        var hasEmail = !string.IsNullOrWhiteSpace(dto.Email);
+        var hasPassword = !string.IsNullOrWhiteSpace(dto.NewPassword);
+        var hasDisplayName = !string.IsNullOrWhiteSpace(dto.DisplayName);
+        if (!hasEmail && !hasPassword && !hasDisplayName) return BadRequest("Provide a new email, display name and/or password.");
+        if (hasPassword && dto.NewPassword!.Length < 8) return BadRequest("New password must be at least 8 characters.");
+
+        var user = await db.Users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
+        if (user is null) return NotFound();
+
+        var changes = new List<string>();
+
+        if (hasEmail)
+        {
+            var email = dto.Email!.Trim().ToLowerInvariant();
+            if (email != user.Email)
+            {
+                if (await db.Users.Find(u => u.Id != id && u.Email == email).AnyAsync(ct))
+                    return Conflict("An account with that email already exists.");
+                changes.Add($"email {user.Email} -> {email}");
+                user.Email = email;
+            }
+        }
+
+        if (hasDisplayName)
+        {
+            var displayName = dto.DisplayName!.Trim();
+            if (displayName != user.DisplayName)
+            {
+                changes.Add($"name {user.DisplayName} -> {displayName}");
+                user.DisplayName = displayName;
+            }
+        }
+
+        if (hasPassword)
+        {
+            user.PasswordHash = hasher.HashPassword(user, dto.NewPassword!);
+            changes.Add("password reset");
+        }
+
+        if (changes.Count == 0) return Ok(ToDto(user));
+
+        await db.Users.ReplaceOneAsync(u => u.Id == id, user, cancellationToken: ct);
+        await audit.LogAsync(User, "user.credentials_updated", "User", user.Id.ToString(), string.Join(", ", changes), ct);
+        return Ok(ToDto(user));
+    }
+
     [HttpDelete("users/{id:guid}")]
     [Authorize(Policy = Policies.ManageUsers)]
     public async Task<IActionResult> DeleteUser(Guid id, CancellationToken ct)

@@ -4,10 +4,12 @@ import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import { api, ApiError } from "@/lib/api";
 import { dateStamp } from "@/lib/worksheetPdf";
-import { buildFactCategoryPdf, buildRankPdf } from "@/lib/weeklyFactPdf";
+import { buildFactCategoryPdf, buildMarketSharePdf, buildRankPdf, type MarketShareTablePdfData } from "@/lib/weeklyFactPdf";
 import {
+  buildMarketShareWorkbook,
   computeDefaultLowHeaderText,
   computeDefaultRankHeaderText,
+  parseCatalogueTotals,
   runJob,
   wesReportFromDatabase,
   type RankTabData,
@@ -15,6 +17,35 @@ import {
   type WesInput,
   type WesReport,
 } from "@/lib/weeklyFactReport";
+
+/** The four MARKET SHARE tables, in the workbook's own order — shared between the ZIP builder
+ *  and the per-card PDF button so the two never drift apart. */
+const MARKET_SHARE_TABLE_SPECS: { field: string; title: string }[] = [
+  { field: "totalQty", title: "MARKET SHARE (TOTAL FRESH TEAS)" },
+  { field: "exEstateQty", title: "MARKET SHARE (EX-ESTATE)" },
+  { field: "hmQty", title: "MARKET SHARE (HIGH & MEDIUM FRESH TEAS)" },
+  { field: "lowQty", title: "MARKET SHARE (LOW FRESH TEAS)" },
+];
+
+/** The MARKET SHARE workbook's own result shape, decoupled from WeeklyJobResult so it can be
+ *  produced two ways: standalone (just the catalogued-totals file, nothing else needed) or as
+ *  part of a full "Generate reports" run (the two paths write into this same state — see
+ *  generateMarketShareOnly / generate). */
+interface MarketShareResult {
+  filename: string;
+  buffer: ArrayBuffer;
+  rowsByTable: Record<string, { code: string; qty: number }[]>;
+  warnings: string[];
+  ok: boolean;
+  saleNumber: number | null;
+}
+
+function marketShareTablesOf(rowsByTable: MarketShareResult["rowsByTable"]): MarketShareTablePdfData[] {
+  return MARKET_SHARE_TABLE_SPECS.map((spec) => ({
+    title: spec.title,
+    rows: rowsByTable[spec.field] ?? [],
+  }));
+}
 import type { SaleSummary } from "@/types/api";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
@@ -241,6 +272,16 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export default function WeeklyFactReportsPage() {
   const [txtData, setTxtData] = useState<{ fileName: string; text: string } | null>(null);
   const [wesSource, setWesSource] = useState<WesSource | null>(null);
+  // Optional third source: the "ALL BROKERS CATALOGUED TOTALS" workbook, which drives the
+  // MARKET SHARE workbook alone — every other output works with just the TXT + WES pair, so
+  // this is never required for "Generate reports" to be enabled.
+  const [catalogueTotalsData, setCatalogueTotalsData] = useState<{ fileName: string; arrayBuffer: ArrayBuffer } | null>(null);
+  // The MARKET SHARE workbook's own result — set either by the standalone "Generate Market
+  // Share" button (just the one file, nothing else needed) or, after a full "Generate reports"
+  // run that included the catalogued-totals file, synced from that job's own result. Either way
+  // the card below reads from here, so there's only ever one Market Share result on screen.
+  const [marketShareResult, setMarketShareResult] = useState<MarketShareResult | null>(null);
+  const [generatingMarketShare, setGeneratingMarketShare] = useState(false);
   const [saleDate, setSaleDate] = useState("");
   const [saleNumberOverride, setSaleNumberOverride] = useState("");
   // Auto-filled once the TXT is read (see handleTxtFile), but always left editable — the real
@@ -352,6 +393,47 @@ export default function WeeklyFactReportsPage() {
     setWesSource({ kind: "upload", fileName: file.name, arrayBuffer });
   };
 
+  const handleCatalogueTotalsFile = async (file: File) => {
+    if (!/\.xlsx$/i.test(file.name)) {
+      setError("Please upload a .xlsx file (the ALL BROKERS CATALOGUED TOTALS workbook).");
+      return;
+    }
+    setError(null);
+    const arrayBuffer = await file.arrayBuffer();
+    setCatalogueTotalsData({ fileName: file.name, arrayBuffer });
+    // A fresh file replaces whatever MARKET SHARE result was on screen — otherwise swapping
+    // the upload would silently leave the old file's numbers displayed until re-generated.
+    setMarketShareResult(null);
+  };
+
+  /** MARKET SHARE alone: the catalogued-totals workbook is everything this output needs, so
+   *  this never waits on the CBAC TXT / WES file the other cards require. The sale-number
+   *  override field is reused when present (same field the rest of the page uses), else the
+   *  file's own "Sale No:" cell (parsed by parseCatalogueTotals) is the source of truth. */
+  const generateMarketShareOnly = async () => {
+    if (!catalogueTotalsData || generatingMarketShare) return;
+    setGeneratingMarketShare(true);
+    setError(null);
+    try {
+      const overrideNumber = saleNumberOverride.trim() === "" ? undefined : parseInt(saleNumberOverride.trim(), 10);
+      const report = await parseCatalogueTotals(catalogueTotalsData.arrayBuffer);
+      const saleNumber = Number.isFinite(overrideNumber) ? (overrideNumber as number) : report.saleNumber;
+      const result = await buildMarketShareWorkbook({ report, saleNumber });
+      setMarketShareResult({
+        filename: result.filename,
+        buffer: result.buffer,
+        rowsByTable: result.rowsByTable,
+        warnings: result.warnings,
+        ok: report.brokers.length > 0,
+        saleNumber,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? `Failed to build the MARKET SHARE workbook: ${e.message}` : "Failed to build the MARKET SHARE workbook.");
+    } finally {
+      setGeneratingMarketShare(false);
+    }
+  };
+
   const generate = async () => {
     if (!txtData || !wesSource) {
       setError("Provide the CBAC TXT report and the WES data (upload, or load from the database) before generating.");
@@ -363,13 +445,31 @@ export default function WeeklyFactReportsPage() {
       const overrideNumber = saleNumberOverride.trim() === "" ? undefined : parseInt(saleNumberOverride.trim(), 10);
       const wesInput: WesInput =
         wesSource.kind === "upload" ? { source: "upload", arrayBuffer: wesSource.arrayBuffer.slice(0) } : { source: "database", report: wesSource.report };
-      const result = await runJob(txtData.text, wesInput, {
-        saleDate: saleDate.trim() || undefined,
-        saleNumber: Number.isFinite(overrideNumber) ? overrideNumber : undefined,
-        rankHeaderText: rankHeaderText.trim() || undefined,
-        lowHeaderText: lowHeaderText.trim() || undefined,
-      });
+      const result = await runJob(
+        txtData.text,
+        wesInput,
+        {
+          saleDate: saleDate.trim() || undefined,
+          saleNumber: Number.isFinite(overrideNumber) ? overrideNumber : undefined,
+          rankHeaderText: rankHeaderText.trim() || undefined,
+          lowHeaderText: lowHeaderText.trim() || undefined,
+        },
+        catalogueTotalsData?.arrayBuffer
+      );
       setJob(result);
+      // Fold this run's MARKET SHARE output (if any) into the same state the standalone
+      // button writes to, so there's only ever one Market Share card regardless of which path
+      // produced it.
+      if (result.marketShareWorkbook?.buffer && result.marketShareWorkbook.filename) {
+        setMarketShareResult({
+          filename: result.marketShareWorkbook.filename,
+          buffer: result.marketShareWorkbook.buffer,
+          rowsByTable: result.marketShareRowsByTable,
+          warnings: result.marketShareWarnings,
+          ok: result.marketShareWorkbook.ok,
+          saleNumber: result.saleNumber,
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? `Failed to process files: ${e.message}` : "Failed to process files.");
     } finally {
@@ -380,6 +480,8 @@ export default function WeeklyFactReportsPage() {
   const clearAll = () => {
     setTxtData(null);
     setWesSource(null);
+    setCatalogueTotalsData(null);
+    setMarketShareResult(null);
     setSaleDate("");
     setSaleNumberOverride("");
     setRankHeaderText("");
@@ -444,12 +546,28 @@ export default function WeeklyFactReportsPage() {
     }
   };
 
+  const downloadMarketSharePdf = async () => {
+    if (!marketShareResult || pdfBusy) return;
+    const name = pdfNameOf(marketShareResult.filename);
+    setPdfBusy(name);
+    setError(null);
+    try {
+      const blob = await buildMarketSharePdf(marketShareTablesOf(marketShareResult.rowsByTable), marketShareResult.saleNumber);
+      triggerDownload(blob, name, "application/pdf");
+    } catch (e) {
+      setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   const downloadAllZip = async () => {
-    if (!job) return;
-    const buffers = job.outcomes.filter((o) => o.buffer) as { filename: string; buffer: ArrayBuffer }[];
-    if (job.rankWorkbook?.buffer) buffers.push({ filename: job.rankWorkbook.filename!, buffer: job.rankWorkbook.buffer });
-    if (job.lowRankWorkbook?.buffer) buffers.push({ filename: job.lowRankWorkbook.filename!, buffer: job.lowRankWorkbook.buffer });
-    if (job.lowMarkWorkbook?.buffer) buffers.push({ filename: job.lowMarkWorkbook.filename!, buffer: job.lowMarkWorkbook.buffer });
+    if (!job && !marketShareResult) return;
+    const buffers = job ? (job.outcomes.filter((o) => o.buffer) as { filename: string; buffer: ArrayBuffer }[]) : [];
+    if (job?.rankWorkbook?.buffer) buffers.push({ filename: job.rankWorkbook.filename!, buffer: job.rankWorkbook.buffer });
+    if (job?.lowRankWorkbook?.buffer) buffers.push({ filename: job.lowRankWorkbook.filename!, buffer: job.lowRankWorkbook.buffer });
+    if (job?.lowMarkWorkbook?.buffer) buffers.push({ filename: job.lowMarkWorkbook.filename!, buffer: job.lowMarkWorkbook.buffer });
+    if (marketShareResult) buffers.push({ filename: marketShareResult.filename, buffer: marketShareResult.buffer });
     if (!buffers.length) {
       setError("No generated files to zip.");
       return;
@@ -461,20 +579,25 @@ export default function WeeklyFactReportsPage() {
       const zip = new JSZip();
       buffers.forEach((o) => zip.file(o.filename, o.buffer));
       // The PDF mirror of every workbook rides along in the same ZIP, one .pdf per .xlsx.
-      for (const o of job.outcomes) {
-        if (o.buffer) zip.file(pdfNameOf(o.filename), await buildFactCategoryPdf(o, job.saleDate, job.saleNumber));
+      if (job) {
+        for (const o of job.outcomes) {
+          if (o.buffer) zip.file(pdfNameOf(o.filename), await buildFactCategoryPdf(o, job.saleDate, job.saleNumber));
+        }
+        if (job.rankWorkbook?.buffer && job.rankWorkbook.filename) {
+          zip.file(pdfNameOf(job.rankWorkbook.filename), await buildRankPdf(job.rankTabs, job.rankHeaderText));
+        }
+        if (job.lowRankWorkbook?.buffer && job.lowRankWorkbook.filename) {
+          zip.file(pdfNameOf(job.lowRankWorkbook.filename), await buildRankPdf([lowTabOf(job, "rank")], job.lowHeaderText));
+        }
+        if (job.lowMarkWorkbook?.buffer && job.lowMarkWorkbook.filename) {
+          zip.file(pdfNameOf(job.lowMarkWorkbook.filename), await buildRankPdf([lowTabOf(job, "mark")], job.lowHeaderText));
+        }
       }
-      if (job.rankWorkbook?.buffer && job.rankWorkbook.filename) {
-        zip.file(pdfNameOf(job.rankWorkbook.filename), await buildRankPdf(job.rankTabs, job.rankHeaderText));
-      }
-      if (job.lowRankWorkbook?.buffer && job.lowRankWorkbook.filename) {
-        zip.file(pdfNameOf(job.lowRankWorkbook.filename), await buildRankPdf([lowTabOf(job, "rank")], job.lowHeaderText));
-      }
-      if (job.lowMarkWorkbook?.buffer && job.lowMarkWorkbook.filename) {
-        zip.file(pdfNameOf(job.lowMarkWorkbook.filename), await buildRankPdf([lowTabOf(job, "mark")], job.lowHeaderText));
+      if (marketShareResult) {
+        zip.file(pdfNameOf(marketShareResult.filename), await buildMarketSharePdf(marketShareTablesOf(marketShareResult.rowsByTable), marketShareResult.saleNumber));
       }
       const content = await zip.generateAsync({ type: "blob" });
-      const label = job.saleNumber != null ? job.saleNumber : "X";
+      const label = job?.saleNumber ?? marketShareResult?.saleNumber ?? "X";
       triggerDownload(content, `weekly_reports_sale${label}_${dateStamp()}.zip`, "application/zip");
     } catch {
       setError("Failed to build the ZIP file.");
@@ -485,15 +608,15 @@ export default function WeeklyFactReportsPage() {
 
   const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const anyBuffers =
-    !!job &&
-    (job.outcomes.some((o) => o.buffer) || !!job.rankWorkbook?.buffer || !!job.lowRankWorkbook?.buffer || !!job.lowMarkWorkbook?.buffer);
+    (!!job && (job.outcomes.some((o) => o.buffer) || !!job.rankWorkbook?.buffer || !!job.lowRankWorkbook?.buffer || !!job.lowMarkWorkbook?.buffer)) ||
+    !!marketShareResult;
 
   return (
     <div>
       {generating && <BusyOverlay message="Generating reports…" />}
       <PageHeader
         title="Weekly FACT Reports"
-        subtitle="UVA/WESTERN High & Medium ranking workbooks plus the LOW RANK/MARK WISE pair, rebuilt from the CBAC elevation-average release and the WES factory-wise sale workbook."
+        subtitle="UVA/WESTERN High & Medium ranking workbooks plus the LOW RANK/MARK WISE pair and the MARKET SHARE workbook, rebuilt from the CBAC elevation-average release, the WES factory-wise sale workbook, and (optionally) the ALL BROKERS CATALOGUED TOTALS workbook."
         backTo={{ href: "/reports", label: "Reports" }}
       />
 
@@ -587,6 +710,45 @@ export default function WeeklyFactReportsPage() {
             }
           />
         </div>
+
+        <div className="border border-border rounded-lg bg-surface p-4 sm:col-span-2">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="font-display text-[14px] font-semibold text-text-strong m-0">ALL BROKERS CATALOGUED TOTALS</h3>
+            <span className="text-[11px] text-text-muted font-mono uppercase tracking-wide">Optional — adds the MARKET SHARE workbook</span>
+          </div>
+          <Dropzone
+            label=""
+            hint=".xlsx — the market-wide, all-broker catalogued-totals workbook (drives MARKET SHARE only)"
+            accept=".xlsx"
+            file={catalogueTotalsData ? { fileName: catalogueTotalsData.fileName } : null}
+            onFile={handleCatalogueTotalsFile}
+          />
+          {catalogueTotalsData && (
+            <div className="flex gap-2 mt-2 flex-wrap items-center">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={generatingMarketShare ? <CircularProgress size={14} /> : undefined}
+                disabled={generatingMarketShare}
+                onClick={generateMarketShareOnly}
+              >
+                {generatingMarketShare ? "Generating…" : "Generate Market Share"}
+              </Button>
+              <Button
+                size="small"
+                onClick={() => {
+                  setCatalogueTotalsData(null);
+                  setMarketShareResult(null);
+                }}
+              >
+                Remove
+              </Button>
+              <span className="text-[11px] text-text-muted leading-relaxed">
+                Works from this one file alone — no need to also provide the CBAC TXT / WES pair unless you want the other workbooks too.
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       <Accordion
@@ -660,15 +822,15 @@ export default function WeeklyFactReportsPage() {
         </Button>
       </div>
 
-      {job ? (
+      {job || marketShareResult ? (
         <>
           <div className="border border-border rounded-lg bg-surface p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
             <div>
               <h2 className="font-display text-lg font-semibold text-text-strong m-0">
-                {job.saleNumber != null ? `Sale ${job.saleNumber}` : "Sale —"}
-                {job.saleDate ? ` — ${job.saleDate}` : ""}
+                {job?.saleNumber != null ? `Sale ${job.saleNumber}` : marketShareResult?.saleNumber != null ? `Sale ${marketShareResult.saleNumber}` : "Sale —"}
+                {job?.saleDate ? ` — ${job.saleDate}` : ""}
               </h2>
-              <Warnings warnings={job.warnings} tone="warning" />
+              {job && <Warnings warnings={job.warnings} tone="warning" />}
             </div>
             {anyBuffers && (
               <Button variant="contained" startIcon={<FolderZipOutlinedIcon fontSize="small" />} onClick={downloadAllZip} disabled={zipping}>
@@ -677,6 +839,8 @@ export default function WeeklyFactReportsPage() {
             )}
           </div>
 
+          {job && (
+            <>
           <SectionLabel>FACT ranking workbooks</SectionLabel>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
             {job.outcomes.map((o) => (
@@ -780,10 +944,36 @@ export default function WeeklyFactReportsPage() {
               </div>
             </>
           )}
+            </>
+          )}
+
+          {marketShareResult && (
+            <>
+              <SectionLabel>MARKET SHARE workbook</SectionLabel>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                <ResultCard
+                  eyebrow="MARKET SHARE"
+                  count={MARKET_SHARE_TABLE_SPECS.reduce((n, s) => n + (marketShareResult.rowsByTable[s.field]?.length ?? 0), 0)}
+                  countLabel="broker rows across 4 tables"
+                  ok={marketShareResult.ok}
+                  hasBuffer={!!marketShareResult.buffer}
+                  downloadLabel={`Download ${marketShareResult.filename}`}
+                  onDownload={() => triggerDownload(marketShareResult.buffer, marketShareResult.filename, xlsxType)}
+                  pdfName={pdfNameOf(marketShareResult.filename)}
+                  pdfLabel="PDF — 4 tables (Total / Ex-Estate / High & Medium / Low)"
+                  pdfBusy={pdfBusy}
+                  onPdf={downloadMarketSharePdf}
+                  warnings={marketShareResult.warnings}
+                  description="Total / Ex-Estate / High & Medium / Low market share, each ranked by quantity from the catalogued-totals workbook — top 3 per table highlighted, exactly like the archives."
+                />
+              </div>
+            </>
+          )}
         </>
       ) : (
         <div className="text-center py-16 text-text-muted border border-dashed border-border rounded-lg">
-          No reports generated yet. Provide the CBAC TXT report and the WES data, then click &quot;Generate reports&quot;.
+          No reports generated yet. Provide the CBAC TXT report and the WES data and click &quot;Generate reports&quot; — or just the ALL BROKERS
+          CATALOGUED TOTALS file and click &quot;Generate Market Share&quot; above for that workbook alone.
         </div>
       )}
     </div>

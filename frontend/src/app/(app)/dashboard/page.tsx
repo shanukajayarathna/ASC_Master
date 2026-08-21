@@ -1,5 +1,6 @@
 "use client";
 
+import AdminDashboard from "./AdminDashboard";
 import AiInsightsPanel, { type Insight } from "@/components/home/AiInsightsPanel";
 import AttentionList, { type AttentionEntry } from "@/components/home/AttentionList";
 import KpiSlidesPanel, { type KpiSlide } from "@/components/home/KpiSlidesPanel";
@@ -13,7 +14,6 @@ import { api } from "@/lib/api";
 import { formatCurrency, formatNumber, timeAgo } from "@/lib/format";
 import { fetchColomboWeather, type WeatherNow } from "@/lib/weather";
 import type { CatalogueSummary, Conversation, DashboardStats, SavedReport } from "@/types/api";
-import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
@@ -67,6 +67,15 @@ const WEATHER_ICON: Record<WeatherNow["icon"], typeof WbSunnyOutlinedIcon> = {
   storm: ThunderstormOutlinedIcon,
 };
 
+/** Routes to the Admin's operations-control-center dashboard (AdminDashboard) or the
+ *  regular launchpad below, based on role — the only thing this file decides; everything
+ *  else about either dashboard lives in its own component. */
+export default function DashboardPage() {
+  const { user } = useAuth();
+  if (user?.roles.includes("Admin")) return <AdminDashboard user={user} />;
+  return <UserDashboard />;
+}
+
 /**
  * The launchpad — every existing "Executive Dashboard" KPI section is kept exactly as it
  * was (same DashboardStats fields, same endpoint, no data removed). Above it sits a
@@ -74,7 +83,7 @@ const WEATHER_ICON: Record<WeatherNow["icon"], typeof WbSunnyOutlinedIcon> = {
  * computed insights, sales needing attention) — see the plan file for what's real vs.
  * deliberately adapted from the reference mockup.
  */
-export default function DashboardPage() {
+function UserDashboard() {
   const { user } = useAuth();
   // stats comes from CatalogueContext, not a fetch of its own — the topbar's notification
   // badge needs the same DashboardStats, so it's fetched once there and shared (see
@@ -297,11 +306,13 @@ export default function DashboardPage() {
 
   // Pinned tiles first (in the user's own pin order), everything else after in the
   // original curated order — a personalized "top of my launchpad" without losing the
-  // rest of the grid for anyone who hasn't pinned anything.
+  // rest of the grid for anyone who hasn't pinned anything. adminOnly tiles never show
+  // here — DashboardPage routes any Admin to AdminDashboard before this component mounts.
   const moduleTiles = useMemo(() => {
-    const rest = NAV_ITEMS.filter((item) => item.href !== "/dashboard" && !pinnedHrefs.includes(item.href));
+    const visible = NAV_ITEMS.filter((item) => !item.adminOnly);
+    const rest = visible.filter((item) => item.href !== "/dashboard" && !pinnedHrefs.includes(item.href));
     const pinned = pinnedHrefs
-      .map((href) => NAV_ITEMS.find((item) => item.href === href))
+      .map((href) => visible.find((item) => item.href === href))
       .filter((item): item is (typeof NAV_ITEMS)[number] => !!item);
     return [...pinned, ...rest];
   }, [pinnedHrefs]);
@@ -612,33 +623,6 @@ export default function DashboardPage() {
             </div>
           </div>
           <ArrowForwardIcon sx={{ fontSize: 20, color: "#fff" }} />
-        </Link>
-      )}
-
-      {/* ---- Admin-only shortcut — the real role distinction this account system actually
-           has is Admin vs. User, so this is the one place the dashboard differentiates by
-           role rather than inventing job-title personas the backend doesn't model. ---- */}
-      {user?.roles.includes("Admin") && (
-        <Link
-          href="/settings"
-          className="mb-6 flex items-center gap-3 p-3.5 rounded-[var(--radius-lg)] border border-border no-underline lift-on-hover"
-          style={{ background: "var(--surface)" }}
-        >
-          <span
-            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: "var(--brass-dim)" }}
-          >
-            <AdminPanelSettingsOutlinedIcon sx={{ fontSize: 18, color: "var(--liquor)" }} />
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
-              Admin
-            </div>
-            <div className="text-[11.5px]" style={{ color: "var(--text-muted)" }}>
-              Manage users, API keys and webhooks
-            </div>
-          </div>
-          <ArrowForwardIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
         </Link>
       )}
 
