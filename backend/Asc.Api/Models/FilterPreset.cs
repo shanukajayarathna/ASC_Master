@@ -56,4 +56,23 @@ public class SavedReport
     public string Title { get; set; } = string.Empty;
     public string? Source { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Set only for reports keyed by MSL sale (year, saleNo) rather than by
+    /// Catalogue — today just the automated Weekly FACT job (see
+    /// Modules/ScheduledReports/WeeklyFactAutoReportJob.cs). Null for every other report
+    /// type, which still key off CatalogueId as they always have.</summary>
+    public int? SaleYear { get; set; }
+    public int? SaleNo { get; set; }
+
+    /// <summary>Set only when this report's actual output was persisted server-side (see
+    /// IGeneratedReportFileStore) rather than regenerated on demand from live data — needed
+    /// for anything whose inputs are a point-in-time snapshot (e.g. an uploaded CBAC TXT)
+    /// that can't be recomputed later the way a Catalogue-backed report can.</summary>
+    [BsonRepresentation(BsonType.String)]
+    public Guid? StoredFileId { get; set; }
+
+    /// <summary>Free-text note shown alongside the title — today used only by the monthly
+    /// Combined Report placeholder job to mark its output as not yet configured. Null for
+    /// every hand-generated report.</summary>
+    public string? Notes { get; set; }
 }

@@ -1,4 +1,11 @@
-"use client";
+/* This file has no real "use client" dependency (no window/document/FileReader/localStorage —
+   verified directly; see loadTemplate's own server/client URL-resolution branch just below).
+   It was marked "use client" only because its one prior caller (the /reports/weekly-fact page)
+   already is one — but that directive doesn't just influence bundling, it makes Next.js's RSC
+   module boundary REFUSE to let server code (the internal Weekly FACT route handler) call any
+   export from this file at all, even a plain function with zero browser dependency. Removing
+   it doesn't change how the (already-"use client") page component consumes this module; it
+   only lifts the restriction that blocked the server route from calling it too. */
 
 /* =====================================================================
    WEEKLY FACT REPORTS — UVA/WESTERN HIGH & MEDIUM ranking workbooks
@@ -33,6 +40,10 @@
 import ExcelJS from "exceljs";
 import { api } from "@/lib/api";
 import type { WesEquivalentApi } from "@/types/api";
+
+// Only read in a server context (see loadTemplate's `typeof window === "undefined"` guard) —
+// this is process.env, not NEXT_PUBLIC_*, so it's never inlined into the client bundle.
+const INTERNAL_ASSET_BASE_URL = typeof window === "undefined" ? (process.env.INTERNAL_ASSET_BASE_URL ?? "http://localhost:3000") : "";
 
 // ---- TXT PARSER — mirrors tea_report_app/core/txt_parser.py -------------------------------
 
@@ -364,19 +375,26 @@ async function loadTemplate(slotId: string, fallbackUrl: string, attempt = 1): P
     }
   }
 
+  // `fallbackUrl` is a path relative to this site's own origin, which only exists when
+  // `fetch` runs in a browser. The one other caller of this function is the internal Weekly
+  // FACT route handler (app/api/internal/weekly-fact/generate/route.ts), which runs in Node
+  // with no implicit origin — there, resolve against an explicit base instead so the exact
+  // same template-loading code works in both contexts.
+  const resolvedUrl = typeof window === "undefined" ? new URL(fallbackUrl, INTERNAL_ASSET_BASE_URL).toString() : fallbackUrl;
+
   let res: Response;
   try {
-    res = await fetch(fallbackUrl);
+    res = await fetch(resolvedUrl);
   } catch (err) {
     if (attempt >= 3) {
       throw new Error(
-        `Could not reach ${fallbackUrl} after ${attempt} attempts (${err instanceof Error ? err.message : String(err)}) — check the app server is running and try again.`
+        `Could not reach ${resolvedUrl} after ${attempt} attempts (${err instanceof Error ? err.message : String(err)}) — check the app server is running and try again.`
       );
     }
     await sleep(300 * attempt);
     return loadTemplate(slotId, fallbackUrl, attempt + 1);
   }
-  if (!res.ok) throw new Error(`Could not load template ${fallbackUrl} (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(`Could not load template ${resolvedUrl} (HTTP ${res.status}).`);
   const buf = await res.arrayBuffer();
   templateCache.set(slotId, buf);
   return buf.slice(0);

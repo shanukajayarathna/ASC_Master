@@ -74,6 +74,41 @@ public class MslWeeklyReportService(MongoContext db, MslImportService importer, 
         ["31"] = "LOW",
     };
 
+    /// <summary>Distinct (year, saleNo, saleDate) sales whose SaleDate falls inside the given
+    /// lookback window — the "which sales recently closed" query WeeklyFactAutoReportJob polls
+    /// on every tick. There's no explicit "close" action anywhere in this app (see
+    /// DeadlineEngine's own doc comment: Catalogue.ImportedAt already stands in as a sale's
+    /// closure date for deadline tracking), so this reuses the same idea for the MSL/auction
+    /// sale domain: a sale is "closed" once its own SaleDate has passed. Ordered oldest-closed
+    /// first so a backlog (e.g. after downtime) drains in the order sales actually happened.</summary>
+    public async Task<List<(int Year, int SaleNo, DateTime SaleDate)>> FindRecentlyClosedSalesAsync(
+        TimeSpan lookback, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var stages = new List<MongoDB.Bson.BsonDocument>
+        {
+            // SaleNo 0 is the private-sale bucket, not a numbered weekly auction — Weekly
+            // FACT has no meaning for it (see AuctionLot's own SaleNo doc comment).
+            new("$match", new MongoDB.Bson.BsonDocument
+            {
+                ["d"] = new MongoDB.Bson.BsonDocument { ["$gte"] = now - lookback, ["$lt"] = now },
+                ["s"] = new MongoDB.Bson.BsonDocument("$gt", 0),
+            }),
+            new("$group", new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = new MongoDB.Bson.BsonDocument { ["y"] = "$y", ["s"] = "$s" },
+                ["saleDate"] = new MongoDB.Bson.BsonDocument("$first", "$d"),
+            }),
+            new("$sort", new MongoDB.Bson.BsonDocument("saleDate", 1)),
+        };
+        var docs = await db.AuctionLots.Aggregate<MongoDB.Bson.BsonDocument>(stages, cancellationToken: ct).ToListAsync(ct);
+        return docs.Select(d =>
+        {
+            var id = d["_id"].AsBsonDocument;
+            return (id["y"].AsInt32, id["s"].AsInt32, d["saleDate"].ToUniversalTime());
+        }).ToList();
+    }
+
     public Task<WesEquivalentDto?> BuildAsync(int year, int saleNo, CancellationToken ct)
     {
         var key = $"msl:weeklyreport:wes:{importer.DataVersion}:{year}:{saleNo}";

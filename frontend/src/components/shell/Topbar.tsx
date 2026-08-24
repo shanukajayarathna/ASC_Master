@@ -6,6 +6,7 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import { api } from "@/lib/api";
 import type { AppNotification } from "@/types/api";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
@@ -267,7 +268,9 @@ interface TopbarProps {
 
 export default function Topbar({ onSearchClick }: TopbarProps) {
   const { mode } = useThemeMode();
+  const { user } = useAuth();
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
+  const isAdmin = user?.roles.includes("Admin") ?? false;
 
   return (
     <header
@@ -337,6 +340,14 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
         </Tooltip>
 
         <NotificationsMenu />
+
+        {isAdmin && (
+          <Tooltip title="Admin Panel">
+            <IconButton component={Link} href="/admin" size="small" aria-label="Admin Panel">
+              <AdminPanelSettingsOutlinedIcon fontSize="small" sx={{ color: "var(--brand-gold-deep)" }} />
+            </IconButton>
+          </Tooltip>
+        )}
 
         <ThemeMenu />
 

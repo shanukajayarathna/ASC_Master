@@ -58,7 +58,7 @@ public record FilteredLotRowDto(
     int SaleYear, int SaleNo, DateTime SaleDate, string? Broker, bool IsPrivate,
     string LotNo, string? Invoice, string FactoryCode, string SellingMark, string Grade,
     string Category, decimal QuantityKg, decimal PriceRs, bool Sold, string? Buyer,
-    int? Bags, decimal? PackingKg);
+    int? Bags, decimal? PackingKg, decimal? AskingRs);
 
 public record FilteredLotsDto(List<FilteredLotRowDto> Rows, int Page, bool HasMore);
 
@@ -193,6 +193,13 @@ public class MslFilteredAnalyticsController(
                 .Find(s => s.Dimension == "elevation" && s.Year == totals.FirstOrDefault()!.Year)
                 .ToListAsync(ct);
 
+            // Real sale-book categories (Ex-estate, etc.) and the private-sale bucket are
+            // lot-level overrides, not a function of grade alone — pure grade-classification
+            // categories miss them entirely, which meant they never appeared as pickable
+            // options despite already appearing correctly in the Category Mix breakdown.
+            var saleCategories = await db.AuctionLots.Distinct(
+                l => l.SaleCategory, Builders<AuctionLot>.Filter.Ne(l => l.SaleCategory, null)).ToListAsync(ct);
+
             var gradeCats = grades.ToDictionary(g => g, g => MslClassification.Classify(g).Category);
             var gradeClasses = grades.ToDictionary(g => g, g =>
             {
@@ -202,7 +209,7 @@ public class MslFilteredAnalyticsController(
             var buyerNames = await BuyerNamesAsync(ct);
             return new FilterOptionsDto(
                 [.. totals.Select(t => t.Year).Distinct().OrderDescending()],
-                totals.Take(120).Select(t => new SaleSummaryDto(
+                totals.Select(t => new SaleSummaryDto(
                     t.Year, t.SaleNo, t.SaleDate, t.Lots, t.SoldLots,
                     Math.Round(t.TotalQtyKg, 2), Math.Round(t.SoldQtyKg, 2), Math.Round(t.ProceedsRs, 2),
                     t.SoldQtyKg > 0 ? Math.Round(t.ProceedsRs / t.SoldQtyKg, 2) : null)).ToList(),
@@ -212,7 +219,11 @@ public class MslFilteredAnalyticsController(
                 [.. grades.Order()],
                 gradeCats,
                 gradeClasses,
-                [.. gradeCats.Values.Distinct().Order()],
+                [.. gradeCats.Values
+                    .Concat(saleCategories.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => MslClassification.NormalizeSaleCategory(c!)))
+                    .Append(MslClassification.PrivateSaleCategory)
+                    .Distinct()
+                    .Order()],
                 ["Main Grade", "Off Grade"],
                 ["Black Tea", "Green Tea"],
                 ["Orthodox", "CTC"],
@@ -258,10 +269,10 @@ public class MslFilteredAnalyticsController(
         var rows = docs.Select(l => new FilteredLotRowDto(
             l.SaleYear, l.SaleNo, l.SaleDate, l.Broker, l.IsPrivate, l.LotNo, l.Invoice,
             l.FactoryCode, l.SellingMark, l.Grade,
-            // Catalogue section from the Excel join where it exists (2026+); the grade
-            // classification approximates it for pre-Excel years.
-            l.SaleCategory ?? MslClassification.Classify(l.Grade).Category,
-            l.QuantityKg, l.PriceRs, l.Sold, l.BuyerName ?? l.BuyerCode, l.Bags, l.PackingKg)).ToList();
+            // Private lots get their own category regardless of grade; otherwise the Excel
+            // join (2026+) beats a grade-name guess. See MslClassification.ResolveCategory.
+            MslClassification.ResolveCategory(l.IsPrivate, l.SaleCategory, l.Grade),
+            l.QuantityKg, l.PriceRs, l.Sold, l.BuyerName ?? l.BuyerCode, l.Bags, l.PackingKg, l.AskingRs)).ToList();
         return new FilteredLotsDto(rows, page, rows.Count == pageSize);
     }
 
@@ -285,16 +296,48 @@ public class MslFilteredAnalyticsController(
         In(f.Buyers?.Select(b => (string?)b).ToList(), l => l.BuyerCode);
         In(f.Marks, l => l.SellingMark);
 
-        // Category/type/manufacture filters resolve to a concrete grade set (indexed $in).
+        // Grade type/tea type/manufacture filters resolve to a concrete grade set (indexed
+        // $in) — independent of Category now (see below), since they're each their own
+        // function of grade alone and compose by intersection exactly as before.
         var gradeSet = f.Grades?.Select(g => g.ToUpperInvariant()).ToHashSet();
-        if (f.Categories is { Count: > 0 } || f.GradeTypes is { Count: > 0 } ||
-            f.TeaTypes is { Count: > 0 } || f.Manufactures is { Count: > 0 })
+        List<string>? known = null;
+        async Task<List<string>> KnownGradesAsync() =>
+            known ??= await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "grade").ToListAsync(ct);
+        if (f.GradeTypes is { Count: > 0 } || f.TeaTypes is { Count: > 0 } || f.Manufactures is { Count: > 0 })
         {
-            var known = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "grade").ToListAsync(ct);
-            var matching = MslClassification.GradesMatching(known, f.Categories, f.GradeTypes, f.TeaTypes, f.Manufactures);
+            var matching = MslClassification.GradesMatching(await KnownGradesAsync(), null, f.GradeTypes, f.TeaTypes, f.Manufactures);
             gradeSet = gradeSet is null ? matching : [.. gradeSet.Intersect(matching, StringComparer.OrdinalIgnoreCase)];
         }
         if (gradeSet is not null) filters.Add(fb.In(l => l.Grade, gradeSet));
+
+        // Category resolves the same way ResolveCategory does per lot: private lots match
+        // "Private Sale" outright; otherwise the real SaleCategory (Excel-enriched, 2026+)
+        // wins when present, falling back to grade-name classification only when it isn't
+        // — so a filter click behaves exactly like the Category Mix breakdown it's filtering
+        // (confirmed 24 Aug 2026: before this, "Ex-estate"/"Private Sale" weren't even
+        // reachable as filter values — GradesMatching had no grade that maps to either, so
+        // selecting them silently matched zero rows).
+        if (f.Categories is { Count: > 0 })
+        {
+            var wantsPrivate = f.Categories.Contains(MslClassification.PrivateSaleCategory, StringComparer.OrdinalIgnoreCase);
+            var otherCats = f.Categories.Where(c => !string.Equals(c, MslClassification.PrivateSaleCategory, StringComparison.OrdinalIgnoreCase)).ToList();
+            var categoryOr = new List<FilterDefinition<AuctionLot>>();
+            if (wantsPrivate) categoryOr.Add(fb.Eq(l => l.IsPrivate, true));
+            if (otherCats.Count > 0)
+            {
+                var rawSaleCategoryValues = otherCats
+                    .SelectMany(c => string.Equals(c, "High & Medium", StringComparison.OrdinalIgnoreCase)
+                        ? (string[])["High & Medium", "High and Medium"] : [c])
+                    .ToList();
+                var fallbackGrades = MslClassification.GradesMatching(await KnownGradesAsync(), otherCats, null, null, null);
+                categoryOr.Add(fb.And(
+                    fb.Eq(l => l.IsPrivate, false),
+                    fb.Or(
+                        fb.In(l => l.SaleCategory, rawSaleCategoryValues),
+                        fb.And(fb.Eq(l => l.SaleCategory, (string?)null), fb.In(l => l.Grade, fallbackGrades)))));
+            }
+            if (categoryOr.Count > 0) filters.Add(fb.Or(categoryOr));
+        }
 
         // Groups (plantation companies) resolve to factory sets; mark types to code prefixes.
         var factorySet = f.Factories?.Select(x => x.Replace(" ", "").ToUpperInvariant()).ToHashSet();
@@ -322,7 +365,7 @@ public class MslFilteredAnalyticsController(
         if (f.RefuseTea == "only") filters.Add(fb.Eq(l => l.RefuseTea, true));
         if (f.RefuseTea == "exclude") filters.Add(fb.Eq(l => l.RefuseTea, false));
         if (f.PriceMin is not null) filters.Add(fb.Gte(l => l.PriceRs, f.PriceMin.Value));
-        if (f.PriceMax is not null) filters.Add(fb.And(fb.Lte(l => l.PriceRs, f.PriceMax.Value), fb.Eq(l => l.Sold, true)));
+        if (f.PriceMax is not null) filters.Add(fb.Lte(l => l.PriceRs, f.PriceMax.Value));
         if (!string.IsNullOrWhiteSpace(f.MarkSearch))
         {
             var re = new BsonRegularExpression("^" + System.Text.RegularExpressions.Regex.Escape(f.MarkSearch.Trim().ToUpperInvariant()));
@@ -388,7 +431,7 @@ public class MslFilteredAnalyticsController(
             ["b"] = 1, ["el"] = 1, ["g"] = 1, ["bc"] = 1, ["m"] = 1, ["f"] = 1,
             ["q"] = 1, ["p"] = 1, ["so"] = 1, ["y"] = 1, ["s"] = 1,
             ["l"] = 1, ["i"] = 1, ["bg"] = 1, ["pk"] = 1, ["dc"] = 1,
-            ["d"] = 1, ["pv"] = 1, ["rf"] = 1, ["st"] = 1, ["ak"] = 1,
+            ["d"] = 1, ["pv"] = 1, ["rf"] = 1, ["st"] = 1, ["ak"] = 1, ["ct"] = 1,
         }));
 
         BsonArray OptionsAsc(BsonValue id, int limit) =>
@@ -480,6 +523,17 @@ public class MslFilteredAnalyticsController(
             ["optSold"] = OptionsAsc("$so", 2),
             ["optRefuse"] = OptionsAsc("$rf", 2),
             ["byOklo"] = Facet(new BsonDocument { ["st"] = new BsonDocument("$ifNull", new BsonArray { "$st", "" }), ["so"] = "$so" }, 12),
+            // Raw material for byCategory below: grouped by (IsPrivate, Excel-enriched
+            // SaleCategory, Grade) rather than Grade alone, so the real category — private
+            // lots' own bucket, "Ex-estate" and other sale-book categories the grade-name
+            // heuristic can't see — wins over the guess. Small cardinality, so a generous
+            // limit costs nothing.
+            ["byCategoryRaw"] = Facet(new BsonDocument
+                {
+                    ["pv"] = "$pv",
+                    ["sc"] = new BsonDocument("$ifNull", new BsonArray { "$ct", BsonNull.Value }),
+                    ["g"] = "$g",
+                }, 3000),
         }));
 
         var doc = await db.AuctionLots.Aggregate<BsonDocument>(stages, new AggregateOptions { AllowDiskUse = true }, ct)
@@ -507,16 +561,38 @@ public class MslFilteredAnalyticsController(
         var factoryRefs = reference.ByFactory;
 
         var byGrade = Rows("byGrade");
-        // Category rollup is grade-classification applied to the grade rows — no extra pass.
-        var byCategory = byGrade
-            .GroupBy(g => MslClassification.Classify(g.Key).Category)
-            .Select(g => new FilteredSectionRow(
-                g.Key, null,
-                g.Sum(x => x.Lots), g.Sum(x => x.SoldLots),
-                Math.Round(g.Sum(x => x.TotalQtyKg), 2), Math.Round(g.Sum(x => x.SoldQtyKg), 2),
-                Math.Round(g.Sum(x => x.ProceedsRs), 2),
-                g.Sum(x => x.SoldQtyKg) > 0 ? Math.Round(g.Sum(x => x.ProceedsRs) / g.Sum(x => x.SoldQtyKg), 2) : null,
-                g.Max(x => x.MaxPriceRs)))
+        // Category rollup: prefer the Excel-enriched SaleCategory per (category, grade)
+        // group, falling back to grade-name classification only where the Excel join
+        // doesn't cover it (pre-2026 sales) — same precedence FilteredLotRowDto already
+        // uses per-lot. Grouping the RAW per-lot category here, rather than re-deriving
+        // from byGrade's grade-only buckets, is what actually recovers "Ex-estate" and the
+        // sale-book's other categories that no grade-name heuristic alone can catch
+        // (confirmed against the portal's Invoice Line Details 22 Aug 2026).
+        var byCategory = doc["byCategoryRaw"].AsBsonArray
+            .Select(v =>
+            {
+                var d = v.AsBsonDocument;
+                var idDoc = d["_id"].AsBsonDocument;
+                var isPrivate = idDoc.Contains("pv") && !idDoc["pv"].IsBsonNull && idDoc["pv"].AsBoolean;
+                var sc = idDoc["sc"].IsBsonNull ? null : idDoc["sc"].AsString;
+                var g = idDoc["g"].IsBsonNull ? "" : idDoc["g"].AsString;
+                var category = MslClassification.ResolveCategory(isPrivate, sc, g);
+                return (Category: category, Lots: d["lots"].ToInt64(), SoldLots: d["soldLots"].ToInt64(),
+                    TotalQty: d["totalQty"].ToDecimal(), SoldQty: d["soldQty"].ToDecimal(),
+                    Value: d["value"].ToDecimal(), MaxP: d["maxP"].ToDecimal());
+            })
+            .GroupBy(x => x.Category)
+            .Select(g =>
+            {
+                var soldQty = g.Sum(x => x.SoldQty);
+                var value = g.Sum(x => x.Value);
+                return new FilteredSectionRow(
+                    g.Key, null,
+                    g.Sum(x => x.Lots), g.Sum(x => x.SoldLots),
+                    Math.Round(g.Sum(x => x.TotalQty), 2), Math.Round(soldQty, 2), Math.Round(value, 2),
+                    soldQty > 0 ? Math.Round(value / soldQty, 2) : null,
+                    g.Max(x => x.MaxP) is var mx and > 0 ? mx : null);
+            })
             .OrderByDescending(r => r.TotalQtyKg)
             .ToList();
 

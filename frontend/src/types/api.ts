@@ -231,6 +231,43 @@ export interface SavedReport {
   catalogueId: string | null;
   source: string | null;
   createdAt: string;
+  /** True only for a report whose actual output was persisted server-side (today, just the
+   *  automated Weekly FACT job) rather than regenerated on demand — show a Download action
+   *  instead of the usual Reopen-and-regenerate one. */
+  downloadable: boolean;
+  /** Placeholder message on the monthly Combined Report job's output; null otherwise. */
+  notes: string | null;
+}
+
+// ---- Automated Reports (Admin Panel) — see backend/Modules/ScheduledReports ----
+
+export type ScheduledReportJobTriggerType = "AfterSaleClose" | "Schedule";
+
+export interface ScheduledReportJob {
+  key: string;
+  displayName: string;
+  triggerType: ScheduledReportJobTriggerType;
+  cronExpression: string | null;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastStatus: "NeverRun" | "Succeeded" | "Waiting" | "Failed";
+  lastMessage: string | null;
+  lastDurationMs: number;
+  consecutiveFailures: number;
+}
+
+export interface ScheduledReportOutput {
+  id: string;
+  title: string;
+  createdAt: string;
+  notes: string | null;
+  downloadable: boolean;
+}
+
+export interface StagedCbac {
+  saleYear: number;
+  saleNo: number;
+  stagedAt: string;
 }
 
 export interface FilterPreset {
@@ -577,6 +614,13 @@ export interface MslYearStat {
   lots: number;
 }
 
+/** A year with gaps in its public-auction sale numbers — e.g. 27 missing between 26 and 28. */
+export interface MslGap {
+  year: number;
+  maxSaleNo: number;
+  missingSaleNos: number[];
+}
+
 export interface MslStatus {
   dataPath: string | null;
   totalLots: number;
@@ -587,6 +631,117 @@ export interface MslStatus {
   lastScan: MslScanSummary | null;
   years: MslYearStat[];
   teaBoardMonths: number;
+  gaps: MslGap[];
+}
+
+export interface MslBatchFileResult {
+  fileName: string;
+  sourceZip: string | null;
+  kind: "auction" | "private" | null;
+  broker: string | null;
+  year: number | null;
+  saleNo: number | null;
+  rows: number;
+  error: string | null;
+}
+
+export interface MslBatchUploadResult {
+  files: MslBatchFileResult[];
+  scan: MslScanSummary;
+}
+
+export interface MslStagedFile {
+  stagingId: string;
+  fileName: string;
+  sourceZip: string | null;
+  kind: "auction" | "private" | null;
+  broker: string | null;
+  year: number | null;
+  saleNo: number | null;
+  rows: number;
+  error: string | null;
+  willReplace: boolean;
+  replaceDetail: string | null;
+  requiresConfirmation: boolean;
+  confirmToken: string | null;
+}
+
+export interface MslStageBatchResult {
+  batchId: string;
+  files: MslStagedFile[];
+  expiresAtUtc: string;
+}
+
+export interface MslTrackedFile {
+  relativePath: string;
+  kind: "auction" | "private" | "teaboard" | "other";
+  year: number | null;
+  saleNo: number | null;
+  length: number;
+  lastWriteUtc: string;
+  importedAt: string;
+  rowCount: number;
+  error: string | null;
+}
+
+export type MarketPulseCategory = "TeaMarket" | "ShippingLogistics" | "CurrencyTrade" | "WeatherCrop" | "GlobalEconomy";
+export type MarketPulseItemStatus = "Pending" | "Scored" | "Failed";
+
+/** One news item — RawSummary is verbatim from its RSS source; every Ai* field is null
+ *  until (if ever) scoring succeeds, so "not yet scored" is always distinguishable from a
+ *  real score of 0. See MarketPulseController's doc comment for the "grounded, not
+ *  generative" + "one number, one source" design principles this shape encodes. */
+export interface MarketPulseItem {
+  id: string;
+  sourceUrl: string;
+  sourceName: string;
+  title: string;
+  publishedAt: string | null;
+  rawSummary: string;
+  aiRelevanceScore: number | null;
+  aiCategory: MarketPulseCategory | null;
+  aiWhyItMatters: string | null;
+  status: MarketPulseItemStatus;
+  ingestedAt: string;
+  scoredAt: string | null;
+}
+
+export interface MarketPulsePagedResult {
+  items: MarketPulseItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface MarketPulseFilters {
+  category?: MarketPulseCategory;
+  from?: string;
+  to?: string;
+  minRelevance?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface MarketPulseSource {
+  id: string;
+  name: string;
+  feedUrl: string;
+  category: MarketPulseCategory;
+  enabled: boolean;
+  addedBy: string | null;
+  addedAt: string;
+  lastFetchedAt: string | null;
+  lastFetchSucceeded: boolean | null;
+  lastFetchError: string | null;
+  lastFetchNewItems: number;
+}
+
+export interface MarketPulseIngestionSummary {
+  sourcesChecked: number;
+  sourcesFailed: number;
+  newItems: number;
+  scored: number;
+  stillUnscored: number;
 }
 
 /** Shared filter set for /msl/search and /msl/aggregate. */
@@ -762,6 +917,7 @@ export interface FilteredLotRow {
   buyer: string | null;
   bags: number | null;
   packingKg: number | null;
+  askingRs: number | null;
 }
 
 export interface FilteredLots {

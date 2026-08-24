@@ -1,33 +1,54 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
-import SectionCard from "@/components/shared/SectionCard";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api, ApiError } from "@/lib/api";
 import { ROLE_LABELS, ROLES, roleLabel } from "@/lib/roles";
 import type {
-  AdminAssetStatus,
   ApiKeySummary,
   AuditLogEntry,
   AuthUser,
+  MarketPulseCategory,
+  MarketPulseSource,
   MasterDataEntity,
+  MslBatchUploadResult,
   MslScanSummary,
+  MslStageBatchResult,
   MslStatus,
+  MslTrackedFile,
+  ScheduledReportJob,
+  ScheduledReportOutput,
+  StagedCbac,
   UnmappedMasterDataValue,
   WebhookSummary,
 } from "@/types/api";
 import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
+import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
+import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import ExpandMoreOutlinedIcon from "@mui/icons-material/ExpandMoreOutlined";
+import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
+import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
+import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
 import PersonAddOutlinedIcon from "@mui/icons-material/PersonAddOutlined";
+import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
+import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
+import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
+import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -36,147 +57,90 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
+import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const FILE_GROUP_ORDER = ["FACT Templates", "RANK Templates", "LOW Template", "Market Share Template", "Branding"];
+/** The Admin Panel's registry of its own sections — one source of truth for the quick-jump
+ *  nav row and each section's header treatment (icon + accent), so adding a ninth section
+ *  later means one new entry here, not two places kept in sync by hand. */
+const ADMIN_SECTIONS = [
+  { id: "sales", label: "Sales Data", icon: <ReceiptLongOutlinedIcon fontSize="small" />, accent: 3 as const },
+  { id: "msl", label: "MSL Archive", icon: <Inventory2OutlinedIcon fontSize="small" />, accent: 2 as const },
+  { id: "automatedreports", label: "Automated Reports", icon: <ScheduleOutlinedIcon fontSize="small" />, accent: 8 as const },
+  { id: "newssources", label: "News Sources", icon: <NewspaperOutlinedIcon fontSize="small" />, accent: 1 as const },
+  { id: "users", label: "Users", icon: <GroupOutlinedIcon fontSize="small" />, accent: 5 as const },
+  { id: "apikeys", label: "API Keys", icon: <VpnKeyOutlinedIcon fontSize="small" />, accent: 8 as const },
+  { id: "webhooks", label: "Webhooks", icon: <LinkOutlinedIcon fontSize="small" />, accent: 6 as const },
+  { id: "masterdata", label: "Master Data", icon: <CategoryOutlinedIcon fontSize="small" />, accent: 7 as const },
+  { id: "audit", label: "Audit Log", icon: <HistoryOutlinedIcon fontSize="small" />, accent: 4 as const },
+];
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+/** Quick-jump row under the page header — a flat scan of every section by name and icon,
+ *  the thing a one-long-scroll page can't offer. Plain anchor links (not sticky: the shell's
+ *  Topbar is itself sticky and wraps to a taller height on narrow screens, and stacking a
+ *  second sticky bar under one of variable height is exactly the kind of thing that looks
+ *  fine on the one viewport you tested and overlaps content on every other). */
+function AdminSectionNav() {
+  return (
+    <nav aria-label="Admin sections" className="mb-6 -mx-1 px-1 flex items-center gap-1.5 overflow-x-auto pb-1">
+      {ADMIN_SECTIONS.map((s) => (
+        <a
+          key={s.id}
+          href={`#${s.id}`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium whitespace-nowrap border border-border shrink-0 no-underline transition-colors hover:border-[var(--liquor)] hover:text-[var(--liquor)]"
+          style={{ color: "var(--text)", background: "var(--surface)" }}
+        >
+          {s.icon}
+          {s.label}
+        </a>
+      ))}
+    </nav>
+  );
 }
 
-/** The new piece: report templates (FACT/RANK/LOW/Market Share) and the export letterhead
- *  logo ship baked into the frontend build / data/branding — this lets an Admin replace any
- *  of them on the fly, stored on this server's local disk (see backend Modules/AdminAssets),
- *  with every report-generating page picking up the change on its next run. */
-function FilesSection() {
-  const [assets, setAssets] = useState<AdminAssetStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busySlot, setBusySlot] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pendingSlotRef = useRef<string | null>(null);
-
-  const refresh = () => {
-    setLoading(true);
-    api
-      .listAdminAssets()
-      .then(setAssets)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load files"))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    refresh();
-  }, []);
-
-  const triggerUpload = (slotId: string) => {
-    pendingSlotRef.current = slotId;
-    fileInputRef.current?.click();
-  };
-
-  const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    const slotId = pendingSlotRef.current;
-    e.target.value = ""; // lets the same filename be chosen again later
-    if (!file || !slotId) return;
-    setError(null);
-    setBusySlot(slotId);
-    try {
-      const updated = await api.uploadAdminAsset(slotId, file);
-      setAssets((list) => list.map((a) => (a.id === slotId ? updated : a)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setBusySlot(null);
-    }
-  };
-
-  const revert = async (slotId: string) => {
-    setError(null);
-    setBusySlot(slotId);
-    try {
-      await api.revertAdminAsset(slotId);
-      refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't revert to the default");
-    } finally {
-      setBusySlot(null);
-    }
-  };
-
-  const groups = useMemo(
-    () =>
-      FILE_GROUP_ORDER.map((group) => ({ group, items: assets.filter((a) => a.group === group) })).filter(
-        (g) => g.items.length > 0
-      ),
-    [assets]
-  );
-
+/** Every Admin Panel section's shell: a colour-banded header (icon, title, subtitle) over a
+ *  bordered body, standing in for Settings' plain grey SectionCard specifically here so the
+ *  control-panel pages read as a distinct, heavier-weight surface — the way the Filtration
+ *  panel's own coloured slicer headers already do elsewhere in this app — rather than as
+ *  just another Settings-style page. Local to Admin on purpose: Settings keeps its calmer
+ *  SectionCard exactly as is. */
+function AdminSectionCard({
+  id, icon, accent, title, subtitle, actions, children,
+}: {
+  id: string;
+  icon: React.ReactNode;
+  accent: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  title: string;
+  subtitle?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <SectionCard
-      id="files"
-      title="System Files"
-      subtitle="Report templates and the export logo used across reports and auction workbooks. Upload a replacement to use it everywhere immediately — no redeploy needed. Stored on this server's local disk."
-    >
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
-      <input ref={fileInputRef} type="file" className="hidden" accept=".xlsx,.png" onChange={onFileChosen} />
-
-      {loading ? (
-        <div className="flex justify-center py-8">
-          <TeaLoader size={40} />
+    <section id={id} className="mb-7 scroll-mt-28">
+      <div
+        className="rounded-t-xl px-4 sm:px-5 py-3.5 flex items-start justify-between gap-3 flex-wrap"
+        style={{ background: `var(--tile-gradient-${accent})` }}
+      >
+        <div className="flex items-start gap-2.5 min-w-0">
+          <span
+            className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0 text-white"
+            style={{ background: "rgba(255,255,255,0.18)" }}
+          >
+            {icon}
+          </span>
+          <div className="min-w-0 pt-0.5">
+            <h2 className="font-display text-[16px] font-semibold text-white m-0 leading-snug">{title}</h2>
+            {subtitle && <p className="text-[12px] text-white m-0 mt-0.5 max-w-2xl opacity-80">{subtitle}</p>}
+          </div>
         </div>
-      ) : (
-        <div className="flex flex-col gap-5">
-          {groups.map(({ group, items }) => (
-            <div key={group}>
-              <h3 className="text-[11px] uppercase tracking-widest font-mono text-text-muted m-0 mb-2">{group}</h3>
-              <div className="flex flex-col gap-2">
-                {items.map((a) => (
-                  <div
-                    key={a.id}
-                    className="flex items-center justify-between gap-3 px-3 py-2.5 rounded border border-border"
-                    style={{ background: "var(--surface-sunken)" }}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium m-0" style={{ color: "var(--text-strong)" }}>
-                        {a.label}
-                      </p>
-                      <p className="text-[11.5px] text-text-muted m-0 truncate">{a.description}</p>
-                      <p className="text-[11px] font-mono text-text-muted m-0 mt-0.5">
-                        {a.hasOverride
-                          ? `Custom · ${formatBytes(a.sizeBytes ?? 0)} · ${a.uploadedAtUtc ? new Date(a.uploadedAtUtc).toLocaleString() : "—"}${a.uploadedBy ? ` · ${a.uploadedBy}` : ""}`
-                          : "Using bundled default"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {a.hasOverride && (
-                        <Button size="small" color="error" onClick={() => revert(a.id)} disabled={busySlot === a.id}>
-                          Revert
-                        </Button>
-                      )}
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<CloudUploadOutlinedIcon fontSize="small" />}
-                        onClick={() => triggerUpload(a.id)}
-                        disabled={busySlot === a.id}
-                      >
-                        {busySlot === a.id ? "Uploading…" : a.hasOverride ? "Replace" : "Upload"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </SectionCard>
+        {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      </div>
+      <div className="border border-t-0 border-border rounded-b-xl bg-surface p-4 sm:p-5" style={{ boxShadow: "var(--shadow-sm)" }}>
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -204,8 +168,10 @@ function SalesDataSection() {
   };
 
   return (
-    <SectionCard
+    <AdminSectionCard
       id="sales"
+      icon={<ReceiptLongOutlinedIcon fontSize="small" />}
+      accent={3}
       title="Sales Catalogue Files"
       subtitle="Weekly sale files (data/sales/*.xlsx). Upload a numbered file (e.g. 31.xlsx) to add a sale, or re-upload the same number to replace it — anything else imports as the next sale. There's no delete here: removing a sale means deleting its Excel file from data/sales directly."
     >
@@ -248,28 +214,41 @@ function SalesDataSection() {
           </table>
         </div>
       )}
-    </SectionCard>
+    </AdminSectionCard>
   );
 }
-
-type MslUploadType = "auction" | "private" | "teaboard";
 
 /** The MSL archive (data/msl/ — 637 sales of historical auction/private-sale/Tea Board data,
  *  see data/msl/README.md). The folder watcher auto-imports on change, so this is the same
  *  "drop the file in the right place" routine the README documents, just done as an upload
- *  instead of a filesystem copy — see MslController.Upload for the exact placement rules. */
+ *  instead of a filesystem copy — see MslController.Upload/UploadBatch for the exact
+ *  placement rules. Auction broker files and private-sale PVT files both go through one
+ *  batch drop zone: select or drag any mix of .TXT files and .ZIP archives in at once —
+ *  kind (auction vs. private), year, sale number and broker are all read back out of each
+ *  file's own rows server-side, nothing to type or pick per file, zips are extracted and
+ *  validated automatically. Only Tea Board reports (a PDF with no parseable content to
+ *  detect year/month from) stay single-file. */
 function MslDataSection() {
   const [status, setStatus] = useState<MslStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [uploadType, setUploadType] = useState<MslUploadType>("auction");
   const [year, setYear] = useState("");
-  const [saleNo, setSaleNo] = useState("");
   const [month, setMonth] = useState("");
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadResult, setUploadResult] = useState<MslScanSummary | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [stagingBusy, setStagingBusy] = useState(false);
+  const [stageResult, setStageResult] = useState<MslStageBatchResult | null>(null);
+  const [committing, setCommitting] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const [committedResult, setCommittedResult] = useState<MslBatchUploadResult | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const batchInputRef = useRef<HTMLInputElement>(null);
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  const [confirmDrafts, setConfirmDrafts] = useState<Record<string, string>>({});
+  const [filesDialogOpen, setFilesDialogOpen] = useState(false);
 
   const [rescanBusy, setRescanBusy] = useState(false);
 
@@ -309,9 +288,8 @@ function MslDataSection() {
     setUploadResult(null);
     setUploadBusy(true);
     try {
-      const summary = await api.uploadMslFile(uploadType, file, {
+      const summary = await api.uploadMslFile("teaboard", file, {
         year: year ? Number(year) : undefined,
-        saleNo: saleNo ? Number(saleNo) : undefined,
         month: month ? Number(month) : undefined,
       });
       setUploadResult(summary);
@@ -323,16 +301,92 @@ function MslDataSection() {
     }
   };
 
-  const fieldsValid =
-    uploadType === "auction" ? year.trim() !== "" && saleNo.trim() !== "" :
-    uploadType === "teaboard" ? year.trim() !== "" && month.trim() !== "" :
-    true; // private sale only needs the file
+  const stageBatch = async (files: File[]) => {
+    const usable = files.filter((f) => {
+      const name = f.name.toLowerCase();
+      return name.endsWith(".txt") || name.endsWith(".zip");
+    });
+    if (usable.length === 0) {
+      setError("No .TXT or .ZIP files in that selection.");
+      return;
+    }
+    setError(null);
+    setCommittedResult(null);
+    setConfirmedIds(new Set());
+    setConfirmDrafts({});
+    setStagingBusy(true);
+    try {
+      const result = await api.stageMslFilesBatch(usable);
+      setStageResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setStagingBusy(false);
+    }
+  };
+
+  const onBatchFilesChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length > 0) await stageBatch(files);
+  };
+
+  const removeStagedFile = (stagingId: string) => {
+    setStageResult((r) => (r ? { ...r, files: r.files.filter((f) => f.stagingId !== stagingId) } : r));
+  };
+
+  const confirmReplace = (stagingId: string, token: string) => {
+    if (confirmDrafts[stagingId]?.trim() !== token) return;
+    setConfirmedIds((s) => new Set(s).add(stagingId));
+  };
+
+  const keepableStagedFiles = () =>
+    (stageResult?.files ?? []).filter((f) => !f.error && (!f.requiresConfirmation || confirmedIds.has(f.stagingId)));
+
+  const commitBatch = async () => {
+    if (!stageResult) return;
+    const keep = keepableStagedFiles().map((f) => f.stagingId);
+    if (keep.length === 0) {
+      // Nothing left to import — same as cancelling.
+      await discardBatch();
+      return;
+    }
+    setError(null);
+    setCommitting(true);
+    try {
+      const result = await api.commitMslBatch(stageResult.batchId, keep);
+      setCommittedResult(result);
+      setStageResult(null);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setCommitting(false);
+    }
+  };
+
+  const discardBatch = async () => {
+    if (!stageResult) return;
+    setDiscarding(true);
+    try {
+      await api.discardMslBatch(stageResult.batchId);
+    } catch {
+      // Abandoned batches expire on their own — a failed discard call isn't worth blocking on.
+    } finally {
+      setStageResult(null);
+      setDiscarding(false);
+    }
+  };
+
+  const fieldsValid = year.trim() !== "" && month.trim() !== "";
 
   return (
-    <SectionCard
+    <AdminSectionCard
       id="msl"
+      icon={<Inventory2OutlinedIcon fontSize="small" />}
+      accent={2}
       title="MSL Archive"
-      subtitle="Historical Colombo tea-auction data (data/msl/) — auction sale broker files, private-sale files and Tea Board monthly reports. An upload is placed exactly where data/msl/README.md's manual routine puts it, then scanned immediately."
+      subtitle="Historical Colombo tea-auction data (data/msl/) — auction sale broker files, private-sale files and Tea Board monthly reports. New sales are typically published weekly; drop that week's files in below (individually or zipped up) as soon as they're available so the archive stays current."
     >
       {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
 
@@ -364,6 +418,35 @@ function MslDataSection() {
             {status.lastScan && ` · ${status.lastScan.filesImported} file(s) imported, ${status.lastScan.rowsImported.toLocaleString()} row(s), ${status.lastScan.filesRemoved} removed`}
           </p>
 
+          {status.gaps.length > 0 && (
+            <div className="mb-4 rounded-md bg-warn-light p-3" style={{ color: "var(--warn)" }}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <WarningAmberOutlinedIcon fontSize="small" />
+                <p className="text-[12.5px] font-semibold m-0">Missing sale numbers</p>
+              </div>
+              <p className="text-[11.5px] m-0 mb-2 opacity-80">
+                These sale numbers never arrived as public-auction files, even though later sales did — most likely a week&apos;s upload was skipped or the files weren&apos;t sourced yet.
+              </p>
+              <div className="flex flex-col gap-1">
+                {status.gaps.map((g) => (
+                  <p key={g.year} className="text-[12.5px] m-0">
+                    <span className="font-semibold">{g.year}</span>
+                    <span className="opacity-80"> (1–{g.maxSaleNo} expected): </span>
+                    {g.missingSaleNos.map((n) => (
+                      <span
+                        key={n}
+                        className="inline-block px-1.5 py-0.5 mr-1 rounded font-mono text-[11px]"
+                        style={{ background: "var(--paper-0)" }}
+                      >
+                        {n}
+                      </span>
+                    ))}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           {status.years.length > 0 && (
             <div className="overflow-x-auto mb-4">
               <table className="w-full text-[13px]">
@@ -389,6 +472,224 @@ function MslDataSection() {
         </>
       ) : null}
 
+      {/* ---- Auction + private-sale files, all auto-detected, drag-and-drop, zip-aware ---- */}
+      <div className="border-t border-border pt-3 mb-4">
+        <div className="flex items-center justify-between gap-2 mb-0.5">
+          <p className="text-[12.5px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
+            Auction &amp; private-sale files
+          </p>
+          <Button size="small" onClick={() => setFilesDialogOpen(true)}>
+            Browse Archive Files
+          </Button>
+        </div>
+        <p className="text-[11.5px] text-text-muted m-0 mb-2">
+          Drop in any mix of broker files, private-sale PVT files, or .ZIP archives containing either — all at once. Kind, year, sale number and broker are all read straight out of each file&apos;s own rows. Nothing is imported until you review the list below and confirm.
+        </p>
+
+        {!stageResult ? (
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              void stageBatch(Array.from(e.dataTransfer.files));
+            }}
+            onClick={() => batchInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") batchInputRef.current?.click(); }}
+            className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer py-6 px-4 text-center transition-colors"
+            style={{
+              borderColor: dragOver ? "var(--brand-gold)" : "var(--border)",
+              background: dragOver ? "color-mix(in srgb, var(--brand-gold) 8%, transparent)" : "var(--surface-sunken)",
+            }}
+          >
+            {stagingBusy ? (
+              <>
+                <TeaLoader size={32} />
+                <p className="text-[12.5px] text-text-muted m-0">Reading files…</p>
+              </>
+            ) : (
+              <>
+                <CloudUploadOutlinedIcon sx={{ color: "var(--text-muted)" }} />
+                <p className="text-[12.5px] m-0">
+                  <span className="font-medium" style={{ color: "var(--brand-gold)" }}>Click to browse</span> or drag .TXT / .ZIP files here
+                </p>
+              </>
+            )}
+            <input ref={batchInputRef} type="file" className="hidden" accept=".txt,.zip" multiple onChange={onBatchFilesChosen} />
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <div className="px-3 py-2 flex items-center justify-between gap-2" style={{ background: "var(--surface-sunken)" }}>
+              <p className="text-[12.5px] m-0">
+                <span className="font-semibold">{stageResult.files.length}</span> file(s) detected — review below, remove anything you don&apos;t want, then confirm.
+              </p>
+            </div>
+            <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">File</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Kind</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Broker</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Sale</th>
+                    <th className="text-right px-2 py-1.5 font-medium text-text-muted">Rows</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Notes</th>
+                    <th className="px-2 py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {stageResult.files.map((f) => (
+                    <tr key={f.stagingId} className="border-b border-border last:border-0">
+                      <td className="px-2 py-1.5 font-mono text-[11.5px]">
+                        {f.fileName}
+                        {f.sourceZip && <span className="block text-text-muted">from {f.sourceZip}</span>}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {f.kind === "private" ? "Private" : f.kind === "auction" ? "Auction" : "—"}
+                      </td>
+                      <td className="px-2 py-1.5">{f.broker ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-text-muted">
+                        {f.kind === "private" && f.year
+                          ? `PVT ${f.year}`
+                          : f.year && f.saleNo
+                            ? `${f.saleNo}/${f.year}`
+                            : "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono text-[11.5px]">{f.rows.toLocaleString()}</td>
+                      <td className="px-2 py-1.5" style={{ minWidth: f.requiresConfirmation && !confirmedIds.has(f.stagingId) ? 260 : undefined }}>
+                        {f.error ? (
+                          <span style={{ color: "var(--danger-dark, #a33)" }}>{f.error}</span>
+                        ) : f.requiresConfirmation && !confirmedIds.has(f.stagingId) ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1 font-medium" style={{ color: "var(--danger-dark, #a33)" }}>
+                              <WarningAmberOutlinedIcon sx={{ fontSize: 15 }} /> {f.replaceDetail}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <TextField
+                                size="small"
+                                placeholder={`Type ${f.confirmToken}`}
+                                value={confirmDrafts[f.stagingId] ?? ""}
+                                onChange={(e) => setConfirmDrafts((d) => ({ ...d, [f.stagingId]: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === "Enter" && f.confirmToken) confirmReplace(f.stagingId, f.confirmToken); }}
+                                sx={{ width: 110 }}
+                              />
+                              <Button
+                                size="small"
+                                color="error"
+                                variant="outlined"
+                                disabled={!f.confirmToken || confirmDrafts[f.stagingId]?.trim() !== f.confirmToken}
+                                onClick={() => f.confirmToken && confirmReplace(f.stagingId, f.confirmToken)}
+                              >
+                                Confirm
+                              </Button>
+                            </div>
+                          </div>
+                        ) : f.requiresConfirmation ? (
+                          <span className="inline-flex items-center gap-1" style={{ color: "var(--sage-dark)" }}>
+                            <CheckCircleOutlinedIcon sx={{ fontSize: 15 }} /> Confirmed replace
+                          </span>
+                        ) : f.willReplace ? (
+                          <Tooltip title={f.replaceDetail ?? ""}>
+                            <span className="inline-flex items-center gap-1" style={{ color: "var(--warn)" }}>
+                              <WarningAmberOutlinedIcon sx={{ fontSize: 15 }} /> Will replace
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          <span style={{ color: "var(--sage-dark)" }}>Ready</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <Tooltip title="Remove this file from the upload">
+                          <IconButton size="small" onClick={() => removeStagedFile(f.stagingId)}>
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 py-2.5 flex items-center justify-end gap-2 border-t border-border">
+              <Button size="small" onClick={discardBatch} disabled={committing || discarding}>
+                {discarding ? "Cancelling…" : "Cancel"}
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={commitBatch}
+                disabled={committing || discarding || stageResult.files.length === 0}
+              >
+                {committing ? "Importing…" : `Import ${keepableStagedFiles().length} File(s)`}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {committedResult && (
+          <div className="mt-3">
+            <div
+              className="mb-2 p-2.5 rounded border text-[12.5px]"
+              style={
+                committedResult.files.some((f) => f.error)
+                  ? { borderColor: "var(--warning, #c98a1f)", background: "var(--warning-light, #fdf0d5)", color: "var(--warning-dark, #92650a)" }
+                  : { borderColor: "var(--sage)", background: "var(--sage-light)", color: "var(--sage-dark)" }
+              }
+            >
+              {committedResult.files.filter((f) => !f.error).length} of {committedResult.files.length} file(s) imported, {committedResult.scan.rowsImported.toLocaleString()} row(s) total.
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">File</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Kind</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Broker</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Sale</th>
+                    <th className="text-right px-2 py-1.5 font-medium text-text-muted">Rows</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {committedResult.files.map((f, i) => (
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className="px-2 py-1.5 font-mono text-[11.5px]">
+                        {f.fileName}
+                        {f.sourceZip && <span className="block text-text-muted">from {f.sourceZip}</span>}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {f.kind === "private" ? "Private" : f.kind === "auction" ? "Auction" : "—"}
+                      </td>
+                      <td className="px-2 py-1.5">{f.broker ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-text-muted">
+                        {f.kind === "private" && f.year
+                          ? `PVT ${f.year}`
+                          : f.year && f.saleNo
+                            ? `${f.saleNo}/${f.year}`
+                            : "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono text-[11.5px]">{f.rows.toLocaleString()}</td>
+                      <td className="px-2 py-1.5">
+                        {f.error ? (
+                          <span style={{ color: "var(--danger-dark, #a33)" }}>{f.error}</span>
+                        ) : (
+                          <span style={{ color: "var(--sage-dark)" }}>Imported</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <MslFilesBrowser open={filesDialogOpen} onClose={() => setFilesDialogOpen(false)} onChanged={refresh} />
+
       {uploadResult && (
         <div className="mb-3 p-2.5 rounded border border-sage bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
           {uploadResult.filesImported} file(s) imported, {uploadResult.rowsImported.toLocaleString()} row(s).
@@ -396,43 +697,15 @@ function MslDataSection() {
         </div>
       )}
 
+      {/* ---- Tea Board report: the one file type left that can't self-describe its
+           year/month from parseable content, so it stays a manual single upload. ---- */}
       <div className="border-t border-border pt-3">
-        <p className="text-[11.5px] text-text-muted m-0 mb-2">Upload a file into the archive</p>
+        <p className="text-[11.5px] text-text-muted m-0 mb-2">Tea Board report (.pdf)</p>
         <div className="flex flex-wrap items-end gap-2 mb-3">
-          <Select
-            size="small"
-            value={uploadType}
-            onChange={(e) => {
-              setUploadType(e.target.value as MslUploadType);
-              setUploadResult(null);
-            }}
-            sx={{ minWidth: 200 }}
-          >
-            <MenuItem value="auction">Auction Sale Broker File (.TXT)</MenuItem>
-            <MenuItem value="private">Private Sale File (.TXT)</MenuItem>
-            <MenuItem value="teaboard">Tea Board Report (.pdf)</MenuItem>
-          </Select>
+          <TextField label="Year" size="small" type="number" value={year} onChange={(e) => setYear(e.target.value)} sx={{ width: 100 }} />
+          <TextField label="Month" size="small" type="number" value={month} onChange={(e) => setMonth(e.target.value)} sx={{ width: 100 }} />
 
-          {uploadType === "auction" && (
-            <>
-              <TextField label="Year" size="small" type="number" value={year} onChange={(e) => setYear(e.target.value)} sx={{ width: 100 }} />
-              <TextField label="Sale No" size="small" type="number" value={saleNo} onChange={(e) => setSaleNo(e.target.value)} sx={{ width: 100 }} />
-            </>
-          )}
-          {uploadType === "teaboard" && (
-            <>
-              <TextField label="Year" size="small" type="number" value={year} onChange={(e) => setYear(e.target.value)} sx={{ width: 100 }} />
-              <TextField label="Month" size="small" type="number" value={month} onChange={(e) => setMonth(e.target.value)} sx={{ width: 100 }} />
-            </>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept={uploadType === "teaboard" ? ".pdf" : ".txt"}
-            onChange={onFileChosen}
-          />
+          <input ref={fileInputRef} type="file" className="hidden" accept=".pdf" onChange={onFileChosen} />
           <Button
             variant="outlined"
             size="small"
@@ -451,7 +724,732 @@ function MslDataSection() {
           Force Full Rescan
         </Button>
       </div>
-    </SectionCard>
+    </AdminSectionCard>
+  );
+}
+
+/** The archive-side counterpart to the upload review list: browse everything already
+ *  imported (not just what's mid-upload) and remove something if it shouldn't be there.
+ *  Deleting only ever touches the file on disk — the importer's own next scan is what drops
+ *  that file's rows from MongoDB (see MslController.DeleteFile's doc comment), so this stays
+ *  a thin list + confirm dialog rather than any bespoke Mongo-deletion logic. */
+function MslFilesBrowser({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
+  const [files, setFiles] = useState<MslTrackedFile[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState<"all" | "auction" | "private" | "teaboard">("all");
+  const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api
+      .listMslFiles()
+      .then((list) => {
+        setFiles(list);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load files"));
+  }, [open]);
+
+  const filtered = (files ?? []).filter((f) => {
+    if (kindFilter !== "all" && f.kind !== kindFilter) return false;
+    if (search && !f.relativePath.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const confirmFile = filtered.find((f) => f.relativePath === confirmPath) ?? files?.find((f) => f.relativePath === confirmPath);
+
+  const doDelete = async () => {
+    if (!confirmPath) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteMslFile(confirmPath);
+      setFiles((list) => (list ?? []).filter((f) => f.relativePath !== confirmPath));
+      setConfirmPath(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't remove that file");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <>
+      <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+        <DialogTitle>Archive Files</DialogTitle>
+        <DialogContent>
+          {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+          <div className="flex flex-wrap gap-2 mb-3">
+            <TextField
+              size="small"
+              placeholder="Search filename or path…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ minWidth: 220 }}
+            />
+            <Select size="small" value={kindFilter} onChange={(e) => setKindFilter(e.target.value as typeof kindFilter)} sx={{ minWidth: 150 }}>
+              <MenuItem value="all">All kinds</MenuItem>
+              <MenuItem value="auction">Auction</MenuItem>
+              <MenuItem value="private">Private</MenuItem>
+              <MenuItem value="teaboard">Tea Board</MenuItem>
+            </Select>
+          </div>
+
+          {files === null ? (
+            <div className="flex justify-center py-8">
+              <TeaLoader size={36} />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-[12.5px] text-text-muted m-0 py-6 text-center">No files match.</p>
+          ) : (
+            <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Path</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Kind</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Sale</th>
+                    <th className="text-right px-2 py-1.5 font-medium text-text-muted">Rows</th>
+                    <th className="text-left px-2 py-1.5 font-medium text-text-muted">Imported</th>
+                    <th className="px-2 py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((f) => (
+                    <tr key={f.relativePath} className="border-b border-border last:border-0">
+                      <td className="px-2 py-1.5 font-mono text-[11.5px]">
+                        {f.relativePath}
+                        {f.error && <span className="block" style={{ color: "var(--danger-dark, #a33)" }}>{f.error}</span>}
+                      </td>
+                      <td className="px-2 py-1.5 capitalize">{f.kind}</td>
+                      <td className="px-2 py-1.5 text-text-muted">
+                        {f.kind === "private" && f.year
+                          ? `PVT ${f.year}`
+                          : f.kind === "teaboard" && f.year && f.saleNo
+                            ? `${String(f.saleNo).padStart(2, "0")}/${f.year}`
+                            : f.year && f.saleNo
+                              ? `${f.saleNo}/${f.year}`
+                              : (f.year ?? "—")}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono text-[11.5px]">{f.rowCount.toLocaleString()}</td>
+                      <td className="px-2 py-1.5 text-text-muted">{new Date(f.importedAt).toLocaleDateString()}</td>
+                      <td className="px-2 py-1.5">
+                        <Tooltip title="Remove this file from the archive">
+                          <IconButton size="small" onClick={() => setConfirmPath(f.relativePath)}>
+                            <DeleteOutlineIcon fontSize="small" sx={{ color: "var(--danger-dark, #a33)" }} />
+                          </IconButton>
+                        </Tooltip>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={confirmPath !== null} onClose={() => setConfirmPath(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Remove this file?</DialogTitle>
+        <DialogContent>
+          <p className="text-[13px] m-0">
+            This deletes <span className="font-mono">{confirmPath}</span> from the archive
+            {confirmFile ? ` and removes its ${confirmFile.rowCount.toLocaleString()} imported row(s)` : ""} from the database. This
+            can&apos;t be undone unless you still have the original file to re-upload.
+          </p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmPath(null)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button color="error" variant="contained" onClick={doDelete} disabled={deleting}>
+            {deleting ? "Removing…" : "Remove Permanently"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}
+
+const MARKET_PULSE_CATEGORIES: { value: MarketPulseCategory; label: string }[] = [
+  { value: "TeaMarket", label: "Tea Market" },
+  { value: "ShippingLogistics", label: "Shipping & Logistics" },
+  { value: "CurrencyTrade", label: "Currency & Trade" },
+  { value: "WeatherCrop", label: "Weather & Crop" },
+  { value: "GlobalEconomy", label: "Global Economy" },
+];
+
+const JOB_STATUS_COLOR: Record<string, string> = {
+  Succeeded: "var(--sage-dark)",
+  Waiting: "var(--warn)",
+  Failed: "var(--danger)",
+  NeverRun: "var(--text-muted)",
+};
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return "—";
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** One registered job's row — trigger/status/last-run at a glance, Run Now for a manual
+ *  override, and an on-demand expand for what it's actually produced (see
+ *  ScheduledReportJobsController's own doc comment: run history itself lives in the Audit
+ *  Log, filtered to this job's Key, not duplicated here). */
+function JobRow({ job, onChanged }: { job: ScheduledReportJob; onChanged: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [runMessage, setRunMessage] = useState<string | null>(null);
+  const [outputsOpen, setOutputsOpen] = useState(false);
+  const [outputs, setOutputs] = useState<ScheduledReportOutput[] | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const toggle = async () => {
+    try {
+      await api.toggleScheduledReportJob(job.key, !job.enabled);
+      onChanged();
+    } catch {
+      // Best-effort — the checkbox just stays as it was; onChanged() re-syncs from the server either way.
+    }
+  };
+
+  const runNow = async () => {
+    setRunning(true);
+    setRunMessage(null);
+    try {
+      const result = await api.runScheduledReportJobNow(job.key);
+      setRunMessage(result.message);
+      onChanged();
+      if (outputsOpen) loadOutputs();
+    } catch (e) {
+      setRunMessage(e instanceof ApiError ? e.message : "Run failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const loadOutputs = () => {
+    api.listScheduledReportOutputs(job.key).then(setOutputs).catch(() => setOutputs([]));
+  };
+
+  const toggleOutputs = () => {
+    const next = !outputsOpen;
+    setOutputsOpen(next);
+    if (next && outputs === null) loadOutputs();
+  };
+
+  const download = async (o: ScheduledReportOutput) => {
+    setDownloadingId(o.id);
+    try {
+      const blob = await api.downloadSavedReport(o.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${o.title}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  return (
+    <>
+      <tr className="border-b border-border align-top">
+        <td className="px-2 py-2.5">
+          <div className="font-medium text-text-strong">{job.displayName}</div>
+          <div className="font-mono text-[10.5px] text-text-muted">{job.key}</div>
+        </td>
+        <td className="px-2 py-2.5 font-mono text-[11.5px] text-text-muted">
+          {job.triggerType === "AfterSaleClose" ? "After sale close" : job.cronExpression}
+        </td>
+        <td className="px-2 py-2.5 text-text-muted">
+          {job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "Never"}
+          {job.lastRunAt && <span className="font-mono text-[10.5px] ml-1.5">({formatDuration(job.lastDurationMs)})</span>}
+        </td>
+        <td className="px-2 py-2.5">
+          <span className="font-medium" style={{ color: JOB_STATUS_COLOR[job.lastStatus] }}>
+            {job.lastStatus}
+          </span>
+          {job.consecutiveFailures >= 3 && (
+            <span className="ml-1.5 text-[10.5px] font-mono" style={{ color: "var(--danger)" }}>
+              ({job.consecutiveFailures}× in a row)
+            </span>
+          )}
+          {job.lastMessage && <div className="text-[11px] text-text-muted mt-0.5 max-w-md">{job.lastMessage}</div>}
+        </td>
+        <td className="px-2 py-2.5">
+          <Tooltip title={job.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
+            <Switch size="small" checked={job.enabled} onChange={toggle} />
+          </Tooltip>
+        </td>
+        <td className="px-2 py-2.5 whitespace-nowrap">
+          <Tooltip title="Run now">
+            <span>
+              <IconButton size="small" onClick={runNow} disabled={running} aria-label={`Run ${job.displayName} now`}>
+                {running ? <CircularProgress size={16} /> : <PlayArrowOutlinedIcon fontSize="small" />}
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Outputs">
+            <IconButton size="small" onClick={toggleOutputs} aria-label={`Show ${job.displayName} outputs`}>
+              <ExpandMoreOutlinedIcon fontSize="small" sx={{ transform: outputsOpen ? "rotate(180deg)" : undefined, transition: "transform 0.15s" }} />
+            </IconButton>
+          </Tooltip>
+        </td>
+      </tr>
+      {runMessage && (
+        <tr className="border-b border-border">
+          <td colSpan={6} className="px-2 py-1.5 text-[11.5px]" style={{ background: "var(--surface-sunken)" }}>
+            {runMessage}
+          </td>
+        </tr>
+      )}
+      {outputsOpen && (
+        <tr className="border-b border-border">
+          <td colSpan={6} className="px-2 py-2.5" style={{ background: "var(--surface-sunken)" }}>
+            {outputs === null ? (
+              <span className="text-[12px] text-text-muted">Loading…</span>
+            ) : outputs.length === 0 ? (
+              <span className="text-[12px] text-text-muted">Nothing generated yet.</span>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {outputs.map((o) => (
+                  <div key={o.id} className="flex items-center gap-2 text-[12px]">
+                    <span className="flex-1 min-w-0 truncate text-text-strong">{o.title}</span>
+                    <span className="font-mono text-[10.5px] text-text-muted shrink-0">{new Date(o.createdAt).toLocaleDateString()}</span>
+                    {o.downloadable ? (
+                      <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
+                        {downloadingId === o.id ? <CircularProgress size={14} /> : <DownloadOutlinedIcon sx={{ fontSize: 15 }} />}
+                      </IconButton>
+                    ) : (
+                      <span className="text-[11px] text-text-muted italic shrink-0">{o.notes}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** Staging area for Weekly FACT's CBAC elevation-average TXT — the one input that can't be
+ *  derived from the database (see IWeeklyFactCbacStagingStore's doc comment). Stage it
+ *  whenever it arrives during the week; WeeklyFactAutoReportJob picks it up on its own once
+ *  the matching sale has also closed. */
+function CbacStagingPanel() {
+  const [staged, setStaged] = useState<StagedCbac[] | null>(null);
+  const [saleYear, setSaleYear] = useState(new Date().getFullYear());
+  const [saleNo, setSaleNo] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [txtContent, setTxtContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const refresh = () => {
+    api.listStagedCbac().then(setStaged).catch(() => setStaged([]));
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const onFile = async (f: File) => {
+    setFileName(f.name);
+    setTxtContent(await f.text());
+  };
+
+  const stage = async () => {
+    const saleNoNum = parseInt(saleNo, 10);
+    if (!saleNoNum || !txtContent.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.stageCbac(saleYear, saleNoNum, txtContent);
+      setSaleNo("");
+      setTxtContent("");
+      setFileName(null);
+      refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't stage this file");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (year: number, sale: number) => {
+    await api.deleteStagedCbac(year, sale);
+    refresh();
+  };
+
+  return (
+    <div className="mt-5 pt-4 border-t border-border">
+      <h3 className="font-display text-[14px] font-semibold text-text-strong m-0 mb-1">CBAC Benchmark Staging</h3>
+      <p className="text-[12px] text-text-muted m-0 mb-3">
+        Weekly FACT can build the factory-wise (WES) side from the MSL archive automatically, but the CBAC elevation-average
+        TXT has no database equivalent — stage it here whenever it arrives, independent of when the sale closes.
+      </p>
+
+      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+
+      <div className="flex items-end gap-2 flex-wrap mb-3">
+        <TextField
+          label="Sale Year"
+          type="number"
+          size="small"
+          value={saleYear}
+          onChange={(e) => setSaleYear(parseInt(e.target.value, 10) || saleYear)}
+          sx={{ width: 110 }}
+        />
+        <TextField label="Sale No" size="small" value={saleNo} onChange={(e) => setSaleNo(e.target.value)} sx={{ width: 90 }} />
+        <Button size="small" variant="outlined" component="label" startIcon={<CloudUploadOutlinedIcon fontSize="small" />}>
+          {fileName ?? "Choose CBAC TXT"}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onFile(f);
+            }}
+          />
+        </Button>
+        <Button size="small" variant="contained" onClick={stage} disabled={saving || !saleNo || !txtContent.trim()}>
+          {saving ? "Staging…" : "Stage"}
+        </Button>
+      </div>
+
+      {staged === null ? (
+        <span className="text-[12px] text-text-muted">Loading…</span>
+      ) : staged.length === 0 ? (
+        <p className="text-[12px] text-text-muted m-0">Nothing staged right now.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {staged.map((s) => (
+            <span
+              key={`${s.saleYear}-${s.saleNo}`}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border text-[11.5px] font-mono"
+              style={{ background: "var(--surface)" }}
+            >
+              Sale {s.saleNo}/{s.saleYear}
+              <IconButton size="small" onClick={() => remove(s.saleYear, s.saleNo)} sx={{ p: 0.25 }} aria-label={`Remove staged CBAC for sale ${s.saleNo}/${s.saleYear}`}>
+                <DeleteOutlineIcon sx={{ fontSize: 13 }} />
+              </IconButton>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AutomatedReportsSection() {
+  const [jobs, setJobs] = useState<ScheduledReportJob[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => {
+    api.listScheduledReportJobs().then(setJobs).catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load automated reports"));
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  return (
+    <AdminSectionCard
+      id="automatedreports"
+      icon={<ScheduleOutlinedIcon fontSize="small" />}
+      accent={8}
+      title="Automated Reports"
+      subtitle="Reports that generate themselves on schedule or on trigger, with no one needing to click Generate."
+    >
+      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+
+      {jobs === null ? (
+        <div className="flex justify-center py-8">
+          <TeaLoader size={40} />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Job</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Trigger</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Last Run</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Status</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Enabled</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((j) => (
+                <JobRow key={j.key} job={j} onChanged={refresh} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <CbacStagingPanel />
+    </AdminSectionCard>
+  );
+}
+
+type SourceFormState = { name: string; feedUrl: string; category: MarketPulseCategory; enabled: boolean };
+const EMPTY_SOURCE_FORM: SourceFormState = { name: "", feedUrl: "", category: "TeaMarket", enabled: true };
+
+/** Market Pulse's admin surface: the RSS source list the ingestion job polls on its own
+ *  schedule (see MarketPulseIngestionService), plus a manual "run it now" button so adding
+ *  a source doesn't mean waiting up to an hour to see whether it actually works. Every
+ *  add/edit/delete/refresh here writes to the same audit log every other admin action
+ *  does — see MarketPulseController. */
+function NewsSourcesSection() {
+  const [sources, setSources] = useState<MarketPulseSource[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<SourceFormState>(EMPTY_SOURCE_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MarketPulseSource | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+
+  const refresh = () => {
+    api
+      .listMarketPulseSources()
+      .then(setSources)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load news sources"));
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const openAdd = () => {
+    setEditingId(null);
+    setForm(EMPTY_SOURCE_FORM);
+    setFormOpen(true);
+  };
+  const openEdit = (s: MarketPulseSource) => {
+    setEditingId(s.id);
+    setForm({ name: s.name, feedUrl: s.feedUrl, category: s.category, enabled: s.enabled });
+    setFormOpen(true);
+  };
+
+  const save = async () => {
+    if (!form.name.trim() || !form.feedUrl.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId) {
+        await api.updateMarketPulseSource(editingId, form);
+      } else {
+        await api.addMarketPulseSource(form);
+      }
+      setFormOpen(false);
+      refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't save this source");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleEnabled = async (s: MarketPulseSource) => {
+    setSources((list) => (list ?? []).map((x) => (x.id === s.id ? { ...x, enabled: !s.enabled } : x)));
+    try {
+      await api.updateMarketPulseSource(s.id, { enabled: !s.enabled });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't update this source");
+      refresh();
+    }
+  };
+
+  const doDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteMarketPulseSource(deleteTarget.id);
+      setSources((list) => (list ?? []).filter((s) => s.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't remove this source");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const runNow = async () => {
+    setRefreshing(true);
+    setRefreshMessage(null);
+    try {
+      const summary = await api.refreshMarketPulse();
+      setRefreshMessage(
+        `${summary.sourcesChecked} source(s) checked${summary.sourcesFailed > 0 ? ` (${summary.sourcesFailed} failed)` : ""}, ${summary.newItems} new item(s), ${summary.scored} scored.`
+      );
+      refresh();
+    } catch (e) {
+      setRefreshMessage(e instanceof ApiError ? e.message : "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  return (
+    <AdminSectionCard
+      id="newssources"
+      icon={<NewspaperOutlinedIcon fontSize="small" />}
+      accent={1}
+      title="News Sources"
+      subtitle="RSS feeds Market Pulse polls for tea, shipping and trade news. A disabled source is skipped on the next scheduled run — no redeploy needed."
+      actions={
+        <>
+          <Button size="small" variant="outlined" startIcon={<RefreshOutlinedIcon fontSize="small" />} onClick={runNow} disabled={refreshing} sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.5)" }}>
+            {refreshing ? "Running…" : "Run Now"}
+          </Button>
+          <Button size="small" variant="contained" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={openAdd} sx={{ background: "rgba(255,255,255,0.2)" }}>
+            Add Source
+          </Button>
+        </>
+      }
+    >
+      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {refreshMessage && (
+        <div className="mb-3 p-2.5 rounded border border-border text-[12.5px]" style={{ background: "var(--surface-sunken)" }}>
+          {refreshMessage}
+        </div>
+      )}
+
+      {sources === null ? (
+        <div className="flex justify-center py-8">
+          <TeaLoader size={40} />
+        </div>
+      ) : sources.length === 0 ? (
+        <p className="text-[12.5px] text-text-muted m-0">No sources yet — add one to start pulling news.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Name</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Feed URL</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Category</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Enabled</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Last Fetch</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.id} className="border-b border-border last:border-0">
+                  <td className="px-2 py-2">{s.name}</td>
+                  <td className="px-2 py-2 font-mono text-[11.5px] text-text-muted max-w-[280px] truncate" title={s.feedUrl}>
+                    {s.feedUrl}
+                  </td>
+                  <td className="px-2 py-2 text-text-muted">{MARKET_PULSE_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}</td>
+                  <td className="px-2 py-2">
+                    <Switch size="small" checked={s.enabled} onChange={() => toggleEnabled(s)} />
+                  </td>
+                  <td className="px-2 py-2 text-[11.5px]">
+                    {s.lastFetchedAt ? (
+                      s.lastFetchSucceeded ? (
+                        <span style={{ color: "var(--sage-dark)" }}>{s.lastFetchNewItems} new · {new Date(s.lastFetchedAt).toLocaleString()}</span>
+                      ) : (
+                        <span style={{ color: "var(--danger-dark, #a33)" }} title={s.lastFetchError ?? ""}>
+                          Failed · {new Date(s.lastFetchedAt).toLocaleString()}
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-text-muted">Never fetched</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-1 justify-end">
+                      <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => openEdit(s)}>
+                          <EditOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton size="small" onClick={() => setDeleteTarget(s)}>
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Dialog open={formOpen} onClose={() => setFormOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? "Edit Source" : "Add Source"}</DialogTitle>
+        <DialogContent>
+          <div className="flex flex-col gap-3 pt-1">
+            <TextField label="Name" size="small" fullWidth value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <TextField
+              label="Feed URL"
+              size="small"
+              fullWidth
+              placeholder="https://example.com/feed"
+              value={form.feedUrl}
+              onChange={(e) => setForm((f) => ({ ...f, feedUrl: e.target.value }))}
+            />
+            <Select
+              size="small"
+              value={form.category}
+              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as MarketPulseCategory }))}
+            >
+              {MARKET_PULSE_CATEGORIES.map((c) => (
+                <MenuItem key={c.value} value={c.value}>
+                  {c.label}
+                </MenuItem>
+              ))}
+            </Select>
+            <FormControlLabel
+              control={<Checkbox checked={form.enabled} onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))} />}
+              label="Enabled"
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFormOpen(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={save} disabled={saving || !form.name.trim() || !form.feedUrl.trim()}>
+            {saving ? "Saving…" : editingId ? "Save Changes" : "Add Source"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Remove this source?</DialogTitle>
+        <DialogContent>
+          <p className="text-[13px] m-0">
+            This stops <span className="font-semibold">{deleteTarget?.name}</span> from being polled. Items already pulled from it stay in the feed.
+          </p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button color="error" variant="contained" onClick={doDelete} disabled={deleting}>
+            {deleting ? "Removing…" : "Remove"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </AdminSectionCard>
   );
 }
 
@@ -565,7 +1563,7 @@ function UsersSection() {
   };
 
   return (
-    <SectionCard id="users" title="Users" subtitle="Everyone with access to this workspace.">
+    <AdminSectionCard id="users" icon={<GroupOutlinedIcon fontSize="small" />} accent={5} title="Users" subtitle="Everyone with access to this workspace.">
       {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
 
       <div className="flex justify-end mb-3">
@@ -751,7 +1749,7 @@ function UsersSection() {
           </Button>
         </DialogActions>
       </Dialog>
-    </SectionCard>
+    </AdminSectionCard>
   );
 }
 
@@ -860,7 +1858,7 @@ function ApiKeysSection() {
   };
 
   return (
-    <SectionCard id="apikeys" title="API Keys" subtitle="Credentials for external tools (e.g. an n8n workflow) to call this API without a human login.">
+    <AdminSectionCard id="apikeys" icon={<VpnKeyOutlinedIcon fontSize="small" />} accent={8} title="API Keys" subtitle="Credentials for external tools (e.g. an n8n workflow) to call this API without a human login.">
       {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
 
       <div className="flex justify-end mb-3">
@@ -965,7 +1963,7 @@ function ApiKeysSection() {
           </Button>
         </DialogActions>
       </Dialog>
-    </SectionCard>
+    </AdminSectionCard>
   );
 }
 
@@ -1037,7 +2035,7 @@ function WebhooksSection() {
   };
 
   return (
-    <SectionCard id="webhooks" title="Webhooks" subtitle="Notify an external tool (e.g. n8n) when something happens in this app.">
+    <AdminSectionCard id="webhooks" icon={<LinkOutlinedIcon fontSize="small" />} accent={6} title="Webhooks" subtitle="Notify an external tool (e.g. n8n) when something happens in this app.">
       {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
 
       <div className="flex justify-end mb-3">
@@ -1135,7 +2133,7 @@ function WebhooksSection() {
           </Button>
         </DialogActions>
       </Dialog>
-    </SectionCard>
+    </AdminSectionCard>
   );
 }
 
@@ -1246,8 +2244,10 @@ function MasterDataSection() {
   };
 
   return (
-    <SectionCard
+    <AdminSectionCard
       id="masterdata"
+      icon={<CategoryOutlinedIcon fontSize="small" />}
+      accent={7}
       title="Master Data"
       subtitle="Canonical names for brokers, buyers, gardens, grades and more, so spelling variants across broker files merge into one row instead of splitting reports and analytics."
     >
@@ -1397,7 +2397,7 @@ function MasterDataSection() {
           </Button>
         </DialogActions>
       </Dialog>
-    </SectionCard>
+    </AdminSectionCard>
   );
 }
 
@@ -1439,7 +2439,7 @@ function AuditLogSection() {
   };
 
   return (
-    <SectionCard id="audit" title="Audit Log" subtitle="Who did what — role changes, API keys, webhooks, master data, files and knowledge base uploads.">
+    <AdminSectionCard id="audit" icon={<HistoryOutlinedIcon fontSize="small" />} accent={4} title="Audit Log" subtitle="Who did what — role changes, API keys, webhooks, master data, files and knowledge base uploads.">
       {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
 
       {loading ? (
@@ -1483,7 +2483,7 @@ function AuditLogSection() {
           )}
         </>
       )}
-    </SectionCard>
+    </AdminSectionCard>
   );
 }
 
@@ -1512,19 +2512,33 @@ export default function AdminPage() {
 
   return (
     <div>
-      <PageHeader title="Admin Panel" subtitle="Full administrative control — users, access, master data, sale/MSL data and the system's shared files." />
+      <PageHeader title="Admin Panel" subtitle="Full administrative control — users, access, master data and sale/MSL data." />
 
       <div
-        className="mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-semibold"
-        style={{ background: "var(--tile-gradient-4)", color: "#fff" }}
+        className="mb-6 rounded-xl px-4 sm:px-5 py-4 flex items-center justify-between gap-3 flex-wrap"
+        style={{ background: "var(--tile-gradient-4)" }}
       >
-        <AdminPanelSettingsOutlinedIcon sx={{ fontSize: 16 }} />
-        Administrator access — {user?.displayName}
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            className="flex items-center justify-center w-10 h-10 rounded-full shrink-0"
+            style={{ background: "rgba(255,255,255,0.18)" }}
+          >
+            <AdminPanelSettingsOutlinedIcon sx={{ color: "#fff", fontSize: 22 }} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-semibold text-white m-0">Administrator access</p>
+            <p className="text-[12px] text-white m-0 opacity-80 truncate">Signed in as {user?.displayName}</p>
+          </div>
+        </div>
+        <p className="text-[12px] text-white m-0 opacity-80 shrink-0">{ADMIN_SECTIONS.length} control areas below</p>
       </div>
 
-      <FilesSection />
+      <AdminSectionNav />
+
       <SalesDataSection />
       <MslDataSection />
+      <AutomatedReportsSection />
+      <NewsSourcesSection />
       <UsersSection />
       <ApiKeysSection />
       <WebhooksSection />

@@ -19,6 +19,12 @@ public record ReportSectionDto(string Title, List<KpiDto>? Kpis, string? GroupUn
 /// field to ReportSectionDto — not before, and not as a guess at that source's shape.</summary>
 public record ReportDto(string Type, string Title, string Subtitle, string SourceName, DateTime GeneratedAt, List<ReportSectionDto> Sections);
 
-public record SavedReportDto(Guid Id, string Type, string Title, Guid? CatalogueId, string? Source, DateTime CreatedAt);
+/// <summary>Downloadable is true only for reports whose actual output was persisted
+/// server-side (today, just the automated Weekly FACT job — see
+/// Modules/ScheduledReports/IGeneratedReportFileStore.cs) rather than regenerated on demand
+/// like every hand-saved report; the frontend uses it to show a Download action instead of
+/// the usual Reopen-and-regenerate one. Notes is the placeholder message on the monthly
+/// Combined Report job's output; null for everything else.</summary>
+public record SavedReportDto(Guid Id, string Type, string Title, Guid? CatalogueId, string? Source, DateTime CreatedAt, bool Downloadable, string? Notes);
 
 public record SaveReportRequestDto(string Type, string Title, Guid? CatalogueId, string? Source);

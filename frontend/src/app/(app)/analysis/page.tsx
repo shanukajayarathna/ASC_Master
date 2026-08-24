@@ -318,23 +318,32 @@ export default function AnalysisPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // One debounced fetch drives everything: the dashboards AND the cascading filter
-  // options both come from the same filtered payload.
+  // options both come from the same filtered payload. The AbortController doesn't just
+  // stop a stale response being applied client-side — the backend threads the same
+  // CancellationToken through the whole $facet aggregation, so spam-toggling filters
+  // actually cancels the abandoned Mongo query server-side too, not just here.
   useEffect(() => {
     if (!filter.years) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    let cancelled = false;
+    const controller = new AbortController();
     debounceRef.current = setTimeout(() => {
       api
-        .mslFilteredAnalytics(filter)
-        .then((d) => !cancelled && setAnalytics(d))
-        .catch((e) => !cancelled && setAnalyticsError(e instanceof Error ? e.message : "Couldn't load analytics"))
-        .finally(() => !cancelled && setAnalyticsLoading(false));
+        .mslFilteredAnalytics(filter, controller.signal)
+        .then((d) => setAnalytics(d))
+        .catch((e) => {
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          setAnalyticsError(e instanceof Error ? e.message : "Couldn't load analytics");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setAnalyticsLoading(false);
+        });
     }, 250);
     return () => {
-      cancelled = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      controller.abort();
     };
   }, [filter]);
 
@@ -398,28 +407,12 @@ export default function AnalysisPage() {
         <>
           <FilterPanel options={filterOptions} available={analytics?.available ?? null} filter={filter} onChange={setFilter} />
           <div className="relative">
-            {/* Whole-results blur while a filter change loads: the previous page stays
-                visible but frosted, the brewing cup marks the work — nothing looks frozen
-                and nothing half-filtered is clickable. */}
-            {analyticsLoading && (
-              <div
-                className="absolute inset-0 z-20 flex items-start justify-center rounded-md"
-                role="status"
-                aria-live="polite"
-                style={{
-                  backdropFilter: "blur(3px)",
-                  WebkitBackdropFilter: "blur(3px)",
-                  background: "color-mix(in srgb, var(--paper-0) 35%, transparent)",
-                }}
-              >
-                <div className="sticky top-40 flex flex-col items-center gap-3 pt-40 pb-10">
-                  <TeaLoader size={68} />
-                  <span className="text-[13px] font-medium text-text-strong">Filtering… brewing the full page</span>
-                </div>
-              </div>
-            )}
+            {/* Each container carries its own loading veil (see MarketAnalytics) instead of
+                one whole-page blur: the previous numbers stay put per-card while a filter
+                change is in flight, each card blocks clicks on its own stale content, and
+                unrelated chrome (filter panel, report launcher) never freezes with it. */}
             <div key={mode} className="flex flex-col gap-4 min-w-0 fade-in-soft">
-              <MarketAnalytics data={analytics} error={analyticsError} mode={mode} options={filterOptions} />
+              <MarketAnalytics data={analytics} error={analyticsError} mode={mode} options={filterOptions} loading={analyticsLoading} />
               <ReportsLauncher filter={filter} />
             </div>
             <FloatingAnalyticsChat filter={filter} />

@@ -14,12 +14,21 @@ namespace Asc.Api.Modules.Audit;
 public class AuditLogController(MongoContext db) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<List<AuditLogEntryDto>>> List([FromQuery] int skip = 0, [FromQuery] int take = 50, CancellationToken ct = default)
+    public async Task<ActionResult<List<AuditLogEntryDto>>> List(
+        [FromQuery] int skip = 0, [FromQuery] int take = 50,
+        [FromQuery] string? entityType = null, [FromQuery] string? entityId = null, CancellationToken ct = default)
     {
         take = Math.Clamp(take, 1, 200);
         skip = Math.Max(skip, 0);
 
-        var entries = await db.AuditLogs.Find(FilterDefinition<AuditLogEntry>.Empty)
+        // entityType/entityId — e.g. Admin Panel's Automated Reports "run history" panel,
+        // scoped to one job's Key — narrow to a single entity's trail instead of the global
+        // feed. Both optional and independent so a caller can filter by type alone too.
+        var filter = Builders<AuditLogEntry>.Filter.Empty;
+        if (entityType is not null) filter &= Builders<AuditLogEntry>.Filter.Eq(e => e.EntityType, entityType);
+        if (entityId is not null) filter &= Builders<AuditLogEntry>.Filter.Eq(e => e.EntityId, entityId);
+
+        var entries = await db.AuditLogs.Find(filter)
             .SortByDescending(e => e.Timestamp)
             .Skip(skip)
             .Limit(take)

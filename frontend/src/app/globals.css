@@ -16,6 +16,19 @@
      (a drawer header, the bulk-action bar), not the everyday reading surface. */
   --ink-solid-900: #14180B; --ink-solid-800: #202612;
 
+  /* ---- Market Pulse ("the auction floor price ticker") ----------------------
+     A deliberate second palette for one feature, not a global restyle — same
+     precedent as --ink-solid-* just above: fixed across both light/dark app
+     themes on purpose, because the ticker/ledger look is this feature's own
+     committed identity (a trading-floor board), not something that should
+     dissolve into generic app chrome when the user's theme toggle flips. */
+  --tea-ink: #1B2A22;      /* near-black deep tea-leaf green — ticker strip ground, ledger text */
+  --tea-ledger: #F4F1E6;   /* aged ledger-paper ivory — full-page ground, ticker strip text */
+  --tea-liquor: #B98A2E;   /* brewed-tea amber/brass — primary accent, used sparingly */
+  --tea-leaf: #3E5C46;     /* mid tea-green — category tag pills */
+  --auction-alert: #8C2F2F; /* muted brick red — high-relevance flag only, never a fill */
+  --tea-rule: #D8D2C0;     /* hairline dividers between ticker items and ledger rows */
+
   /* Neutral gray scale for text/surfaces/borders — previously tinted olive/cream, which
      read as dull and low-contrast across ordinary body text and page backgrounds (every
      screen inherits these). Neutral now; the brand olive/gold/liquor hues stay exactly as
@@ -114,6 +127,13 @@
 
   --color-ink-solid-900: var(--ink-solid-900);
   --color-ink-solid-800: var(--ink-solid-800);
+
+  --color-tea-ink: var(--tea-ink);
+  --color-tea-ledger: var(--tea-ledger);
+  --color-tea-liquor: var(--tea-liquor);
+  --color-tea-leaf: var(--tea-leaf);
+  --color-auction-alert: var(--auction-alert);
+  --color-tea-rule: var(--tea-rule);
   --color-ink-900: var(--ink-900);
   --color-ink-800: var(--ink-800);
   --color-ink-700: var(--ink-700);
@@ -176,6 +196,62 @@ body {
   .lift-on-hover:hover {
     transform: none;
   }
+}
+
+/* ---- Market Pulse ticker motion --------------------------------------------------------
+   The only two animated elements in the whole feature (see the component's own doc
+   comment) — a continuous marquee and a small live-pulse dot. Both respect
+   prefers-reduced-motion by simply not animating: the marquee falls back to a plain
+   horizontal-scroll strip (still fully readable, just not auto-moving), and the dot to a
+   flat, solid one. */
+@keyframes mp-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.mp-marquee-track {
+  animation: mp-marquee 32s linear infinite;
+}
+.mp-marquee-track:hover,
+.mp-marquee-track:focus-within {
+  animation-play-state: paused;
+}
+@keyframes mp-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+.mp-live-dot {
+  animation: mp-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mp-marquee-track {
+    animation: none;
+  }
+  .mp-live-dot {
+    animation: none;
+  }
+}
+/* New-item arrival — a brief, calm fade+rise, not a bounce. */
+@keyframes mp-item-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mp-item-in {
+  animation: mp-item-in 400ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mp-item-in { animation: none; }
+}
+/* Landing on a story via a ticker item's deep link (#item-<id>) — a brief highlight wash
+   that fades, so "jump straight to that story" actually reads as landing somewhere. */
+@keyframes mp-highlight {
+  from { background: color-mix(in srgb, var(--tea-liquor) 18%, transparent); }
+  to { background: transparent; }
+}
+.mp-highlight {
+  animation: mp-highlight 2400ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mp-highlight { animation: none; }
 }
 
 /* ---- Cross-device / touch conventions ------------------------------------------------

@@ -3,7 +3,7 @@
 import AdminDashboard from "./AdminDashboard";
 import AiInsightsPanel, { type Insight } from "@/components/home/AiInsightsPanel";
 import AttentionList, { type AttentionEntry } from "@/components/home/AttentionList";
-import KpiSlidesPanel, { type KpiSlide } from "@/components/home/KpiSlidesPanel";
+import MarketPulseTicker from "@/components/home/MarketPulseTicker";
 import ModuleTile from "@/components/home/ModuleTile";
 import RecentActivityList, { type ActivityEntry } from "@/components/home/RecentActivityList";
 import Sparkline from "@/components/home/Sparkline";
@@ -11,7 +11,7 @@ import { NAV_ITEMS } from "@/components/shell/nav";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
-import { formatCurrency, formatNumber, timeAgo } from "@/lib/format";
+import { formatCurrency, timeAgo } from "@/lib/format";
 import { fetchColomboWeather, type WeatherNow } from "@/lib/weather";
 import type { CatalogueSummary, Conversation, DashboardStats, SavedReport } from "@/types/api";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -330,40 +330,6 @@ function UserDashboard() {
       ? ((stats.avgValuation - previousStats.avgValuation) / previousStats.avgValuation) * 100
       : null;
 
-  // The detailed breakdown that used to be three stacked KpiSections — same data, now fed
-  // to AutoSlidingKpiPanel as slides so it takes one compact card instead of a long scroll.
-  const kpiSlides: KpiSlide[] = stats
-    ? [
-        {
-          title: "Valuation Range",
-          subtitle: "Across all valued lots",
-          tiles: [
-            { label: "Highest Valuation", value: formatCurrency(stats.maxValuation) },
-            { label: "Lowest Valuation", value: formatCurrency(stats.minValuation) },
-            { label: "Average Range Width", value: formatCurrency(stats.avgRangeWidth) },
-          ],
-        },
-        {
-          title: "Portfolio Composition",
-          tiles: [
-            { label: "Most Active Broker", value: stats.mostActiveBroker ?? "—" },
-            { label: "Most Common Grade", value: stats.mostCommonGrade ?? "—" },
-            { label: "Most Common Category", value: stats.mostCommonCategory ?? "—" },
-            { label: "Most Common Elevation", value: stats.mostCommonElevation ?? "—" },
-          ],
-        },
-        {
-          title: "Weight & Volume",
-          tiles: [
-            { label: "Total Net Weight", value: stats.totalNetWeight ? `${formatNumber(stats.totalNetWeight)} kg` : "—" },
-            { label: "Total Gross Weight", value: stats.totalGrossWeight ? `${formatNumber(stats.totalGrossWeight)} kg` : "—" },
-            { label: "Average Net Weight", value: stats.avgNetWeight ? `${formatNumber(stats.avgNetWeight, 1)} kg` : "—" },
-            { label: "Average Gross Weight", value: stats.avgGrossWeight ? `${formatNumber(stats.avgGrossWeight, 1)} kg` : "—" },
-          ],
-        },
-      ]
-    : [];
-
   // Sorted by the raw ISO timestamp (kept alongside, since `timeAgo` only produces the
   // display string) then trimmed to the entry shape the list component actually wants.
   const activity: ActivityEntry[] = [
@@ -458,6 +424,10 @@ function UserDashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mb-6">
+        <MarketPulseTicker variant="dashboard" />
       </div>
 
       {catalogueError && (
@@ -626,13 +596,6 @@ function UserDashboard() {
         </Link>
       )}
 
-      {/* ---- the same Valuation Range / Portfolio Composition / Weight & Volume detail as
-           before, now one auto-rotating card instead of three stacked sections ---- */}
-      {activeCatalogueId && stats && <KpiSlidesPanel slides={kpiSlides} />}
-      {activeCatalogueId && !stats && (
-        <Skeleton variant="rounded" height={140} className="mb-6" sx={{ borderRadius: "var(--radius-lg)" }} />
-      )}
-
       {/* ---- launchpad: module tiles replace the old sidebar as the primary navigation ---- */}
       <div className="mt-2 mb-4">
         <div className="flex items-center gap-2 mb-3">
@@ -709,9 +672,9 @@ function UserDashboard() {
         </div>
       </div>
 
-      {/* ---- three real panels: recent activity, computed AI insights, sales needing
+      {/* ---- four real panels: recent activity, computed AI insights, sales needing
            attention (this app's honest substitute for the reference mockup's fabricated
-           "Upcoming Deadlines" — see the plan for why) ---- */}
+           "Upcoming Deadlines" — see the plan for why), and industry news ---- */}
       <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <RecentActivityList entries={activity} />
         <AiInsightsPanel insights={insights} loading={insightsLoading} />

@@ -361,7 +361,7 @@ function LotLinesTable({ rows }: { rows: FilteredLotRow[] }) {
   return (
     <Table
       rightFrom={9}
-      headers={["Year", "Sale date", "Sale", "Category", "Broker", "Factory", "Mark", "Inv", "Grade", "Lot", "Qty", "Price", "Status", "Buyer"]}
+      headers={["Year", "Sale date", "Sale", "Category", "Broker", "Factory", "Mark", "Inv", "Grade", "Lot", "Qty", "Price", "Asking", "Status", "Buyer"]}
       rows={rows.map((r) => [
         r.saleYear,
         r.saleDate.slice(0, 10),
@@ -375,6 +375,7 @@ function LotLinesTable({ rows }: { rows: FilteredLotRow[] }) {
         r.lotNo,
         nf.format(Math.round(r.quantityKg)),
         r.priceRs > 0 ? nf.format(r.priceRs) : "",
+        r.askingRs != null ? nf.format(r.askingRs) : "",
         r.sold ? "SOLD" : "UNSOLD",
         r.buyer ?? "",
       ])}

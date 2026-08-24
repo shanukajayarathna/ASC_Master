@@ -1,19 +1,19 @@
 "use client";
 
+import MarketPulseTicker from "@/components/home/MarketPulseTicker";
 import RecentActivityList, { type ActivityEntry } from "@/components/home/RecentActivityList";
 import { NAV_ITEMS } from "@/components/shell/nav";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
-import type { AdminAssetStatus, AuditLogEntry, AuthUser, CatalogueSummary, MslStatus, ApiKeySummary, WebhookSummary } from "@/types/api";
+import type { AuditLogEntry, AuthUser, CatalogueSummary, MslStatus, ApiKeySummary, WebhookSummary } from "@/types/api";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import CableOutlinedIcon from "@mui/icons-material/CableOutlined";
-import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
+import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import PeopleAltOutlinedIcon from "@mui/icons-material/PeopleAltOutlined";
-import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
+import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
+import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
 import Skeleton from "@mui/material/Skeleton";
 import Link from "next/link";
@@ -28,7 +28,11 @@ function greeting(): string {
 
 interface OversightCard {
   key: string;
-  icon: typeof PeopleAltOutlinedIcon;
+  icon: typeof GroupOutlinedIcon;
+  /** Same tile-gradient accent as the matching Admin Panel section (see admin/page.tsx's
+   *  ADMIN_SECTIONS) — so the colour carries an admin straight from "Users" here to the
+   *  gold-banded Users section there, instead of every tile reading as generically neutral. */
+  accent: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   label: string;
   value: string;
   sub: string;
@@ -36,9 +40,9 @@ interface OversightCard {
   warn?: boolean;
 }
 
-/** One clickable stat card, styled the same way this app already treats a Link-as-card
- *  (see the Continue Valuing / old Admin shortcut blocks the regular dashboard used —
- *  `lift-on-hover` is a shared class, not invented for this page). */
+/** One clickable stat card. Colour-matched to its Admin Panel section (see AdminSectionCard
+ *  there) so the two surfaces read as one system rather than a plain dashboard bolted onto a
+ *  redesigned control panel — `lift-on-hover` is this app's existing Link-as-card idiom. */
 function OversightTile({ card }: { card: OversightCard }) {
   const Icon = card.icon;
   return (
@@ -48,13 +52,14 @@ function OversightTile({ card }: { card: OversightCard }) {
       style={{
         background: "var(--surface)",
         borderColor: card.warn ? "var(--warn)" : "var(--border)",
+        boxShadow: card.warn ? undefined : "var(--shadow-sm)",
       }}
     >
       <span
         className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-        style={{ background: card.warn ? "var(--warn-light)" : "var(--liquor-light)" }}
+        style={{ background: card.warn ? "var(--warn-light)" : `var(--tile-gradient-${card.accent})` }}
       >
-        <Icon sx={{ fontSize: 18, color: card.warn ? "var(--warn)" : "var(--liquor)" }} />
+        <Icon sx={{ fontSize: 18, color: card.warn ? "var(--warn)" : "#fff" }} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -83,7 +88,6 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
   const [users, setUsers] = useState<AuthUser[] | null>(null);
   const [catalogues, setCatalogues] = useState<CatalogueSummary[] | null>(null);
   const [mslStatus, setMslStatus] = useState<MslStatus | null>(null);
-  const [assets, setAssets] = useState<AdminAssetStatus[] | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[] | null>(null);
   const [webhooks, setWebhooks] = useState<WebhookSummary[] | null>(null);
   const [auditEntries, setAuditEntries] = useState<AuditLogEntry[] | null>(null);
@@ -92,24 +96,24 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
     api.listUsers().then(setUsers).catch(() => setUsers([]));
     api.listCatalogues().then(setCatalogues).catch(() => setCatalogues([]));
     api.mslStatus().then(setMslStatus).catch(() => {});
-    api.listAdminAssets().then(setAssets).catch(() => setAssets([]));
     api.listApiKeys().then(setApiKeys).catch(() => setApiKeys([]));
     api.listWebhooks().then(setWebhooks).catch(() => setWebhooks([]));
     api.listAuditLog(0, 6).then(setAuditEntries).catch(() => setAuditEntries([]));
   }, []);
 
-  const loading = users === null || catalogues === null || assets === null || apiKeys === null || webhooks === null;
+  const loading = users === null || catalogues === null || apiKeys === null || webhooks === null;
 
   const cards: OversightCard[] = [];
   if (users) {
     const admins = users.filter((u) => u.roles.includes("Admin")).length;
-    cards.push({ key: "users", icon: PeopleAltOutlinedIcon, label: "Users", value: String(users.length), sub: `${admins} admin${admins === 1 ? "" : "s"}`, href: "/admin#users" });
+    cards.push({ key: "users", icon: GroupOutlinedIcon, accent: 5, label: "Users", value: String(users.length), sub: `${admins} admin${admins === 1 ? "" : "s"}`, href: "/admin#users" });
   }
   if (catalogues) {
     const latest = [...catalogues].sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime())[0];
     cards.push({
       key: "sales",
-      icon: Inventory2OutlinedIcon,
+      icon: ReceiptLongOutlinedIcon,
+      accent: 3,
       label: "Sales Loaded",
       value: String(catalogues.length),
       sub: latest ? `latest ${timeAgo(latest.importedAt)}` : "none yet",
@@ -117,25 +121,27 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
     });
   }
   if (mslStatus) {
+    const gapCount = mslStatus.gaps.reduce((n, g) => n + g.missingSaleNos.length, 0);
     cards.push({
       key: "msl",
-      icon: StorageOutlinedIcon,
+      icon: Inventory2OutlinedIcon,
+      accent: 2,
       label: "MSL Archive",
       value: mslStatus.totalLots.toLocaleString(),
-      sub: mslStatus.filesWithErrors > 0 ? `${mslStatus.filesWithErrors} file(s) with errors` : `${mslStatus.trackedFiles} files tracked`,
+      sub: mslStatus.filesWithErrors > 0
+        ? `${mslStatus.filesWithErrors} file(s) with errors`
+        : gapCount > 0
+          ? `${gapCount} sale(s) missing`
+          : `${mslStatus.trackedFiles} files tracked`,
       href: "/admin#msl",
-      warn: mslStatus.filesWithErrors > 0,
+      warn: mslStatus.filesWithErrors > 0 || gapCount > 0,
     });
   }
-  if (assets) {
-    const custom = assets.filter((a) => a.hasOverride).length;
-    cards.push({ key: "files", icon: CloudUploadOutlinedIcon, label: "System Files", value: String(custom), sub: `${assets.length - custom} using defaults`, href: "/admin#files" });
-  }
   if (apiKeys) {
-    cards.push({ key: "apikeys", icon: VpnKeyOutlinedIcon, label: "API Keys", value: String(apiKeys.length), sub: "external tool credentials", href: "/admin#apikeys" });
+    cards.push({ key: "apikeys", icon: VpnKeyOutlinedIcon, accent: 8, label: "API Keys", value: String(apiKeys.length), sub: "external tool credentials", href: "/admin#apikeys" });
   }
   if (webhooks) {
-    cards.push({ key: "webhooks", icon: CableOutlinedIcon, label: "Webhooks", value: String(webhooks.length), sub: "outbound event hooks", href: "/admin#webhooks" });
+    cards.push({ key: "webhooks", icon: LinkOutlinedIcon, accent: 6, label: "Webhooks", value: String(webhooks.length), sub: "outbound event hooks", href: "/admin#webhooks" });
   }
 
   // Only real, cheaply-known issues — no fabricated "all good" filler when there's nothing
@@ -150,6 +156,15 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
   }
   if (mslStatus && !mslStatus.lastScanAt) {
     attentionItems.push({ key: "msl-never-scanned", text: "The MSL archive has never been scanned.", href: "/admin#msl" });
+  }
+  if (mslStatus) {
+    for (const g of mslStatus.gaps) {
+      attentionItems.push({
+        key: `msl-gap-${g.year}`,
+        text: `${g.year}: sale${g.missingSaleNos.length === 1 ? "" : "s"} ${g.missingSaleNos.join(", ")} never arrived (expected 1–${g.maxSaleNo}) — a week's broker files may be missing.`,
+        href: "/admin#msl",
+      });
+    }
   }
 
   const activity: ActivityEntry[] = (auditEntries ?? []).map((e) => ({
@@ -187,12 +202,16 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
         </div>
         <Link
           href="/admin"
-          className="flex items-center gap-2 px-4 py-2.5 rounded-[var(--radius-md)] no-underline font-semibold text-[13px]"
-          style={{ background: "var(--liquor)", color: "#fff" }}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-[var(--radius-md)] no-underline font-semibold text-[13px] transition-transform hover:scale-[1.02]"
+          style={{ background: "var(--tile-gradient-4)", color: "#fff", boxShadow: "var(--shadow-md)" }}
         >
           Open Admin Panel
           <ArrowForwardIcon sx={{ fontSize: 16 }} />
         </Link>
+      </div>
+
+      <div className="mb-6">
+        <MarketPulseTicker variant="dashboard" />
       </div>
 
       {loading ? (
@@ -228,7 +247,7 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
         </div>
       )}
 
-      <div className="mb-6" style={{ maxWidth: 560 }}>
+      <div className="mb-6 grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <RecentActivityList entries={activity} />
       </div>
 

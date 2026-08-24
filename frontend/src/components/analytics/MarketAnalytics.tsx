@@ -3,6 +3,7 @@
 import BarChart from "@/components/analytics/BarChart";
 import { BrokerAvgBars, BrokerDonut } from "@/components/analytics/BrokerCharts";
 import { SkeletonCard } from "@/components/shared/SkeletonBlock";
+import TeaLoader from "@/components/shared/TeaLoader";
 import type { FilteredAnalytics, FilteredSectionRow, MslFilterOptions } from "@/types/api";
 import { useMemo } from "react";
 
@@ -36,14 +37,38 @@ function Tile({ label, value, hint, accent }: { label: string; value: string; hi
   );
 }
 
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+/** Per-container "this card is refreshing" veil — sits over one card's stale content
+ *  instead of blurring the whole page. Its own click-catching layer (default pointer-events)
+ *  is what stops a stray click on a chart segment mid-refresh from acting on data that's
+ *  about to be replaced — no global disable needed, and unrelated cards stay fully live. */
+function LoadingVeil({ show, size = 26 }: { show: boolean; size?: number }) {
+  if (!show) return null;
   return (
-    <section className="border border-border rounded-md bg-surface p-4">
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center rounded-md"
+      role="status"
+      aria-live="polite"
+      aria-label="Refreshing"
+      style={{
+        backdropFilter: "blur(1.5px)",
+        WebkitBackdropFilter: "blur(1.5px)",
+        background: "color-mix(in srgb, var(--paper-0) 55%, transparent)",
+      }}
+    >
+      <TeaLoader size={size} />
+    </div>
+  );
+}
+
+function Card({ title, subtitle, loading, children }: { title: string; subtitle?: string; loading?: boolean; children: React.ReactNode }) {
+  return (
+    <section className="relative border border-border rounded-md bg-surface p-4 overflow-hidden">
       <div className="flex items-baseline gap-2 mb-3 flex-wrap">
         <h4 className="font-display text-[14px] font-semibold text-text-strong m-0">{title}</h4>
         {subtitle && <span className="text-[11.5px] text-text-muted">{subtitle}</span>}
       </div>
       {children}
+      <LoadingVeil show={!!loading} />
     </section>
   );
 }
@@ -79,12 +104,15 @@ function TrendLine({ data }: { data: { label: string; value: number }[] }) {
 }
 
 export default function MarketAnalytics({
-  data, error, mode, options,
+  data, error, mode, options, loading,
 }: {
   data: FilteredAnalytics | null;
   error: string | null;
   mode: "pre" | "post";
   options: MslFilterOptions | null;
+  /** A filter change is in flight — `data` is still the previous slice's results.
+   *  Each card shows its own veil over that stale content rather than the page blocking. */
+  loading?: boolean;
 }) {
   const gradeClasses = useMemo(() => options?.gradeClasses ?? {}, [options]);
 
@@ -144,29 +172,30 @@ export default function MarketAnalytics({
       <div className="flex flex-col gap-4">
 
         {/* Essentials — every headline figure as a tile, colour-matched to its filter family. */}
-        <div className="flex flex-wrap gap-2">
+        <div className="relative flex flex-wrap gap-2 rounded-md">
           {tiles.map((tile) => (
             <Tile key={tile.label} {...tile} />
           ))}
+          <LoadingVeil show={!!loading} size={22} />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card title="Broker wise catalogue qty" subtitle="share of quantity — every filter applies">
+          <Card title="Broker wise catalogue qty" subtitle="share of quantity — every filter applies" loading={loading}>
             <BrokerDonut rows={data.byBroker} />
           </Card>
-          <Card title="Broker wise average" subtitle="qty-weighted average of sold lots">
+          <Card title="Broker wise average" subtitle="qty-weighted average of sold lots" loading={loading}>
             <BrokerAvgBars rows={data.byBroker} totalAvg={t.avgPriceRs} />
           </Card>
         </div>
 
         {post && (
-          <Card title="Average price by sale" subtitle="qty-weighted, across the filtered slice">
+          <Card title="Average price by sale" subtitle="qty-weighted, across the filtered slice" loading={loading}>
             <TrendLine data={data.bySale.filter((s) => s.avgPriceRs != null).map((s) => ({ label: s.key, value: s.avgPriceRs! }))} />
           </Card>
         )}
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Card title="Elevation" subtitle={post ? "weighted avg by elevation" : "quantity by elevation"}>
+          <Card title="Elevation" subtitle={post ? "weighted avg by elevation" : "quantity by elevation"} loading={loading}>
             <BarChart
               rows={data.byElevation.filter((r) => r.label).map((r) => ({
                 label: r.label!,
@@ -176,7 +205,7 @@ export default function MarketAnalytics({
               }))}
             />
           </Card>
-          <Card title={post ? "Category averages" : "Category mix"} subtitle="standard grade categories">
+          <Card title={post ? "Category averages" : "Category mix"} subtitle="standard grade categories" loading={loading}>
             <BarChart
               rows={data.byCategory.slice(0, 10).map((r) => ({
                 label: r.key,

@@ -5,10 +5,12 @@ using Asc.Api.Modules.Audit;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.MarketPulse;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Msl;
 using Asc.Api.Modules.Notifications;
 using Asc.Api.Modules.Observability;
+using Asc.Api.Modules.ScheduledReports;
 using Asc.Api.Modules.Webhooks;
 using MongoDB.Driver;
 
@@ -128,6 +130,25 @@ public class MongoContext
             new CreateIndexModel<MslSaleStat>(Builders<MslSaleStat>.IndexKeys
                 .Ascending(s => s.Dimension).Ascending(s => s.Year)),
         ]);
+
+        // SourceUrl is the sole dedupe key an ingestion cycle checks before ever spending an
+        // AI call — must be unique, and every lookup against it should be an index hit.
+        // The feed/dashboard query always sorts by relevance then recency, so that's
+        // indexed too; PublishedAt backs the date-range filter.
+        MarketPulseItems.Indexes.CreateMany(
+        [
+            new CreateIndexModel<MarketPulseItem>(Builders<MarketPulseItem>.IndexKeys.Ascending(i => i.SourceUrl), new CreateIndexOptions { Unique = true }),
+            new CreateIndexModel<MarketPulseItem>(Builders<MarketPulseItem>.IndexKeys.Descending(i => i.AiRelevanceScore).Descending(i => i.PublishedAt)),
+            new CreateIndexModel<MarketPulseItem>(Builders<MarketPulseItem>.IndexKeys.Ascending(i => i.Status).Ascending(i => i.IngestedAt)),
+        ]);
+
+        // WeeklyFactAutoReportJob's idempotency check ("has this sale already got an
+        // auto-generated report?") runs on every tick — a compound index keeps it cheap.
+        SavedReports.Indexes.CreateMany(
+        [
+            new CreateIndexModel<SavedReport>(
+                Builders<SavedReport>.IndexKeys.Ascending(r => r.Type).Ascending(r => r.SaleYear).Ascending(r => r.SaleNo)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -167,4 +188,9 @@ public class MongoContext
     public IMongoCollection<TeaBoardAverage> TeaBoardAverages => Database.GetCollection<TeaBoardAverage>("teaBoardAverages");
     public IMongoCollection<MslFileState> MslFiles => Database.GetCollection<MslFileState>("mslFiles");
     public IMongoCollection<MslSaleStat> MslSaleStats => Database.GetCollection<MslSaleStat>("mslSaleStats");
+
+    public IMongoCollection<MarketPulseItem> MarketPulseItems => Database.GetCollection<MarketPulseItem>("marketPulseItems");
+    public IMongoCollection<MarketPulseSource> MarketPulseSources => Database.GetCollection<MarketPulseSource>("marketPulseSources");
+
+    public IMongoCollection<ScheduledReportJobState> ScheduledReportJobStates => Database.GetCollection<ScheduledReportJobState>("scheduledReportJobStates");
 }

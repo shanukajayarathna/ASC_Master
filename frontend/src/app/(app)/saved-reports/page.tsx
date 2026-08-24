@@ -5,12 +5,22 @@ import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
 import type { SavedReport } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
+import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const REPORT_LABELS: Record<string, string> = {
   executive: "Executive Summary",
@@ -27,6 +37,7 @@ export default function SavedReportsPage() {
   const [loading, setLoading] = useState(true);
   // Report whose delete is in flight — its button locks so a double-click can't fire twice.
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -48,6 +59,16 @@ export default function SavedReportsPage() {
       setReports((r) => r.filter((x) => x.id !== id));
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const download = async (r: SavedReport) => {
+    setDownloadingId(r.id);
+    try {
+      const blob = await api.downloadSavedReport(r.id);
+      downloadBlob(blob, `${r.title}.zip`);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -73,19 +94,37 @@ export default function SavedReportsPage() {
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] text-text-strong truncate">{REPORT_LABELS[r.type] ?? r.title}</div>
                 <div className="text-[11px] text-text-muted font-mono">
-                  {r.source ?? "—"} · {new Date(r.createdAt).toLocaleString()}
+                  {r.notes ?? r.source ?? "—"} · {new Date(r.createdAt).toLocaleString()}
                 </div>
               </div>
-              <Tooltip title="Reopen">
-                <IconButton
-                  size="small"
-                  component={Link}
-                  href={`/reports/summary?type=${r.type}${r.catalogueId ? `&catalogueId=${r.catalogueId}` : ""}`}
-                  aria-label={`Reopen ${r.title}`}
-                >
-                  <OpenInNewOutlinedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              {r.downloadable ? (
+                <Tooltip title="Download">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => download(r)}
+                      disabled={downloadingId === r.id}
+                      aria-busy={downloadingId === r.id}
+                      aria-label={`Download ${r.title}`}
+                    >
+                      {downloadingId === r.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              ) : (
+                r.catalogueId && (
+                  <Tooltip title="Reopen">
+                    <IconButton
+                      size="small"
+                      component={Link}
+                      href={`/reports/summary?type=${r.type}&catalogueId=${r.catalogueId}`}
+                      aria-label={`Reopen ${r.title}`}
+                    >
+                      <OpenInNewOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )
+              )}
               <Tooltip title="Delete">
                 <span>
                   <IconButton

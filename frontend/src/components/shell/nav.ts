@@ -9,6 +9,7 @@ import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import RequestQuoteOutlinedIcon from "@mui/icons-material/RequestQuoteOutlined";
 import SpaceDashboardOutlinedIcon from "@mui/icons-material/SpaceDashboardOutlined";
@@ -149,6 +150,15 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Cross-sale grade valuation streaks and buyer purchase-volume trends.",
     icon: TrendingUpOutlinedIcon,
     gradient: 2,
+  },
+  {
+    href: "/market-pulse",
+    label: "Market Pulse",
+    section: "Intelligence",
+    status: "live",
+    description: "AI-scored tea, shipping and trade news that could move the next auction.",
+    icon: NewspaperOutlinedIcon,
+    gradient: 6,
   },
   {
     href: "/saved-reports",

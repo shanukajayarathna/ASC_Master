@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 using Asc.Api.Data;
 using Asc.Api.Modules.Audit;
@@ -29,9 +30,45 @@ public record MslAggregateRowDto(
 
 public record MslYearStatDto(int Year, int Sales, long Lots);
 
+/// <summary>A year whose public-auction sale numbers have gaps — e.g. sale 27 never
+/// arrived while 26 and 28 did. Computed from actual imported (non-private) lots, so it
+/// reflects what's really in the database, not just which folders exist on disk.</summary>
+public record MslGapDto(int Year, int MaxSaleNo, List<int> MissingSaleNos);
+
 public record MslStatusDto(
     string? DataPath, long TotalLots, long PrivateLots, int TrackedFiles, int FilesWithErrors,
-    DateTime? LastScanAt, MslScanSummary? LastScan, List<MslYearStatDto> Years, int TeaBoardMonths);
+    DateTime? LastScanAt, MslScanSummary? LastScan, List<MslYearStatDto> Years, int TeaBoardMonths,
+    List<MslGapDto> Gaps);
+
+/// <summary>One file's outcome in a batch upload — kind (auction vs. private), year, sale
+/// and broker are all read back out of the file's own rows (the same way the importer
+/// itself works), not parsed from the filename or a zip entry's path, since the corpus has
+/// known filename typos. <paramref name="SourceZip"/> is set when this file was extracted
+/// from an uploaded .ZIP rather than uploaded directly.</summary>
+public record MslBatchFileResultDto(
+    string FileName, string? SourceZip, string? Kind, string? Broker, int? Year, int? SaleNo, int Rows, string? Error);
+public record MslBatchUploadResultDto(List<MslBatchFileResultDto> Files, MslScanSummary Scan);
+
+/// <summary>One candidate file waiting in a staged upload-batch review list — the same
+/// detected kind/broker/year/sale as <see cref="MslBatchFileResultDto"/>, plus a row-count
+/// preview and a same-destination conflict warning, so the admin can drop anything they
+/// don't want before a single row reaches the database. <paramref name="StagingId"/> is what
+/// the commit call references to say "keep this one".</summary>
+public record MslStagedFileDto(
+    string StagingId, string FileName, string? SourceZip, string? Kind, string? Broker,
+    int? Year, int? SaleNo, int Rows, string? Error, bool WillReplace, string? ReplaceDetail,
+    bool RequiresConfirmation, string? ConfirmToken);
+public record MslStageBatchResultDto(string BatchId, List<MslStagedFileDto> Files, DateTime ExpiresAtUtc);
+public record MslCommitBatchRequestDto(string BatchId, List<string> Keep);
+
+/// <summary>One file already in the archive — the Admin Panel's "browse archive files" list,
+/// for reviewing or removing something that was imported previously (not just at upload
+/// time). Kind/year/sale are parsed back out of the relative path itself here, since that's
+/// exactly how the importer laid the file out in the first place — see
+/// MslImportService.EnumerateDataFiles / MslController.Upload's placement rules.</summary>
+public record MslTrackedFileDto(
+    string RelativePath, string Kind, int? Year, int? SaleNo, long Length,
+    DateTime LastWriteUtc, DateTime ImportedAt, int RowCount, string? Error);
 
 public record SaleComparisonDiffDto(
     string Broker, string LotNo, string SellingMark, string Grade,
@@ -54,7 +91,9 @@ public record TeaBoardRowDto(
 [ApiController]
 [Route("api/v1/msl")]
 [Authorize]
-public class MslController(MongoContext db, MslImportService importer, ICatalogueSource catalogues, IMemoryCache cache, IAuditLogger audit) : ControllerBase
+public class MslController(
+    MongoContext db, MslImportService importer, ICatalogueSource catalogues, IMemoryCache cache,
+    IAuditLogger audit, MslUploadStagingService staging) : ControllerBase
 {
     /// <summary>Heavy whole-collection results (status, aggregates) are cached keyed on the
     /// importer's DataVersion — instant on repeat views, recomputed only after an import
@@ -109,7 +148,35 @@ public class MslController(MongoContext db, MslImportService importer, ICatalogu
             importer.DataPath, total, priv, files.Count, files.Count(f => f.Error is not null),
             importer.LastScanAt, importer.LastSummary,
             years.Select(y => new MslYearStatDto(y.Year, y.Sales, y.Lots)).ToList(),
-            tbMonths);
+            tbMonths, await ComputeGapsAsync());
+    }
+
+    /// <summary>Missing public-auction sale numbers per year — e.g. sale 27/2024 never
+    /// arrived while 26 and 28 did (confirmed 22 Aug 2026, root cause: the sale's broker
+    /// files were never added to data/msl). Built from IsPrivate==false lots specifically:
+    /// a sale can have private-sale rows (synthetic SaleNo 0 bucket aside) without ever
+    /// having received its real auction files, which is exactly the case that slipped
+    /// through undetected until a manual cross-check against the portal caught it.</summary>
+    private async Task<List<MslGapDto>> ComputeGapsAsync()
+    {
+        var saleDocs = await db.AuctionLots.Aggregate<BsonDocument>(new[]
+        {
+            new BsonDocument("$match", new BsonDocument("pv", false)),
+            new BsonDocument("$group", new BsonDocument { ["_id"] = new BsonDocument { ["y"] = "$y", ["s"] = "$s" } }),
+        }).ToListAsync();
+
+        return saleDocs
+            .GroupBy(d => d["_id"]["y"].ToInt32())
+            .Select(g =>
+            {
+                var present = g.Select(d => d["_id"]["s"].ToInt32()).Where(s => s > 0).ToHashSet();
+                var max = present.Count > 0 ? present.Max() : 0;
+                var missing = Enumerable.Range(1, max).Where(n => !present.Contains(n)).ToList();
+                return new MslGapDto(g.Key, max, missing);
+            })
+            .Where(gap => gap.MissingSaleNos.Count > 0)
+            .OrderByDescending(gap => gap.Year)
+            .ToList();
     }
 
     /// <summary>Manual rescan — the folder watcher already does this automatically; this
@@ -192,6 +259,321 @@ public class MslController(MongoContext db, MslImportService importer, ICatalogu
         var summary = await importer.ScanAsync(force: false, ct);
         await audit.LogAsync(User, "msl.uploaded", "MslFile", relForAudit, $"{file.FileName}, {file.Length:N0} bytes", ct);
         return Ok(summary);
+    }
+
+    /// <summary>Step 1 of the upload-batch review flow: drop in any mix of broker .TXT
+    /// files, PVT private-sale .TXT files, and .ZIP archives containing either. Every
+    /// candidate is content-sniffed with a full parse — kind (public/private), broker, year,
+    /// sale number and a real row-count preview, the same way an actual import would read it
+    /// — and flagged if it would overwrite an already-tracked archive file or collide with
+    /// another file in this same batch. Nothing here touches data/msl or MongoDB: the bytes
+    /// land in a scratch folder (see MslUploadStagingService) and wait for the admin to
+    /// review the list and drop anything they don't want before <see cref="CommitBatch"/>
+    /// actually imports the rest. Zip entries are capped in count and size as a zip-bomb
+    /// guard.</summary>
+    [HttpPost("upload-batch/stage")]
+    [RequestSizeLimit(150_000_000)]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
+    public async Task<ActionResult<MslStageBatchResultDto>> StageBatch(List<IFormFile> files, CancellationToken ct)
+    {
+        if (files is null || files.Count == 0) return BadRequest("No files uploaded.");
+        var root = importer.DataPath;
+        if (root is null) return BadRequest("MSL data folder not found — set Msl:DataPath or create data/msl.");
+
+        const long MaxEntryBytes = 20_000_000;
+        const long MaxZipTotalBytes = 200_000_000;
+        const int MaxZipEntries = 500;
+
+        var (batchId, stagingDir) = staging.BeginBatch();
+        var staged = new List<MslStagedFileDto>();
+
+        static MslStagedFileDto Rejected(string fileName, string? sourceZip, string error) =>
+            new(Guid.NewGuid().ToString("N"), fileName, sourceZip, null, null, null, null, 0, error, false, null, false, null);
+
+        // Pass 1: flatten the upload into plain .TXT candidates sitting in this batch's
+        // scratch folder, expanding any .ZIP in place, so a zip of broker/private files and
+        // a folder of loose files go through identical detection logic below.
+        var candidates = new List<(string FileName, string? SourceZip, string TempPath)>();
+
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file.FileName);
+            if (string.Equals(ext, ".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                var zipTemp = Path.Combine(stagingDir, $"{Guid.NewGuid():N}.zip");
+                await using (var dest = System.IO.File.Create(zipTemp))
+                    await file.CopyToAsync(dest, ct);
+
+                try
+                {
+                    using var archive = ZipFile.OpenRead(zipTemp);
+                    if (archive.Entries.Count > MaxZipEntries)
+                    {
+                        staged.Add(Rejected(file.FileName, null,
+                            $"Zip has {archive.Entries.Count} entries — over the {MaxZipEntries} limit, skipped entirely."));
+                    }
+                    else
+                    {
+                        long total = 0;
+                        foreach (var entry in archive.Entries)
+                        {
+                            var name = entry.Name; // path-less; folder entries come through as ""
+                            if (string.IsNullOrEmpty(name)) continue;
+                            if (name.StartsWith("._", StringComparison.Ordinal) ||
+                                entry.FullName.Contains("__MACOSX", StringComparison.OrdinalIgnoreCase))
+                                continue; // macOS zip junk
+
+                            if (!string.Equals(Path.GetExtension(name), ".txt", StringComparison.OrdinalIgnoreCase))
+                            {
+                                staged.Add(Rejected(name, file.FileName, "Not a .TXT file — skipped."));
+                                continue;
+                            }
+                            if (entry.Length > MaxEntryBytes)
+                            {
+                                staged.Add(Rejected(name, file.FileName,
+                                    $"{entry.Length:N0} bytes — over the {MaxEntryBytes:N0} byte per-file limit, skipped."));
+                                continue;
+                            }
+                            total += entry.Length;
+                            if (total > MaxZipTotalBytes)
+                            {
+                                staged.Add(Rejected(name, file.FileName,
+                                    "Skipped — this zip's total extracted size went over the batch limit."));
+                                continue;
+                            }
+
+                            var entryTemp = Path.Combine(stagingDir, $"{Guid.NewGuid():N}.txt");
+                            await using (var entryStream = entry.Open())
+                            await using (var entryDest = System.IO.File.Create(entryTemp))
+                                await entryStream.CopyToAsync(entryDest, ct);
+                            candidates.Add((name, file.FileName, entryTemp));
+                        }
+                    }
+                }
+                catch (InvalidDataException)
+                {
+                    staged.Add(Rejected(file.FileName, null, "Couldn't read this as a .ZIP file — it may be corrupt."));
+                }
+                finally
+                {
+                    System.IO.File.Delete(zipTemp);
+                }
+                continue;
+            }
+
+            if (!string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase))
+            {
+                staged.Add(Rejected(file.FileName, null, "Not a .TXT or .ZIP file — skipped."));
+                continue;
+            }
+
+            var tempPath = Path.Combine(stagingDir, $"{Guid.NewGuid():N}.txt");
+            await using (var dest = System.IO.File.Create(tempPath))
+                await file.CopyToAsync(dest, ct);
+            candidates.Add((file.FileName, null, tempPath));
+        }
+
+        // Pass 2: a full parse (not just a first-line peek) — kind, year, sale number,
+        // broker and a real row-count preview all come from the file itself.
+        var detected = new List<(string FileName, string? SourceZip, string TempPath, string? Kind,
+            string? Broker, int? Year, int? SaleNo, int Rows, string? TargetRelPath)>();
+
+        foreach (var c in candidates)
+        {
+            MslTxtParser.ParseResult parsed;
+            await using (var stream = System.IO.File.OpenRead(c.TempPath))
+                parsed = MslTxtParser.ParseFile(stream, isPrivateFile: false);
+
+            if (parsed.Lots.Count == 0)
+            {
+                staged.Add(Rejected(c.FileName, c.SourceZip,
+                    "Couldn't find a valid sale row in this file — check it's a genuine broker or private-sale TXT export."));
+                continue;
+            }
+
+            var first = parsed.Lots[0];
+            var kind = first.IsPrivate ? "private" : "auction";
+            var targetRel = first.IsPrivate
+                ? $"private-sales/PVT{first.SaleDate.Year % 100:00}.TXT"
+                : $"auction/{first.SaleDate.Year}/sale-{first.SaleNo:00}/{c.FileName}";
+            detected.Add((c.FileName, c.SourceZip, c.TempPath, kind, first.Broker, first.SaleDate.Year,
+                first.IsPrivate ? null : first.SaleNo, parsed.Lots.Count, targetRel));
+        }
+
+        // Conflict check: same destination as an already-tracked archive file, or collided
+        // with by another file in this very batch — either way the admin needs to know
+        // before one silently overwrites the other, and the "remove" list is how they fix it.
+        var relPaths = detected.Select(d => d.TargetRelPath!).Distinct().ToList();
+        var existing = relPaths.Count > 0
+            ? (await db.MslFiles.Find(f => relPaths.Contains(f.RelativePath)).ToListAsync(ct)).ToDictionary(f => f.RelativePath)
+            : [];
+        var dupCounts = detected.GroupBy(d => d.TargetRelPath!).ToDictionary(g => g.Key, g => g.Count());
+
+        foreach (var d in detected)
+        {
+            bool willReplace = false, requiresConfirmation = false;
+            string? detail = null, confirmToken = null;
+            if (dupCounts[d.TargetRelPath!] > 1)
+            {
+                willReplace = true;
+                detail = "Another file in this upload targets the same destination — only one will survive; remove one of them.";
+            }
+            else if (existing.TryGetValue(d.TargetRelPath!, out var state))
+            {
+                willReplace = true;
+                if (d.Kind == "private" && state.RowCount > 0 && d.Rows < state.RowCount * 0.5)
+                {
+                    // A private-sale upload replaces the WHOLE year's accumulating file, not
+                    // just adds to it — losing most of a year's rows to an accidental partial
+                    // upload is exactly the mistake this guard exists to catch (confirmed by
+                    // a real incident on 23 Aug 2026: an 8-file batch correctly added Sale
+                    // 32/2026's broker files, but one file detected as private silently wiped
+                    // 14,801 rows down to 35). Typing the year is a deliberate-intent check,
+                    // not a security boundary — this endpoint is already Admin-only.
+                    requiresConfirmation = true;
+                    confirmToken = d.Year.ToString();
+                    detail = $"This file has only {d.Rows:N0} row(s) — far fewer than the {state.RowCount:N0} already in PVT{d.Year % 100:00}.TXT. Importing it replaces the WHOLE year's file with just this one, losing the rest. Type {d.Year} to confirm you mean to do this.";
+                }
+                else
+                {
+                    detail = d.Kind == "private"
+                        ? $"Replaces the current PVT{d.Year % 100:00}.TXT ({state.RowCount:N0} rows) — make sure this is the full, up-to-date file for the year, not just an increment."
+                        : $"Replaces an already-imported file at the same sale/broker ({state.RowCount:N0} rows).";
+                }
+            }
+
+            var stagingId = Guid.NewGuid().ToString("N");
+            staging.AddFile(batchId, new MslStagedFile(
+                stagingId, d.FileName, d.SourceZip, d.Kind, d.Broker, d.Year, d.SaleNo,
+                d.TempPath, d.TargetRelPath, d.Rows, null, willReplace, detail, requiresConfirmation, confirmToken));
+            staged.Add(new MslStagedFileDto(
+                stagingId, d.FileName, d.SourceZip, d.Kind, d.Broker, d.Year, d.SaleNo, d.Rows, null,
+                willReplace, detail, requiresConfirmation, confirmToken));
+        }
+
+        return Ok(new MslStageBatchResultDto(batchId, staged, DateTime.UtcNow.AddHours(2)));
+    }
+
+    /// <summary>Step 2: the admin's chosen subset of a staged batch (see
+    /// <see cref="StageBatch"/>) — those files move into the real archive at the target
+    /// path already computed while staging, one scan covers all of them, and the batch's
+    /// scratch directory is cleaned up regardless of what was kept (kept files were moved
+    /// out of it; anything excluded or rejected just gets deleted with it).</summary>
+    [HttpPost("upload-batch/commit")]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
+    public async Task<ActionResult<MslBatchUploadResultDto>> CommitBatch([FromBody] MslCommitBatchRequestDto req, CancellationToken ct)
+    {
+        var root = importer.DataPath;
+        if (root is null) return BadRequest("MSL data folder not found — set Msl:DataPath or create data/msl.");
+        var files = staging.GetFiles(req.BatchId);
+        if (files is null) return BadRequest("This upload batch has expired or wasn't found — please upload again.");
+
+        var keep = new HashSet<string>(req.Keep);
+        var results = new List<MslBatchFileResultDto>();
+        foreach (var f in files.Where(f => keep.Contains(f.StagingId) && f.Error is null && f.TargetRelPath is not null))
+        {
+            var targetPath = Path.Combine(root, f.TargetRelPath!.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            System.IO.File.Move(f.TempPath, targetPath, overwrite: true);
+            results.Add(new MslBatchFileResultDto(f.FileName, f.SourceZip, f.Kind, f.Broker, f.Year, f.SaleNo, 0, null));
+        }
+
+        staging.Discard(req.BatchId);
+
+        if (results.Count == 0)
+            return Ok(new MslBatchUploadResultDto(results, new MslScanSummary(0, 0, 0, 0, [], TimeSpan.Zero)));
+
+        var scan = await importer.ScanAsync(force: false, ct);
+
+        // Backfill each file's actual row count from the tracking state the scan just
+        // wrote, and fold in an import-time error if that specific file failed (e.g. a
+        // truly malformed file that parsed cleanly enough to detect but broke on import).
+        var final = new List<MslBatchFileResultDto>();
+        foreach (var r in results)
+        {
+            var rel = r.Kind == "private"
+                ? $"private-sales/PVT{r.Year!.Value % 100:00}.TXT"
+                : $"auction/{r.Year}/sale-{r.SaleNo:00}/{r.FileName}";
+            var state = await db.MslFiles.Find(f => f.RelativePath == rel).FirstOrDefaultAsync(ct);
+            final.Add(r with { Rows = state?.RowCount ?? 0, Error = state?.Error });
+        }
+
+        await audit.LogAsync(User, "msl.batchUploaded", "MslFile", "auction+private/*",
+            $"{final.Count(r => r.Error is null)} of {final.Count} file(s) confirmed by admin, {scan.RowsImported:N0} row(s)", ct);
+        return Ok(new MslBatchUploadResultDto(final, scan));
+    }
+
+    /// <summary>Drops a staged batch the admin decided not to import at all — e.g. closing
+    /// the review list without confirming. Abandoned batches also expire on their own after
+    /// 2 hours (see MslUploadStagingService), so this is a courtesy, not the only cleanup
+    /// path.</summary>
+    [HttpPost("upload-batch/discard")]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
+    public IActionResult DiscardBatch([FromQuery] string batchId)
+    {
+        staging.Discard(batchId);
+        return NoContent();
+    }
+
+    private static readonly Regex AuctionPathRe = new(@"^auction/(\d{4})/sale-(\d+)/", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex PrivatePathRe = new(@"^private-sales/PVT(\d{2})\.TXT$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TeaBoardPathRe = new(@"^tea-board/national-averages-(\d{4})-(\d{2})\.pdf$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static MslTrackedFileDto ToTrackedDto(MslFileState f)
+    {
+        var auctionMatch = AuctionPathRe.Match(f.RelativePath);
+        if (auctionMatch.Success)
+            return new MslTrackedFileDto(f.RelativePath, "auction", int.Parse(auctionMatch.Groups[1].Value),
+                int.Parse(auctionMatch.Groups[2].Value), f.Length, f.LastWriteUtc, f.ImportedAt, f.RowCount, f.Error);
+
+        var pvtMatch = PrivatePathRe.Match(f.RelativePath);
+        if (pvtMatch.Success)
+            return new MslTrackedFileDto(f.RelativePath, "private", 2000 + int.Parse(pvtMatch.Groups[1].Value),
+                null, f.Length, f.LastWriteUtc, f.ImportedAt, f.RowCount, f.Error);
+
+        var tbMatch = TeaBoardPathRe.Match(f.RelativePath);
+        if (tbMatch.Success)
+            return new MslTrackedFileDto(f.RelativePath, "teaboard", int.Parse(tbMatch.Groups[1].Value),
+                int.Parse(tbMatch.Groups[2].Value), f.Length, f.LastWriteUtc, f.ImportedAt, f.RowCount, f.Error);
+
+        return new MslTrackedFileDto(f.RelativePath, "other", null, null, f.Length, f.LastWriteUtc, f.ImportedAt, f.RowCount, f.Error);
+    }
+
+    /// <summary>Every file the importer currently tracks — the Admin Panel's "browse
+    /// archive files" list, for reviewing or removing something imported previously, not
+    /// just at upload time.</summary>
+    [HttpGet("files")]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
+    public async Task<ActionResult<List<MslTrackedFileDto>>> ListFiles(CancellationToken ct)
+    {
+        var files = await db.MslFiles.Find(FilterDefinition<MslFileState>.Empty).ToListAsync(ct);
+        return files.Select(ToTrackedDto).OrderByDescending(f => f.RelativePath).ToList();
+    }
+
+    /// <summary>Removes one file from the archive — deletes it from disk, then rescans; the
+    /// scan itself is what drops that file's already-imported rows from MongoDB (see
+    /// MslImportService.ScanAsync's "files that vanished from the folder" pass), so this
+    /// endpoint only ever needs to touch the filesystem, never Mongo directly.</summary>
+    [HttpDelete("files")]
+    [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
+    public async Task<ActionResult<MslScanSummary>> DeleteFile([FromQuery] string path, CancellationToken ct)
+    {
+        var root = importer.DataPath;
+        if (root is null) return BadRequest("MSL data folder not found — set Msl:DataPath or create data/msl.");
+        if (string.IsNullOrWhiteSpace(path)) return BadRequest("path is required.");
+
+        var rootFull = Path.GetFullPath(root);
+        var full = Path.GetFullPath(Path.Combine(rootFull, path));
+        if (!full.StartsWith(rootFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return BadRequest("Invalid path.");
+        if (!System.IO.File.Exists(full)) return NotFound("File not found.");
+
+        var priorRows = (await db.MslFiles.Find(f => f.RelativePath == path).FirstOrDefaultAsync(ct))?.RowCount ?? 0;
+        System.IO.File.Delete(full);
+        var scan = await importer.ScanAsync(force: false, ct);
+
+        await audit.LogAsync(User, "msl.fileDeleted", "MslFile", path, $"removed from archive, {priorRows:N0} row(s) dropped", ct);
+        return Ok(scan);
     }
 
     [HttpGet("search")]

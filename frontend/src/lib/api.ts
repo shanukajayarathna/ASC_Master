@@ -28,14 +28,22 @@ import type {
   FilteredAnalytics,
   FilteredLots,
   MarketInsight,
+  MarketPulseCategory,
+  MarketPulseFilters,
+  MarketPulseIngestionSummary,
+  MarketPulsePagedResult,
+  MarketPulseSource,
   MasterDataEntity,
   MslAggregateRow,
   MslAnalyticsFilter,
+  MslBatchUploadResult,
   MslFilterOptions,
   MslFilters,
   MslScanSummary,
   MslSearchResult,
+  MslStageBatchResult,
   MslStatus,
+  MslTrackedFile,
   OverviewStats,
   PagedLots,
   PerformanceInsight,
@@ -47,6 +55,9 @@ import type {
   Report,
   ReportGroupRow,
   SavedReport,
+  ScheduledReportJob,
+  ScheduledReportOutput,
+  StagedCbac,
   TopBottomLot,
   UnmappedMasterDataValue,
   ValuationUpdate,
@@ -355,6 +366,14 @@ export const api = {
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
 
+  downloadSavedReport: async (id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/v1/reports/saved/${id}/download`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error("Download failed");
+    return res.blob();
+  },
+
   // ---- auction reports (Combined Report / Top Prices) --------------------------------
 
   getCombinedReport: (catalogueId: string) => request<CombinedReport>(`/api/v1/auction-reports/${catalogueId}/combined`),
@@ -661,10 +680,11 @@ export const api = {
 
   mslFilterOptions: () => request<MslFilterOptions>("/api/v1/msl/analytics/filter-options"),
 
-  mslFilteredAnalytics: (filter: MslAnalyticsFilter) =>
+  mslFilteredAnalytics: (filter: MslAnalyticsFilter, signal?: AbortSignal) =>
     request<FilteredAnalytics>("/api/v1/msl/analytics/filtered", {
       method: "POST",
       body: JSON.stringify(filter),
+      signal,
     }),
 
   /** Turns a chat-rendered table into a real .xlsx download (server-built via NPOI). */
@@ -749,6 +769,94 @@ export const api = {
     }
     return res.json();
   },
+
+  /** Step 1 of the upload-batch review flow — drop in any mix of broker/private .TXT files
+   *  and .ZIP archives; each candidate is content-sniffed (kind, year, sale, broker, a real
+   *  row-count preview) and staged in a scratch folder, nothing touches data/msl or MongoDB
+   *  yet (see MslController.StageBatch). The admin reviews the returned list, drops what
+   *  they don't want, then calls commitMslBatch with the ones to keep. */
+  stageMslFilesBatch: async (files: File[]): Promise<MslStageBatchResult> => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    const res = await fetch(`${API_BASE}/api/v1/msl/upload-batch/stage`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Upload failed");
+    }
+    return res.json();
+  },
+
+  /** Step 2 — moves the chosen staged files (by stagingId) into the real archive and runs
+   *  one scan. Everything left in the batch (excluded or rejected) is cleaned up either way. */
+  commitMslBatch: (batchId: string, keep: string[]) =>
+    request<MslBatchUploadResult>("/api/v1/msl/upload-batch/commit", {
+      method: "POST",
+      body: JSON.stringify({ batchId, keep }),
+    }),
+
+  /** Drops a staged batch the admin decided not to import at all. Abandoned batches also
+   *  expire on their own after 2 hours, so this is a courtesy, not the only cleanup path. */
+  discardMslBatch: (batchId: string) =>
+    request<void>(`/api/v1/msl/upload-batch/discard?batchId=${encodeURIComponent(batchId)}`, { method: "POST" }),
+
+  /** Every file the importer currently tracks — the Admin Panel's "browse archive files"
+   *  list, for reviewing or removing something imported previously, not just at upload time. */
+  listMslFiles: () => request<MslTrackedFile[]>("/api/v1/msl/files"),
+
+  /** Removes one file from the archive on disk and rescans — the scan is what drops that
+   *  file's already-imported rows from MongoDB (see MslController.DeleteFile). */
+  deleteMslFile: (path: string) =>
+    request<MslScanSummary>(`/api/v1/msl/files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+
+  /** The dashboard widget and the full /market-pulse page both call this one endpoint —
+   *  no separate client-side scoring/filtering logic exists, so they can never drift out
+   *  of sync with each other or with what an admin's minRelevance override actually shows. */
+  getMarketPulse: (filters: MarketPulseFilters = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    });
+    return request<MarketPulsePagedResult>(`/api/v1/market-pulse?${qs.toString()}`);
+  },
+
+  listMarketPulseSources: () => request<MarketPulseSource[]>("/api/v1/market-pulse/sources"),
+
+  addMarketPulseSource: (source: { name: string; feedUrl: string; category: MarketPulseCategory; enabled?: boolean }) =>
+    request<MarketPulseSource>("/api/v1/market-pulse/sources", { method: "POST", body: JSON.stringify(source) }),
+
+  updateMarketPulseSource: (id: string, patch: { name?: string; feedUrl?: string; category?: MarketPulseCategory; enabled?: boolean }) =>
+    request<MarketPulseSource>(`/api/v1/market-pulse/sources/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+
+  deleteMarketPulseSource: (id: string) => request<void>(`/api/v1/market-pulse/sources/${id}`, { method: "DELETE" }),
+
+  /** Runs the same ingestion pass the scheduled job runs, immediately — so an admin sees a
+   *  newly-added source take effect without waiting for the next scheduled tick. */
+  refreshMarketPulse: () => request<MarketPulseIngestionSummary>("/api/v1/market-pulse/refresh", { method: "POST" }),
+
+  // ---- Automated Reports (Admin Panel) — see backend/Modules/ScheduledReports ----
+
+  listScheduledReportJobs: () => request<ScheduledReportJob[]>("/api/v1/admin/scheduled-reports"),
+
+  toggleScheduledReportJob: (key: string, enabled: boolean) =>
+    request<void>(`/api/v1/admin/scheduled-reports/${key}/toggle`, { method: "POST", body: JSON.stringify({ enabled }) }),
+
+  runScheduledReportJobNow: (key: string) =>
+    request<{ success: boolean; message: string }>(`/api/v1/admin/scheduled-reports/${key}/run-now`, { method: "POST" }),
+
+  listScheduledReportOutputs: (key: string) =>
+    request<ScheduledReportOutput[]>(`/api/v1/admin/scheduled-reports/${key}/outputs`),
+
+  listStagedCbac: () => request<StagedCbac[]>("/api/v1/admin/weekly-fact/cbac"),
+
+  stageCbac: (saleYear: number, saleNo: number, txtContent: string) =>
+    request<void>("/api/v1/admin/weekly-fact/cbac", { method: "POST", body: JSON.stringify({ saleYear, saleNo, txtContent }) }),
+
+  deleteStagedCbac: (saleYear: number, saleNo: number) =>
+    request<void>(`/api/v1/admin/weekly-fact/cbac/${saleYear}/${saleNo}`, { method: "DELETE" }),
 
   mslSearch: (filters: MslFilters, page = 1, pageSize = 50) => {
     const qs = new URLSearchParams();

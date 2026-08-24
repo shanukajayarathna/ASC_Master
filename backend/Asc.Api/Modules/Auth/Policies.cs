@@ -22,4 +22,12 @@ public static class Policies
     /// imports (which overwrite files in data/sales) and manual MSL archive rescans.
     /// Day-to-day valuation work never needs this — it's the administrator's job.</summary>
     public const string ManageDataFiles = "ManageDataFiles";
+
+    /// <summary>Managing Market Pulse's RSS source list and manually triggering an
+    /// ingestion run. Reading the news feed itself needs no policy — every role sees it.</summary>
+    public const string ManageMarketPulse = "ManageMarketPulse";
+
+    /// <summary>Enabling/disabling and manually running automated report jobs, and staging
+    /// the Weekly FACT job's CBAC TXT input. See Modules/ScheduledReports.</summary>
+    public const string ManageScheduledReports = "ManageScheduledReports";
 }

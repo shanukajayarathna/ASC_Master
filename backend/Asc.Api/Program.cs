@@ -10,12 +10,14 @@ using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Knowledge;
+using Asc.Api.Modules.MarketPulse;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Msl;
 using Asc.Api.Modules.Notifications;
 using Asc.Api.Modules.Observability;
 using Asc.Api.Modules.Performance;
 using Asc.Api.Modules.Reports;
+using Asc.Api.Modules.ScheduledReports;
 using Asc.Api.Modules.Webhooks;
 using Asc.Api.Modules.Workflow;
 using Asc.Api.Services;
@@ -105,6 +107,9 @@ builder.Services.AddSingleton<IKnowledgeService, KnowledgeService>();
 builder.Services.AddSingleton<MslRollupService>();
 builder.Services.AddSingleton<MslImportService>();
 builder.Services.AddHostedService<MslWatcherService>();
+// Holds the Admin Panel's upload-batch review list between "stage" (extract + detect) and
+// "commit" (admin confirms which files to keep) — see MslUploadStagingService's doc comment.
+builder.Services.AddSingleton<MslUploadStagingService>();
 // Factory → plantation-group reference, learned from the weekly sale Excel catalogues —
 // powers the Analysis screen's Group filter across all MSL years.
 builder.Services.AddSingleton<MslReferenceService>();
@@ -167,6 +172,21 @@ builder.Services.AddSingleton<MasterDataResolver>();
 // notification, so it's unrelated to WebhookSender despite the similar event-name shape.
 builder.Services.AddSingleton<IAuditLogger, AuditLogger>();
 
+// Market Pulse — curated, AI-scored industry news (see Modules/MarketPulse). The feed
+// fetcher is a typed HttpClient, same shape as WebhookSender/the chat providers above,
+// short timeout since a slow/dead RSS host must never stall a whole ingestion cycle.
+// MarketPulseScoringService and MarketPulseIngestionEngine are scoped (not singleton)
+// because they ultimately depend on the scoped AiGateway; MarketPulseIngestionService (the
+// recurring BackgroundService) creates its own scope every tick to resolve them — see its
+// doc comment. MarketPulseIngestionGate is the one piece that DOES need to be a singleton:
+// a shared lock so the scheduled tick and a manual admin-triggered refresh can never
+// double-score the same batch.
+builder.Services.AddHttpClient<IMarketPulseFeedFetcher, MarketPulseFeedFetcher>(c => c.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<MarketPulseIngestionGate>();
+builder.Services.AddScoped<MarketPulseScoringService>();
+builder.Services.AddScoped<MarketPulseIngestionEngine>();
+builder.Services.AddHostedService<MarketPulseIngestionService>();
+
 // Cross-sale grade/buyer trend detection — the first analytics in this app that compares
 // one sale to another rather than summarizing a single one. See Modules/Performance.
 builder.Services.AddSingleton<PerformanceEngine>();
@@ -177,6 +197,35 @@ builder.Services.AddSingleton<PerformanceEngine>();
 builder.Services.AddSingleton<INotificationService, NotificationService>();
 builder.Services.AddSingleton<DeadlineEngine>();
 builder.Services.AddHostedService<DeadlineCheckService>();
+
+// Automated report generation (see Modules/ScheduledReports) — an extensible pipeline, not
+// one-off jobs: adding a report type later means one new IScheduledReportJob class plus one
+// registration line below, no scheduler/admin-UI/report-list change. Every job here is
+// singleton (none ultimately depend on a scoped service the way Market Pulse's ingestion
+// pipeline depends on the scoped AiGateway), so ScheduledReportRunnerService needs no
+// per-tick IServiceScopeFactory dance — see its own doc comment. The internal HttpClient
+// calls this same process's Next.js frontend server to run the existing, already-verified
+// TypeScript Weekly FACT generation logic headlessly (see WeeklyFactAutoReportJob's doc
+// comment for why that logic isn't reimplemented in C#); its base address and the shared
+// secret both come from config (WeeklyFact:FrontendBaseUrl / WeeklyFact:InternalJobSecret),
+// matching the frontend's own INTERNAL_JOB_SECRET env var.
+builder.Services.AddSingleton<IWeeklyFactCbacStagingStore, LocalWeeklyFactCbacStagingStore>();
+builder.Services.AddSingleton<IGeneratedReportFileStore, LocalGeneratedReportFileStore>();
+builder.Services.AddSingleton<ISavedReportsService, SavedReportsService>();
+// A named client, not AddHttpClient<WeeklyFactAutoReportJob>() — that shorthand registers the
+// job class itself as transient, fighting every other job's singleton lifetime here. The job
+// takes IHttpClientFactory and asks for this client by name instead (see its own doc comment).
+builder.Services.AddHttpClient(WeeklyFactAutoReportJob.HttpClientName, c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["WeeklyFact:FrontendBaseUrl"] ?? "http://localhost:3000");
+    c.Timeout = TimeSpan.FromMinutes(3); // Excel-template assembly for 5 categories + RANK + LOW is not instant.
+});
+builder.Services.AddSingleton<WeeklyFactAutoReportJob>();
+builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<WeeklyFactAutoReportJob>());
+builder.Services.AddSingleton<IScheduledReportJob, MonthlyCombinedPlaceholderJob>();
+builder.Services.AddSingleton<IScheduledReportJobRegistry, ScheduledReportJobRegistry>();
+builder.Services.AddSingleton<ScheduledReportRunnerService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduledReportRunnerService>());
 
 // Reporting — no PDF library here on purpose; the frontend renders the report and the
 // browser's own Print → Save as PDF covers that leg (see Modules/Reports/ReportsController.cs).
@@ -263,6 +312,8 @@ builder.Services.AddAuthorization(opts =>
     opts.AddPolicy(Policies.ViewAuditLog, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ViewObservability, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ManageDataFiles, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageMarketPulse, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageScheduledReports, p => p.RequireRole(RoleNames.Admin));
 });
 
 // Liveness probe for container orchestration (Phase 9) — deliberately just "did the process

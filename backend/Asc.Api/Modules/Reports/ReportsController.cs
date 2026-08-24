@@ -1,6 +1,7 @@
 using Asc.Api.Controllers;
 using Asc.Api.Data;
 using Asc.Api.Models;
+using Asc.Api.Modules.ScheduledReports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
@@ -19,7 +20,7 @@ namespace Asc.Api.Modules.Reports;
 [ApiController]
 [Route("api/v1/reports")]
 [Authorize]
-public class ReportsController(ReportGenerator generator, MongoContext db) : ControllerBase
+public class ReportsController(ReportGenerator generator, MongoContext db, IGeneratedReportFileStore fileStore) : ControllerBase
 {
     [HttpGet("{catalogueId:guid}/{type}")]
     public async Task<ActionResult<ReportDto>> Generate(Guid catalogueId, string type)
@@ -167,5 +168,22 @@ public class ReportsController(ReportGenerator generator, MongoContext db) : Con
         return NoContent();
     }
 
-    private static SavedReportDto ToDto(SavedReport r) => new(r.Id, r.Type, r.Title, r.CatalogueId, r.Source, r.CreatedAt);
+    /// <summary>Only reachable for a Downloadable SavedReportDto (StoredFileId set) — see
+    /// IGeneratedReportFileStore's own doc comment. Every signed-in user can reach this, same
+    /// as every other action in this controller and the same visibility ListSaved already
+    /// gives every saved report's metadata.</summary>
+    [HttpGet("saved/{id:guid}/download")]
+    public async Task<IActionResult> DownloadSaved(Guid id, CancellationToken ct)
+    {
+        var report = await db.SavedReports.Find(r => r.Id == id).FirstOrDefaultAsync(ct);
+        if (report?.StoredFileId is not { } fileId) return NotFound();
+
+        var file = fileStore.Get(fileId);
+        if (file is null) return NotFound();
+
+        return PhysicalFile(file.Value.Path, file.Value.ContentType, file.Value.FileName);
+    }
+
+    private static SavedReportDto ToDto(SavedReport r) =>
+        new(r.Id, r.Type, r.Title, r.CatalogueId, r.Source, r.CreatedAt, r.StoredFileId.HasValue, r.Notes);
 }
