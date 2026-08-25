@@ -4,14 +4,23 @@ import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import { api, ApiError } from "@/lib/api";
 import { dateStamp } from "@/lib/worksheetPdf";
-import { buildFactCategoryPdf, buildMarketSharePdf, buildRankPdf, type MarketShareTablePdfData } from "@/lib/weeklyFactPdf";
 import {
+  buildFactCategoryPdf,
+  buildMarketShareComparePdf,
+  buildMarketSharePdf,
+  buildRankPdf,
+  type MarketShareCompareTablePdfData,
+  type MarketShareTablePdfData,
+} from "@/lib/weeklyFactPdf";
+import {
+  buildMarketShareCompareRows,
   buildMarketShareWorkbook,
   computeDefaultLowHeaderText,
   computeDefaultRankHeaderText,
   parseCatalogueTotals,
   runJob,
   wesReportFromDatabase,
+  type MarketShareCompareRow,
   type RankTabData,
   type WeeklyJobResult,
   type WesInput,
@@ -38,6 +47,11 @@ interface MarketShareResult {
   warnings: string[];
   ok: boolean;
   saleNumber: number | null;
+  // Set only when a "last week" catalogued-totals file was also supplied — same four tables,
+  // each row carrying last week's qty and the +/- diff too. Non-null here is what switches the
+  // downloaded PDF (and the ZIP's copy of it) from the plain layout to the compare layout.
+  compareRowsByTable: Record<string, MarketShareCompareRow[]> | null;
+  previousSaleNumber: number | null;
 }
 
 function marketShareTablesOf(rowsByTable: MarketShareResult["rowsByTable"]): MarketShareTablePdfData[] {
@@ -45,6 +59,21 @@ function marketShareTablesOf(rowsByTable: MarketShareResult["rowsByTable"]): Mar
     title: spec.title,
     rows: rowsByTable[spec.field] ?? [],
   }));
+}
+
+function marketShareCompareTablesOf(compareRowsByTable: Record<string, MarketShareCompareRow[]>): MarketShareCompareTablePdfData[] {
+  return MARKET_SHARE_TABLE_SPECS.map((spec) => ({
+    title: spec.title,
+    rows: compareRowsByTable[spec.field] ?? [],
+  }));
+}
+
+/** Mirrors buildMarketShareWorkbook's own "SN{sale}3026MARKET SHRE.xlsx" filename pattern —
+ *  matches the real archived compare PDF's filename exactly (SN353026MARKET SHRE COMPARE
+ *  REPORTS.pdf for sale 35). */
+function marketShareComparePdfName(saleNumber: number | null): string {
+  const saleLabel = saleNumber != null ? String(saleNumber) : "X";
+  return `SN${saleLabel}3026MARKET SHRE COMPARE REPORTS.pdf`;
 }
 import type { SaleSummary } from "@/types/api";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
@@ -214,6 +243,10 @@ function ResultCard({
   pdfLabel,
   pdfBusy,
   onPdf,
+  // A second, independent PDF output for the same card (currently only MARKET SHARE uses
+  // this: the compare PDF sits alongside the plain one, not instead of it) — same busy/disabled
+  // wiring as the primary PDF button, just a second button underneath it.
+  secondaryPdf,
   warnings,
 }: {
   eyebrow: string;
@@ -228,9 +261,11 @@ function ResultCard({
   pdfLabel: string;
   pdfBusy: string | null;
   onPdf: () => void;
+  secondaryPdf?: { name: string; label: string; onPdf: () => void } | null;
   warnings: string[];
 }) {
   const pdfIsBusy = pdfName !== null && pdfBusy === pdfName;
+  const secondaryPdfIsBusy = !!secondaryPdf && pdfBusy === secondaryPdf.name;
   return (
     <div className="border rounded-lg bg-surface p-4" style={{ borderColor: ok ? "var(--brass)" : "var(--border)" }}>
       <div className="text-[11px] font-medium text-text-muted">{eyebrow}</div>
@@ -260,6 +295,20 @@ function ResultCard({
       >
         {pdfIsBusy ? "Building PDF…" : pdfLabel}
       </Button>
+      {secondaryPdf && (
+        <Button
+          fullWidth
+          variant="outlined"
+          size="small"
+          startIcon={secondaryPdfIsBusy ? <CircularProgress size={14} /> : <PictureAsPdfOutlinedIcon fontSize="small" />}
+          sx={{ mt: 1, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
+          disabled={!hasBuffer || pdfBusy !== null}
+          aria-busy={secondaryPdfIsBusy}
+          onClick={secondaryPdf.onPdf}
+        >
+          {secondaryPdfIsBusy ? "Building PDF…" : secondaryPdf.label}
+        </Button>
+      )}
       <Warnings warnings={warnings} tone={ok ? "warning" : "danger"} />
     </div>
   );
@@ -276,6 +325,10 @@ export default function WeeklyFactReportsPage() {
   // MARKET SHARE workbook alone — every other output works with just the TXT + WES pair, so
   // this is never required for "Generate reports" to be enabled.
   const [catalogueTotalsData, setCatalogueTotalsData] = useState<{ fileName: string; arrayBuffer: ArrayBuffer } | null>(null);
+  // Optional fourth source: the immediately-preceding sale's own catalogued-totals workbook —
+  // drives the MARKET SHARE compare columns (THIS WEEK/LAST WEEK/+/-) alone. Never required;
+  // when absent the MARKET SHARE output stays the plain layout.
+  const [previousCatalogueTotalsData, setPreviousCatalogueTotalsData] = useState<{ fileName: string; arrayBuffer: ArrayBuffer } | null>(null);
   // The MARKET SHARE workbook's own result — set either by the standalone "Generate Market
   // Share" button (just the one file, nothing else needed) or, after a full "Generate reports"
   // run that included the catalogued-totals file, synced from that job's own result. Either way
@@ -406,6 +459,17 @@ export default function WeeklyFactReportsPage() {
     setMarketShareResult(null);
   };
 
+  const handlePreviousCatalogueTotalsFile = async (file: File) => {
+    if (!/\.xlsx$/i.test(file.name)) {
+      setError("Please upload a .xlsx file (last week's ALL BROKERS CATALOGUED TOTALS workbook).");
+      return;
+    }
+    setError(null);
+    const arrayBuffer = await file.arrayBuffer();
+    setPreviousCatalogueTotalsData({ fileName: file.name, arrayBuffer });
+    setMarketShareResult(null);
+  };
+
   /** MARKET SHARE alone: the catalogued-totals workbook is everything this output needs, so
    *  this never waits on the CBAC TXT / WES file the other cards require. The sale-number
    *  override field is reused when present (same field the rest of the page uses), else the
@@ -419,13 +483,26 @@ export default function WeeklyFactReportsPage() {
       const report = await parseCatalogueTotals(catalogueTotalsData.arrayBuffer);
       const saleNumber = Number.isFinite(overrideNumber) ? (overrideNumber as number) : report.saleNumber;
       const result = await buildMarketShareWorkbook({ report, saleNumber });
+      const warnings = [...result.warnings];
+      let compareRowsByTable: Record<string, MarketShareCompareRow[]> | null = null;
+      let previousSaleNumber: number | null = null;
+      if (previousCatalogueTotalsData) {
+        const prevReport = await parseCatalogueTotals(previousCatalogueTotalsData.arrayBuffer);
+        warnings.push(...prevReport.warnings);
+        const compare = buildMarketShareCompareRows({ current: report, previous: prevReport });
+        warnings.push(...compare.warnings);
+        compareRowsByTable = compare.rowsByTable;
+        previousSaleNumber = prevReport.saleNumber;
+      }
       setMarketShareResult({
         filename: result.filename,
         buffer: result.buffer,
         rowsByTable: result.rowsByTable,
-        warnings: result.warnings,
+        warnings,
         ok: report.brokers.length > 0,
         saleNumber,
+        compareRowsByTable,
+        previousSaleNumber,
       });
     } catch (e) {
       setError(e instanceof Error ? `Failed to build the MARKET SHARE workbook: ${e.message}` : "Failed to build the MARKET SHARE workbook.");
@@ -454,7 +531,8 @@ export default function WeeklyFactReportsPage() {
           rankHeaderText: rankHeaderText.trim() || undefined,
           lowHeaderText: lowHeaderText.trim() || undefined,
         },
-        catalogueTotalsData?.arrayBuffer
+        catalogueTotalsData?.arrayBuffer,
+        previousCatalogueTotalsData?.arrayBuffer
       );
       setJob(result);
       // Fold this run's MARKET SHARE output (if any) into the same state the standalone
@@ -468,6 +546,8 @@ export default function WeeklyFactReportsPage() {
           warnings: result.marketShareWarnings,
           ok: result.marketShareWorkbook.ok,
           saleNumber: result.saleNumber,
+          compareRowsByTable: result.marketShareCompareRowsByTable,
+          previousSaleNumber: result.previousSaleNumber,
         });
       }
     } catch (e) {
@@ -481,6 +561,7 @@ export default function WeeklyFactReportsPage() {
     setTxtData(null);
     setWesSource(null);
     setCatalogueTotalsData(null);
+    setPreviousCatalogueTotalsData(null);
     setMarketShareResult(null);
     setSaleDate("");
     setSaleNumberOverride("");
@@ -546,6 +627,8 @@ export default function WeeklyFactReportsPage() {
     }
   };
 
+  // The plain PDF (this sale alone, like the sale-34 archive) — always available whenever
+  // marketShareResult exists, regardless of whether a "last week" file was also attached.
   const downloadMarketSharePdf = async () => {
     if (!marketShareResult || pdfBusy) return;
     const name = pdfNameOf(marketShareResult.filename);
@@ -553,6 +636,28 @@ export default function WeeklyFactReportsPage() {
     setError(null);
     try {
       const blob = await buildMarketSharePdf(marketShareTablesOf(marketShareResult.rowsByTable), marketShareResult.saleNumber);
+      triggerDownload(blob, name, "application/pdf");
+    } catch (e) {
+      setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
+  // The compare PDF (this sale vs. last week, like the sale-35 archive) — a second, separate
+  // output that shows up alongside the plain one whenever a "last week" file was attached; it
+  // never replaces the plain PDF, since both are wanted as two distinct downloads.
+  const downloadMarketShareComparePdf = async () => {
+    if (!marketShareResult?.compareRowsByTable || pdfBusy) return;
+    const name = marketShareComparePdfName(marketShareResult.saleNumber);
+    setPdfBusy(name);
+    setError(null);
+    try {
+      const blob = await buildMarketShareComparePdf(
+        marketShareCompareTablesOf(marketShareResult.compareRowsByTable),
+        marketShareResult.saleNumber,
+        marketShareResult.previousSaleNumber
+      );
       triggerDownload(blob, name, "application/pdf");
     } catch (e) {
       setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
@@ -594,7 +699,20 @@ export default function WeeklyFactReportsPage() {
         }
       }
       if (marketShareResult) {
+        // Always the plain PDF, plus the compare PDF alongside it (not instead of it) when a
+        // "last week" file was attached — two distinct downloads, same as the two standalone
+        // PDF buttons on the card below.
         zip.file(pdfNameOf(marketShareResult.filename), await buildMarketSharePdf(marketShareTablesOf(marketShareResult.rowsByTable), marketShareResult.saleNumber));
+        if (marketShareResult.compareRowsByTable) {
+          zip.file(
+            marketShareComparePdfName(marketShareResult.saleNumber),
+            await buildMarketShareComparePdf(
+              marketShareCompareTablesOf(marketShareResult.compareRowsByTable),
+              marketShareResult.saleNumber,
+              marketShareResult.previousSaleNumber
+            )
+          );
+        }
       }
       const content = await zip.generateAsync({ type: "blob" });
       const label = job?.saleNumber ?? marketShareResult?.saleNumber ?? "X";
@@ -620,7 +738,7 @@ export default function WeeklyFactReportsPage() {
         backTo={{ href: "/reports", label: "Reports" }}
       />
 
-      {error && <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>}
+      {error && <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>}
 
       <SectionLabel>1. Source files</SectionLabel>
       <div className="grid sm:grid-cols-2 gap-4 mb-5">
@@ -723,8 +841,36 @@ export default function WeeklyFactReportsPage() {
             file={catalogueTotalsData ? { fileName: catalogueTotalsData.fileName } : null}
             onFile={handleCatalogueTotalsFile}
           />
+
+          <div className="mt-3 pt-3 border-t border-border">
+            <div className="flex items-center gap-2 mb-2">
+              <h4 className="font-display text-[12.5px] font-semibold text-text-strong m-0">Last week&apos;s catalogued totals</h4>
+              <span className="text-[11px] text-text-muted font-mono uppercase tracking-wide">Optional — adds THIS/LAST WEEK compare columns</span>
+            </div>
+            <Dropzone
+              label=""
+              hint=".xlsx — the immediately-preceding sale's own catalogued-totals workbook"
+              accept=".xlsx"
+              file={previousCatalogueTotalsData ? { fileName: previousCatalogueTotalsData.fileName } : null}
+              onFile={handlePreviousCatalogueTotalsFile}
+            />
+            {previousCatalogueTotalsData && (
+              <div className="mt-2">
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setPreviousCatalogueTotalsData(null);
+                    setMarketShareResult(null);
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            )}
+          </div>
+
           {catalogueTotalsData && (
-            <div className="flex gap-2 mt-2 flex-wrap items-center">
+            <div className="flex gap-2 mt-3 flex-wrap items-center">
               <Button
                 variant="outlined"
                 size="small"
@@ -738,6 +884,7 @@ export default function WeeklyFactReportsPage() {
                 size="small"
                 onClick={() => {
                   setCatalogueTotalsData(null);
+                  setPreviousCatalogueTotalsData(null);
                   setMarketShareResult(null);
                 }}
               >
@@ -745,6 +892,7 @@ export default function WeeklyFactReportsPage() {
               </Button>
               <span className="text-[11px] text-text-muted leading-relaxed">
                 Works from this one file alone — no need to also provide the CBAC TXT / WES pair unless you want the other workbooks too.
+                {previousCatalogueTotalsData ? " The compare report (THIS/LAST WEEK) will be generated since last week's file is attached." : ""}
               </span>
             </div>
           )}
@@ -960,11 +1108,24 @@ export default function WeeklyFactReportsPage() {
                   downloadLabel={`Download ${marketShareResult.filename}`}
                   onDownload={() => triggerDownload(marketShareResult.buffer, marketShareResult.filename, xlsxType)}
                   pdfName={pdfNameOf(marketShareResult.filename)}
-                  pdfLabel="PDF — 4 tables (Total / Ex-Estate / High & Medium / Low)"
+                  pdfLabel="PDF — this sale (Total / Ex-Estate / High & Medium / Low)"
                   pdfBusy={pdfBusy}
                   onPdf={downloadMarketSharePdf}
+                  secondaryPdf={
+                    marketShareResult.compareRowsByTable
+                      ? {
+                          name: marketShareComparePdfName(marketShareResult.saleNumber),
+                          label: `PDF — compare vs Sale ${marketShareResult.previousSaleNumber ?? "?"}`,
+                          onPdf: downloadMarketShareComparePdf,
+                        }
+                      : null
+                  }
                   warnings={marketShareResult.warnings}
-                  description="Total / Ex-Estate / High & Medium / Low market share, each ranked by quantity from the catalogued-totals workbook — top 3 per table highlighted, exactly like the archives."
+                  description={
+                    marketShareResult.compareRowsByTable
+                      ? `Total / Ex-Estate / High & Medium / Low market share, each ranked by quantity — top 3 per table highlighted. Two PDFs available: this sale alone, and compared vs Sale ${marketShareResult.previousSaleNumber ?? "?"} (THIS/LAST WEEK qty and +/-).`
+                      : "Total / Ex-Estate / High & Medium / Low market share, each ranked by quantity from the catalogued-totals workbook — top 3 per table highlighted, exactly like the archives."
+                  }
                 />
               </div>
             </>

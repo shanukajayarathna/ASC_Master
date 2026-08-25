@@ -1254,6 +1254,55 @@ export async function buildMarketShareWorkbook(opts: {
   return { buffer: buffer as ArrayBuffer, filename, rowsByTable, warnings };
 }
 
+export interface MarketShareCompareRow {
+  code: string;
+  qty: number;
+  lastQty: number;
+  diff: number;
+}
+
+/** Builds the four MARKET SHARE tables' compare rows (this week vs. last week) from two parsed
+ *  catalogued-totals reports — same field list/order/ranking/top-8 cutoff as
+ *  buildMarketShareWorkbook (ranked by *this* week's qty, exactly like the real archived
+ *  compare report), with each row's `lastQty` looked up from the previous report by broker code
+ *  (0 when that broker doesn't appear last week — no archive example of this, but it matches
+ *  the plain builder's own "sits out entirely" convention for zero-qty brokers). */
+export function buildMarketShareCompareRows(opts: {
+  current: CatalogueTotalsReport;
+  previous: CatalogueTotalsReport;
+}): { rowsByTable: Record<string, MarketShareCompareRow[]>; warnings: string[] } {
+  const { current, previous } = opts;
+  const warnings: string[] = [];
+
+  if (current.saleNumber != null && previous.saleNumber != null && previous.saleNumber !== current.saleNumber - 1) {
+    warnings.push(
+      `The 'last week' file is sale ${previous.saleNumber}, but this week is sale ${current.saleNumber} — expected sale ${current.saleNumber - 1}. Double-check you uploaded the immediately-preceding sale.`
+    );
+  }
+
+  const rowsByTable: Record<string, MarketShareCompareRow[]> = {};
+  for (const [field] of MARKET_SHARE_TABLES) {
+    const previousByCode = new Map(
+      previous.brokers.map((b): [string, number] => {
+        const v = b[field];
+        return [b.code, typeof v === "number" ? v : 0];
+      })
+    );
+    const ranked = current.brokers
+      .map((b) => ({ code: b.code, qty: b[field] }))
+      .filter((b): b is { code: string; qty: number } => typeof b.qty === "number" && b.qty > 0)
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, MARKET_SHARE_ROWS_PER_TABLE);
+
+    rowsByTable[field] = ranked.map(({ code, qty }) => {
+      const lastQty = previousByCode.get(code) ?? 0;
+      return { code, qty, lastQty, diff: qty - lastQty };
+    });
+  }
+
+  return { rowsByTable, warnings };
+}
+
 // ---- PIPELINE — mirrors tea_report_app/core/pipeline.py -----------------------------------
 
 const CATEGORY_SPEC: Record<string, { templateKey: TemplateKey; suffix: string }> = {
@@ -1317,6 +1366,13 @@ export interface WeeklyJobResult {
    *  PDF mirror renders from these, same contract as sortedRows/rankTabs/lowRankRows. */
   marketShareRowsByTable: Record<string, { code: string; qty: number }[]>;
   marketShareWarnings: string[];
+  /** Set only when a "last week" catalogued-totals file was also provided — the same four
+   *  tables as marketShareRowsByTable, but with each row carrying last week's qty and the
+   *  +/- diff too. The PDF mirror switches to the compare layout whenever this is non-null. */
+  marketShareCompareRowsByTable: Record<string, MarketShareCompareRow[]> | null;
+  /** The "last week" file's own sale number (from its "Sale No:" cell), for the compare PDF's
+   *  header text — null whenever marketShareCompareRowsByTable is null. */
+  previousSaleNumber: number | null;
   warnings: string[];
 }
 
@@ -1399,7 +1455,11 @@ export async function runJob(
   /** The optional third source file's raw bytes — the "ALL BROKERS CATALOGUED TOTALS"
    *  workbook. Omit (or pass null/undefined) to skip the MARKET SHARE workbook entirely; every
    *  other output is unaffected either way. */
-  catalogueTotalsArrayBuffer?: ArrayBuffer | null
+  catalogueTotalsArrayBuffer?: ArrayBuffer | null,
+  /** The same kind of file, but for the immediately-preceding sale — omit to get the plain
+   *  MARKET SHARE workbook/PDF; provide it (alongside catalogueTotalsArrayBuffer) to also get
+   *  marketShareCompareRowsByTable populated for the compare PDF. */
+  previousCatalogueTotalsArrayBuffer?: ArrayBuffer | null
 ): Promise<WeeklyJobResult> {
   const txtReport = parseTxt(txtText);
   const wesReport = wesInput.source === "upload" ? await parseWes(wesInput.arrayBuffer) : wesInput.report;
@@ -1526,6 +1586,8 @@ export async function runJob(
   // rather than failing the whole job.
   let marketShareWorkbook: WeeklyJobResult["marketShareWorkbook"] = null;
   let marketShareRowsByTable: WeeklyJobResult["marketShareRowsByTable"] = {};
+  let marketShareCompareRowsByTable: WeeklyJobResult["marketShareCompareRowsByTable"] = null;
+  let previousSaleNumber: WeeklyJobResult["previousSaleNumber"] = null;
   const marketShareWarnings: string[] = [];
   if (catalogueTotalsArrayBuffer) {
     try {
@@ -1540,6 +1602,21 @@ export async function runJob(
       marketShareWarnings.push(...msResult.warnings);
       marketShareRowsByTable = msResult.rowsByTable;
       marketShareWorkbook = { filename: msResult.filename, buffer: msResult.buffer, ok: ctReport.brokers.length > 0 };
+
+      if (previousCatalogueTotalsArrayBuffer) {
+        try {
+          const prevReport = await parseCatalogueTotals(previousCatalogueTotalsArrayBuffer);
+          marketShareWarnings.push(...prevReport.warnings);
+          const compare = buildMarketShareCompareRows({ current: ctReport, previous: prevReport });
+          marketShareWarnings.push(...compare.warnings);
+          marketShareCompareRowsByTable = compare.rowsByTable;
+          previousSaleNumber = prevReport.saleNumber;
+        } catch (err) {
+          marketShareWarnings.push(
+            `MARKET SHARE compare columns could not be built from the 'last week' file: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
     } catch (err) {
       marketShareWorkbook = { filename: null, buffer: null, ok: false };
       marketShareWarnings.push(`MARKET SHARE workbook could not be built: ${err instanceof Error ? err.message : String(err)}`);
@@ -1564,6 +1641,8 @@ export async function runJob(
     marketShareWorkbook,
     marketShareRowsByTable,
     marketShareWarnings,
+    marketShareCompareRowsByTable,
+    previousSaleNumber,
     warnings,
   };
 }
