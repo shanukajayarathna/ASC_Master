@@ -40,7 +40,7 @@ export default function BrokerPage() {
       />
 
       {catalogueError && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">
           Couldn&apos;t reach the API ({catalogueError}). Is the backend running at{" "}
           <code className="font-mono">{process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058"}</code>?
         </div>
@@ -57,7 +57,7 @@ export default function BrokerPage() {
       )}
 
       {activeCatalogueId && error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
       )}
 
       {activeCatalogueId && loading && !brokers && (
@@ -72,10 +72,10 @@ export default function BrokerPage() {
         <>
           <section className="mb-6">
             <div className="flex items-baseline gap-2.5 mb-2.5">
-              <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Ranking</h4>
-              <span className="text-[11.5px] text-text-muted">Sorted by average valuation</span>
+              <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Ranking</h4>
+              <span className="text-[12px] text-text-muted">Sorted by average valuation</span>
             </div>
-            <div className="overflow-x-auto border border-border rounded-lg">
+            <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="bg-surface-alt border-b border-border">
@@ -116,10 +116,10 @@ export default function BrokerPage() {
 
           <section className="mb-6">
             <div className="flex items-baseline gap-2.5 mb-2.5">
-              <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Market Share</h4>
-              <span className="text-[11.5px] text-text-muted">Top 12 brokers by lot count</span>
+              <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Market Share</h4>
+              <span className="text-[12px] text-text-muted">Top 12 brokers by lot count</span>
             </div>
-            <div className="border border-border rounded-lg bg-surface p-4">
+            <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">
               {brokers.length > 0 ? (
                 <BarChart
                   rows={[...brokers]
@@ -131,7 +131,6 @@ export default function BrokerPage() {
                       displayValue: `${formatNumber(b.lots)} (${b.share.toFixed(1)}%)`,
                       detail: `${b.name}: ${formatNumber(b.lots)} lots · ${b.share.toFixed(1)}% market share`,
                     }))}
-                  accentColor="var(--sage)"
                 />
               ) : (
                 <p className="text-[13px] text-text-muted m-0">No lots yet.</p>
@@ -141,10 +140,10 @@ export default function BrokerPage() {
 
           <section className="mb-6">
             <div className="flex items-baseline gap-2.5 mb-2.5">
-              <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Average Valuation by Broker</h4>
-              <span className="text-[11.5px] text-text-muted">Top 12 by average valuation</span>
+              <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Average Valuation by Broker</h4>
+              <span className="text-[12px] text-text-muted">Top 12 by average valuation</span>
             </div>
-            <div className="border border-border rounded-lg bg-surface p-4">
+            <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">
               {brokers.some((b) => b.avg !== null) ? (
                 <BarChart
                   rows={brokers
@@ -163,7 +162,7 @@ export default function BrokerPage() {
             </div>
           </section>
 
-          <p className="text-[11.5px] text-text-muted mt-2">
+          <p className="text-[12px] text-text-muted mt-2">
             {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots
           </p>
         </>

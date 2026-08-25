@@ -736,7 +736,7 @@ export default function ValuationCentrePage() {
       {!loading && !focusLot && displayedLots.length > 0 && (
         <div className="mt-3">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-[12.5px] text-text-muted font-mono">
+            <span className="text-[12px] text-text-muted font-mono">
               {filledCount} / {displayedLots.length} filled
             </span>
             <LinearProgress
@@ -839,7 +839,7 @@ export default function ValuationCentrePage() {
                     })
                   }
                   title={on ? `Hide the ${f.label} column` : `Add a ${f.label} column to the table`}
-                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold border-[1.5px] cursor-pointer whitespace-nowrap"
+                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer whitespace-nowrap"
                   style={{
                     borderColor: on ? "var(--liquor)" : "var(--border)",
                     background: on ? "var(--liquor)" : "transparent",
@@ -853,8 +853,8 @@ export default function ValuationCentrePage() {
           </div>
 
           {visibleLots.length === 0 && (
-            <div className={`text-center py-12 text-text-muted border border-border rounded-md bg-surface transition-opacity ${filtering ? "opacity-60" : ""}`}>
-              <h3 className="font-display text-lg text-text mb-1">No lots match these filters</h3>
+            <div className={`text-center py-12 text-text-muted border border-border rounded-[var(--radius-lg)] bg-surface transition-opacity ${filtering ? "opacity-60" : ""}`}>
+              <h3 className="font-display text-xl text-text mb-1">No lots match these filters</h3>
               <p className="m-0 text-[13px]">Adjust the search or status filter above, or clear the filters.</p>
             </div>
           )}
@@ -899,7 +899,7 @@ export default function ValuationCentrePage() {
                           bgcolor: "var(--liquor)",
                           color: "var(--paper-0)",
                           fontWeight: 700,
-                          fontSize: 11.5,
+                          fontSize: 11,
                           textTransform: "uppercase",
                           letterSpacing: "0.04em",
                           whiteSpace: "nowrap",

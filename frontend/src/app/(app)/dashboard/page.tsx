@@ -383,41 +383,40 @@ function UserDashboard() {
     <div>
       <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-[26px] font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
+          <h1 className="font-display text-2xl font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
             {greeting()}{user ? `, ${user.displayName.split(" ")[0]}` : ""}
           </h1>
-          <p className="text-[13.5px] m-0" style={{ color: "var(--text-muted)" }}>
+          <p className="text-[13px] m-0" style={{ color: "var(--text-muted)" }}>
             {activeCatalogue
               ? `${activeCatalogue.sourceName} is the active sale — ${activeCatalogue.rowCount.toLocaleString()} lots.`
               : "Here's what's happening with your tea auctions today."}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div
-            className="flex items-center gap-2 px-3.5 py-2 rounded-[var(--radius-md)] border border-border"
-            style={{ background: "var(--surface)" }}
-          >
-            <CalendarTodayOutlinedIcon sx={{ fontSize: 18, color: "var(--sage-dark)" }} />
+        {/* One bordered strip for both date and weather (not two separate cards) — neither
+            fact is a card's worth of content on its own. */}
+        <div
+          className="flex items-stretch rounded-[var(--radius-lg)] border border-border overflow-hidden"
+          style={{ background: "var(--surface)" }}
+        >
+          <div className="flex items-center gap-2 px-3.5 py-2">
+            <CalendarTodayOutlinedIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
             <div className="leading-tight">
-              <div className="text-[12px] font-semibold" style={{ color: "var(--text-strong)" }}>
+              <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
                 {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
               </div>
-              <div className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
+              <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
                 Colombo, Sri Lanka
               </div>
             </div>
           </div>
           {weather && WeatherIcon && (
-            <div
-              className="flex items-center gap-2 px-3.5 py-2 rounded-[var(--radius-md)] border border-border"
-              style={{ background: "var(--surface)" }}
-            >
-              <WeatherIcon sx={{ fontSize: 18, color: "var(--info)" }} />
+            <div className="flex items-center gap-2 px-3.5 py-2 border-l border-border">
+              <WeatherIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
               <div className="leading-tight">
-                <div className="text-[12px] font-semibold" style={{ color: "var(--text-strong)" }}>
+                <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
                   {Math.round(weather.tempC)}°C
                 </div>
-                <div className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
+                <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
                   {weather.label}
                 </div>
               </div>
@@ -431,7 +430,7 @@ function UserDashboard() {
       </div>
 
       {catalogueError && (
-        <div className="mb-4 p-3.5 rounded-[var(--radius-md)] border border-danger bg-danger-light text-sm text-liquor-dark">
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">
           Couldn&apos;t reach the API ({catalogueError}). Is the backend running at{" "}
           <code className="font-mono">{process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058"}</code>?
         </div>
@@ -455,7 +454,7 @@ function UserDashboard() {
       {activeCatalogueId && !stats && (
         <div
           className="mb-6 rounded-[var(--radius-lg)] border border-border grid"
-          style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+          style={{ background: "var(--surface)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
         >
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -463,7 +462,7 @@ function UserDashboard() {
               className="flex items-start gap-2.5 p-4"
               style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}
             >
-              <Skeleton variant="circular" width={36} height={36} sx={{ flexShrink: 0 }} />
+              <Skeleton variant="circular" width={32} height={32} sx={{ flexShrink: 0 }} />
               <div className="min-w-0 flex-1">
                 <Skeleton variant="text" width="65%" height={14} />
                 <Skeleton variant="text" width="45%" height={24} />
@@ -475,17 +474,17 @@ function UserDashboard() {
       )}
 
       {/* ---- glance bar: one bordered strip, six real KPIs — right after the greeting,
-           the first real content on the page ---- */}
+           the first real content on the page. All six icons read the same neutral way —
+           they're wayfinding, not status; the one place color carries real meaning is the
+           Avg Valuation delta arrow (genuinely up or down vs the previous sale). ---- */}
       {activeCatalogueId && stats && (
         <div
           className="mb-6 rounded-[var(--radius-lg)] border border-border grid"
-          style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+          style={{ background: "var(--surface)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
         >
           {[
             {
               icon: LayersOutlinedIcon,
-              color: "var(--sage-dark)",
-              bg: "var(--sage-light)",
               label: "Total Lots (All Sales)",
               value: totalLotsAllSales.toLocaleString(),
               sub: `across ${catalogues.length} sale${catalogues.length === 1 ? "" : "s"}`,
@@ -493,8 +492,6 @@ function UserDashboard() {
             },
             {
               icon: CheckCircleOutlinedIcon,
-              color: "var(--info)",
-              bg: "var(--info-light)",
               label: "Valuations Completed",
               value: stats.completed.toLocaleString(),
               sub: `${stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0}% completion rate`,
@@ -502,8 +499,6 @@ function UserDashboard() {
             },
             {
               icon: HourglassEmptyOutlinedIcon,
-              color: "var(--warn)",
-              bg: "var(--warn-light)",
               label: "Pending Valuations",
               value: stats.pending.toLocaleString(),
               sub: "this sale",
@@ -511,20 +506,17 @@ function UserDashboard() {
             },
             {
               icon: TrendingUpOutlinedIcon,
-              color: "var(--liquor)",
-              bg: "var(--liquor-light)",
               label: "Avg Valuation",
               value: formatCurrency(stats.avgValuation, 0),
               sub:
                 avgValuationDeltaPct != null
                   ? `${avgValuationDeltaPct >= 0 ? "↑" : "↓"} ${Math.abs(avgValuationDeltaPct).toFixed(1)}% vs ${previousSaleName ?? "last sale"}`
                   : "no previous sale to compare",
+              subColor: avgValuationDeltaPct != null ? (avgValuationDeltaPct >= 0 ? "var(--sage-dark)" : "var(--danger)") : undefined,
               trend: avgValuationTrend,
             },
             {
               icon: EventAvailableOutlinedIcon,
-              color: "var(--sage-dark)",
-              bg: "var(--sage-light)",
               label: "Today's Valuations",
               value: stats.todayCount.toLocaleString(),
               sub: "saved today",
@@ -532,8 +524,6 @@ function UserDashboard() {
             },
             {
               icon: Inventory2OutlinedIcon,
-              color: "var(--info)",
-              bg: "var(--info-light)",
               label: "Top Valuation",
               value: formatCurrency(stats.maxValuation, 0),
               sub: "highest in this sale",
@@ -545,11 +535,11 @@ function UserDashboard() {
               className="flex items-start gap-2.5 p-4"
               style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}
             >
-              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: k.bg }}>
-                <k.icon sx={{ fontSize: 18, color: k.color }} />
+              <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface-sunken)" }}>
+                <k.icon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
                   {k.label}
                 </div>
                 <div className="flex items-center gap-2">
@@ -557,10 +547,10 @@ function UserDashboard() {
                     {k.value}
                   </div>
                   {k.trend && k.trend.length >= 2 && (
-                    <Sparkline values={k.trend} color={k.color} width={48} height={18} />
+                    <Sparkline values={k.trend} color="var(--liquor)" width={48} height={18} />
                   )}
                 </div>
-                <div className="text-[10.5px] truncate" style={{ color: "var(--text-muted)" }}>
+                <div className="text-[12px] truncate" style={{ color: k.subColor ?? "var(--text-muted)" }}>
                   {k.sub}
                 </div>
               </div>
@@ -587,7 +577,7 @@ function UserDashboard() {
             <div className="font-display text-[16px] font-bold" style={{ color: "#fff" }}>
               Continue Valuing
             </div>
-            <div className="text-[12.5px]" style={{ color: "rgba(255,255,255,0.88)" }}>
+            <div className="text-[12px]" style={{ color: "rgba(255,255,255,0.88)" }}>
               {stats.pending.toLocaleString()} lot{stats.pending === 1 ? "" : "s"} still need a valuation
               {activeCatalogue ? ` in ${activeCatalogue.sourceName}` : ""}
             </div>
@@ -599,12 +589,12 @@ function UserDashboard() {
       {/* ---- launchpad: module tiles replace the old sidebar as the primary navigation ---- */}
       <div className="mt-2 mb-4">
         <div className="flex items-center gap-2 mb-3">
-          <h2 className="font-display text-[19px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
+          <h2 className="font-display text-[15px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
             What would you like to do today?
           </h2>
           {pinnedHrefs.length > 0 && (
-            <span className="text-[11.5px]" style={{ color: "var(--text-muted)" }}>
-              — pinned tiles first
+            <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+              Pinned first
             </span>
           )}
         </div>
@@ -630,8 +620,8 @@ function UserDashboard() {
 
       {/* ---- AI section ---- */}
       <div
-        className="mt-6 mb-6 p-5 rounded-[var(--radius-xl)] border border-border"
-        style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)" }}
+        className="mt-6 mb-6 p-5 rounded-[var(--radius-lg)] border border-border"
+        style={{ background: "var(--surface)" }}
       >
         <div className="flex items-center gap-2 mb-3">
           <AutoAwesomeOutlinedIcon fontSize="small" sx={{ color: "var(--liquor)" }} />
@@ -672,9 +662,9 @@ function UserDashboard() {
         </div>
       </div>
 
-      {/* ---- four real panels: recent activity, computed AI insights, sales needing
+      {/* ---- three real panels: recent activity, computed AI insights, and sales needing
            attention (this app's honest substitute for the reference mockup's fabricated
-           "Upcoming Deadlines" — see the plan for why), and industry news ---- */}
+           "Upcoming Deadlines" — see the plan for why) ---- */}
       <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <RecentActivityList entries={activity} />
         <AiInsightsPanel insights={insights} loading={insightsLoading} />
@@ -685,7 +675,7 @@ function UserDashboard() {
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           ASC — Tea Auction Valuation &amp; Business Intelligence Platform
         </p>
-        <p className="text-[11px] m-0" style={{ color: "var(--text-muted)" }}>
+        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           © {new Date().getFullYear()} Asia Siyaka Commodities PLC. All rights reserved.
         </p>
       </div>

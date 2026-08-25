@@ -12,7 +12,7 @@ import Skeleton from "@mui/material/Skeleton";
 /** A handful of stacked lines, alternating width — stands in for a table or a list. */
 export function SkeletonRows({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="border border-border rounded-lg bg-surface p-4 flex flex-col gap-3">
+    <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-4 flex flex-col gap-3">
       {Array.from({ length: rows }).map((_, i) => (
         <Skeleton key={i} variant="text" height={20} width={i % 2 === 0 ? "92%" : "68%"} />
       ))}

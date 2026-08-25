@@ -651,7 +651,7 @@ export default function ReportDialog({
               <span className="text-[12.5px] text-text">Generating {report.title}…</span>
             </div>
           ) : error ? (
-            <div className="p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
+            <div className="p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
           ) : (
             body()
           )}

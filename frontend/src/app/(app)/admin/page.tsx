@@ -89,7 +89,7 @@ function AdminSectionNav() {
         <a
           key={s.id}
           href={`#${s.id}`}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium whitespace-nowrap border border-border shrink-0 no-underline transition-colors hover:border-[var(--liquor)] hover:text-[var(--liquor)]"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap border border-border shrink-0 no-underline transition-colors hover:border-[var(--liquor)] hover:text-[var(--liquor)]"
           style={{ color: "var(--text)", background: "var(--surface)" }}
         >
           {s.icon}
@@ -176,7 +176,7 @@ function SalesDataSection() {
       subtitle="Weekly sale files (data/sales/*.xlsx). Upload a numbered file (e.g. 31.xlsx) to add a sale, or re-upload the same number to replace it — anything else imports as the next sale. There's no delete here: removing a sale means deleting its Excel file from data/sales directly."
     >
       {(error || importError) && (
-        <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error ?? importError}</div>
+        <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error ?? importError}</div>
       )}
       <input ref={fileInputRef} type="file" className="hidden" accept=".xlsx,.xls" onChange={onFileChosen} />
       <div className="flex justify-end mb-3">
@@ -191,7 +191,7 @@ function SalesDataSection() {
         </Button>
       </div>
       {catalogues.length === 0 ? (
-        <p className="text-[12.5px] text-text-muted m-0">No sales loaded yet.</p>
+        <p className="text-[13px] text-text-muted m-0">No sales loaded yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
@@ -206,8 +206,8 @@ function SalesDataSection() {
               {catalogues.map((c) => (
                 <tr key={c.id} className="border-b border-border last:border-0">
                   <td className="px-2 py-2">{c.sourceName}</td>
-                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{c.rowCount.toLocaleString()}</td>
-                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{new Date(c.importedAt).toLocaleDateString()}</td>
+                  <td className="px-2 py-2 text-text-muted font-mono text-[12px]">{c.rowCount.toLocaleString()}</td>
+                  <td className="px-2 py-2 text-text-muted font-mono text-[12px]">{new Date(c.importedAt).toLocaleDateString()}</td>
                 </tr>
               ))}
             </tbody>
@@ -388,7 +388,7 @@ function MslDataSection() {
       title="MSL Archive"
       subtitle="Historical Colombo tea-auction data (data/msl/) — auction sale broker files, private-sale files and Tea Board monthly reports. New sales are typically published weekly; drop that week's files in below (individually or zipped up) as soon as they're available so the archive stays current."
     >
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       {loading ? (
         <div className="flex justify-center py-8">
@@ -404,32 +404,32 @@ function MslDataSection() {
               { label: "Files w/ Errors", value: status.filesWithErrors.toLocaleString() },
               { label: "Tea Board Months", value: status.teaBoardMonths.toLocaleString() },
             ].map((s) => (
-              <div key={s.label} className="rounded border border-border p-3" style={{ background: "var(--surface-sunken)" }}>
-                <p className="font-display text-lg font-bold m-0" style={{ color: "var(--text-strong)" }}>
+              <div key={s.label} className="rounded-[var(--radius-lg)] border border-border p-3" style={{ background: "var(--surface-sunken)" }}>
+                <p className="font-mono text-[19px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
                   {s.value}
                 </p>
-                <p className="text-[11px] text-text-muted m-0">{s.label}</p>
+                <p className="text-[12px] text-text-muted m-0">{s.label}</p>
               </div>
             ))}
           </div>
 
-          <p className="text-[11.5px] text-text-muted m-0 mb-3">
+          <p className="text-[12px] text-text-muted m-0 mb-3">
             Last scan: {status.lastScanAt ? new Date(status.lastScanAt).toLocaleString() : "never"}
             {status.lastScan && ` · ${status.lastScan.filesImported} file(s) imported, ${status.lastScan.rowsImported.toLocaleString()} row(s), ${status.lastScan.filesRemoved} removed`}
           </p>
 
           {status.gaps.length > 0 && (
-            <div className="mb-4 rounded-md bg-warn-light p-3" style={{ color: "var(--warn)" }}>
+            <div className="mb-4 rounded-[var(--radius-lg)] border border-warn bg-warn-light p-3" style={{ color: "var(--warn)" }}>
               <div className="flex items-center gap-1.5 mb-2">
                 <WarningAmberOutlinedIcon fontSize="small" />
-                <p className="text-[12.5px] font-semibold m-0">Missing sale numbers</p>
+                <p className="text-[13px] font-semibold m-0">Missing sale numbers</p>
               </div>
-              <p className="text-[11.5px] m-0 mb-2 opacity-80">
+              <p className="text-[12px] m-0 mb-2 opacity-80">
                 These sale numbers never arrived as public-auction files, even though later sales did — most likely a week&apos;s upload was skipped or the files weren&apos;t sourced yet.
               </p>
               <div className="flex flex-col gap-1">
                 {status.gaps.map((g) => (
-                  <p key={g.year} className="text-[12.5px] m-0">
+                  <p key={g.year} className="text-[13px] m-0">
                     <span className="font-semibold">{g.year}</span>
                     <span className="opacity-80"> (1–{g.maxSaleNo} expected): </span>
                     {g.missingSaleNos.map((n) => (
@@ -461,8 +461,8 @@ function MslDataSection() {
                   {status.years.map((y) => (
                     <tr key={y.year} className="border-b border-border last:border-0">
                       <td className="px-2 py-2">{y.year}</td>
-                      <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{y.sales}</td>
-                      <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{y.lots.toLocaleString()}</td>
+                      <td className="px-2 py-2 text-text-muted font-mono text-[12px]">{y.sales}</td>
+                      <td className="px-2 py-2 text-text-muted font-mono text-[12px]">{y.lots.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -475,14 +475,14 @@ function MslDataSection() {
       {/* ---- Auction + private-sale files, all auto-detected, drag-and-drop, zip-aware ---- */}
       <div className="border-t border-border pt-3 mb-4">
         <div className="flex items-center justify-between gap-2 mb-0.5">
-          <p className="text-[12.5px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
+          <p className="text-[13px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
             Auction &amp; private-sale files
           </p>
           <Button size="small" onClick={() => setFilesDialogOpen(true)}>
             Browse Archive Files
           </Button>
         </div>
-        <p className="text-[11.5px] text-text-muted m-0 mb-2">
+        <p className="text-[12px] text-text-muted m-0 mb-2">
           Drop in any mix of broker files, private-sale PVT files, or .ZIP archives containing either — all at once. Kind, year, sale number and broker are all read straight out of each file&apos;s own rows. Nothing is imported until you review the list below and confirm.
         </p>
 
@@ -499,7 +499,7 @@ function MslDataSection() {
             role="button"
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") batchInputRef.current?.click(); }}
-            className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer py-6 px-4 text-center transition-colors"
+            className="flex flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border-2 border-dashed cursor-pointer py-6 px-4 text-center transition-colors"
             style={{
               borderColor: dragOver ? "var(--brand-gold)" : "var(--border)",
               background: dragOver ? "color-mix(in srgb, var(--brand-gold) 8%, transparent)" : "var(--surface-sunken)",
@@ -508,12 +508,12 @@ function MslDataSection() {
             {stagingBusy ? (
               <>
                 <TeaLoader size={32} />
-                <p className="text-[12.5px] text-text-muted m-0">Reading files…</p>
+                <p className="text-[13px] text-text-muted m-0">Reading files…</p>
               </>
             ) : (
               <>
                 <CloudUploadOutlinedIcon sx={{ color: "var(--text-muted)" }} />
-                <p className="text-[12.5px] m-0">
+                <p className="text-[13px] m-0">
                   <span className="font-medium" style={{ color: "var(--brand-gold)" }}>Click to browse</span> or drag .TXT / .ZIP files here
                 </p>
               </>
@@ -521,14 +521,14 @@ function MslDataSection() {
             <input ref={batchInputRef} type="file" className="hidden" accept=".txt,.zip" multiple onChange={onBatchFilesChosen} />
           </div>
         ) : (
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-[var(--radius-lg)] border border-border overflow-hidden">
             <div className="px-3 py-2 flex items-center justify-between gap-2" style={{ background: "var(--surface-sunken)" }}>
-              <p className="text-[12.5px] m-0">
+              <p className="text-[13px] m-0">
                 <span className="font-semibold">{stageResult.files.length}</span> file(s) detected — review below, remove anything you don&apos;t want, then confirm.
               </p>
             </div>
             <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
-              <table className="w-full text-[12.5px]">
+              <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-2 py-1.5 font-medium text-text-muted">File</th>
@@ -543,7 +543,7 @@ function MslDataSection() {
                 <tbody>
                   {stageResult.files.map((f) => (
                     <tr key={f.stagingId} className="border-b border-border last:border-0">
-                      <td className="px-2 py-1.5 font-mono text-[11.5px]">
+                      <td className="px-2 py-1.5 font-mono text-[12px]">
                         {f.fileName}
                         {f.sourceZip && <span className="block text-text-muted">from {f.sourceZip}</span>}
                       </td>
@@ -558,13 +558,13 @@ function MslDataSection() {
                             ? `${f.saleNo}/${f.year}`
                             : "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-[11.5px]">{f.rows.toLocaleString()}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-[12px]">{f.rows.toLocaleString()}</td>
                       <td className="px-2 py-1.5" style={{ minWidth: f.requiresConfirmation && !confirmedIds.has(f.stagingId) ? 260 : undefined }}>
                         {f.error ? (
-                          <span style={{ color: "var(--danger-dark, #a33)" }}>{f.error}</span>
+                          <span style={{ color: "var(--danger)" }}>{f.error}</span>
                         ) : f.requiresConfirmation && !confirmedIds.has(f.stagingId) ? (
                           <div className="flex flex-col gap-1">
-                            <span className="inline-flex items-center gap-1 font-medium" style={{ color: "var(--danger-dark, #a33)" }}>
+                            <span className="inline-flex items-center gap-1 font-medium" style={{ color: "var(--danger)" }}>
                               <WarningAmberOutlinedIcon sx={{ fontSize: 15 }} /> {f.replaceDetail}
                             </span>
                             <div className="flex items-center gap-1.5">
@@ -632,17 +632,17 @@ function MslDataSection() {
         {committedResult && (
           <div className="mt-3">
             <div
-              className="mb-2 p-2.5 rounded border text-[12.5px]"
+              className="mb-2 p-2.5 rounded-[var(--radius-lg)] border text-[13px]"
               style={
                 committedResult.files.some((f) => f.error)
-                  ? { borderColor: "var(--warning, #c98a1f)", background: "var(--warning-light, #fdf0d5)", color: "var(--warning-dark, #92650a)" }
+                  ? { borderColor: "var(--warn)", background: "var(--warn-light)", color: "var(--warn)" }
                   : { borderColor: "var(--sage)", background: "var(--sage-light)", color: "var(--sage-dark)" }
               }
             >
               {committedResult.files.filter((f) => !f.error).length} of {committedResult.files.length} file(s) imported, {committedResult.scan.rowsImported.toLocaleString()} row(s) total.
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-[12.5px]">
+              <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-2 py-1.5 font-medium text-text-muted">File</th>
@@ -656,7 +656,7 @@ function MslDataSection() {
                 <tbody>
                   {committedResult.files.map((f, i) => (
                     <tr key={i} className="border-b border-border last:border-0">
-                      <td className="px-2 py-1.5 font-mono text-[11.5px]">
+                      <td className="px-2 py-1.5 font-mono text-[12px]">
                         {f.fileName}
                         {f.sourceZip && <span className="block text-text-muted">from {f.sourceZip}</span>}
                       </td>
@@ -671,10 +671,10 @@ function MslDataSection() {
                             ? `${f.saleNo}/${f.year}`
                             : "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-[11.5px]">{f.rows.toLocaleString()}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-[12px]">{f.rows.toLocaleString()}</td>
                       <td className="px-2 py-1.5">
                         {f.error ? (
-                          <span style={{ color: "var(--danger-dark, #a33)" }}>{f.error}</span>
+                          <span style={{ color: "var(--danger)" }}>{f.error}</span>
                         ) : (
                           <span style={{ color: "var(--sage-dark)" }}>Imported</span>
                         )}
@@ -691,7 +691,7 @@ function MslDataSection() {
       <MslFilesBrowser open={filesDialogOpen} onClose={() => setFilesDialogOpen(false)} onChanged={refresh} />
 
       {uploadResult && (
-        <div className="mb-3 p-2.5 rounded border border-sage bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+        <div className="mb-3 p-2.5 rounded border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
           {uploadResult.filesImported} file(s) imported, {uploadResult.rowsImported.toLocaleString()} row(s).
           {uploadResult.errors.length > 0 && ` ${uploadResult.errors.length} error(s): ${uploadResult.errors.join("; ")}`}
         </div>
@@ -700,7 +700,7 @@ function MslDataSection() {
       {/* ---- Tea Board report: the one file type left that can't self-describe its
            year/month from parseable content, so it stays a manual single upload. ---- */}
       <div className="border-t border-border pt-3">
-        <p className="text-[11.5px] text-text-muted m-0 mb-2">Tea Board report (.pdf)</p>
+        <p className="text-[12px] text-text-muted m-0 mb-2">Tea Board report (.pdf)</p>
         <div className="flex flex-wrap items-end gap-2 mb-3">
           <TextField label="Year" size="small" type="number" value={year} onChange={(e) => setYear(e.target.value)} sx={{ width: 100 }} />
           <TextField label="Month" size="small" type="number" value={month} onChange={(e) => setMonth(e.target.value)} sx={{ width: 100 }} />
@@ -781,7 +781,7 @@ function MslFilesBrowser({ open, onClose, onChanged }: { open: boolean; onClose:
       <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
         <DialogTitle>Archive Files</DialogTitle>
         <DialogContent>
-          {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+          {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
           <div className="flex flex-wrap gap-2 mb-3">
             <TextField
               size="small"
@@ -803,10 +803,10 @@ function MslFilesBrowser({ open, onClose, onChanged }: { open: boolean; onClose:
               <TeaLoader size={36} />
             </div>
           ) : filtered.length === 0 ? (
-            <p className="text-[12.5px] text-text-muted m-0 py-6 text-center">No files match.</p>
+            <p className="text-[13px] text-text-muted m-0 py-6 text-center">No files match.</p>
           ) : (
             <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
-              <table className="w-full text-[12.5px]">
+              <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-2 py-1.5 font-medium text-text-muted">Path</th>
@@ -820,9 +820,9 @@ function MslFilesBrowser({ open, onClose, onChanged }: { open: boolean; onClose:
                 <tbody>
                   {filtered.map((f) => (
                     <tr key={f.relativePath} className="border-b border-border last:border-0">
-                      <td className="px-2 py-1.5 font-mono text-[11.5px]">
+                      <td className="px-2 py-1.5 font-mono text-[12px]">
                         {f.relativePath}
-                        {f.error && <span className="block" style={{ color: "var(--danger-dark, #a33)" }}>{f.error}</span>}
+                        {f.error && <span className="block" style={{ color: "var(--danger)" }}>{f.error}</span>}
                       </td>
                       <td className="px-2 py-1.5 capitalize">{f.kind}</td>
                       <td className="px-2 py-1.5 text-text-muted">
@@ -834,12 +834,12 @@ function MslFilesBrowser({ open, onClose, onChanged }: { open: boolean; onClose:
                               ? `${f.saleNo}/${f.year}`
                               : (f.year ?? "—")}
                       </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-[11.5px]">{f.rowCount.toLocaleString()}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-[12px]">{f.rowCount.toLocaleString()}</td>
                       <td className="px-2 py-1.5 text-text-muted">{new Date(f.importedAt).toLocaleDateString()}</td>
                       <td className="px-2 py-1.5">
                         <Tooltip title="Remove this file from the archive">
                           <IconButton size="small" onClick={() => setConfirmPath(f.relativePath)}>
-                            <DeleteOutlineIcon fontSize="small" sx={{ color: "var(--danger-dark, #a33)" }} />
+                            <DeleteOutlineIcon fontSize="small" sx={{ color: "var(--danger)" }} />
                           </IconButton>
                         </Tooltip>
                       </td>
@@ -962,21 +962,21 @@ function JobRow({ job, onChanged }: { job: ScheduledReportJob; onChanged: () => 
       <tr className="border-b border-border align-top">
         <td className="px-2 py-2.5">
           <div className="font-medium text-text-strong">{job.displayName}</div>
-          <div className="font-mono text-[10.5px] text-text-muted">{job.key}</div>
+          <div className="font-mono text-[12px] text-text-muted">{job.key}</div>
         </td>
-        <td className="px-2 py-2.5 font-mono text-[11.5px] text-text-muted">
+        <td className="px-2 py-2.5 font-mono text-[12px] text-text-muted">
           {job.triggerType === "AfterSaleClose" ? "After sale close" : job.cronExpression}
         </td>
         <td className="px-2 py-2.5 text-text-muted">
           {job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "Never"}
-          {job.lastRunAt && <span className="font-mono text-[10.5px] ml-1.5">({formatDuration(job.lastDurationMs)})</span>}
+          {job.lastRunAt && <span className="font-mono text-[12px] ml-1.5">({formatDuration(job.lastDurationMs)})</span>}
         </td>
         <td className="px-2 py-2.5">
           <span className="font-medium" style={{ color: JOB_STATUS_COLOR[job.lastStatus] }}>
             {job.lastStatus}
           </span>
           {job.consecutiveFailures >= 3 && (
-            <span className="ml-1.5 text-[10.5px] font-mono" style={{ color: "var(--danger)" }}>
+            <span className="ml-1.5 text-[12px] font-mono" style={{ color: "var(--danger)" }}>
               ({job.consecutiveFailures}× in a row)
             </span>
           )}
@@ -1004,7 +1004,7 @@ function JobRow({ job, onChanged }: { job: ScheduledReportJob; onChanged: () => 
       </tr>
       {runMessage && (
         <tr className="border-b border-border">
-          <td colSpan={6} className="px-2 py-1.5 text-[11.5px]" style={{ background: "var(--surface-sunken)" }}>
+          <td colSpan={6} className="px-2 py-1.5 text-[12px]" style={{ background: "var(--surface-sunken)" }}>
             {runMessage}
           </td>
         </tr>
@@ -1021,7 +1021,7 @@ function JobRow({ job, onChanged }: { job: ScheduledReportJob; onChanged: () => 
                 {outputs.map((o) => (
                   <div key={o.id} className="flex items-center gap-2 text-[12px]">
                     <span className="flex-1 min-w-0 truncate text-text-strong">{o.title}</span>
-                    <span className="font-mono text-[10.5px] text-text-muted shrink-0">{new Date(o.createdAt).toLocaleDateString()}</span>
+                    <span className="font-mono text-[12px] text-text-muted shrink-0">{new Date(o.createdAt).toLocaleDateString()}</span>
                     {o.downloadable ? (
                       <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
                         {downloadingId === o.id ? <CircularProgress size={14} /> : <DownloadOutlinedIcon sx={{ fontSize: 15 }} />}
@@ -1097,7 +1097,7 @@ function CbacStagingPanel() {
         TXT has no database equivalent — stage it here whenever it arrives, independent of when the sale closes.
       </p>
 
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       <div className="flex items-end gap-2 flex-wrap mb-3">
         <TextField
@@ -1136,7 +1136,7 @@ function CbacStagingPanel() {
           {staged.map((s) => (
             <span
               key={`${s.saleYear}-${s.saleNo}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border text-[11.5px] font-mono"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border text-[12px] font-mono"
               style={{ background: "var(--surface)" }}
             >
               Sale {s.saleNo}/{s.saleYear}
@@ -1170,7 +1170,7 @@ function AutomatedReportsSection() {
       title="Automated Reports"
       subtitle="Reports that generate themselves on schedule or on trigger, with no one needing to click Generate."
     >
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       {jobs === null ? (
         <div className="flex justify-center py-8">
@@ -1322,9 +1322,9 @@ function NewsSourcesSection() {
         </>
       }
     >
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
       {refreshMessage && (
-        <div className="mb-3 p-2.5 rounded border border-border text-[12.5px]" style={{ background: "var(--surface-sunken)" }}>
+        <div className="mb-3 p-2.5 rounded border border-border text-[13px]" style={{ background: "var(--surface-sunken)" }}>
           {refreshMessage}
         </div>
       )}
@@ -1334,7 +1334,7 @@ function NewsSourcesSection() {
           <TeaLoader size={40} />
         </div>
       ) : sources.length === 0 ? (
-        <p className="text-[12.5px] text-text-muted m-0">No sources yet — add one to start pulling news.</p>
+        <p className="text-[13px] text-text-muted m-0">No sources yet — add one to start pulling news.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
@@ -1352,19 +1352,19 @@ function NewsSourcesSection() {
               {sources.map((s) => (
                 <tr key={s.id} className="border-b border-border last:border-0">
                   <td className="px-2 py-2">{s.name}</td>
-                  <td className="px-2 py-2 font-mono text-[11.5px] text-text-muted max-w-[280px] truncate" title={s.feedUrl}>
+                  <td className="px-2 py-2 font-mono text-[12px] text-text-muted max-w-[280px] truncate" title={s.feedUrl}>
                     {s.feedUrl}
                   </td>
                   <td className="px-2 py-2 text-text-muted">{MARKET_PULSE_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}</td>
                   <td className="px-2 py-2">
                     <Switch size="small" checked={s.enabled} onChange={() => toggleEnabled(s)} />
                   </td>
-                  <td className="px-2 py-2 text-[11.5px]">
+                  <td className="px-2 py-2 text-[12px]">
                     {s.lastFetchedAt ? (
                       s.lastFetchSucceeded ? (
                         <span style={{ color: "var(--sage-dark)" }}>{s.lastFetchNewItems} new · {new Date(s.lastFetchedAt).toLocaleString()}</span>
                       ) : (
-                        <span style={{ color: "var(--danger-dark, #a33)" }} title={s.lastFetchError ?? ""}>
+                        <span style={{ color: "var(--danger)" }} title={s.lastFetchError ?? ""}>
                           Failed · {new Date(s.lastFetchedAt).toLocaleString()}
                         </span>
                       )
@@ -1564,7 +1564,7 @@ function UsersSection() {
 
   return (
     <AdminSectionCard id="users" icon={<GroupOutlinedIcon fontSize="small" />} accent={5} title="Users" subtitle="Everyone with access to this workspace.">
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       <div className="flex justify-end mb-3">
         <Button variant="outlined" size="small" startIcon={<PersonAddOutlinedIcon fontSize="small" />} onClick={() => setAddOpen(true)}>
@@ -1610,7 +1610,7 @@ function UsersSection() {
                       ))}
                     </Select>
                   </td>
-                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{new Date(u.createdAt).toLocaleDateString()}</td>
+                  <td className="px-2 py-2 text-text-muted font-mono text-[12px]">{new Date(u.createdAt).toLocaleDateString()}</td>
                   <td className="px-2 py-2 text-right whitespace-nowrap">
                     <Button size="small" startIcon={<EditOutlinedIcon fontSize="small" />} onClick={() => openEdit(u)}>
                       Edit
@@ -1636,7 +1636,7 @@ function UsersSection() {
         <DialogTitle sx={{ pb: 0.5 }}>Edit {editTarget?.displayName}</DialogTitle>
         <form onSubmit={saveEdit}>
           <DialogContent>
-            {editError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{editError}</div>}
+            {editError && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{editError}</div>}
             <div className="flex flex-col gap-3">
               <TextField
                 label="Display name"
@@ -1689,7 +1689,7 @@ function UsersSection() {
         <DialogTitle sx={{ pb: 0.5 }}>Add User</DialogTitle>
         <form onSubmit={addUser}>
           <DialogContent>
-            {addError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{addError}</div>}
+            {addError && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{addError}</div>}
             <div className="flex flex-col gap-3">
               <TextField
                 label="Display name"
@@ -1770,9 +1770,9 @@ function RevealSecretDialog({ open, title, value, onClose }: { open: boolean; ti
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ pb: 0.5 }}>{title}</DialogTitle>
       <DialogContent>
-        <p className="text-[12.5px] text-danger m-0 mb-3">Copy this now — for security, it won&apos;t be shown again.</p>
+        <p className="text-[13px] text-danger m-0 mb-3">Copy this now — for security, it won&apos;t be shown again.</p>
         <div className="flex items-center gap-2 p-2.5 rounded border border-border bg-surface-sunken">
-          <code className="flex-1 text-[12.5px] font-mono break-all">{value}</code>
+          <code className="flex-1 text-[13px] font-mono break-all">{value}</code>
           <Tooltip title={copied ? "Copied" : "Copy"}>
             <IconButton size="small" onClick={copy} aria-label="Copy to clipboard">
               {copied ? (
@@ -1859,7 +1859,7 @@ function ApiKeysSection() {
 
   return (
     <AdminSectionCard id="apikeys" icon={<VpnKeyOutlinedIcon fontSize="small" />} accent={8} title="API Keys" subtitle="Credentials for external tools (e.g. an n8n workflow) to call this API without a human login.">
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       <div className="flex justify-end mb-3">
         <Button variant="outlined" size="small" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={() => setAddOpen(true)}>
@@ -1872,7 +1872,7 @@ function ApiKeysSection() {
           <TeaLoader size={40} />
         </div>
       ) : keys.length === 0 ? (
-        <p className="text-[12.5px] text-text-muted m-0">No API keys yet.</p>
+        <p className="text-[13px] text-text-muted m-0">No API keys yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
@@ -1889,9 +1889,9 @@ function ApiKeysSection() {
               {keys.map((k) => (
                 <tr key={k.id} className="border-b border-border last:border-0">
                   <td className="px-2 py-2">{k.name}</td>
-                  <td className="px-2 py-2 font-mono text-[11.5px] text-text-muted">{k.keyPrefix}…</td>
+                  <td className="px-2 py-2 font-mono text-[12px] text-text-muted">{k.keyPrefix}…</td>
                   <td className="px-2 py-2 text-text-muted">{k.roles.join(", ")}</td>
-                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">
+                  <td className="px-2 py-2 text-text-muted font-mono text-[12px]">
                     {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "Never"}
                   </td>
                   <td className="px-2 py-2 text-right">
@@ -1910,7 +1910,7 @@ function ApiKeysSection() {
         <DialogTitle sx={{ pb: 0.5 }}>New API Key</DialogTitle>
         <form onSubmit={addKey}>
           <DialogContent>
-            {addError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{addError}</div>}
+            {addError && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{addError}</div>}
             <div className="flex flex-col gap-3">
               <TextField
                 label="Name"
@@ -1923,7 +1923,7 @@ function ApiKeysSection() {
                 fullWidth
               />
               <div>
-                <p className="text-[11.5px] text-text-muted m-0 mb-1">Roles</p>
+                <p className="text-[12px] text-text-muted m-0 mb-1">Roles</p>
                 {ROLES.map((role) => (
                   <FormControlLabel
                     key={role}
@@ -2036,7 +2036,7 @@ function WebhooksSection() {
 
   return (
     <AdminSectionCard id="webhooks" icon={<LinkOutlinedIcon fontSize="small" />} accent={6} title="Webhooks" subtitle="Notify an external tool (e.g. n8n) when something happens in this app.">
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       <div className="flex justify-end mb-3">
         <Button variant="outlined" size="small" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={() => setAddOpen(true)}>
@@ -2049,7 +2049,7 @@ function WebhooksSection() {
           <TeaLoader size={40} />
         </div>
       ) : webhooks.length === 0 ? (
-        <p className="text-[12.5px] text-text-muted m-0">No webhooks yet.</p>
+        <p className="text-[13px] text-text-muted m-0">No webhooks yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
@@ -2064,9 +2064,9 @@ function WebhooksSection() {
             <tbody>
               {webhooks.map((w) => (
                 <tr key={w.id} className="border-b border-border last:border-0">
-                  <td className="px-2 py-2 font-mono text-[11.5px]">{w.event}</td>
+                  <td className="px-2 py-2 font-mono text-[12px]">{w.event}</td>
                   <td className="px-2 py-2 text-text-muted truncate max-w-[520px]">{w.url}</td>
-                  <td className="px-2 py-2 text-text-muted font-mono text-[11.5px]">{new Date(w.createdAt).toLocaleDateString()}</td>
+                  <td className="px-2 py-2 text-text-muted font-mono text-[12px]">{new Date(w.createdAt).toLocaleDateString()}</td>
                   <td className="px-2 py-2 text-right">
                     <Button size="small" color="error" startIcon={<DeleteOutlineIcon fontSize="small" />} onClick={() => setDeleteTarget(w)}>
                       Delete
@@ -2083,7 +2083,7 @@ function WebhooksSection() {
         <DialogTitle sx={{ pb: 0.5 }}>New Webhook</DialogTitle>
         <form onSubmit={addWebhook}>
           <DialogContent>
-            {addError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{addError}</div>}
+            {addError && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{addError}</div>}
             <div className="flex flex-col gap-3">
               <Select size="small" value={addEvent} onChange={(e) => setAddEvent(e.target.value)} fullWidth>
                 {events.map((ev) => (
@@ -2251,7 +2251,7 @@ function MasterDataSection() {
       title="Master Data"
       subtitle="Canonical names for brokers, buyers, gardens, grades and more, so spelling variants across broker files merge into one row instead of splitting reports and analytics."
     >
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       <div className="flex items-center justify-between gap-3 mb-3">
         <Select size="small" value={type} onChange={(e) => setType(e.target.value)}>
@@ -2271,7 +2271,7 @@ function MasterDataSection() {
           <TeaLoader size={40} />
         </div>
       ) : entities.length === 0 ? (
-        <p className="text-[12.5px] text-text-muted m-0 mb-4">No canonical {type.toLowerCase()} entities yet.</p>
+        <p className="text-[13px] text-text-muted m-0 mb-4">No canonical {type.toLowerCase()} entities yet.</p>
       ) : (
         <div className="overflow-x-auto mb-4">
           <table className="w-full text-[13px]">
@@ -2304,7 +2304,7 @@ function MasterDataSection() {
 
       <div className="border-t border-border pt-3">
         <div className="flex items-center justify-between gap-3 mb-2">
-          <p className="text-[12.5px] text-text-muted m-0">
+          <p className="text-[13px] text-text-muted m-0">
             Spelling variants for <strong>{type}</strong> still seen in sale files that aren&apos;t mapped to a canonical entity yet.
           </p>
           <Button size="small" onClick={() => scanUnmapped(type)} disabled={unmappedLoading}>
@@ -2312,12 +2312,12 @@ function MasterDataSection() {
           </Button>
         </div>
         {unmappedError && (
-          <div className="mb-2 p-2 rounded border border-danger bg-danger-light text-[12px] text-liquor-dark">{unmappedError}</div>
+          <div className="mb-2 p-2 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[12px] text-danger">{unmappedError}</div>
         )}
         {unmapped.length > 0 && (
           <ul className="m-0 p-0 list-none flex flex-col gap-1 max-h-[240px] overflow-y-auto">
             {unmapped.map((u) => (
-              <li key={u.value} className="flex items-center justify-between gap-2 text-[12.5px] px-2 py-1 rounded bg-surface-sunken">
+              <li key={u.value} className="flex items-center justify-between gap-2 text-[13px] px-2 py-1 rounded bg-surface-sunken">
                 <span className="truncate">{u.value}</span>
                 <span className="flex items-center gap-2 shrink-0">
                   <span className="text-text-muted font-mono text-[11px]">
@@ -2337,7 +2337,7 @@ function MasterDataSection() {
         <DialogTitle sx={{ pb: 0.5 }}>{editing ? "Edit Entity" : "New Entity"}</DialogTitle>
         <form onSubmit={save}>
           <DialogContent>
-            {formError && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{formError}</div>}
+            {formError && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{formError}</div>}
             <div className="flex flex-col gap-3">
               <Select size="small" value={formType} onChange={(e) => setFormType(e.target.value)} disabled={!!editing} fullWidth>
                 {MASTER_DATA_TYPES.map((t) => (
@@ -2440,14 +2440,14 @@ function AuditLogSection() {
 
   return (
     <AdminSectionCard id="audit" icon={<HistoryOutlinedIcon fontSize="small" />} accent={4} title="Audit Log" subtitle="Who did what — role changes, API keys, webhooks, master data, files and knowledge base uploads.">
-      {error && <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       {loading ? (
         <div className="flex justify-center py-8">
           <TeaLoader size={40} />
         </div>
       ) : entries.length === 0 ? (
-        <p className="text-[12.5px] text-text-muted m-0">Nothing recorded yet.</p>
+        <p className="text-[13px] text-text-muted m-0">Nothing recorded yet.</p>
       ) : (
         <>
           <div className="overflow-x-auto">
@@ -2464,9 +2464,9 @@ function AuditLogSection() {
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.id} className="border-b border-border last:border-0">
-                    <td className="px-2 py-2 text-text-muted font-mono text-[11.5px] whitespace-nowrap">{new Date(e.timestamp).toLocaleString()}</td>
+                    <td className="px-2 py-2 text-text-muted font-mono text-[12px] whitespace-nowrap">{new Date(e.timestamp).toLocaleString()}</td>
                     <td className="px-2 py-2 text-text-muted">{e.userEmail ?? "—"}</td>
-                    <td className="px-2 py-2 font-mono text-[11.5px]">{e.action}</td>
+                    <td className="px-2 py-2 font-mono text-[12px]">{e.action}</td>
                     <td className="px-2 py-2 text-text-muted">{e.entityType ?? "—"}</td>
                     <td className="px-2 py-2 text-text-muted truncate max-w-[320px]">{e.details ?? "—"}</td>
                   </tr>
@@ -2515,7 +2515,7 @@ export default function AdminPage() {
       <PageHeader title="Admin Panel" subtitle="Full administrative control — users, access, master data and sale/MSL data." />
 
       <div
-        className="mb-6 rounded-xl px-4 sm:px-5 py-4 flex items-center justify-between gap-3 flex-wrap"
+        className="mb-6 rounded-[var(--radius-lg)] px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap"
         style={{ background: "var(--tile-gradient-4)" }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -2525,10 +2525,7 @@ export default function AdminPage() {
           >
             <AdminPanelSettingsOutlinedIcon sx={{ color: "#fff", fontSize: 22 }} />
           </span>
-          <div className="min-w-0">
-            <p className="text-[13.5px] font-semibold text-white m-0">Administrator access</p>
-            <p className="text-[12px] text-white m-0 opacity-80 truncate">Signed in as {user?.displayName}</p>
-          </div>
+          <p className="text-[13px] font-semibold text-white m-0 truncate">Signed in as {user?.displayName} · Administrator</p>
         </div>
         <p className="text-[12px] text-white m-0 opacity-80 shrink-0">{ADMIN_SECTIONS.length} control areas below</p>
       </div>

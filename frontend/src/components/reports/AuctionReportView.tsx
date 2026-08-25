@@ -8,7 +8,7 @@ import { useState } from "react";
 
 function StatTile({ label, value }: { label: string; value: number }) {
   return (
-    <div className="border border-border rounded-lg bg-surface p-3">
+    <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-3">
       <div className="font-display text-lg font-bold text-text-strong">{formatNumber(value)}</div>
       <div className="text-[11px] text-text-muted">{label}</div>
     </div>
@@ -22,7 +22,7 @@ function GradeTable({ grade, includeElevation }: { grade: GradeBlock; includeEle
       {grade.rows.length === 0 ? (
         <div className="text-[12.5px] text-text-muted italic px-1">No priced rows for this grade.</div>
       ) : (
-        <div className="overflow-x-auto border border-border rounded-lg">
+        <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
           <table className="w-full text-[12.5px]">
             <thead>
               <tr className="bg-surface-alt border-b border-border">

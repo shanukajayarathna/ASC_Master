@@ -101,7 +101,7 @@ export default function TopPricePagePage() {
         }
       />
 
-      {error && <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>}
+      {error && <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>}
 
       {loading && (
         <div className="flex justify-center py-16">

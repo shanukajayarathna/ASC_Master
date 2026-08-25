@@ -122,7 +122,7 @@ export default function MarketPage() {
       />
 
       {catalogueError && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">
           Couldn&apos;t reach the API ({catalogueError}). Is the backend running at{" "}
           <code className="font-mono">{process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058"}</code>?
         </div>
@@ -139,7 +139,7 @@ export default function MarketPage() {
       )}
 
       {activeCatalogueId && error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
       )}
 
       {activeCatalogueId && loading && !status && (
@@ -155,7 +155,7 @@ export default function MarketPage() {
 
       {activeCatalogueId && status && (
         <>
-          <p className="text-[12.5px] text-text-muted mb-5 border border-border rounded-lg bg-surface px-3.5 py-2.5">
+          <p className="text-[12px] text-text-muted mb-5 border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5">
             {status.hasImport ? (
               <>
                 Actuals loaded from your last import ({new Date(status.lastImportedAt!).toLocaleString()}) ·{" "}
@@ -183,14 +183,14 @@ export default function MarketPage() {
                 <KpiTile label="RMSE" value={formatCurrency(overview.rmse)} accent="info" />
                 <KpiTile label="Average Error" value={formatCurrency(overview.avgError)} />
                 <KpiTile label="Total Gain (undervalued)" value={formatCurrency(overview.totalGain)} accent="sage" />
-                <KpiTile label="Total Loss (overvalued)" value={formatCurrency(overview.totalLoss)} />
+                <KpiTile label="Total Loss (overvalued)" value={formatCurrency(overview.totalLoss)} accent="danger" />
               </KpiSection>
 
               <section className="mb-6">
                 <div className="flex items-baseline justify-between gap-2.5 mb-2.5 flex-wrap">
                   <div className="flex items-baseline gap-2.5">
-                    <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Accuracy By</h4>
-                    <span className="text-[11.5px] text-text-muted">Mean absolute % error, lowest first</span>
+                    <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Accuracy By</h4>
+                    <span className="text-[12px] text-text-muted">Mean absolute % error, lowest first</span>
                   </div>
                   <Select size="small" value={breakdownColumn} onChange={(e) => setBreakdownColumn(e.target.value)} sx={{ minWidth: 160, fontSize: 13 }}>
                     {BREAKDOWN_COLUMNS.map((c) => (
@@ -200,7 +200,7 @@ export default function MarketPage() {
                     ))}
                   </Select>
                 </div>
-                <div className="overflow-x-auto border border-border rounded-lg">
+                <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
                   <table className="w-full text-[13px]">
                     <thead>
                       <tr className="bg-surface-alt border-b border-border">
@@ -244,14 +244,14 @@ export default function MarketPage() {
 
               <section className="mb-6">
                 <div className="flex items-baseline gap-2.5 mb-2.5">
-                  <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Insights</h4>
-                  <span className="text-[11.5px] text-text-muted">Consistent over/under-valuation patterns</span>
+                  <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Insights</h4>
+                  <span className="text-[12px] text-text-muted">Consistent over/under-valuation patterns</span>
                 </div>
                 {insights && insights.length > 0 ? (
                   <div className="flex flex-col gap-2">
                     {insights.map((i, idx) => (
-                      <div key={idx} className="border border-border rounded-md bg-surface px-3.5 py-3 text-[12.5px] text-text flex gap-2.5 items-start">
-                        <span className="w-1.5 h-1.5 rounded-full bg-brass mt-1.5 shrink-0" />
+                      <div key={idx} className="border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-3 text-[13px] text-text flex gap-2.5 items-start">
+                        <span className="w-1.5 h-1.5 rounded-full bg-text-muted mt-1.5 shrink-0" />
                         <span>
                           {i.dimension} <strong>{i.key}</strong> lots ({formatNumber(i.count)} matched) are consistently{" "}
                           <strong>{i.direction}</strong> by approximately {formatCurrency(i.magnitude)} per lot.
@@ -260,20 +260,20 @@ export default function MarketPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[12.5px] text-text-muted m-0">
+                  <p className="text-[12px] text-text-muted m-0">
                     No strong valuation patterns detected yet — import more matched actuals for sharper insights.
                   </p>
                 )}
               </section>
             </>
           ) : (
-            <div className="text-center py-16 text-text-muted border border-dashed border-border rounded-lg">
+            <div className="text-center py-16 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)]">
               <p className="m-0 mb-1">No matched lots to compare yet.</p>
-              <p className="m-0 text-[12.5px]">Import an actual auction results file to see accuracy and insights.</p>
+              <p className="m-0 text-[12px]">Import an actual auction results file to see accuracy and insights.</p>
             </div>
           )}
 
-          <p className="text-[11.5px] text-text-muted mt-2">
+          <p className="text-[12px] text-text-muted mt-2">
             {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots
           </p>
         </>

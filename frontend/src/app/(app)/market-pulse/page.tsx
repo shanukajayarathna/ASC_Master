@@ -246,7 +246,7 @@ export default function MarketPulsePage() {
 
         <div className="flex-1 min-w-0 w-full">
           {error && (
-            <div className="mb-4 p-3 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>
+            <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[12.5px] text-danger">{error}</div>
           )}
 
           {items === null ? (

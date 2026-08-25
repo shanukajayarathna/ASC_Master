@@ -159,7 +159,7 @@ function ExportFileCard({ url, filename }: { url: string; filename: string }) {
         </button>
       </div>
       {state === "error" && (
-        <div className="px-3 pb-2 text-[11px] text-liquor-dark">
+        <div className="px-3 pb-2 text-[11px] text-danger">
           Download failed — the link may have expired. Ask me to generate it again.
         </div>
       )}

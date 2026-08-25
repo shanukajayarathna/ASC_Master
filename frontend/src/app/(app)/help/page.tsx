@@ -37,7 +37,7 @@ export default function HelpPage() {
       <PageHeader title="Help" subtitle="Quick answers for common tasks in the ASC platform." />
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))" }}>
         {faqs.map((f) => (
-          <div key={f.q} className="border border-border rounded-md bg-surface p-4">
+          <div key={f.q} className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">
             <h3 className="font-display text-[15px] text-text-strong mb-1.5">{f.q}</h3>
             <p className="text-[13px] text-text-muted leading-relaxed m-0">{f.a}</p>
           </div>

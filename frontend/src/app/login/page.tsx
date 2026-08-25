@@ -85,7 +85,7 @@ export default function LoginPage() {
           <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-5">Log in to continue</h1>
 
           {error && (
-            <div className="mb-4 p-3 rounded border border-danger bg-danger-light text-[13px] text-liquor-dark">
+            <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">
               {error}
             </div>
           )}

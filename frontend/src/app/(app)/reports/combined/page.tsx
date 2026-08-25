@@ -105,7 +105,7 @@ export default function CombinedReportPage() {
       />
 
       {error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark print:hidden">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger print:hidden">{error}</div>
       )}
 
       {loading && (
@@ -137,7 +137,7 @@ export default function CombinedReportPage() {
               <div className="border-b border-border pb-4 mb-5">
                 <p className="font-mono text-[10px] tracking-widest uppercase text-text-muted m-0 mb-1">Asia Siyaka Commodities</p>
                 <h2 className="font-display text-xl font-bold text-text-strong m-0 mb-1">{report.title}</h2>
-                <p className="text-[12.5px] text-text-muted m-0">
+                <p className="text-[12px] text-text-muted m-0">
                   {combined.sourceName} · Generated {new Date(report.generatedAt).toLocaleString()}
                 </p>
               </div>

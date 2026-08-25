@@ -113,7 +113,7 @@ function ValuationAnalysis() {
   return (
     <div>
       {catalogueError && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">
           Couldn&apos;t reach the API ({catalogueError}). Is the backend running at{" "}
           <code className="font-mono">{process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058"}</code>?
         </div>
@@ -130,7 +130,7 @@ function ValuationAnalysis() {
       )}
 
       {activeCatalogueId && error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
       )}
 
       {activeCatalogueId && loading && !overview && (
@@ -166,8 +166,8 @@ function ValuationAnalysis() {
           <section className="mb-6">
             <div className="flex items-baseline justify-between gap-2.5 mb-2.5 flex-wrap">
               <div className="flex items-baseline gap-2.5">
-                <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Group Breakdown</h4>
-                <span className="text-[11.5px] text-text-muted">Average valuation by {breakdownMeta?.label.toLowerCase()}</span>
+                <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Group Breakdown</h4>
+                <span className="text-[12px] text-text-muted">Average valuation by {breakdownMeta?.label.toLowerCase()}</span>
               </div>
               <div className="flex items-center gap-2">
                 {breakdownMeta?.reportType && (
@@ -184,7 +184,7 @@ function ValuationAnalysis() {
                 </Select>
               </div>
             </div>
-            <div className="border border-border rounded-lg bg-surface p-4">
+            <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">
               {breakdown && breakdown.length > 0 ? (
                 <BarChart
                   rows={breakdown.map((g) => ({
@@ -202,10 +202,10 @@ function ValuationAnalysis() {
 
           <section className="mb-6">
             <div className="flex items-baseline gap-2.5 mb-2.5">
-              <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Classification Distribution</h4>
-              <span className="text-[11.5px] text-text-muted">Lot count by classification tier</span>
+              <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Classification Distribution</h4>
+              <span className="text-[12px] text-text-muted">Lot count by classification tier</span>
             </div>
-            <div className="border border-border rounded-lg bg-surface p-4">
+            <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">
               {distribution && distribution.length > 0 ? (
                 <BarChart
                   legend={DISTRIBUTION_LEGEND}
@@ -225,7 +225,7 @@ function ValuationAnalysis() {
 
           <section className="mb-6">
             <div className="flex items-baseline justify-between gap-2.5 mb-2.5 flex-wrap">
-              <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">Top / Bottom Lots</h4>
+              <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">Top / Bottom Lots</h4>
               <div className="flex items-center gap-2">
                 <ToggleButtonGroup
                   size="small"
@@ -249,7 +249,7 @@ function ValuationAnalysis() {
                 </Select>
               </div>
             </div>
-            <div className="overflow-x-auto border border-border rounded-lg">
+            <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="bg-surface-alt border-b border-border">
@@ -289,7 +289,7 @@ function ValuationAnalysis() {
             </KpiSection>
           )}
 
-          <p className="text-[11.5px] text-text-muted mt-2">
+          <p className="text-[12px] text-text-muted mt-2">
             {activeCatalogue?.sourceName} · {activeCatalogue?.rowCount.toLocaleString()} lots
           </p>
         </>
@@ -379,11 +379,11 @@ export default function AnalysisPage() {
       {mode === "valuations" ? (
         <div key="valuations" className="fade-in-soft"><ValuationAnalysis /></div>
       ) : salesError ? (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">
           {salesError} — has the MSL archive been imported?
         </div>
       ) : optionsError && !filterOptions ? (
-        <div className="mb-4 p-3 rounded border border-danger bg-danger-light text-[13px] text-liquor-dark flex items-center gap-3">
+        <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger flex items-center gap-3">
           Filter panel failed to load ({optionsError}).
           <button
             className="underline font-medium"
@@ -398,10 +398,10 @@ export default function AnalysisPage() {
       ) : !marketReady || !filterOptions || !analytics ? (
         /* One unified arrival state: nothing appears piecemeal — the cup holds the whole
            page (filtration panel included) until filters AND data are both ready. */
-        <div className="flex flex-col items-center justify-center gap-3 py-28" role="status" aria-live="polite">
+        <div className="flex flex-col items-center justify-center gap-3 py-16" role="status" aria-live="polite">
           <TeaLoader size={72} />
-          <p className="text-[13.5px] font-medium text-text-strong m-0">Brewing your analysis…</p>
-          <p className="text-[11.5px] text-text-muted m-0">filters, dashboards and reports load together</p>
+          <p className="text-[13px] font-medium text-text-strong m-0">Brewing your analysis…</p>
+          <p className="text-[12px] text-text-muted m-0">filters, dashboards and reports load together</p>
         </div>
       ) : (
         <>

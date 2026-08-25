@@ -161,7 +161,7 @@ export default function MarketAnalytics({
     return rows;
   }, [data, gradeClasses, mode]);
 
-  if (error) return <div className="p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>;
+  if (error) return <div className="p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>;
   if (!data) return <SkeletonCard />;
 
   const t = data.total;

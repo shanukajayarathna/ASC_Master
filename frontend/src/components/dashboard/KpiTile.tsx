@@ -7,10 +7,18 @@ export default function KpiTile({
 }: {
   label: string;
   value: string;
-  accent?: "liquor" | "sage" | "info";
+  accent?: "liquor" | "sage" | "info" | "danger";
 }) {
   const accentColor =
-    accent === "liquor" ? "var(--liquor)" : accent === "sage" ? "var(--sage)" : accent === "info" ? "var(--info)" : "var(--brass)";
+    accent === "liquor"
+      ? "var(--liquor)"
+      : accent === "sage"
+        ? "var(--sage)"
+        : accent === "info"
+          ? "var(--info)"
+          : accent === "danger"
+            ? "var(--danger)"
+            : "var(--brass)";
 
   return (
     <Paper
@@ -25,7 +33,7 @@ export default function KpiTile({
       <div className="font-mono text-[21px] font-semibold text-text-strong leading-tight break-words">
         {value}
       </div>
-      <div className="text-[11.5px] text-text-muted mt-1.5">{label}</div>
+      <div className="text-[12px] text-text-muted mt-1.5">{label}</div>
     </Paper>
   );
 }

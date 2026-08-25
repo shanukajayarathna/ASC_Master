@@ -153,7 +153,7 @@ export default function ReportsPage() {
       />
 
       {error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark print:hidden">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger print:hidden">{error}</div>
       )}
 
       {loading && (
@@ -171,7 +171,7 @@ export default function ReportsPage() {
           <div className="border-b border-border pb-4 mb-5">
             <p className="font-mono text-[10px] tracking-widest uppercase text-text-muted m-0 mb-1">Asia Siyaka Commodities</p>
             <h2 className="font-display text-xl font-bold text-text-strong m-0 mb-1">{report.title}</h2>
-            <p className="text-[12.5px] text-text-muted m-0">
+            <p className="text-[12px] text-text-muted m-0">
               {report.subtitle} · {report.sourceName} · Generated {new Date(report.generatedAt).toLocaleString()}
             </p>
           </div>
@@ -183,16 +183,16 @@ export default function ReportsPage() {
               {section.kpis && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {section.kpis.map((kpi) => (
-                    <div key={kpi.label} className="border border-border rounded-lg bg-surface p-3.5">
+                    <div key={kpi.label} className="border border-border rounded-[var(--radius-lg)] bg-surface p-3.5">
                       <div className="font-display text-xl font-bold text-text-strong">{kpiValue(kpi.value, kpi.format)}</div>
-                      <div className="text-[11.5px] text-text-muted">{kpi.label}</div>
+                      <div className="text-[12px] text-text-muted">{kpi.label}</div>
                     </div>
                   ))}
                 </div>
               )}
 
               {section.groups && (
-                <div className="overflow-x-auto border border-border rounded-lg">
+                <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
                   <table className="w-full text-[13px]">
                     <thead>
                       <tr className="bg-surface-alt border-b border-border">

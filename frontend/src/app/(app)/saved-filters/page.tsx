@@ -70,13 +70,13 @@ export default function SavedFiltersPage() {
           <TeaLoader size={44} />
         </div>
       ) : presets.length === 0 ? (
-        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-lg">
+        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)]">
           <p className="m-0">No saved filters yet — set some filters in Catalogue Manager and click &quot;Save as Preset&quot;.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
           {presets.map((p) => (
-            <div key={p.id} className="flex items-center gap-3 border border-border rounded-lg bg-surface px-3.5 py-2.5">
+            <div key={p.id} className="flex items-center gap-3 border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5">
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] text-text-strong truncate">{p.name}</div>
                 <div className="text-[11px] text-text-muted font-mono">

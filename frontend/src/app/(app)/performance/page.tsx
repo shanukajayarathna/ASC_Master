@@ -11,8 +11,8 @@ import { useEffect, useState } from "react";
  *  `description` is already a complete, server-built sentence, so it just renders as-is. */
 function InsightCard({ insight }: { insight: PerformanceInsight }) {
   return (
-    <div className="border border-border rounded-md bg-surface px-3.5 py-3 text-[12.5px] text-text flex gap-2.5 items-start">
-      <span className="w-1.5 h-1.5 rounded-full bg-brass mt-1.5 shrink-0" />
+    <div className="border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-3 text-[13px] text-text flex gap-2.5 items-start">
+      <span className="w-1.5 h-1.5 rounded-full bg-text-muted mt-1.5 shrink-0" />
       <span>{insight.description}</span>
     </div>
   );
@@ -27,8 +27,8 @@ function InsightSection({ title, subtitle, insights, emptyMessage }: {
   return (
     <section className="mb-6">
       <div className="flex items-baseline gap-2.5 mb-2.5">
-        <h4 className="font-display text-[14.5px] font-semibold text-text-strong m-0">{title}</h4>
-        <span className="text-[11.5px] text-text-muted">{subtitle}</span>
+        <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">{title}</h4>
+        <span className="text-[12px] text-text-muted">{subtitle}</span>
       </div>
       {insights.length > 0 ? (
         <div className="flex flex-col gap-2">
@@ -37,7 +37,7 @@ function InsightSection({ title, subtitle, insights, emptyMessage }: {
           ))}
         </div>
       ) : (
-        <p className="text-[12.5px] text-text-muted m-0">{emptyMessage}</p>
+        <p className="text-[12px] text-text-muted m-0">{emptyMessage}</p>
       )}
     </section>
   );
@@ -65,11 +65,11 @@ export default function PerformancePage() {
     <div>
       <PageHeader
         title="Performance"
-        subtitle="Cross-sale trends — sustained grade valuation streaks and meaningful buyer purchase swings, computed across recent sales."
+        subtitle="Sustained grade and buyer trends, computed across recent sales."
       />
 
       {error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
       )}
 
       {loading ? (

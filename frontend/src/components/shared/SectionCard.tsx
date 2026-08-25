@@ -23,7 +23,7 @@ export default function SectionCard({
         {actions}
       </div>
       {subtitle && <p className="text-[12.5px] text-text-muted m-0 mb-3">{subtitle}</p>}
-      <div className="border border-border rounded-lg bg-surface p-4">{children}</div>
+      <div className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">{children}</div>
     </section>
   );
 }

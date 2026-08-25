@@ -499,10 +499,10 @@ export default function CataloguePage() {
       // them to do here but wait for an administrator to bring the data in.
       return (
         <div>
-          <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Catalogue Manager</h1>
-          <div className="max-w-2xl mx-auto border-2 border-dashed border-brass rounded-lg bg-surface p-14 text-center">
+          <PageHeader title="Catalogue Manager" />
+          <div className="max-w-2xl mx-auto border-2 border-dashed border-brass rounded-[var(--radius-lg)] bg-surface p-8 text-center">
             <h2 className="font-display text-2xl text-text-strong mb-2">No sales loaded yet</h2>
-            <p className="text-[13.5px] text-text-muted m-0">
+            <p className="text-[13px] text-text-muted m-0">
               Sale catalogues are added by an administrator. Once a sale file has been uploaded, it will appear
               here automatically.
             </p>
@@ -513,10 +513,10 @@ export default function CataloguePage() {
     return (
       <div>
         {catalogueLoading && <BusyOverlay message="Importing sale file…" />}
-        <h1 className="font-display text-2xl font-bold text-text-strong mb-1">Catalogue Manager</h1>
-        <p className="text-[13px] text-text-muted mb-6 max-w-xl">
-          Upload a lot catalogue to begin — search, filter, value and dictate remarks for every lot.
-        </p>
+        <PageHeader
+          title="Catalogue Manager"
+          subtitle="Upload a lot catalogue to begin — search, filter, value and dictate remarks for every lot."
+        />
 
         <div
           onDragOver={(e) => {
@@ -535,21 +535,21 @@ export default function CataloguePage() {
             if (!catalogueLoading) fileInputRef.current?.click();
           }}
           aria-busy={catalogueLoading}
-          className={`max-w-2xl mx-auto border-2 border-dashed rounded-lg bg-surface p-14 text-center transition-colors ${
+          className={`max-w-2xl mx-auto border-2 border-dashed rounded-[var(--radius-lg)] bg-surface p-8 text-center transition-colors ${
             catalogueLoading ? "cursor-default" : "cursor-pointer"
           } ${dragOver ? "border-sage bg-sage-light" : "border-brass"}`}
         >
           {catalogueLoading ? (
             <div className="flex flex-col items-center gap-3">
               <TeaLoader size={48} />
-              <p className="text-[13.5px] text-text-muted m-0">
+              <p className="text-[13px] text-text-muted m-0">
                 Importing sale file — this can take a little while for a large catalogue…
               </p>
             </div>
           ) : (
             <>
               <h2 className="font-display text-2xl text-text-strong mb-2">Drop your catalogue here</h2>
-              <p className="text-[13.5px] text-text-muted mb-5">
+              <p className="text-[13px] text-text-muted mb-5">
                 Click to browse, or drag an Excel file in. Parsed and stored server-side in MongoDB via the ASP.NET Core API.
               </p>
               <Button
@@ -710,7 +710,7 @@ export default function CataloguePage() {
             Save as Preset
           </Button>
         )}
-        <span className="text-[12.5px] text-text-muted font-mono ml-auto flex items-center gap-2">
+        <span className="text-[12px] text-text-muted font-mono ml-auto flex items-center gap-2">
           {((loadingLots && lots.length > 0) || filtering) && (
             <span className="inline-flex items-center gap-1 text-brass">
               <span className="w-1.5 h-1.5 rounded-full bg-brass animate-pulse" />
@@ -748,7 +748,7 @@ export default function CataloguePage() {
       )}
 
       {selected.length > 0 && (
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-md bg-ink-solid-900 text-white mb-3 flex-wrap">
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-[var(--radius-lg)] bg-ink-solid-900 text-white mb-3 flex-wrap">
           <Chip
             label={`${selected.length} lot${selected.length === 1 ? "" : "s"} selected${
               selectionSaleCount > 1 ? ` · ${selectionSaleCount} sales` : ""
@@ -821,7 +821,7 @@ export default function CataloguePage() {
       )}
 
       {bulkNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-warn-light text-[12.5px]" style={{ color: "var(--warn)" }}>
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-warn bg-warn-light text-[13px]" style={{ color: "var(--warn)" }}>
           {bulkNotice}
           <button
             type="button"
@@ -835,7 +835,7 @@ export default function CataloguePage() {
       )}
 
       {importNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
           {importNotice}
           <button
             type="button"
@@ -849,7 +849,7 @@ export default function CataloguePage() {
       )}
 
       {importError && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-danger-light text-[12.5px]" style={{ color: "var(--danger)" }}>
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px]" style={{ color: "var(--danger)" }}>
           {importError}
           <button
             type="button"
@@ -863,7 +863,7 @@ export default function CataloguePage() {
       )}
 
       {presetNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
           {presetNotice}
           <button
             type="button"
@@ -910,7 +910,7 @@ export default function CataloguePage() {
       <Dialog open={presetDialogOpen} onClose={() => (savingPreset ? null : setPresetDialogOpen(false))} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ pb: 0.5 }}>Save Filter Preset</DialogTitle>
         <DialogContent>
-          <p className="text-[12.5px] text-text-muted mt-0 mb-3">
+          <p className="text-[12px] text-text-muted mt-0 mb-3">
             Saves the {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"} for {reportTitle} — apply it again anytime from Saved Filters.
           </p>
           <TextField

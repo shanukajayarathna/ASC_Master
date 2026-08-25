@@ -180,7 +180,7 @@ export default function AssistantPage() {
         }
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto border border-border rounded-lg bg-surface p-4 flex flex-col gap-3">
+      <div className="flex-1 min-h-0 overflow-y-auto border border-border rounded-[var(--radius-lg)] bg-surface p-4 flex flex-col gap-3">
         {messages.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-text-muted text-[13px]">
             <span>No messages yet — ask something about a lot, a valuation, or an uploaded document.</span>
@@ -202,7 +202,7 @@ export default function AssistantPage() {
         {messages.map((m) => (
           <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"} gap-1`}>
             <div
-              className={`max-w-[80%] rounded-lg px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[80%] rounded-lg px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                 m.role === "user" ? "bg-brass/15 text-text-strong" : "bg-surface-alt text-text"
               }`}
             >
@@ -231,7 +231,7 @@ export default function AssistantPage() {
       </div>
 
       {error && (
-        <div className="mt-3 p-3 rounded border border-danger bg-danger-light text-[13px] text-liquor-dark">{error}</div>
+        <div className="mt-3 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>
       )}
 
       <form

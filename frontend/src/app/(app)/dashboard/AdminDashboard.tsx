@@ -52,7 +52,6 @@ function OversightTile({ card }: { card: OversightCard }) {
       style={{
         background: "var(--surface)",
         borderColor: card.warn ? "var(--warn)" : "var(--border)",
-        boxShadow: card.warn ? undefined : "var(--shadow-sm)",
       }}
     >
       <span
@@ -62,13 +61,13 @@ function OversightTile({ card }: { card: OversightCard }) {
         <Icon sx={{ fontSize: 18, color: card.warn ? "var(--warn)" : "#fff" }} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
           {card.label}
         </div>
         <div className="font-mono text-[19px] font-semibold leading-tight" style={{ color: "var(--text-strong)" }}>
           {card.value}
         </div>
-        <div className="text-[10.5px] truncate" style={{ color: card.warn ? "var(--warn)" : "var(--text-muted)" }}>
+        <div className="text-[12px] truncate" style={{ color: card.warn ? "var(--warn)" : "var(--text-muted)" }}>
           {card.sub}
         </div>
       </div>
@@ -193,16 +192,16 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
             <AdminPanelSettingsOutlinedIcon sx={{ fontSize: 14 }} />
             Administrator
           </div>
-          <h1 className="font-display text-[26px] font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
+          <h1 className="font-display text-2xl font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
             {greeting()}, {user.displayName.split(" ")[0]}
           </h1>
-          <p className="text-[13.5px] m-0" style={{ color: "var(--text-muted)" }}>
+          <p className="text-[13px] m-0" style={{ color: "var(--text-muted)" }}>
             Users, data and the system&apos;s shared files — everything below links into the Admin Panel.
           </p>
         </div>
         <Link
           href="/admin"
-          className="flex items-center gap-2 px-4 py-2.5 rounded-[var(--radius-md)] no-underline font-semibold text-[13px] transition-transform hover:scale-[1.02]"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-[var(--radius-lg)] no-underline font-semibold text-[13px] transition-transform hover:scale-[1.02]"
           style={{ background: "var(--tile-gradient-4)", color: "#fff", boxShadow: "var(--shadow-md)" }}
         >
           Open Admin Panel
@@ -238,7 +237,7 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
               style={{ borderColor: "var(--warn)", background: "var(--warn-light)" }}
             >
               <ErrorOutlineOutlinedIcon sx={{ fontSize: 18, color: "var(--warn)" }} />
-              <span className="flex-1 text-[12.5px]" style={{ color: "var(--text-strong)" }}>
+              <span className="flex-1 text-[12px]" style={{ color: "var(--text-strong)" }}>
                 {a.text}
               </span>
               <ArrowForwardIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
@@ -273,11 +272,11 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
         </div>
       </div>
 
-      <div className="text-center pt-6 mt-6 border-t border-border">
+      <div className="text-center pt-4 border-t border-border">
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           ASC — Tea Auction Valuation &amp; Business Intelligence Platform
         </p>
-        <p className="text-[11px] m-0" style={{ color: "var(--text-muted)" }}>
+        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           © {new Date().getFullYear()} Asia Siyaka Commodities PLC. All rights reserved.
         </p>
       </div>

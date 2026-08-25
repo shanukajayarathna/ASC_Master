@@ -161,7 +161,7 @@ export default function KnowledgeBasePage() {
       />
 
       {error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
       )}
 
       <form onSubmit={runSearch} className="mb-6 flex gap-2.5">
@@ -187,7 +187,7 @@ export default function KnowledgeBasePage() {
       </form>
 
       {searchError && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{searchError}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{searchError}</div>
       )}
 
       {results && (
@@ -197,7 +197,7 @@ export default function KnowledgeBasePage() {
           </h2>
           <div className="flex flex-col gap-2.5">
             {results.map((r, i) => (
-              <div key={i} className="border border-border rounded-lg bg-surface p-3.5">
+              <div key={i} className="border border-border rounded-[var(--radius-lg)] bg-surface p-3.5">
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[11px] font-mono text-text-muted">{r.documentFileName}</span>
                   <CategoryBadge category={r.category} />
@@ -238,7 +238,7 @@ export default function KnowledgeBasePage() {
       </div>
 
       {syncNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
           {syncNotice}
           <button
             type="button"
@@ -256,7 +256,7 @@ export default function KnowledgeBasePage() {
           <TeaLoader size={44} />
         </div>
       ) : documents.length === 0 ? (
-        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-lg">
+        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)]">
           <p className="m-0">No documents uploaded yet.</p>
         </div>
       ) : (
@@ -266,7 +266,7 @@ export default function KnowledgeBasePage() {
               ? documents.find((other) => other.id === d.supersededByDocumentId)?.fileName
               : null;
             return (
-              <div key={d.id} className="flex items-center gap-3 border border-border rounded-lg bg-surface px-3.5 py-2.5">
+              <div key={d.id} className="flex items-center gap-3 border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] text-text-strong truncate">{d.fileName}</span>
@@ -305,7 +305,7 @@ export default function KnowledgeBasePage() {
         <form onSubmit={submitUpload}>
           <DialogContent>
             {uploadError && (
-              <div className="mb-3 p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{uploadError}</div>
+              <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{uploadError}</div>
             )}
             <div className="flex flex-col gap-3">
               <div>

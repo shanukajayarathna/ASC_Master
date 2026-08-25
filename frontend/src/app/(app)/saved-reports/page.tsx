@@ -84,13 +84,13 @@ export default function SavedReportsPage() {
           <TeaLoader size={44} />
         </div>
       ) : reports.length === 0 ? (
-        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-lg">
+        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)]">
           <p className="m-0">No saved reports yet — generate one from Reports and click Save.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
           {reports.map((r) => (
-            <div key={r.id} className="flex items-center gap-3 border border-border rounded-lg bg-surface px-3.5 py-2.5">
+            <div key={r.id} className="flex items-center gap-3 border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5">
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] text-text-strong truncate">{REPORT_LABELS[r.type] ?? r.title}</div>
                 <div className="text-[11px] text-text-muted font-mono">

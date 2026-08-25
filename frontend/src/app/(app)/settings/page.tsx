@@ -22,17 +22,12 @@ function AdminPointer() {
   return (
     <Link
       href="/admin"
-      className="mb-8 flex items-center gap-3 p-4 rounded-lg border no-underline transition-colors"
+      className="mb-8 flex items-center gap-3 p-4 rounded-[var(--radius-lg)] border no-underline transition-colors"
       style={{ borderColor: "var(--liquor)", background: "var(--liquor-light)" }}
     >
       <AdminPanelSettingsOutlinedIcon fontSize="small" sx={{ color: "var(--liquor-dark)" }} />
-      <span className="min-w-0">
-        <span className="block text-[13px] font-semibold" style={{ color: "var(--liquor-dark)" }}>
-          Looking for Users, API Keys, Webhooks, Master Data or system files?
-        </span>
-        <span className="block text-[12px]" style={{ color: "var(--liquor-dark)" }}>
-          Those moved to the Admin Panel.
-        </span>
+      <span className="text-[13px] font-semibold" style={{ color: "var(--liquor-dark)" }}>
+        Users, API Keys, Webhooks, Master Data and system files moved to the Admin Panel.
       </span>
     </Link>
   );
@@ -131,9 +126,9 @@ function AccountSection() {
   return (
     <SectionCard title="Account" subtitle={user ? `${user.displayName} · ${user.email}` : undefined}>
       <form onSubmit={submit} className="flex flex-col gap-3 max-w-sm">
-        {error && <div className="p-2.5 rounded border border-danger bg-danger-light text-[12.5px] text-liquor-dark">{error}</div>}
+        {error && <div className="p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
         {success && (
-          <div className="p-2.5 rounded border border-sage bg-sage-light text-[12.5px]" style={{ color: "var(--sage-dark)" }}>
+          <div className="p-2.5 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
             Password changed.
           </div>
         )}

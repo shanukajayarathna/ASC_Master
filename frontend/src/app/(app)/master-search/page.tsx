@@ -36,7 +36,7 @@ const fmtKg = (v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(2)}M` 
 
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="border border-border rounded-md bg-surface px-3.5 py-2.5 min-w-[130px]">
+    <div className="border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5 min-w-[130px]">
       <div className="text-[11px] uppercase tracking-wide text-text-muted">{label}</div>
       <div className="font-display text-[17px] font-semibold text-text-strong leading-snug">{value}</div>
       {hint && <div className="text-[11px] text-text-muted">{hint}</div>}
@@ -45,7 +45,7 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
 }
 
 const inputCls =
-  "border border-border rounded-md bg-surface px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-brass";
+  "border border-border rounded-md bg-surface px-2.5 py-1.5 text-[12px] text-text outline-none focus:border-brass";
 
 export default function MasterSearchPage() {
   const [status, setStatus] = useState<MslStatus | null>(null);
@@ -193,7 +193,7 @@ export default function MasterSearchPage() {
           <button
             key={t.key}
             onClick={() => setView(t.key)}
-            className={`px-3 py-1.5 rounded-md text-[12.5px] border ${
+            className={`px-3 py-1.5 rounded-md text-[12px] border ${
               view === t.key
                 ? "border-brass bg-brass/10 text-text-strong font-semibold"
                 : "border-border bg-surface text-text-muted hover:text-text"
@@ -204,13 +204,13 @@ export default function MasterSearchPage() {
         ))}
       </div>
 
-      {error && <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark">{error}</div>}
+      {error && <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>}
 
       {loading ? (
         <SkeletonRows rows={8} />
       ) : view === "lots" ? (
         <>
-          <div className="overflow-x-auto border border-border rounded-md">
+          <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
             <table className="w-full text-[12px] border-collapse">
               <thead>
                 <tr className="bg-surface text-left text-text-muted">
@@ -249,7 +249,7 @@ export default function MasterSearchPage() {
               </tbody>
             </table>
           </div>
-          <div className="flex items-center gap-3 mt-3 text-[12.5px] text-text-muted">
+          <div className="flex items-center gap-3 mt-3 text-[12px] text-text-muted">
             <button
               className="px-2.5 py-1 border border-border rounded disabled:opacity-40"
               disabled={page <= 1}
@@ -270,7 +270,7 @@ export default function MasterSearchPage() {
           </div>
         </>
       ) : (
-        <div className="overflow-x-auto border border-border rounded-md">
+        <div className="overflow-x-auto border border-border rounded-[var(--radius-lg)]">
           <table className="w-full text-[12px] border-collapse">
             <thead>
               <tr className="bg-surface text-left text-text-muted">

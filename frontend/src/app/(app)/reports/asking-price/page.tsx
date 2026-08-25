@@ -607,7 +607,7 @@ export default function AskingPricePage() {
       />
 
       {error && (
-        <div className="mb-4 p-3.5 rounded border border-danger bg-danger-light text-sm text-liquor-dark print:hidden">{error}</div>
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger print:hidden">{error}</div>
       )}
       {notice && (
         <div className="mb-4 p-3.5 rounded border border-border bg-surface-alt text-sm text-text-muted print:hidden">{notice}</div>
