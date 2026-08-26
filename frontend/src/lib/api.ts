@@ -1,4 +1,5 @@
 import type {
+  AccessRequest,
   AccuracyBucket,
   AccuracyOverview,
   AdminAssetStatus,
@@ -24,6 +25,7 @@ import type {
   ImportActualsResult,
   ImportStatus,
   KnowledgeDocument,
+  LandingPageContent,
   Lot,
   FilteredAnalytics,
   FilteredLots,
@@ -48,6 +50,7 @@ import type {
   PagedLots,
   PerformanceInsight,
   PreviousGradeStats,
+  PublicMarketPulseItem,
   SaleAnalytics,
   SaleSummary,
   WesEquivalentApi,
@@ -366,12 +369,17 @@ export const api = {
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
 
-  downloadSavedReport: async (id: string): Promise<Blob> => {
+  downloadSavedReport: async (id: string): Promise<{ blob: Blob; fileName: string | null }> => {
     const res = await fetch(`${API_BASE}/api/v1/reports/saved/${id}/download`, {
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
     });
     if (!res.ok) throw new Error("Download failed");
-    return res.blob();
+    // The backend names the file (e.g. "factory-sale-summary_sale34_2026.xlsx") via
+    // Content-Disposition — different job types produce different formats (.zip, .xlsx),
+    // so the caller must not assume an extension.
+    const disposition = res.headers.get("Content-Disposition");
+    const fileName = disposition?.match(/filename="([^"]+)"/)?.[1] ?? null;
+    return { blob: await res.blob(), fileName };
   },
 
   // ---- auction reports (Combined Report / Top Prices) --------------------------------
@@ -380,6 +388,24 @@ export const api = {
 
   getAuctionReport: (catalogueId: string, reportKey: string) =>
     request<AuctionReport>(`/api/v1/auction-reports/${catalogueId}/${reportKey}`),
+
+  // Combined Report from an uploaded workbook instead of an imported Catalogue — mirrors the
+  // original standalone tool's own single-dropzone flow for a sale that isn't in the system yet.
+  getCombinedReportFromUpload: async (file: File, saleNo?: string): Promise<CombinedReport> => {
+    const form = new FormData();
+    form.append("file", file);
+    if (saleNo) form.append("saleNo", saleNo);
+    const res = await fetch(`${API_BASE}/api/v1/auction-reports/from-upload/combined`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Couldn't generate the combined report from this file");
+    }
+    return res.json();
+  },
 
   // ---- worksheet (rough pre-auction scratchpad) ---------------------------------------
 
@@ -837,6 +863,21 @@ export const api = {
    *  newly-added source take effect without waiting for the next scheduled tick. */
   refreshMarketPulse: () => request<MarketPulseIngestionSummary>("/api/v1/market-pulse/refresh", { method: "POST" }),
 
+  /** Public, unauthenticated — the /home landing page's ticker strip. */
+  getPublicMarketPulseTicker: () => request<PublicMarketPulseItem[]>("/api/v1/market-pulse/public-ticker"),
+
+  // ---- Landing Page CMS (public /home page + Admin Panel "Landing Page" section) -----
+  getLandingContent: () => request<LandingPageContent>("/api/v1/landing-content"),
+  getLandingContentForAdmin: () => request<LandingPageContent>("/api/v1/landing-content/admin"),
+  updateLandingContent: (content: Omit<LandingPageContent, "updatedAt" | "updatedBy">) =>
+    request<LandingPageContent>("/api/v1/landing-content", { method: "PUT", body: JSON.stringify(content) }),
+
+  // ---- Request Access (public /request-access page + Admin Panel review list) --------
+  submitAccessRequest: (fields: { name: string; email: string; company: string; message: string }) =>
+    request<AccessRequest>("/api/v1/access-requests", { method: "POST", body: JSON.stringify(fields) }),
+  listAccessRequests: () => request<AccessRequest[]>("/api/v1/access-requests"),
+  markAccessRequestReviewed: (id: string) => request<void>(`/api/v1/access-requests/${id}/reviewed`, { method: "PATCH" }),
+
   // ---- Automated Reports (Admin Panel) — see backend/Modules/ScheduledReports ----
 
   listScheduledReportJobs: () => request<ScheduledReportJob[]>("/api/v1/admin/scheduled-reports"),
@@ -857,6 +898,16 @@ export const api = {
 
   deleteStagedCbac: (saleYear: number, saleNo: number) =>
     request<void>(`/api/v1/admin/weekly-fact/cbac/${saleYear}/${saleNo}`, { method: "DELETE" }),
+
+  // ---- Factory Sale Summary (Estate-wise / Owner-wise) --------------------------------
+
+  generateFactorySaleSummary: (saleYear: number, saleNo: number) =>
+    request<ScheduledReportOutput>("/api/v1/reports/factory-sale-summary/generate", {
+      method: "POST",
+      body: JSON.stringify({ saleYear, saleNo }),
+    }),
+
+  listFactorySaleSummaryOutputs: () => request<ScheduledReportOutput[]>("/api/v1/reports/factory-sale-summary/outputs"),
 
   mslSearch: (filters: MslFilters, page = 1, pageSize = 50) => {
     const qs = new URLSearchParams();

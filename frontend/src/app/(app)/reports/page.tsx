@@ -7,7 +7,9 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import AutoStoriesOutlinedIcon from "@mui/icons-material/AutoStoriesOutlined";
+import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import SellOutlinedIcon from "@mui/icons-material/SellOutlined";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import SummarizeOutlinedIcon from "@mui/icons-material/SummarizeOutlined";
 
 // Sub-destinations of Reports, not top-level modules — a local tile array rather than
@@ -68,6 +70,24 @@ const REPORT_TILES: NavItem[] = [
     description: "Every ranked region combined into one executive bulletin — matches the original's exact Excel layout. The interactive editor (themes, manual data entry, image uploads) is still to come.",
     icon: AutoStoriesOutlinedIcon,
     gradient: 7,
+  },
+  {
+    href: "/reports/factory-sale-summary",
+    label: "Factory Sale Summary",
+    section: "Reports",
+    status: "live",
+    description: "Estate-wise and Owner/Plantation-group-wise QTY, AVG and unsold breakdown across every broker in a sale.",
+    icon: Inventory2OutlinedIcon,
+    gradient: 5,
+  },
+  {
+    href: "/reports/automated",
+    label: "Automated Reports",
+    section: "Reports",
+    status: "live",
+    description: "Reports that generate themselves on schedule or on sale close — enable, run now, or download outputs.",
+    icon: ScheduleOutlinedIcon,
+    gradient: 8,
   },
 ];
 

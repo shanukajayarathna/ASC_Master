@@ -248,6 +248,7 @@ export interface ScheduledReportJob {
   displayName: string;
   triggerType: ScheduledReportJobTriggerType;
   cronExpression: string | null;
+  cadence: "Weekly" | "Monthly";
   enabled: boolean;
   lastRunAt: string | null;
   lastStatus: "NeverRun" | "Succeeded" | "Waiting" | "Failed";
@@ -975,4 +976,83 @@ export interface AdminAssetStatus {
   sizeBytes: number | null;
   uploadedAtUtc: string | null;
   uploadedBy: string | null;
+}
+
+/** Public landing page (/home) ticker projection — headline/category/date only. See
+ *  MarketPulseController.PublicTicker. */
+export interface PublicMarketPulseItem {
+  title: string;
+  aiCategory: MarketPulseCategory | null;
+  publishedAt: string | null;
+}
+
+// ---- Landing Page CMS (/home + Admin Panel "Landing Page" section) ----------------------
+
+export interface LandingHero {
+  headline: string;
+  subhead: string;
+  ctaPrimaryLabel: string;
+  ctaSecondaryLabel: string;
+}
+
+export interface LandingCompanyStats {
+  foundedYear: number;
+  avgAnnualVolumeKg: number;
+  brokerCount: number;
+  yearsOperating: number;
+}
+
+export interface LandingPlatformStat {
+  label: string;
+  value: string;
+  isLive: boolean;
+  liveSourceKey: string | null;
+}
+
+export interface LandingIntelligenceItem {
+  title: string;
+  description: string;
+  iconKey: string;
+  order: number;
+}
+
+export interface LandingTestimonial {
+  id: string;
+  name: string;
+  role: string;
+  quote: string;
+  avatarUrl: string;
+  order: number;
+  isPublished: boolean;
+}
+
+export interface LandingHeritage {
+  pullQuote: string;
+  bodyCopy: string;
+  imageUrl: string;
+}
+
+export interface LandingPageContent {
+  hero: LandingHero;
+  companyStats: LandingCompanyStats;
+  platformStats: LandingPlatformStat[];
+  fiveIntelligences: LandingIntelligenceItem[];
+  testimonials: LandingTestimonial[];
+  heritage: LandingHeritage;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+// ---- Request Access (public /request-access page + Admin Panel review list) -------------
+
+export type AccessRequestStatus = "Pending" | "Reviewed";
+
+export interface AccessRequest {
+  id: string;
+  name: string;
+  email: string;
+  company: string;
+  message: string;
+  status: AccessRequestStatus;
+  createdAt: string;
 }

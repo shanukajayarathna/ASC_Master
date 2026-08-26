@@ -1,18 +1,19 @@
 using Asc.Api.Data;
-using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 
 namespace Asc.Api.Modules.ScheduledReports;
 
-/// <summary>Admin Panel's "Automated Reports" section — list every registered job with its
-/// current state, toggle it, or force a run. Run history is deliberately not duplicated here:
-/// see AuditLogController's entityType/entityId filter (EntityType="ScheduledReportJob",
-/// EntityId=the job's Key) — one history mechanism for the whole app, not a second one.</summary>
+/// <summary>Reports &gt; Automated Reports page — list every registered job with its current
+/// state, toggle it, or force a run. Open to any signed-in user (these jobs only ever touch
+/// their own generated reports, never the underlying sale data — no Admin-only gate needed).
+/// Run history is deliberately not duplicated here: see AuditLogController's entityType/
+/// entityId filter (EntityType="ScheduledReportJob", EntityId=the job's Key) — one history
+/// mechanism for the whole app, not a second one.</summary>
 [ApiController]
 [Route("api/v1/admin/scheduled-reports")]
-[Authorize(Policy = Policies.ManageScheduledReports)]
+[Authorize]
 public class ScheduledReportJobsController(
     IScheduledReportJobRegistry registry, ScheduledReportRunnerService runner, MongoContext db,
     ISavedReportsService savedReports) : ControllerBase
@@ -27,7 +28,7 @@ public class ScheduledReportJobsController(
         {
             var state = byKey.GetValueOrDefault(job.Key);
             return new ScheduledReportJobDto(
-                job.Key, job.DisplayName, job.Trigger.Type.ToString(), job.Trigger.CronExpression,
+                job.Key, job.DisplayName, job.Trigger.Type.ToString(), job.Trigger.CronExpression, job.Cadence.ToString(),
                 state?.Enabled ?? true, state?.LastRunAt,
                 (state?.LastStatus ?? ScheduledReportJobLastStatus.NeverRun).ToString(),
                 state?.LastMessage, state?.LastDurationMs ?? 0, state?.ConsecutiveFailures ?? 0);

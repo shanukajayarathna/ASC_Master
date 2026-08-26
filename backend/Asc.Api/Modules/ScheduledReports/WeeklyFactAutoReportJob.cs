@@ -63,6 +63,7 @@ public class WeeklyFactAutoReportJob(
     public string Key => "weekly-fact-low";
     public string DisplayName => "Weekly FACT/RANK/LOW Report";
     public ReportJobTrigger Trigger => ReportJobTrigger.AfterSaleClose();
+    public ReportJobCadence Cadence => ReportJobCadence.Weekly;
 
     public async Task<ScheduledReportJobRunResult> RunAsync(CancellationToken ct)
     {

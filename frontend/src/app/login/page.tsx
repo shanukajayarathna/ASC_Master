@@ -35,7 +35,7 @@ export default function LoginPage() {
   // Already signed in and landed here anyway (e.g. a stale bookmark) — the app, not the
   // login form, is where that session belongs.
   useEffect(() => {
-    if (!loading && user) router.replace("/dashboard");
+    if (!loading && user) router.replace(user.roles.includes("Admin") ? "/admin" : "/dashboard");
   }, [loading, user, router]);
 
   // useAsyncAction's synchronous guard is what actually stops a double-Enter from firing two
@@ -44,8 +44,8 @@ export default function LoginPage() {
   const { busy: submitting, run: submit } = useAsyncAction(async () => {
     setError(null);
     try {
-      await login(email, password);
-      router.push("/dashboard");
+      const loggedInUser = await login(email, password);
+      router.push(loggedInUser.roles.includes("Admin") ? "/admin" : "/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't log in. Try again.");
     }
@@ -136,6 +136,10 @@ export default function LoginPage() {
               "Log in"
             )}
           </Button>
+
+          <p className="text-[12.5px] text-center mt-5 mb-0">
+            <a href="/request-access" style={{ color: "var(--liquor)" }}>Need access? Request it</a>
+          </p>
         </form>
       </div>
     </div>

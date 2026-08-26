@@ -11,7 +11,7 @@ interface AuthCtx {
   /** True only while the stored token (if any) is being validated on first load — lets
    *  callers avoid flashing a "logged out" state before that check has finished. */
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
 }
 
@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(TOKEN_KEY, res.token);
     setAuthToken(res.token);
     setUser(res.user);
+    return res.user;
   }, []);
 
   const logout = useCallback(() => {

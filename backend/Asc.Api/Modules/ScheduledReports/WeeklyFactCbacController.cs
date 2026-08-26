@@ -1,17 +1,16 @@
-using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Asc.Api.Modules.ScheduledReports;
 
-/// <summary>Admin staging area for the CBAC elevation-average TXT (see
-/// IWeeklyFactCbacStagingStore's own doc comment for why this can't be database-derived like
-/// the WES side already is). An admin stages this whenever it arrives during the week,
-/// independent of when the sale itself closes; WeeklyFactAutoReportJob picks it up on its own
-/// next tick once the sale has also closed.</summary>
+/// <summary>Staging area for the CBAC elevation-average TXT, on the Reports &gt; Automated
+/// Reports page (see IWeeklyFactCbacStagingStore's own doc comment for why this can't be
+/// database-derived like the WES side already is). Open to any signed-in user — stage this
+/// whenever it arrives during the week, independent of when the sale itself closes;
+/// WeeklyFactAutoReportJob picks it up on its own next tick once the sale has also closed.</summary>
 [ApiController]
 [Route("api/v1/admin/weekly-fact/cbac")]
-[Authorize(Policy = Policies.ManageScheduledReports)]
+[Authorize]
 public class WeeklyFactCbacController(IWeeklyFactCbacStagingStore store) : ControllerBase
 {
     [HttpGet]

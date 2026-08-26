@@ -10,6 +10,7 @@ using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Knowledge;
+using Asc.Api.Modules.LandingContent;
 using Asc.Api.Modules.MarketPulse;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Msl;
@@ -26,6 +27,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using MongoDB.Driver;
 
 // SaleFileStore parses each sale's Excel file synchronously (ClosedXML has no async API),
 // directly on whatever thread calls it — and SaleMetaWarmer does the same, sequentially,
@@ -223,6 +225,11 @@ builder.Services.AddHttpClient(WeeklyFactAutoReportJob.HttpClientName, c =>
 builder.Services.AddSingleton<WeeklyFactAutoReportJob>();
 builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<WeeklyFactAutoReportJob>());
 builder.Services.AddSingleton<IScheduledReportJob, MonthlyCombinedPlaceholderJob>();
+// Registered as itself too (not just IScheduledReportJob) — FactorySaleSummaryController
+// injects the concrete type directly for its own on-demand "Generate for this sale" endpoint,
+// the same pattern WeeklyFactAutoReportJob uses for its HttpClientName constant.
+builder.Services.AddSingleton<FactorySaleSummaryReportJob>();
+builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<FactorySaleSummaryReportJob>());
 builder.Services.AddSingleton<IScheduledReportJobRegistry, ScheduledReportJobRegistry>();
 builder.Services.AddSingleton<ScheduledReportRunnerService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduledReportRunnerService>());
@@ -314,6 +321,7 @@ builder.Services.AddAuthorization(opts =>
     opts.AddPolicy(Policies.ManageDataFiles, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ManageMarketPulse, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ManageScheduledReports, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageLandingContent, p => p.RequireRole(RoleNames.Admin));
 });
 
 // Liveness probe for container orchestration (Phase 9) — deliberately just "did the process
@@ -354,7 +362,13 @@ builder.Services.AddCors(opts =>
     {
         policy.WithOrigins(corsOrigins)
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              // Without this, ScheduledReportsController's saved-report download response
+              // carries its real filename in Content-Disposition, but the browser's fetch API
+              // hides that header cross-origin unless it's explicitly exposed — the Admin
+              // Panel's download button would otherwise have no way to know the file's real
+              // name/extension (see AutomatedReportsSection's JobRow.download).
+              .WithExposedHeaders("Content-Disposition");
     });
 });
 
@@ -401,5 +415,18 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
+
+// One-time seed so the public landing page is never empty before an Admin fills in real
+// copy through its CMS panel — mirrors /auth/register's "bootstrap on empty collection"
+// pattern, just run eagerly at startup instead of on first request.
+using (var seedScope = app.Services.CreateScope())
+{
+    var seedDb = seedScope.ServiceProvider.GetRequiredService<MongoContext>();
+    if (!await seedDb.LandingPageContent.Find(FilterDefinition<LandingPageContent>.Empty).AnyAsync())
+    {
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        await seedDb.LandingPageContent.InsertOneAsync(LandingPageContentSeed.Default());
+    }
+}
 
 app.Run();

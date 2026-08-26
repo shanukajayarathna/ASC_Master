@@ -5,10 +5,18 @@
    (Low Grown through CTC Teas) from all four Combined Report families
    into one document. Port of the original standalone app's
    asc-analytics.js (topPricePage/regionForItem — the region grouping)
-   and asc-studio.js (packTppRegionColumns/planTppRegionPageLayout — the
-   masonry page-packing algorithm shared by Excel and PDF — plus the
-   Excel writer itself: tppExcelMasthead/writeTppRegionSheet/
+   and asc-studio.js (packTppRegionColumns/planTppRegionPageLayout/
+   TPP_DENSITY_PRESETS — the masonry page-packing + density-auto-fit
+   algorithm, shared by Excel, the on-screen bulletin, AND the PDF —
+   plus the Excel writer itself: tppExcelMasthead/writeTppRegionSheet/
    writeTppExcelCard/writeTppReferenceSheet).
+
+   The on-screen bulletin itself is TopPriceBulletin.tsx (a real DOM
+   component, not built here) — this file supplies the layout (
+   planTppBulletinAutoFit) it renders from, and exportTopPricePagePdf
+   screenshots that rendered DOM into the PDF exactly like the original
+   tool's own exportPDF does (html2canvas), rather than redrawing it a
+   second time as vector PDF.
 
    Scope note: the original's "Top Price Page" is normally built inside
    an interactive WYSIWYG editor (asc-studio.js's mountStudio) that lets
@@ -169,43 +177,251 @@ function estimateAutoCardHeight(cat: TppAutoCategory): number {
 interface PackResult {
   placements: { entry: TppRegionEntry; col: number }[];
   heights: number[];
+  usedCols: number;
   overflowed: boolean;
 }
 
 /** LPT ("Longest Processing Time") bin-packing: cards assigned largest-first to whichever
  *  column is currently shortest — a standard, well-bounded heuristic (worst case within 4/3 of
  *  optimal) that avoids a big card landing on top of a column already loaded with other big
- *  cards. Region reading order is unaffected — only which column each card renders in. */
-function packRegionColumns(pageEntries: TppRegionEntry[], cols: number, budget: number): PackResult {
+ *  cards. Region reading order is unaffected — only which column each card renders in.
+ *  `getHeight`/`gap` default to Excel's own static per-entry height and a flat 10px gap; the
+ *  bulletin's density auto-fit (planTppRegionBandedLayout below) passes its own preset-scoped
+ *  height function and gap instead, so this one packer serves both callers exactly like the
+ *  original report-studio.js tool's own packTppRegionColumns does. */
+function packRegionColumns(
+  pageEntries: TppRegionEntry[],
+  cols: number,
+  budget: number,
+  getHeight: (e: TppRegionEntry) => number = (e) => e.height,
+  gap = 10
+): PackResult {
   const heights = new Array(cols).fill(0);
   const colOf = new Map<TppRegionEntry, number>();
   [...pageEntries]
-    .sort((a, b) => b.height - a.height)
+    .sort((a, b) => getHeight(b) - getHeight(a))
     .forEach((entry) => {
       let col = 0;
       for (let c = 1; c < cols; c++) if (heights[c] < heights[col]) col = c;
-      const gapBefore = heights[col] > 0 ? 10 : 0;
-      heights[col] += gapBefore + entry.height;
+      const gapBefore = heights[col] > 0 ? gap : 0;
+      heights[col] += gapBefore + getHeight(entry);
       colOf.set(entry, col);
     });
   const placements = pageEntries.map((entry) => ({ entry, col: colOf.get(entry)! }));
-  return { placements, heights, overflowed: heights.some((h) => h > budget) };
+  return { placements, heights, usedCols: Math.max(...placements.map((p) => p.col)) + 1, overflowed: heights.some((h) => h > budget) };
 }
 
-function bestRegionColumnCount(pageCards: TppRegionEntry[], budget: number, maxCols: number): { packed: PackResult; cols: number } {
+function bestRegionColumnCount(
+  pageCards: TppRegionEntry[],
+  budget: number,
+  maxCols: number,
+  allowFallback = true,
+  getHeight?: (e: TppRegionEntry) => number,
+  gap?: number
+): { packed: PackResult; cols: number; fill: number } | null {
   let best: { packed: PackResult; fill: number; cols: number } | null = null;
   for (let cols = 1; cols <= Math.min(maxCols, pageCards.length); cols++) {
-    const packed = packRegionColumns(pageCards, cols, budget);
+    const packed = packRegionColumns(pageCards, cols, budget, getHeight, gap);
     if (packed.overflowed) continue;
     const fill = Math.max(...packed.heights);
     if (!best || fill > best.fill || (fill === best.fill && cols > best.cols)) best = { packed, fill, cols };
   }
-  if (!best) {
+  if (!best && allowFallback) {
     const cols = Math.min(maxCols, pageCards.length);
-    const packed = packRegionColumns(pageCards, cols, budget);
+    const packed = packRegionColumns(pageCards, cols, budget, getHeight, gap);
     best = { packed, fill: Math.max(...packed.heights), cols };
   }
   return best;
+}
+
+// ---- BULLETIN BANDED LAYOUT — port of asc-studio.js's TPP_DENSITY_PRESETS/
+// estimateTppAutoCardHeight/planTppRegionBandedLayout/planTppRegionBandedLayoutAutoFit. This is
+// what the on-screen bulletin (TopPriceBulletin.tsx) and the PDF export (a screenshot of that
+// same DOM) both actually render — a categorically different shape from Excel's own
+// planRegionPageLayout above (which stays untouched): every region here gets classified once by
+// its own single-column height, "small" regions get LPT-packed into a narrow 3-column grid band
+// (exactly like Excel's masonry), but a "big" region instead gets the FULL page width as its own
+// wide band, relying on .asc-tpp-body's native CSS `columns:` to reflow its own row list into
+// several reading columns — see TopPriceBulletin.module.css. Bands stack top to bottom in
+// reading order; a page closes once the next band would overflow its budget. */
+
+/** Narrow-grid column count for the bulletin — fixed regardless of density (a mark name must
+ *  still read on one line at this page's physical width; a smaller font doesn't change that),
+ *  unlike a wide band's own reflow column count (`wideCols` below), which a smaller font DOES
+ *  let stretch further since it already has the whole sheet width to itself. */
+const TPP_BULLETIN_COLUMNS = 3;
+
+/** How much card height ONE bulletin page can actually hold, at "normal" density — budgeted
+ *  under the true printable area (see report-studio.js's own TPP_REGION_PAGE_BUDGET comment)
+ *  since both this number and estimateTppAutoCardHeight are estimates, not measured layout, and
+ *  a card spilling onto an unrelated page is a far worse failure than some blank space left at
+ *  the foot of a page that had room to spare. */
+const TPP_BULLETIN_PAGE_BUDGET = 520;
+
+/** The bulletin's own fixed page-count target — a TARGET, not a hard ceiling: a sale so large it
+ *  still doesn't fit even at "ultra" (the densest preset) gets however many pages it genuinely
+ *  needs rather than losing rows. */
+export const TPP_MAX_PAGES = 2;
+
+/** One row-metric preset the density auto-fit tries in order. Every field here has a matching
+ *  CSS number under `.asc-tpp-bulletin[data-density]` in TopPriceBulletin.module.css — the two
+ *  must move together, or this file's page-count estimate and what actually renders disagree. */
+export interface TppDensity {
+  name: "normal" | "compact" | "ultra";
+  head: number;
+  empty: number;
+  row: number;
+  block: number;
+  gradeGap: number;
+  /** Reflow column count a WIDE band's own card computes to via CSS `columns:` — independent of
+   *  TPP_BULLETIN_COLUMNS (the narrow grid band's column count). */
+  wideCols: number;
+  pageBudget: number;
+  gap: number;
+  /** Max Selling Mark characters before a JS-truncated ellipsis kicks in (TopPriceBulletin.tsx's
+   *  Row) — NOT CSS text-overflow/overflow:hidden, which is what caused the vertical glyph-
+   *  clipping bug in html2canvas exports (see .mark's own CSS comment). Truncating the actual
+   *  string is the only safe way to bound a name's rendered width at these densities: without it,
+   *  a name that only slightly overflows visually collides with the grade/price columns instead
+   *  of being clipped, since .mark has no overflow:hidden to hide the excess. Sized conservatively
+   *  for the narrowest column width this density can actually produce (a small-region grid card
+   *  packed 3-wide, each further reflowed by its own `columns:` CSS, is tighter than a wide-band
+   *  card's own per-column width — verified by measuring real rendered rects, not guessed). */
+  markMaxChars: number;
+}
+
+export const TPP_DENSITY_NORMAL: TppDensity = {
+  name: "normal",
+  head: 26,
+  empty: 38,
+  row: 18,
+  block: 24,
+  gradeGap: 6,
+  wideCols: 3,
+  pageBudget: TPP_BULLETIN_PAGE_BUDGET,
+  gap: 10,
+  markMaxChars: 34,
+};
+
+export const TPP_DENSITY_COMPACT: TppDensity = {
+  name: "compact",
+  head: 15,
+  empty: 22,
+  row: 11,
+  block: 13,
+  gradeGap: 2,
+  wideCols: 5,
+  pageBudget: 660,
+  gap: 6,
+  markMaxChars: 22,
+};
+
+/** Last-resort preset — real sale data regularly runs 220-320 ranked rows, and "compact" alone
+ *  still overflows 2 pages for roughly a third of them. Squeezes spacing (padding/margins/gaps)
+ *  harder than font size, since legibility matters more than density once type is already this
+ *  small — see the matching CSS block's own comment for the same reasoning applied per-property. */
+export const TPP_DENSITY_ULTRA: TppDensity = {
+  name: "ultra",
+  head: 11,
+  empty: 16,
+  row: 8,
+  block: 9,
+  gradeGap: 1,
+  wideCols: 7,
+  pageBudget: 780,
+  gap: 4,
+  markMaxChars: 13,
+};
+
+/** The narrow (spanCols:1) height a region would render to at this density — what classifies it
+ *  small/big and what the small-entries grid band packs by. `spanCols` estimates the SAME card
+ *  reflowed into that many of its own reading columns instead (a wide band's actual shape) —
+ *  only the row-driven inner height divides by it; HEAD spans the full band width regardless. */
+function estimateTppAutoCardHeight(cat: TppAutoCategory, spanCols: number, density: TppDensity): number {
+  const { head: HEAD, empty: EMPTY, row: ROW, block: BLOCK, gradeGap: GRADE_GAP } = density;
+  const rowCount = cat.grades.reduce((n, g) => n + g.rows.length, 0);
+  if (!rowCount) return HEAD + EMPTY;
+  const blockCount = new Set(cat.grades.map((g) => g.block || "")).size;
+  const blockRows = blockCount > 1 ? blockCount : 0;
+  const gradeGaps = Math.max(0, cat.grades.length - Math.max(blockCount, 1));
+  const innerHeight = rowCount * ROW + blockRows * BLOCK + gradeGaps * GRADE_GAP;
+  return HEAD + Math.ceil(innerHeight / spanCols);
+}
+
+export type TppBand = { kind: "wide"; entry: TppRegionEntry } | { kind: "grid"; columns: TppRegionEntry[][] };
+export interface TppBulletinPage {
+  bands: TppBand[];
+}
+
+/** The bulletin's own page/band decision — see this section's header comment for why it's a
+ *  categorically different shape from Excel's narrow-only planRegionPageLayout. */
+function planTppRegionBandedLayout(entries: TppRegionEntry[], density: TppDensity): TppBulletinPage[] {
+  const budget = density.pageBudget;
+  const maxCols = TPP_BULLETIN_COLUMNS;
+  const gap = density.gap;
+  const bigThreshold = budget / maxCols;
+  const narrowHeight = (entry: TppRegionEntry) => estimateTppAutoCardHeight(entry.category, 1, density);
+  const isBig = (entry: TppRegionEntry) => narrowHeight(entry) > bigThreshold;
+
+  const pages: TppBulletinPage[] = [];
+  let page: { usedHeight: number; bands: TppBand[] } = { usedHeight: 0, bands: [] };
+  let smallBuf: TppRegionEntry[] = [];
+
+  const roomLeft = () => budget - page.usedHeight;
+  const fitSmalls = (list: TppRegionEntry[], room: number) => bestRegionColumnCount(list, room, maxCols, false, narrowHeight, gap);
+
+  const closeSmallBand = () => {
+    if (!smallBuf.length) return;
+    const best = fitSmalls(smallBuf, roomLeft())!; // always fits — see the original tool's own note on this invariant
+    const columns: TppRegionEntry[][] = Array.from({ length: best.cols }, () => []);
+    best.packed.placements.forEach((p) => columns[p.col].push(p.entry));
+    page.bands.push({ kind: "grid", columns });
+    page.usedHeight += best.fill + gap;
+    smallBuf = [];
+  };
+
+  const closePage = () => {
+    closeSmallBand();
+    if (page.bands.length) pages.push(page);
+    page = { usedHeight: 0, bands: [] };
+  };
+
+  entries.forEach((entry) => {
+    if (isBig(entry)) {
+      closeSmallBand();
+      const height = estimateTppAutoCardHeight(entry.category, density.wideCols, density);
+      if (page.bands.length && height + gap > roomLeft()) closePage();
+      page.bands.push({ kind: "wide", entry });
+      page.usedHeight += height + gap;
+      return;
+    }
+    const candidate = [...smallBuf, entry];
+    if (fitSmalls(candidate, roomLeft())) {
+      smallBuf = candidate;
+    } else {
+      closePage();
+      smallBuf = [entry];
+    }
+  });
+  closePage();
+  return pages;
+}
+
+/** Tries TPP_DENSITY_PRESETS (normal -> compact -> ultra, lightest type first) and hands back the
+ *  first whose page count is within TPP_MAX_PAGES, or ultra's own result if even that doesn't get
+ *  there. Re-running the layout per preset is cheap (pure arithmetic over a dozen-ish entries),
+ *  so trying every preset up front costs nothing a normal-sized sale would ever feel. */
+const TPP_DENSITY_PRESETS = [TPP_DENSITY_NORMAL, TPP_DENSITY_COMPACT, TPP_DENSITY_ULTRA];
+
+export function planTppBulletinAutoFit(combined: CombinedReport): { pages: TppBulletinPage[]; density: TppDensity } {
+  let result: { pages: TppBulletinPage[]; density: TppDensity } | null = null;
+  for (const density of TPP_DENSITY_PRESETS) {
+    const entries = buildRegionEntries(combined, (cat) => estimateTppAutoCardHeight(cat, 1, density));
+    const pages = planTppRegionBandedLayout(entries, density);
+    result = { pages, density };
+    if (pages.length <= TPP_MAX_PAGES || density === TPP_DENSITY_PRESETS[TPP_DENSITY_PRESETS.length - 1]) break;
+  }
+  return result!;
 }
 
 export interface TppPage {
@@ -235,7 +451,7 @@ export function planRegionPageLayout(entries: TppRegionEntry[], budget = TPP_REG
   }
   if (!pageEntries.length) return [];
 
-  const sharedCols = bestRegionColumnCount(pageEntries[0], budget, maxCols).cols;
+  const sharedCols = bestRegionColumnCount(pageEntries[0], budget, maxCols)!.cols; // allowFallback defaults true — never null
 
   return pageEntries.map((pageCards) => {
     let cols = sharedCols;
@@ -282,11 +498,11 @@ const TPP_REGION_ORDER = [
   "Udapussellawa",
   "Western High",
   "Western Medium",
-  "Others — Dust",
-  "Others — Off Grades",
   "Uva Medium",
   "Uva High",
   "CTC Teas",
+  "Others — Dust",
+  "Others — Off Grades",
 ];
 
 // ---- EXCEL EXPORT — port of asc-studio.js's tppExcelMasthead/writeTppRegionSheet/
@@ -620,7 +836,7 @@ function extractSaleNumber(sourceName: string): string {
  *  via the editor) — sourceName carries the sale's identity ("Sale 30 - 2026") for both the
  *  number and, in place of a bare date, the masthead's own display text. Shared by both exports
  *  so their mastheads always agree. */
-function buildTppMeta(combined: CombinedReport, referenceReport?: AuctionReport): TppMeta {
+export function buildTppMeta(combined: CombinedReport, referenceReport?: AuctionReport): TppMeta {
   return {
     broker: "Asia Siyaka Commodities PLC",
     auctionNumber: extractSaleNumber((referenceReport ?? combined.reports[0])?.sourceName ?? combined.sourceName),
@@ -654,581 +870,97 @@ export async function exportTopPricePageExcel(combined: CombinedReport, referenc
 }
 
 // ---- PDF EXPORT ------------------------------------------------------------------------------
-// The original builds its PDF by screenshotting the on-screen bulletin (html2canvas) — that DOM/
-// CSS bulletin doesn't exist here (it lives inside the interactive editor, not yet built), so
-// this draws the same document directly as vector PDF instead. That's a genuine technology swap,
-// but it buys something the screenshot approach can't: every row height below is the EXACT size
-// this code is about to draw, not an estimate of what a browser might render — so pages pack
-// densely with no leftover blank space, which the original itself explicitly accepted as a
-// tradeoff ("a little extra blank space... is a far worse outcome than [a card] spilling").
-// Colors/fonts match the original's actual on-screen theme (asc-components.css §K2 / asc-
-// tokens.css's default "asia-siyaka" theme), not the Excel exporter's own separately-hardcoded
-// TPP_XL_* palette — the two were already independently styled in the original (Excel's
-// Reference Data panels use navy; the on-screen/PDF ones use forest green, both intentional).
+// Matches the original tool's own approach exactly: the bulletin is a real on-screen DOM
+// component (TopPriceBulletin.tsx, driven by planTppBulletinAutoFit + the banded layout above),
+// and exportTopPricePagePdf screenshots each already-rendered page (html2canvas) into the PDF —
+// see that function's own doc comment. No vector-drawing left here at all; colors/fonts for the
+// bulletin itself live in TopPriceBulletin.module.css, matching the original's actual on-screen
+// theme (asc-components.css §K2 / asc-tokens.css's default "asia-siyaka" theme) — not the Excel
+// exporter's own separately-hardcoded TPP_XL_* palette below, which was already independently
+// styled in the original (Excel's Reference Data panels use navy; the bulletin uses forest
+// green, both intentional).
 
-const PDF_INK: [number, number, number] = [18, 71, 52]; // #124734 — --asc-forest, this theme's --navy
-const PDF_PAPER: [number, number, number] = [252, 251, 248]; // #FCFBF8
-const PDF_HEADER_1: [number, number, number] = [47, 125, 82]; // #2F7D52
-const PDF_HEADER_2: [number, number, number] = [62, 148, 104]; // #3E9468
-const PDF_GOLD: [number, number, number] = [182, 140, 42]; // #B68C2A
-const PDF_GOLD_SOFT: [number, number, number] = [217, 180, 74]; // #D9B44A
-const PDF_UP: [number, number, number] = [31, 122, 77]; // #1F7A4D
-const PDF_OURS_FILL: [number, number, number] = [225, 240, 230]; // #E1F0E6
-const PDF_FAINT: [number, number, number] = [139, 146, 158]; // #8B929E
-const PDF_HEAD_FILL: [number, number, number] = [239, 242, 245]; // #EFF2F5
-const PDF_GRADE_RULE: [number, number, number] = [196, 191, 178]; // divider between grade groups — deliberately more visible than the reference page's hairlines
+/** Screenshots each already-rendered `.page` DOM node (TopPriceBulletin.tsx) into a JPEG and
+ *  stitches those into a multi-page PDF — exactly the original report-studio.js tool's own
+ *  exportPDF(): every page's PDF size comes from that page's OWN captured pixel dimensions
+ *  (converted 1 CSS px = 72/96 pt, dividing back out the 2x oversampling), not a fixed A4
+ *  constant, so the export always matches whatever actually rendered instead of assuming a
+ *  physical size the banded layout only ever *targets*. JPEG (not PNG) at high quality for the
+ *  same reason the original adopted it: a 2x PNG of this dense a bulletin ran 60MB+ in testing;
+ *  a 0.95-quality JPEG is visually indistinguishable at print/viewing scale and an order of
+ *  magnitude smaller. There is no separate Reference Data page here — the original's own
+ *  exportPDF only ever captures the ranked-region bulletin pages themselves (Excel is the only
+ *  format with a Reference Data sheet — see writeReferenceSheet). */
+export async function exportTopPricePagePdf(pageElements: HTMLElement[], meta: TppMeta): Promise<void> {
+  if (pageElements.length === 0) throw new Error("No bulletin pages to export — generate the report first.");
 
-// A3 landscape, matching the original's --asc-page-w:420mm bulletin page size exactly.
-const PDF_PAGE_W = 420;
-const PDF_PAGE_H = 297;
-const PDF_MARGIN = 10;
-const PDF_MASTHEAD_H = 20;
-const PDF_FOOTER_H = 9;
-const PDF_GAP_V = 4;
-const PDF_COL_GAP = 5;
-const PDF_BODY_W = PDF_PAGE_W - 2 * PDF_MARGIN;
-const PDF_BODY_H = PDF_PAGE_H - 2 * PDF_MARGIN - PDF_MASTHEAD_H - PDF_FOOTER_H - 2 * PDF_GAP_V;
+  const { default: html2canvas } = await import("html2canvas");
+  // 3x, not the original tool's 2x — this bulletin's own type runs smaller (compact density's
+  // 7-8px rows) than what the original ever had to capture, and text at that size visibly
+  // softened under html2canvas at 2x (reported as "not clear as the preview"). 3x costs a
+  // larger JPEG but is still an order of magnitude under the PNG size that pushed the original
+  // to JPEG in the first place.
+  const CAPTURE_SCALE = 3;
+  const JPEG_QUALITY = 0.95;
 
-const PDF_ROW_H = 4.3;
-const PDF_CARD_HEAD_H = 6.5;
-const PDF_BLOCK_H = 5;
-const PDF_GRADE_GAP = 1.6;
-const PDF_EMPTY_H = 12;
+  // Web fonts (Fraunces/IBM Plex Mono, layout.tsx) must have actually finished loading before
+  // capture — html2canvas paints whatever font is resolved at that exact instant, and a capture
+  // that beats the font swap silently falls back to the browser's generic serif/monospace,
+  // which is a second, independent reason exported text looked different from the preview
+  // (the preview had strictly more time to finish loading them before anyone looked at it).
+  await document.fonts.ready;
 
-// ---- ROW-LEVEL FLOWING LAYOUT ---------------------------------------------------------------
-// Region "cards" (as used by Excel, and by the PDF's first attempt) are an indivisible unit —
-// a region with 20 grades and a region with 2 can never be split to balance a column, which is a
-// hard mathematical ceiling on how even any card-level packing can ever get. This instead treats
-// every region header, block divider and price row as its own small flowing item, and divides
-// that flat list into columns by cumulative HEIGHT — the same technique a newspaper uses to
-// carry a long article across several columns. A region whose rows straddle a column break just
-// continues at the top of the next column with a small repeated header, and the imbalance this
-// leaves is bounded by the height of ONE row (a few mm), not the height of a whole region.
+  // One frame so freshly laid-out content (e.g. a page whose density/catalogue just changed,
+  // or a page scrolled into view for the first time) has actually painted before capture —
+  // the original tool's own exportPDF() does the same wait for the same reason. Skipping this
+  // is what produces html2canvas's "canvas element with a width or height of 0" error: it
+  // measures an element mid-layout, before the browser has given it real dimensions.
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 60)));
 
-interface FlowItem {
-  kind: "region" | "block" | "row" | "empty";
-  height: number; // natural (scale 1) height this item occupies when drawn
-  regionTitle?: string;
-  blockLabel?: string;
-  row?: RankedLotRow;
-  emptyMessage?: string;
-  gradeStart?: boolean; // true on a row that's the first of a new grade/price-level group
-}
-
-/** Flattens every region (in the same TPP_REGION_ORDER reading order buildRegionEntries uses)
- *  into one ordered list of drawable items. */
-function buildFlowItems(combined: CombinedReport): FlowItem[] {
-  const autoCategories = buildAutoCategories(combined);
-  const byTitle = new Map(autoCategories.map((c) => [c.title, c]));
-  const placed = new Set<string>();
-  const items: FlowItem[] = [];
-
-  const addCategory = (cat: TppAutoCategory) => {
-    items.push({ kind: "region", height: PDF_CARD_HEAD_H, regionTitle: cat.title });
-    if (!cat.grades.length) {
-      items.push({ kind: "empty", height: PDF_EMPTY_H, emptyMessage: "No ranked lots for this region in the generated report." });
-      return;
-    }
-    const multiBlock = new Set(cat.grades.map((g) => g.block || "")).size > 1;
-    let lastBlock: string | undefined;
-    cat.grades.forEach((g) => {
-      if (multiBlock && g.block !== lastBlock) {
-        items.push({ kind: "block", height: PDF_BLOCK_H, blockLabel: g.block || "OTHER" });
-        lastBlock = g.block;
+  let doc: jsPDF | null = null;
+  for (const [pageIndex, el] of pageElements.entries()) {
+    // Diagnostic-only: log (never throw on) any descendant whose own rendered box is 0 in
+    // either dimension, since that's exactly what makes html2canvas's internal gradient/clip
+    // canvases end up 0-sized too ("canvas element with a width or height of 0" — the error
+    // this is here to actually pin down instead of guessing again). Left in permanently; it's
+    // silent unless something really is 0-sized, in which case this is the fastest way to find
+    // out which element and why.
+    const rect = el.getBoundingClientRect();
+    const zeroSized: string[] = [];
+    el.querySelectorAll("*").forEach((node) => {
+      const r = node.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) {
+        zeroSized.push(`<${node.tagName.toLowerCase()} class="${(node as HTMLElement).className}"> ${r.width}x${r.height} text="${(node.textContent ?? "").slice(0, 30)}"`);
       }
-      g.rows.forEach((r, idx) => {
-        items.push({ kind: "row", height: PDF_ROW_H + (idx === 0 ? PDF_GRADE_GAP : 0), row: r, gradeStart: idx === 0 });
-      });
     });
-  };
+    console.info(
+      `[exportTopPricePagePdf] page ${pageIndex + 1}/${pageElements.length}: ${rect.width}x${rect.height}` +
+        (zeroSized.length ? `, ${zeroSized.length} zero-sized descendant(s):\n  ${zeroSized.slice(0, 20).join("\n  ")}` : ", no zero-sized descendants")
+    );
 
-  TPP_REGION_ORDER.forEach((title) => {
-    addCategory(byTitle.get(title) ?? { title, grades: [] });
-    placed.add(title);
-  });
-  autoCategories.forEach((cat) => {
-    if (!placed.has(cat.title)) addCategory(cat);
-  });
-
-  return items;
-}
-
-/** Divides the flat item list into as many fixed-width columns as the content actually needs —
- *  a page is no longer a hard constraint to shrink into, so every row and header draws at one
- *  fixed, comfortable, always-legible size (no per-sale scale factor at all). Breaks as close to
- *  `perColHeight` as possible without ever splitting a single row/header in half; a region (and,
- *  if relevant, its current block) whose rows straddle a break repeats a small header at the top
- *  of the next column, so a reader arriving mid-column never loses context. Returns a flat list
- *  of columns — grouping those into pages is a separate step (see groupColumnsIntoPages), so how
- *  many columns land on a page never has to distort how evenly the columns themselves split. */
-function splitFlowColumns(items: FlowItem[], perColHeight: number): FlowItem[][] {
-  const columns: FlowItem[][] = [];
-  let current: FlowItem[] = [];
-  let currentHeight = 0;
-  let activeRegion: string | null = null;
-  let activeBlock: string | null = null;
-
-  const continuationHeaders = (): FlowItem[] => {
-    if (!activeRegion) return [];
-    const headers: FlowItem[] = [{ kind: "region", height: PDF_CARD_HEAD_H, regionTitle: `${activeRegion} (cont'd)` }];
-    if (activeBlock) headers.push({ kind: "block", height: PDF_BLOCK_H, blockLabel: activeBlock });
-    return headers;
-  };
-
-  const startNewColumn = () => {
-    columns.push(current);
-    current = [];
-    currentHeight = 0;
-    continuationHeaders().forEach((h) => {
-      current.push(h);
-      currentHeight += h.height;
-    });
-  };
-
-  for (let idx = 0; idx < items.length; idx++) {
-    const item = items[idx];
-
-    // A header (region/block) that fits but whose very next line doesn't is a widow — it would
-    // sit alone at the bottom of a column with its actual content starting fresh (behind a
-    // redundant "(cont'd)" repeat) on the next one. Requiring the header to bring at least that
-    // first line along when deciding whether it fits pushes the whole header+line pair to the
-    // next column together instead, so a reader is never left staring at a bare title.
-    let requiredHeight = item.height;
-    if (item.kind === "region" || item.kind === "block") {
-      const next = items[idx + 1];
-      if (next && next.kind !== "region") requiredHeight += next.height;
+    let canvas: HTMLCanvasElement;
+    try {
+      // foreignObjectRendering:true (delegating paint to an inline SVG <foreignObject> instead
+      // of html2canvas's own JS re-implementation of layout/text) was tried here to fix the
+      // Selling Mark column's glyph-clipping below — it made it worse, producing a fully blank
+      // captured page instead, so it's deliberately NOT used. Left off; see .mark's own CSS
+      // fix in TopPriceBulletin.module.css for how the actual clipping got fixed instead.
+      canvas = await html2canvas(el, { scale: CAPTURE_SCALE, backgroundColor: "#FCFBF8", useCORS: true });
+    } catch (err) {
+      console.error(`[exportTopPricePagePdf] html2canvas threw on page ${pageIndex + 1}/${pageElements.length} (rect ${rect.width}x${rect.height}):`, err);
+      throw err;
     }
-
-    // The break check (and the continuation header it triggers) must run BEFORE activeRegion/
-    // activeBlock are updated to THIS item's own title — startNewColumn()'s continuationHeaders()
-    // describes whatever was active going into this item, i.e. what's actually being continued.
-    // Updating first (as an earlier version of this loop did) meant that when the widowed item
-    // was itself a region/block header, the synthesized "<title> (cont'd)" header described that
-    // same not-yet-placed header instead of the real previous one — producing a duplicate
-    // "<Title> (cont'd)" immediately followed by the real "<Title>" header right below it.
-    if (currentHeight + requiredHeight > perColHeight && current.length > 0) startNewColumn();
-
-    if (item.kind === "region") {
-      activeRegion = item.regionTitle ?? null;
-      activeBlock = null;
-    } else if (item.kind === "block") {
-      activeBlock = item.blockLabel ?? null;
+    const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+    const wPt = (canvas.width / CAPTURE_SCALE) * (72 / 96);
+    const hPt = (canvas.height / CAPTURE_SCALE) * (72 / 96);
+    const orientation = wPt > hPt ? "landscape" : "portrait";
+    if (!doc) {
+      doc = new jsPDF({ unit: "pt", format: [wPt, hPt], orientation });
+    } else {
+      doc.addPage([wPt, hPt], orientation);
     }
-
-    current.push(item);
-    currentHeight += item.height;
+    doc.addImage(dataUrl, "JPEG", 0, 0, wPt, hPt);
   }
-  if (current.length) columns.push(current);
-  return columns;
-}
 
-/** How many columns each page should get so `total` columns divide across `numPages` pages as
- *  evenly as possible (e.g. 10 columns over 3 pages → 4/3/3, never the lopsided 4/4/2 that
- *  chunking sequentially by a fixed page width would produce) — any remainder is spread across
- *  the FIRST pages one column at a time rather than piling it all onto whichever page is left
- *  over last. */
-function evenPageSizes(total: number, numPages: number): number[] {
-  const base = Math.floor(total / numPages);
-  const remainder = total % numPages;
-  return Array.from({ length: numPages }, (_, i) => base + (i < remainder ? 1 : 0));
-}
-
-function groupColumnsIntoPages(columns: FlowItem[][], pageSizes: number[]): FlowItem[][][] {
-  const pages: FlowItem[][][] = [];
-  let cursor = 0;
-  pageSizes.forEach((size) => {
-    pages.push(columns.slice(cursor, cursor + size));
-    cursor += size;
-  });
-  return pages;
-}
-
-/** Truncates text (with an ellipsis) to fit maxWidth at the doc's current font — mirrors the
- *  CSS's text-overflow:ellipsis on .asc-tpp-mark, since jsPDF draws text as-is with no wrapping
- *  or clipping of its own. */
-function fitText(doc: jsPDF, text: string, maxWidth: number): string {
-  const s = text ?? "";
-  if (doc.getTextWidth(s) <= maxWidth) return s;
-  let lo = 0,
-    hi = s.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (doc.getTextWidth(`${s.slice(0, mid)}…`) <= maxWidth) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo > 0 ? `${s.slice(0, lo)}…` : "…";
-}
-
-function drawMasthead(doc: jsPDF, meta: TppMeta, subtitle: string, pageLabel: string): number {
-  const x = PDF_MARGIN,
-    y = PDF_MARGIN,
-    w = PDF_BODY_W,
-    h = PDF_MASTHEAD_H;
-  doc.setFillColor(...PDF_HEADER_1);
-  doc.rect(x, y, w, h * 0.62, "F");
-  doc.setFillColor(...PDF_HEADER_2);
-  doc.rect(x, y + h * 0.62, w, h * 0.38, "F");
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.text(meta.broker || "Asia Siyaka Commodities PLC", x + 6, y + 9);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(...PDF_GOLD_SOFT);
-  doc.text(subtitle.toUpperCase(), x + 6, y + 15.5);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(255, 255, 255);
-  doc.text(`SALE NO. ${meta.auctionNumber || "—"}`, x + w - 6, y + 9, { align: "right" });
-  doc.setFontSize(8);
-  doc.text(pageLabel.toUpperCase(), x + w - 6, y + 15.5, { align: "right" });
-
-  return y + h + PDF_GAP_V;
-}
-
-function drawFooter(doc: jsPDF, meta: TppMeta): void {
-  const y = PDF_PAGE_H - PDF_MARGIN - PDF_FOOTER_H;
-  doc.setDrawColor(...PDF_GOLD);
-  doc.setLineWidth(0.3);
-  doc.line(PDF_MARGIN, y, PDF_MARGIN + PDF_BODY_W * 0.32, y);
-  doc.line(PDF_PAGE_W - PDF_MARGIN - PDF_BODY_W * 0.32, y, PDF_PAGE_W - PDF_MARGIN, y);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(...PDF_GOLD);
-  const text = `${meta.broker || "Asia Siyaka Commodities PLC"}   ·   Weekly Top Price Bulletin   ·   Sale No. ${meta.auctionNumber || "—"}   ·   ${meta.saleDate || ""}`;
-  doc.text(text.toUpperCase(), PDF_PAGE_W / 2, y + 5, { align: "center" });
-}
-
-/** Draws one column's worth of the flowing item list top to bottom, at one fixed, always-legible
- *  size — no per-sale scale factor. `extraGapPerRegion` distributes whatever small amount of
- *  slack this particular column has left (see drawFlowPage) as breathing room between its own
- *  regions, so a lightly-filled column still reads as deliberately spaced rather than short. */
-function drawFlowColumn(doc: jsPDF, items: FlowItem[], x: number, y: number, w: number, extraGapPerRegion: number): void {
-  const markW = w * 0.5;
-  const gradeW = w * 0.24;
-  const atW = w * 0.08;
-  let cy = y;
-  let firstItem = true;
-  let prevKind: FlowItem["kind"] | null = null;
-
-  items.forEach((item) => {
-    if (item.kind === "region" && !firstItem) cy += extraGapPerRegion;
-    firstItem = false;
-
-    switch (item.kind) {
-      case "region": {
-        const h = PDF_CARD_HEAD_H;
-        doc.setFillColor(...PDF_HEADER_1);
-        doc.rect(x, cy, w, h, "F");
-        doc.setTextColor(255, 255, 255);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8.5);
-        doc.text((item.regionTitle ?? "").toUpperCase(), x + 3, cy + h / 2 + 1.3);
-        cy += h;
-        break;
-      }
-      case "block": {
-        const h = PDF_BLOCK_H;
-        doc.setFillColor(...PDF_PAPER);
-        doc.rect(x, cy, w, h, "F");
-        doc.setFont("courier", "bold");
-        doc.setFontSize(7);
-        doc.setTextColor(...PDF_GOLD);
-        doc.text((item.blockLabel ?? "").toUpperCase(), x + 3, cy + h - 1.4);
-        cy += h;
-        break;
-      }
-      case "empty": {
-        const h = PDF_EMPTY_H;
-        doc.setFillColor(...PDF_PAPER);
-        doc.rect(x, cy, w, h, "F");
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(7.5);
-        doc.setTextColor(...PDF_FAINT);
-        doc.text(fitText(doc, item.emptyMessage ?? "", w - 6), x + 3, cy + 6);
-        cy += h;
-        break;
-      }
-      case "row": {
-        const r = item.row!;
-        const rowH = PDF_ROW_H;
-        // item.height includes the grade-start gap on a grade's first row (0 otherwise) — the
-        // difference between the item's own height and the plain row height IS that gap.
-        const gapAmount = item.height - rowH;
-        // A hairline in the middle of that gap marks every grade/price-level change, so a reader
-        // scanning a dense column can see at a glance where one grade's ranking ends and the
-        // next begins — not just from the (subtler) blank-line spacing alone.
-        if (item.gradeStart && prevKind === "row") {
-          doc.setDrawColor(...PDF_GRADE_RULE);
-          doc.setLineWidth(0.35);
-          doc.line(x, cy + gapAmount / 2, x + w, cy + gapAmount / 2);
-        }
-        cy += gapAmount;
-        doc.setFillColor(...(r.isOurs ? PDF_OURS_FILL : PDF_PAPER));
-        doc.rect(x, cy, w, rowH, "F");
-        const color = r.isOurs ? PDF_UP : PDF_INK;
-        doc.setTextColor(...color);
-        doc.setFont("helvetica", r.isOurs ? "bold" : "normal");
-        doc.setFontSize(8);
-        doc.text(fitText(doc, r.sellingMark, markW - 2), x + 3, cy + rowH - 1.3);
-        // Grade code: bold and sized close to the mark/price text — this is the field a reader is
-        // actually scanning the column for, so it needs to read as clearly as the price does, not
-        // recede as a small monospace afterthought.
-        doc.setFont("courier", "bold");
-        doc.setFontSize(8.6);
-        doc.setTextColor(...color);
-        doc.text(fitText(doc, r.grade, gradeW - 3), x + 3 + markW, cy + rowH - 1.3);
-        if (r.isOurs) {
-          doc.setTextColor(...PDF_UP);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(8);
-          doc.text("@", x + 3 + markW + gradeW + atW / 2, cy + rowH - 1.3, { align: "center" });
-        }
-        doc.setFont("courier", "bold");
-        doc.setFontSize(8.3);
-        doc.setTextColor(...color);
-        doc.text(r.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), x + w - 3, cy + rowH - 1.3, { align: "right" });
-        cy += rowH;
-        break;
-      }
-    }
-    prevKind = item.kind;
-  });
-}
-
-// Cap on how much extra breathing room a single region break can absorb — splitFlowColumns
-// already keeps each column's own leftover slack small (a handful of rows' worth at most), so
-// this only guards the rare edge case of a column with very few region breaks to spread real
-// slack across.
-const PDF_MAX_EXTRA_GAP = 14;
-
-/** One region-cards page: every column drawn from its own slice of the flowing item list (see
- *  splitFlowColumns/groupColumnsIntoPages for how those slices — and which page each lands on —
- *  are decided). Whatever small amount of slack is left in a given column (it was already close
- *  to full before this) is distributed as extra breathing room between that column's own
- *  regions, so even that residual reads as deliberate spacing rather than the column trailing
- *  off unevenly. Column width comes from THIS page's own `columns.length` — every page except
- *  possibly the last has the same count (evenPageSizes keeps them even), so widths still line up
- *  page to page; a genuinely shorter last page gets fewer, proportionally wider columns instead
- *  of the same narrow slots with empty space stranded on the right. */
-function drawFlowPage(doc: jsPDF, columns: FlowItem[][], meta: TppMeta, pageIndex: number, totalPages: number): void {
-  doc.addPage([PDF_PAGE_W, PDF_PAGE_H], "landscape");
-  doc.setFillColor(...PDF_PAPER);
-  doc.rect(0, 0, PDF_PAGE_W, PDF_PAGE_H, "F");
-  drawMasthead(doc, meta, "Top Price Page", `Page ${pageIndex + 1} of ${totalPages}`);
-  drawFooter(doc, meta);
-
-  const bodyTop = PDF_MARGIN + PDF_MASTHEAD_H + PDF_GAP_V;
-  const bodyBottom = PDF_PAGE_H - PDF_MARGIN - PDF_FOOTER_H - PDF_GAP_V;
-  const bodyHeight = bodyBottom - bodyTop;
-  const cols = columns.length;
-  const colW = (PDF_BODY_W - (cols - 1) * PDF_COL_GAP) / cols;
-
-  columns.forEach((colItems, i) => {
-    const x = PDF_MARGIN + i * (colW + PDF_COL_GAP);
-    const naturalHeight = colItems.reduce((s, it) => s + it.height, 0);
-    const regionBreaks = colItems.filter((it) => it.kind === "region").length - 1;
-    const slack = Math.max(0, bodyHeight - naturalHeight);
-    const extraGap = regionBreaks > 0 ? Math.min(PDF_MAX_EXTRA_GAP, slack / regionBreaks) : 0;
-    drawFlowColumn(doc, colItems, x, bodyTop, colW, extraGap);
-  });
-}
-
-interface PdfRefTable extends RefTable {
-  title: string;
-}
-
-const PDF_RULE_FAINT: [number, number, number] = [226, 224, 216];
-const PDF_ZEBRA: [number, number, number] = [248, 247, 244];
-
-/** One reference panel drawn as a bordered ledger card of FIXED height `h` (a band boundary
- *  shared by every panel in its row, not the table's own natural content height) — a table with
- *  few rows (Selling Brokers, Currencies) doesn't leave the rest of that height blank; it's
- *  filled with faint ruled lines down to the card's own bottom edge, the same way a paper ledger
- *  leaves ruled space for entries not yet written in. That's what keeps this page fully "inked"
- *  edge-to-edge for any sale, since these tables' real row counts are placeholders today (no
- *  editor exists yet to fill them) and will vary once one does. */
-function drawPanelCard(doc: jsPDF, x: number, y: number, w: number, h: number, table: PdfRefTable): void {
-  const HEAD_H = 7,
-    COL_H = 5.5,
-    ROW_H = 6.2;
-
-  doc.setDrawColor(...PDF_RULE_FAINT);
-  doc.setLineWidth(0.3);
-  doc.rect(x, y, w, h);
-
-  doc.setFillColor(...PDF_INK);
-  doc.rect(x, y, w, HEAD_H, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text(table.title, x + 3, y + HEAD_H / 2 + 1.3);
-  let cy = y + HEAD_H;
-
-  const nCols = table.headers.length;
-  const labelW = w * 0.34;
-  const valW = (w - labelW) / Math.max(1, nCols - 1);
-  doc.setFillColor(...PDF_HEAD_FILL);
-  doc.rect(x, cy, w, COL_H, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.8);
-  doc.setTextColor(...PDF_FAINT);
-  table.headers.forEach((hd, ci) => {
-    const cx = ci === 0 ? x + 3 : x + labelW + (ci - 1) * valW + valW - 3;
-    doc.text(hd.toUpperCase(), cx, cy + COL_H / 2 + 1, { align: ci === 0 ? "left" : "right" });
-  });
-  cy += COL_H;
-
-  table.rows.forEach((r, ri) => {
-    const isTotal = table.totalRow && ri === table.rows.length - 1;
-    if (isTotal) {
-      doc.setDrawColor(...PDF_INK);
-      doc.setLineWidth(0.3);
-      doc.line(x + 2, cy, x + w - 2, cy);
-    } else if (ri % 2 === 1) {
-      doc.setFillColor(...PDF_ZEBRA);
-      doc.rect(x, cy, w, ROW_H, "F");
-    }
-    doc.setFont("helvetica", isTotal ? "bold" : "normal");
-    doc.setFontSize(7.6);
-    doc.setTextColor(...PDF_INK);
-    r.forEach((val, ci) => {
-      const text = fitText(doc, String(val ?? ""), (ci === 0 ? labelW : valW) - 5);
-      if (ci === 0) doc.text(text, x + 3, cy + ROW_H / 2 + 1.3);
-      else doc.text(text, x + labelW + (ci - 1) * valW + valW - 3, cy + ROW_H / 2 + 1.3, { align: "right" });
-    });
-    cy += ROW_H;
-  });
-
-  doc.setDrawColor(...PDF_RULE_FAINT);
-  doc.setLineWidth(0.2);
-  while (cy + ROW_H <= y + h - 3) {
-    cy += ROW_H;
-    doc.line(x + 3, cy, x + w - 3, cy);
-  }
-}
-
-/** The Crop & Weather card — same bordered-card footprint as drawPanelCard, but its content is
- *  free text rather than a row table: each note's block gets an equal share of the card height,
- *  with the same faint ruled lines filling whatever it doesn't use for its own seed text. */
-function drawCropCard(doc: jsPDF, x: number, y: number, w: number, h: number): void {
-  const HEAD_H = 7;
-  doc.setDrawColor(...PDF_RULE_FAINT);
-  doc.setLineWidth(0.3);
-  doc.rect(x, y, w, h);
-
-  doc.setFillColor(...PDF_INK);
-  doc.rect(x, y, w, HEAD_H, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text("Crop & Weather", x + 3, y + HEAD_H / 2 + 1.3);
-
-  let cy = y + HEAD_H + 3;
-  const itemH = (y + h - cy) / CROP_NOTES.length;
-  CROP_NOTES.forEach(([label, seed]) => {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(6.8);
-    doc.setTextColor(...PDF_FAINT);
-    doc.text(label.toUpperCase(), x + 3, cy + 3);
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(7.6);
-    doc.setTextColor(...PDF_INK);
-    doc.text(fitText(doc, seed, w - 6), x + 3, cy + 8.5);
-    doc.setDrawColor(...PDF_RULE_FAINT);
-    doc.setLineWidth(0.2);
-    for (let ly = cy + 13; ly <= cy + itemH - 3; ly += 6) doc.line(x + 3, ly, x + w - 3, ly);
-    cy += itemH;
-  });
-}
-
-/** The final sheet — Order of Sale, Selling Brokers, Currencies, Sale Averages, Weekly Averages
- *  and Crop & Weather, the same 3-up arrangement (and the same blank placeholder data) as the
- *  Excel Reference Data sheet, laid out as a 2-band x 3-column ledger grid: every panel in a band
- *  shares that band's exact height (computed once from the page's own real body height, so it
- *  scales to any page geometry), which is what keeps this page fully filled top-to-bottom instead
- *  of the panels' own short placeholder row counts trailing off into open white space. */
-function drawReferencePage(doc: jsPDF, meta: TppMeta, totalPages: number): void {
-  doc.addPage([PDF_PAGE_W, PDF_PAGE_H], "landscape");
-  doc.setFillColor(...PDF_PAPER);
-  doc.rect(0, 0, PDF_PAGE_W, PDF_PAGE_H, "F");
-  drawMasthead(doc, meta, "Top Price Page — Reference Data", `Page ${totalPages} of ${totalPages}`);
-  drawFooter(doc, meta);
-
-  const bodyTop = PDF_MARGIN + PDF_MASTHEAD_H + PDF_GAP_V;
-  const bodyBottom = PDF_PAGE_H - PDF_MARGIN - PDF_FOOTER_H - PDF_GAP_V;
-  const groupW = (PDF_BODY_W - 2 * PDF_COL_GAP) / 3;
-  const bandH = (bodyBottom - bodyTop - PDF_GAP_V) / 2;
-  const row1Y = bodyTop;
-  const row2Y = row1Y + bandH + PDF_GAP_V;
-
-  const t = referenceTables();
-  drawPanelCard(doc, PDF_MARGIN, row1Y, groupW, bandH, { title: "Order of Sale — Offers", ...t.orderOfSale });
-  drawPanelCard(doc, PDF_MARGIN + groupW + PDF_COL_GAP, row1Y, groupW, bandH, { title: "Selling Brokers", ...t.sellingBrokers });
-  drawPanelCard(doc, PDF_MARGIN + (groupW + PDF_COL_GAP) * 2, row1Y, groupW, bandH, { title: "Currencies", ...t.currencies });
-
-  drawPanelCard(doc, PDF_MARGIN, row2Y, groupW, bandH, { title: "Sale Averages", ...t.saleAverages });
-  drawPanelCard(doc, PDF_MARGIN + groupW + PDF_COL_GAP, row2Y, groupW, bandH, { title: "Weekly Averages", ...t.weeklyAverages });
-  drawCropCard(doc, PDF_MARGIN + (groupW + PDF_COL_GAP) * 2, row2Y, groupW, bandH);
-}
-
-// Fixed column count for every region-cards page — matches the Excel exporter's own
-// TPP_REGION_COLUMNS, so both formats read the same way. Nothing shrinks to force a fit anymore:
-// a light sale's pages just have more empty vertical room to breathe (soaked up as extra spacing
-// between regions — see drawFlowPage); a heavy sale simply spills onto as many extra pages as it
-// genuinely needs, at the same fixed, always-legible size throughout.
-const PDF_FLOW_COLUMNS = TPP_REGION_COLUMNS;
-
-/** Decides how many columns to divide the content across, and how those columns group into
- *  pages, so every column ends up close to the same height AND every page ends up with close to
- *  the same number of columns — instead of the greedy overflow of stuffing full pages one after
- *  another and stranding whatever's left on an almost-empty trailing page.
- *
- *  Every column break ALSO inserts a "(cont'd)" region/block header — real height
- *  splitFlowColumns has to draw that isn't in the raw item list's own height sum — so naively
- *  dividing the raw total by a column count and re-deriving a NEW column count from that is
- *  unstable: shrinking the per-column target causes MORE breaks, which adds MORE header
- *  overhead, which by itself demands an even smaller target next time, with no natural floor to
- *  stop at. The number of columns a given target needs is, however, monotonic — a bigger target
- *  can only ever delay a break, never force an extra one — so instead: fill each column right up
- *  to the real page capacity (`maxColHeight`, which can never overflow by construction) to learn
- *  the bare minimum column count (`rawColumns`) the content needs at all, then binary-search the
- *  smallest per-column target that still fits within that same column count. Finally, spread
- *  `rawColumns` across however many pages that implies as evenly as possible (evenPageSizes) —
- *  not sequential fixed-width chunks — so the LAST page is never left holding an orphaned
- *  fraction of a full page's width. */
-function planFlowColumns(items: FlowItem[], maxColsPerPage: number, maxColHeight: number): FlowItem[][][] {
-  const rawColumns = splitFlowColumns(items, maxColHeight).length;
-
-  let lo = maxColHeight / rawColumns;
-  let hi = maxColHeight;
-  for (let i = 0; i < 25; i++) {
-    const mid = (lo + hi) / 2;
-    if (splitFlowColumns(items, mid).length <= rawColumns) hi = mid;
-    else lo = mid;
-  }
-  const columns = splitFlowColumns(items, hi);
-
-  const numPages = Math.max(1, Math.ceil(columns.length / maxColsPerPage));
-  return groupColumnsIntoPages(columns, evenPageSizes(columns.length, numPages));
-}
-
-export async function exportTopPricePagePdf(combined: CombinedReport, referenceReport?: AuctionReport): Promise<void> {
-  const meta = buildTppMeta(combined, referenceReport);
-
-  const items = buildFlowItems(combined);
-  const pages = planFlowColumns(items, PDF_FLOW_COLUMNS, PDF_BODY_H);
-  const totalPages = pages.length + 1; // + the trailing Reference Data page
-
-  // jsPDF always creates one initial page; the loop below adds its own pages via addPage(), so
-  // the constructor's default first page is deleted once real content exists to replace it.
-  const doc = new jsPDF({ unit: "mm", format: [PDF_PAGE_W, PDF_PAGE_H], orientation: "landscape" });
-
-  pages.forEach((columns, i) => drawFlowPage(doc, columns, meta, i, totalPages));
-  drawReferencePage(doc, meta, totalPages);
-  doc.deletePage(1); // the blank default page from the constructor
-
-  doc.save(`top-price-page-sale-${meta.auctionNumber || "draft"}-${dateStamp()}.pdf`);
+  doc!.save(`top-price-page-sale-${meta.auctionNumber || "draft"}-${dateStamp()}.pdf`);
 }

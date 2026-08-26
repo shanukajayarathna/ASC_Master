@@ -26,7 +26,10 @@ const plexSans = IBM_Plex_Sans({
 const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
   subsets: ["latin"],
-  weight: ["400", "600"],
+  // 700 added for the Top Price Page bulletin's bold grade/price columns (TopPriceBulletin.
+  // module.css) — without a real 700 file, the browser synthesizes bold from 600, which
+  // html2canvas's PDF export renders visibly worse than the on-screen preview.
+  weight: ["400", "600", "700"],
 });
 
 export const metadata: Metadata = {

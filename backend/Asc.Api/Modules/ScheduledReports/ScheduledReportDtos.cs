@@ -1,7 +1,7 @@
 namespace Asc.Api.Modules.ScheduledReports;
 
 public record ScheduledReportJobDto(
-    string Key, string DisplayName, string TriggerType, string? CronExpression,
+    string Key, string DisplayName, string TriggerType, string? CronExpression, string Cadence,
     bool Enabled, DateTime? LastRunAt, string LastStatus, string? LastMessage, long LastDurationMs, int ConsecutiveFailures);
 
 public record ToggleJobRequestDto(bool Enabled);

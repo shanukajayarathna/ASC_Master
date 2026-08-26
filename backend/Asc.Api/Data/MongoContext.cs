@@ -2,9 +2,11 @@ using Asc.Api.Models;
 using Asc.Api.Modules.ApiKeys;
 using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Audit;
+using Asc.Api.Modules.AccessRequests;
 using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.LandingContent;
 using Asc.Api.Modules.MarketPulse;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Msl;
@@ -149,6 +151,12 @@ public class MongoContext
             new CreateIndexModel<SavedReport>(
                 Builders<SavedReport>.IndexKeys.Ascending(r => r.Type).Ascending(r => r.SaleYear).Ascending(r => r.SaleNo)),
         ]);
+
+        // The admin review list is always "pending first, newest first."
+        AccessRequests.Indexes.CreateMany(
+        [
+            new CreateIndexModel<AccessRequest>(Builders<AccessRequest>.IndexKeys.Ascending(r => r.Status).Descending(r => r.CreatedAt)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -193,4 +201,11 @@ public class MongoContext
     public IMongoCollection<MarketPulseSource> MarketPulseSources => Database.GetCollection<MarketPulseSource>("marketPulseSources");
 
     public IMongoCollection<ScheduledReportJobState> ScheduledReportJobStates => Database.GetCollection<ScheduledReportJobState>("scheduledReportJobStates");
+
+    /// <summary>Single-document CMS content for the public marketing landing page (/home).</summary>
+    public IMongoCollection<LandingPageContent> LandingPageContent => Database.GetCollection<LandingPageContent>("landingPageContent");
+
+    /// <summary>"Request Access" submissions from the public landing page, reviewed by an
+    /// Admin in the Admin Panel — this app is admin-provisioned only, no self-service signup.</summary>
+    public IMongoCollection<AccessRequest> AccessRequests => Database.GetCollection<AccessRequest>("accessRequests");
 }

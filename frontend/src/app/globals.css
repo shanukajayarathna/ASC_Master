@@ -29,6 +29,10 @@
   --auction-alert: #8C2F2F; /* muted brick red — high-relevance flag only, never a fill */
   --tea-rule: #D8D2C0;     /* hairline dividers between ticker items and ledger rows */
 
+  /* ---- Public landing page (/home) — editorial layer, used sparingly -------- */
+  --warm-black: #0F1410;   /* full-bleed cinematic image overlays */
+  --gold-hairline: rgba(185,138,46,0.35); /* thin dividers/borders on ivory backgrounds */
+
   /* Neutral gray scale for text/surfaces/borders — previously tinted olive/cream, which
      read as dull and low-contrast across ordinary body text and page backgrounds (every
      screen inherits these). Neutral now; the brand olive/gold/liquor hues stay exactly as
@@ -134,6 +138,8 @@
   --color-tea-leaf: var(--tea-leaf);
   --color-auction-alert: var(--auction-alert);
   --color-tea-rule: var(--tea-rule);
+  --color-warm-black: var(--warm-black);
+  --color-gold-hairline: var(--gold-hairline);
   --color-ink-900: var(--ink-900);
   --color-ink-800: var(--ink-800);
   --color-ink-700: var(--ink-700);
@@ -772,3 +778,37 @@ body {
 @keyframes agentUnderglow { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.95; } }
 .agent-underglow { animation: agentUnderglow 2.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .agent-underglow { animation: none; opacity: 0.7; } }
+
+/* ---- Public landing page (/home) motion — the four allowed treatments only:
+   1) hero Ken Burns, 2) scroll-triggered fade/rise (once), 3) the ticker marquee (reused
+   from Market Pulse's .mp-marquee-track above, not duplicated), 4) the metrics count-up
+   (pure JS/text, no CSS needed). Nothing else on this page animates. */
+@keyframes landing-hero-zoom {
+  from { transform: scale(1); }
+  to   { transform: scale(1.08); }
+}
+.landing-hero-zoom {
+  animation: landing-hero-zoom 26s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-zoom { animation: none; }
+}
+
+/* Scroll-triggered fade/rise on section entry — toggled once via IntersectionObserver
+   (components/landing/ScrollReveal.tsx), never re-triggered on scroll back up. */
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.landing-reveal-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

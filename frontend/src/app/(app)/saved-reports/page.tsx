@@ -65,8 +65,8 @@ export default function SavedReportsPage() {
   const download = async (r: SavedReport) => {
     setDownloadingId(r.id);
     try {
-      const blob = await api.downloadSavedReport(r.id);
-      downloadBlob(blob, `${r.title}.zip`);
+      const { blob, fileName } = await api.downloadSavedReport(r.id);
+      downloadBlob(blob, fileName ?? `${r.title}.zip`);
     } finally {
       setDownloadingId(null);
     }

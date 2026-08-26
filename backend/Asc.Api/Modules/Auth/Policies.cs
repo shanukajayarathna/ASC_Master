@@ -30,4 +30,9 @@ public static class Policies
     /// <summary>Enabling/disabling and manually running automated report jobs, and staging
     /// the Weekly FACT job's CBAC TXT input. See Modules/ScheduledReports.</summary>
     public const string ManageScheduledReports = "ManageScheduledReports";
+
+    /// <summary>Editing the public marketing landing page's CMS content (hero copy, company
+    /// stats, testimonials, etc). Reading it needs no policy — it's public. See
+    /// Modules/LandingContent.</summary>
+    public const string ManageLandingContent = "ManageLandingContent";
 }

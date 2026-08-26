@@ -17,6 +17,7 @@ public class MonthlyCombinedPlaceholderJob(ISavedReportsService savedReports) : 
 
     // Midnight on the 1st of every month.
     public ReportJobTrigger Trigger => ReportJobTrigger.Schedule("0 0 1 * *");
+    public ReportJobCadence Cadence => ReportJobCadence.Monthly;
 
     public async Task<ScheduledReportJobRunResult> RunAsync(CancellationToken ct)
     {

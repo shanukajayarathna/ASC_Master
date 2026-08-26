@@ -17,6 +17,11 @@ public record MarketPulseSourceDto(
 
 public record MarketPulsePagedResultDto(List<MarketPulseItemDto> Items, long Total, int Page, int PageSize);
 
+/// <summary>Public landing-page ticker projection — headline/category/date only, deliberately
+/// stripped of RawSummary, SourceUrl and every admin-facing field before it ever leaves the
+/// server, since this is the one Market Pulse view an unauthenticated visitor can reach.</summary>
+public record PublicMarketPulseItemDto(string Title, string? AiCategory, DateTime? PublishedAt);
+
 public record CreateMarketPulseSourceDto(string Name, string FeedUrl, string Category, bool Enabled = true);
 public record UpdateMarketPulseSourceDto(string? Name, string? FeedUrl, string? Category, bool? Enabled);
 
@@ -76,6 +81,28 @@ public class MarketPulseController(MongoContext db, MarketPulseIngestionEngine e
         var total = await find.CountDocumentsAsync(ct);
         var items = await find.Skip((page - 1) * pageSize).Limit(pageSize).ToListAsync(ct);
         return new MarketPulsePagedResultDto(items.Select(ToDto).ToList(), total, page, pageSize);
+    }
+
+    /// <summary>The one Market Pulse view a signed-out visitor can reach — the public landing
+    /// page's ticker strip. Same relevance-threshold/status filter as <see cref="Get"/>, just
+    /// capped small and projected down to headline/category/date so nothing admin-facing or
+    /// source-identifying is ever exposed publicly.</summary>
+    [HttpGet("public-ticker")]
+    [AllowAnonymous]
+    public async Task<ActionResult<List<PublicMarketPulseItemDto>>> PublicTicker(CancellationToken ct)
+    {
+        var fb = Builders<MarketPulseItem>.Filter;
+        var filter = fb.Or(
+            fb.Eq(i => i.Status, MarketPulseItemStatus.Pending),
+            fb.Eq(i => i.Status, MarketPulseItemStatus.Failed),
+            fb.Gte(i => i.AiRelevanceScore, engine.RelevanceThreshold));
+
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var items = await db.MarketPulseItems.Find(filter)
+            .SortByDescending(i => i.AiRelevanceScore).ThenByDescending(i => i.PublishedAt)
+            .Limit(12).ToListAsync(ct);
+
+        return items.Select(i => new PublicMarketPulseItemDto(i.Title, i.AiCategory?.ToString(), i.PublishedAt)).ToList();
     }
 
     [HttpGet("sources")]

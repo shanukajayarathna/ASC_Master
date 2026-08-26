@@ -28,6 +28,17 @@ public record ScheduledReportJobRunResult(bool Success, string Message, Guid? Sa
     public static ScheduledReportJobRunResult Failed(string message) => new(false, message);
 }
 
+/// <summary>How often a job's own report is meant to land, for grouping in the Admin Panel's
+/// "Automated Reports" list — independent of Trigger (an AfterSaleClose job is "Weekly"
+/// because sales happen weekly; a Schedule job's cadence is whatever its cron actually means,
+/// not derivable from the cron string itself). Purely a display/grouping concern today; it
+/// exists so new weekly and monthly jobs both have an obvious, already-built slot to land in.</summary>
+public enum ReportJobCadence
+{
+    Weekly,
+    Monthly,
+}
+
 /// <summary>
 /// One registered automated report job. Implement this and register it in Program.cs
 /// (AddScoped/AddSingleton + join the IEnumerable&lt;IScheduledReportJob&gt; DI group the same
@@ -42,6 +53,7 @@ public interface IScheduledReportJob
     string Key { get; }
     string DisplayName { get; }
     ReportJobTrigger Trigger { get; }
+    ReportJobCadence Cadence { get; }
 
     /// <summary>Called on the runner's own tick cadence (see ScheduledReportRunnerService).
     /// Must be cheap and safe to call when there is nothing to do — for an AfterSaleClose job
