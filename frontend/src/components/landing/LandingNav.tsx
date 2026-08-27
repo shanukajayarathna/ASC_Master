@@ -2,7 +2,13 @@
 
 import BrandLogo from "@/components/shell/BrandLogo";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect, useState } from "react";
+import { useThemeMode } from "@/context/ThemeModeContext";
+import CloseOutlinedIcon from "@mui/icons-material/CloseOutlined";
+import MenuOutlinedIcon from "@mui/icons-material/MenuOutlined";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Link from "next/link";
+import { useState } from "react";
 
 const LINKS = [
   { href: "#platform", label: "Platform" },
@@ -12,62 +18,76 @@ const LINKS = [
 ];
 
 /**
- * Transparent over the hero, solid on scroll. The CTA reflects session state without ever
- * force-redirecting a logged-in visitor away from the marketing page (spec 4.5) — it just
- * swaps the button's destination: Admin -> /admin, any other role -> /dashboard, signed out
- * -> /login.
+ * Same sticky topbar shell the authenticated app shell uses (Topbar.tsx: `app-topbar`
+ * padding, `border-b border-border bg-surface sticky top-0`, `--shadow-sm`) — this page is
+ * the front door to that app, so it should read as the same product from the first pixel,
+ * not a separate marketing site bolted on.
  */
 export default function LandingNav() {
   const { user, loading } = useAuth();
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  const { mode } = useThemeMode();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const ctaHref = loading ? "/login" : user ? (user.roles.includes("Admin") ? "/admin" : "/dashboard") : "/login";
-  const ctaLabel = loading ? "Sign In" : user ? (user.roles.includes("Admin") ? "Go to Admin Panel" : "Go to Dashboard") : "Sign In";
+  const ctaLabel = loading ? "Sign In" : user ? (user.roles.includes("Admin") ? "Admin Panel" : "Dashboard") : "Sign In";
 
   return (
     <header
-      className="fixed top-0 inset-x-0 z-50 transition-colors duration-300"
-      style={{
-        background: scrolled ? "var(--tea-ink)" : "transparent",
-        borderBottom: scrolled ? "1px solid rgba(244,241,230,0.1)" : "1px solid transparent",
-      }}
+      className="app-topbar min-h-[68px] flex items-center gap-x-4 gap-y-2 flex-wrap border-b border-border bg-surface sticky top-0 z-30"
+      style={{ boxShadow: "var(--shadow-sm)" }}
     >
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 sm:h-20 flex items-center justify-between">
-        <a href="#top" className="inline-flex items-center gap-2 no-underline">
-          <BrandLogo height={30} onDark />
-          <span className="hidden sm:inline font-mono text-[10px] tracking-[0.2em] uppercase" style={{ color: "var(--tea-ledger)", opacity: 0.75 }}>
-            Intelligent Hub
+      <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <Link href="/home" className="shrink-0 flex items-center gap-2 no-underline">
+          <BrandLogo height={30} onDark={mode === "dark"} />
+          <span className="hidden lg:flex flex-col leading-none border-l border-border pl-2">
+            <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
+              Intelligent
+            </span>
+            <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
+              Hub
+            </span>
           </span>
-        </a>
+        </Link>
 
-        <nav className="hidden md:flex items-center gap-7" aria-label="Landing page sections">
+        <nav className="hidden md:flex items-center gap-6" aria-label="Landing page sections">
           {LINKS.map((l) => (
-            <a
-              key={l.href}
-              href={l.href}
-              className="no-underline font-mono text-[11px] tracking-[0.14em] uppercase transition-opacity hover:opacity-70"
-              style={{ color: "var(--tea-ledger)" }}
-            >
+            <a key={l.href} href={l.href} className="text-[13px] font-medium no-underline" style={{ color: "var(--text)" }}>
               {l.label}
             </a>
           ))}
         </nav>
 
-        <a
-          href={ctaHref}
-          className="no-underline inline-flex items-center px-4 sm:px-5 py-2 rounded-full text-[13px] font-semibold transition-transform hover:-translate-y-0.5"
-          style={{ background: "var(--tea-liquor)", color: "var(--tea-ink)" }}
-        >
-          {ctaLabel}
-        </a>
+        <div className="flex items-center gap-1.5">
+          <Button component={Link} href={ctaHref} variant="contained" color="primary" size="small">
+            {ctaLabel}
+          </Button>
+          <IconButton
+            className="md:hidden"
+            size="small"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            {menuOpen ? <CloseOutlinedIcon fontSize="small" /> : <MenuOutlinedIcon fontSize="small" />}
+          </IconButton>
+        </div>
       </div>
+
+      {menuOpen && (
+        <nav aria-label="Landing page sections (mobile)" className="md:hidden w-full flex flex-col gap-0.5 pt-1 pb-1">
+          {LINKS.map((l) => (
+            <a
+              key={l.href}
+              href={l.href}
+              onClick={() => setMenuOpen(false)}
+              className="text-[13px] font-medium no-underline py-2.5 border-b border-border"
+              style={{ color: "var(--text)" }}
+            >
+              {l.label}
+            </a>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }

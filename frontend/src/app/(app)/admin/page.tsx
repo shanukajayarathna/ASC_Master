@@ -1217,15 +1217,28 @@ function LandingPageSection() {
 
       {/* Company stats */}
       <h3 className="text-[13px] font-semibold mb-2.5">Company Stats</h3>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <p className="text-[12px] text-text-muted mb-2.5">Real, sourced Asia Siyaka figures — keep these accurate, not aspirational.</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
         <input className={inputCls} type="number" placeholder="Founded year" value={content.companyStats.foundedYear}
           onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, foundedYear: Number(e.target.value) } })} />
         <input className={inputCls} type="number" placeholder="Years operating" value={content.companyStats.yearsOperating}
           onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, yearsOperating: Number(e.target.value) } })} />
-        <input className={inputCls} type="number" placeholder="Avg. annual volume (kg)" value={content.companyStats.avgAnnualVolumeKg}
-          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, avgAnnualVolumeKg: Number(e.target.value) } })} />
-        <input className={inputCls} type="number" placeholder="Broker count" value={content.companyStats.brokerCount}
-          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, brokerCount: Number(e.target.value) } })} />
+        <input className={inputCls} type="number" placeholder="Employee count" value={content.companyStats.employeeCount}
+          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, employeeCount: Number(e.target.value) } })} />
+        <input className={inputCls} type="number" placeholder="Warehouse count" value={content.companyStats.warehouseCount}
+          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, warehouseCount: Number(e.target.value) } })} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <input className={inputCls} placeholder="Ranking (e.g. Top 4 tea broker in Sri Lanka)" value={content.companyStats.ranking}
+          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, ranking: e.target.value } })} />
+        <input className={inputCls} placeholder="Market share label" value={content.companyStats.marketShareLabel}
+          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, marketShareLabel: e.target.value } })} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <textarea className={inputCls} rows={2} placeholder="Vision" value={content.companyStats.vision}
+          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, vision: e.target.value } })} />
+        <textarea className={inputCls} rows={2} placeholder="Mission" value={content.companyStats.mission}
+          onChange={(e) => setContent({ ...content, companyStats: { ...content.companyStats, mission: e.target.value } })} />
       </div>
 
       {/* Heritage */}

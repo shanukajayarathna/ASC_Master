@@ -1,21 +1,27 @@
+import Button from "@mui/material/Button";
+import Link from "next/link";
+
+/** Same brand-gradient CTA banner pattern the dashboard uses for "Continue Valuing"
+ *  (`rounded-[var(--radius-lg)]`, `--rule-brand` gradient, white text on top). */
 export default function FinalCta({ ctaLabel }: { ctaLabel: string }) {
   return (
-    <section className="py-20 sm:py-24" style={{ background: "var(--tea-liquor)" }}>
-      <div className="max-w-3xl mx-auto px-5 sm:px-8 text-center">
-        <p
-          className="font-display font-bold leading-tight m-0 mb-8"
-          style={{ color: "var(--tea-ink)", fontSize: "clamp(26px, 3.6vw, 40px)" }}
-        >
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6">
+      <div
+        className="rounded-[var(--radius-lg)] p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4"
+        style={{ background: "var(--rule-brand)" }}
+      >
+        <p className="font-display text-[18px] sm:text-[20px] font-bold m-0 text-center sm:text-left" style={{ color: "#fff" }}>
           Bring intelligence to your next sale week.
         </p>
-        <a
+        <Button
+          component={Link}
           href="/login"
-          className="no-underline inline-flex items-center px-8 py-4 rounded-full text-[14px] font-semibold transition-transform hover:-translate-y-0.5"
-          style={{ background: "var(--tea-ink)", color: "var(--tea-ledger)" }}
+          variant="contained"
+          sx={{ background: "rgba(255,255,255,0.95)", color: "var(--liquor-dark)", "&:hover": { background: "#fff" }, whiteSpace: "nowrap" }}
         >
           {ctaLabel}
-        </a>
+        </Button>
       </div>
-    </section>
+    </div>
   );
 }

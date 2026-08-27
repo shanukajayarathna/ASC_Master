@@ -1,9 +1,10 @@
-/* Top Price Page bulletin — a faithful port of the original standalone tool's own
-   .asc-tpp-* classes (asc-components.css §K2, read directly from the source), not an
-   approximation: same colors, same structure (masthead grid / bands / grid-vs-wide bands /
-   cards / rows), same density auto-fit numbers. Row/head/block/gradeGap sizes come from the
-   chosen density preset as inline CSS custom properties (see TopPriceBulletin.tsx) so the
-   rendered DOM always matches exactly what planTppBulletinAutoFit already measured. */
+/* Top Price Page bulletin — every region is its own full-page-width section, stacked top to
+   bottom (see planTppBulletinAutoFit/planTppFullWidthLayout in topPricePageExport.ts), each
+   reflowing its own rows into however many of its own internal columns suit its own row count.
+   Every size/spacing number below reads from a `--tpp-*` CSS custom property set inline on
+   `.bulletin` by TopPriceBulletin.tsx's densityCssVars — there are no discrete density
+   breakpoints here to keep in sync by hand: the continuous `t` that file solves per sale is what
+   actually drives every pixel. */
 
 .bulletin {
   display: flex;
@@ -14,18 +15,23 @@
   padding: 4px;
 }
 
-/* True A4 landscape width (297mm), height auto — the banded layout targets a ~210mm-tall
-   result but never clips: a sale whose content runs long just renders a taller page (and a
-   taller exported PDF page, see exportTopPricePagePdf), exactly like the original. */
+/* A true fixed A4 landscape sheet (297mm x 210mm) — min-height, not height, so a sale the density
+   auto-fit genuinely can't shrink into 210mm (see TPP_MAX_PAGES's own fallback) still renders in
+   full rather than clipping real data, but every normal case (which the auto-fit specifically
+   solves for) renders at exactly this size. grid-template-rows gives the body row `1fr` — all
+   the leftover height between masthead and footer — and `.sections` below stretches into that
+   space with justify-content:space-between, so a page with room to spare distributes it as
+   breathing room between sections instead of leaving it as dead space at the bottom. */
 .page {
   width: 297mm;
+  min-height: 210mm;
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
   grid-template-areas: "top" "body" "foot";
   gap: 14px;
   padding: 16px;
-  align-items: start;
   background: #fcfbf8;
   color: var(--tpp-ink, #124734);
   /* The app's own loaded fonts (layout.tsx's next/font/google), not a generic system stack —
@@ -37,14 +43,13 @@
 }
 
 /* --- masthead: logo/meta · brand+subtitle · sale no/page label ------------------------- */
-/* Flat solid fill, not the original's diagonal linear-gradient — html2canvas renders any CSS
-   background-image (linear-gradient counts as one) by drawing it onto an internal offscreen
-   canvas and applying that via createPattern(); Brave's canvas-fingerprinting protections can
-   neuter that internal canvas to 0x0 regardless of this app's own DOM, which is exactly what
-   was throwing "canvas element with a width or height of 0" here (confirmed: the stack trace
-   pointed straight at html2canvas's renderBackgroundImage). A plain background-color paints via
-   a simple fillRect with no offscreen canvas involved at all, sidestepping that failure mode
-   entirely — the cost is losing the subtle two-tone diagonal for a flat one. */
+/* Flat solid fill, not a diagonal linear-gradient — html2canvas renders any CSS background-image
+   (linear-gradient counts as one) by drawing it onto an internal offscreen canvas and applying
+   that via createPattern(); Brave's canvas-fingerprinting protections can neuter that internal
+   canvas to 0x0 regardless of this app's own DOM, which is exactly what was throwing "canvas
+   element with a width or height of 0" here (confirmed: the stack trace pointed straight at
+   html2canvas's renderBackgroundImage). A plain background-color paints via a simple fillRect
+   with no offscreen canvas involved at all, sidestepping that failure mode entirely. */
 .masthead {
   grid-area: top;
   display: grid;
@@ -53,18 +58,24 @@
   gap: 20px;
   background-color: #2f7d52;
   color: #fff;
-  padding: 11px 22px;
+  padding: var(--tpp-masthead-pad-v) var(--tpp-masthead-pad-h);
   border-radius: 8px;
 }
-.mastheadBrand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+/* .mastheadBrand deliberately has NO rule here — it used to be display:flex; align-items:center;
+   but there's only ever one child (.mastheadMeta), so flex was never doing real cross-axis
+   alignment work in the first place. Confirmed by exporting a real PDF and examining the raw
+   captured pixels: html2canvas does not reliably reproduce flexbox align-items:center vertical
+   centering, consistently rendering text noticeably BELOW the true center of its box (worse the
+   taller the box, since the bias reads as closer to a fixed pixel amount than a proportional
+   one). A plain block box with no flex at all is vertically centered here by the PARENT
+   `.masthead`'s own grid align-items:center instead (a separate, unaffected mechanism) — see
+   .head's own comment below for the same fix applied to card headers, and .row's for how a
+   MULTI-child flex row (which still needs flex for its horizontal layout) works around the same
+   bug differently. */
 .mastheadMeta {
   display: flex;
   gap: 20px;
-  font-size: 12.5px;
+  font-size: var(--tpp-masthead-meta-font-size);
 }
 .mastheadMeta dt {
   display: inline;
@@ -82,7 +93,7 @@
 .mastheadTitle {
   font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
   font-weight: 700;
-  font-size: 22px;
+  font-size: var(--tpp-masthead-title-font-size);
   text-align: center;
   white-space: nowrap;
   letter-spacing: 0.005em;
@@ -90,7 +101,7 @@
 .mastheadSub {
   display: block;
   font-weight: 600;
-  font-size: 11px;
+  font-size: var(--tpp-masthead-sub-font-size);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: #d9b44a;
@@ -99,13 +110,13 @@
 }
 .mastheadRight {
   text-align: right;
-  font-size: 12.5px;
+  font-size: var(--tpp-masthead-right-font-size);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .mastheadPage {
-  font-size: 9.5px;
+  font-size: var(--tpp-masthead-page-font-size);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -119,8 +130,8 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-top: 4px;
-  padding-top: 10px;
+  margin-top: var(--tpp-footer-margin-top);
+  padding-top: var(--tpp-footer-pad-top);
   border-top: 1px solid #d3d8de;
 }
 .footerRule {
@@ -128,9 +139,9 @@
   height: 1px;
   min-width: 20px;
 }
-/* Flat, not the original's fade-to-transparent linear-gradient — same html2canvas/Brave
-   createPattern failure mode as .masthead above (see its own comment); a solid color at reduced
-   opacity keeps these rules visually light without any CSS background-image involved. */
+/* Flat, not a fade-to-transparent linear-gradient — same html2canvas/Brave createPattern failure
+   mode as .masthead above (see its own comment); a solid color at reduced opacity keeps these
+   rules visually light without any CSS background-image involved. */
 .footerRule {
   background-color: #b68c2a;
   opacity: 0.55;
@@ -139,55 +150,64 @@
   flex: 0 0 auto;
   white-space: nowrap;
   font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
-  font-size: 10px;
+  font-size: var(--tpp-footer-caption-font-size);
   font-weight: 700;
   color: #b68c2a;
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
-/* --- body: a vertical stack of BANDS, each either a narrow grid of small region cards, or
-   one big region given the full width to reflow into its own reading columns ------------- */
-.bands {
+/* --- body: a vertical stack of full-page-width region sections, one after another in reading
+   order — `.sections` fills the page's full 1fr body row (a CSS grid item stretches to its row's
+   height by default — `.page` doesn't override that) and uses justify-content:space-between so
+   any leftover height becomes breathing room distributed BETWEEN sections rather than dead space
+   at the page's bottom edge. This works reliably here (an earlier attempt at the same idea one
+   level down, stretching cards within a side-by-side column, didn't: a column could hold just one
+   card, and space-between has nothing to distribute between a single item) because there are
+   always multiple real sections on a page (~11, or however many a page holds before the next one
+   spills to page 2) for the leftover space to spread across. */
+.sections {
   grid-area: body;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-.regions {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-.regionCol {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
+  justify-content: space-between;
+  gap: var(--tpp-grid-gap);
 }
 
 /* --- one region card: light-paper + dark-ink always, regardless of app theme, since this is
    a reproduction of a printed page ---------------------------------------------------------- */
+/* No overflow:hidden on .card — same html2canvas class of bug as everywhere else in this file
+   (see .mark/.grade/.price's own comments): with a comfortable slack of real vertical rows and no
+   fixed height, overflow:hidden here should be a pure no-op in native rendering, but html2canvas's
+   own height computation rounds sub-pixel short often enough to clip the BOTTOM edge of the card's
+   very last row — invisible for most glyphs, but it shaves off just enough of a comma's descending
+   tail to make "1,180.00" read as "1.180.00" in the exported PDF (confirmed: every corrupted comma
+   found was in the last row of its own internal column). .head's own top corners are rounded to
+   match .card's radius directly instead, so it no longer needs the parent's clip to look tidy. */
 .card {
   border-radius: 3px;
   border: 1px solid #dedacb;
   background: #fcfbf8;
   color: var(--tpp-ink, #124734);
-  overflow: hidden;
 }
+/* No display:flex/align-items:center here — same fix as .mastheadBrand's own comment above, for
+   the same reason: .head only ever has one child (the region title span), so flex's cross-axis
+   centering was never doing meaningful work, and html2canvas doesn't reproduce it reliably
+   anyway. Confirmed directly: this is the exact "LOW GROWN" card-header text that was rendering
+   visibly below-center in the exported PDF, measured pixel-for-pixel against the raw captured
+   canvas before this fix (roughly 3x more green space above the text than below it) — a plain
+   block box with equal top/bottom padding fixes it by not needing flex's alignment math at all. */
 .head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
+  padding: var(--tpp-head-pad-v) var(--tpp-head-pad-h);
   background: #2f7d52;
   color: #fff;
-  font-size: 10.5px;
+  font-size: var(--tpp-head-font-size);
   font-weight: 700;
+  line-height: 1.5;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
 }
 .empty {
   padding: 12px 10px;
@@ -197,59 +217,66 @@
 }
 .body {
   padding: 2px 0;
-  columns: 170px 3;
-  column-gap: 26px;
 }
-/* A grid-band card's own JS height estimate (estimateTppAutoCardHeight's `spanCols` argument,
-   planTppRegionBandedLayout) always assumes ONE column for anything LPT-packed into a regionCol —
-   only a wide band's card is ever measured/estimated as reflowing into more. Without this
-   override, .body's own `columns:` rule doesn't know it's sitting inside an already-narrow
-   regionCol (which can still be several hundred px wide when a band only fills 1-2 of the 3
-   grid slots) and happily reflows it into more sub-columns anyway — verified by measurement to
-   leave as little as ~16px for a mark once grade/at/price/gaps/padding are subtracted, which
-   collided badly regardless of any per-density mark-length truncation. Forcing exactly one column
-   here makes the CSS match what the layout math already assumed. */
-/* [data-density] (matches any value) rather than plain .bulletin keeps this at 4 selectors of
-   specificity — one more than the density-scoped overrides below (.bulletin[data-density="x"]
-   .body is 3), so it always wins regardless of density and regardless of source order. */
-.bulletin[data-density] .regionCol .body {
-  columns: 1;
-}
+/* .block/.grade/.price use var(--font-plex-mono), same as every other monospace-looking element
+   in this app — a PRIOR version of this comment blamed that webfont itself for corrupting these
+   three into an illegible blur in the exported PDF and swapped them to a bare system-font stack
+   ("SFMono-Regular", Menlo, Consolas) instead. That was the wrong diagnosis: the real cause was
+   overflow:hidden on these flex items (see the comment on .mark below — removing it there fixed
+   the exact same corruption for .mark, and removing it here fixed grade/at/price too, confirmed
+   by exporting and opening a real PDF). The system-font swap didn't fix the corruption on its
+   own — re-verified by testing it WITH overflow:hidden still present — and it introduced a NEW
+   bug: html2canvas resolves an ambiguous multi-font fallback stack differently than the live
+   browser does for these OS font names, producing visibly wider grade-to-price gaps in the PDF
+   than on screen. Using the app's own explicitly-loaded webfont (an unambiguous, specific font
+   both contexts resolve identically) avoids that mismatch — confirmed by cropping the same card
+   from the live preview and the exported PDF and comparing them side by side. */
 .block {
-  padding: 4px 10px 1px;
-  margin-top: 8px;
+  padding: var(--tpp-block-pad-v) var(--tpp-block-pad-h) 1px;
+  margin-top: var(--tpp-block-margin-top);
   font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--tpp-block-font-size);
   font-weight: 700;
   color: #b68c2a;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  /* No-op unless this card is a wide band's own multi-internal-column reflow (Card's
+     `internalCols` prop, TopPriceBulletin.tsx) — keeps a block label from being cut across a
+     column break there. */
   break-after: avoid-column;
 }
-.body > .block:first-child {
+.body > div:first-child > .block {
   margin-top: 0;
   padding-top: 3px;
 }
+/* align-items:baseline, not center — .mark/.grade/.at/.price share one text line but at different
+   font-sizes/weights, and html2canvas does not reliably reproduce flexbox align-items:center
+   vertical centering (confirmed directly: measured pixel-for-pixel against the raw captured
+   canvas, text was rendering noticeably below the true center of its row). baseline alignment is
+   both the fix (a far more fundamental, reliably-implemented text-layout primitive than
+   geometric cross-axis centering) and arguably the more CORRECT choice regardless — it's how a
+   printed price list's differently-sized columns actually line up on one another. */
 .row {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  font-size: 10.5px;
-  line-height: 1.3;
+  align-items: baseline;
+  gap: var(--tpp-row-gap);
+  padding: var(--tpp-row-pad-v) var(--tpp-row-pad-h);
+  font-size: var(--tpp-row-font-size);
+  line-height: var(--tpp-row-line-height);
   color: var(--tpp-ink, #124734);
+  /* No-op unless this card is a wide band's own multi-internal-column reflow — keeps a row from
+     being visually split across a column break there. */
   break-inside: avoid-column;
 }
-/* A hairline above every grade's first row (never the card's very own first row, and never
-   right after a block label — both already read as a boundary on their own) marks where one
-   grade's ranking ends and the next begins. Without it the only signal was a few extra px of
-   margin, easy to miss at compact density's smaller row heights — this was reported as "not
-   clear" once real sales pushed most bulletins to compact. */
+/* A rule above every grade's first row (never the card's very own first row, and never right
+   after a block label — both already read as a boundary on their own) marks where one grade's
+   ranking ends and the next begins. Slightly heavier and darker than a plain hairline so the
+   boundary reads clearly even once type shrinks at denser layouts. */
 .row[data-grade-start="true"] {
-  margin-top: 6px;
-  border-top: 1px solid #c9c2b0;
+  margin-top: var(--tpp-grade-start-margin-top);
+  border-top: 1.5px solid #a89f87;
 }
-.body > .row:first-child {
+.body > div:first-child > .row:first-child {
   margin-top: 0;
   border-top: none;
 }
@@ -257,16 +284,20 @@
   margin-top: 0;
   border-top: none;
 }
-/* No overflow:hidden/text-overflow:ellipsis here (a straight port of the original's own .asc-
-   tpp-mark would have both) — confirmed at full pixel resolution that overflow:hidden on this
-   specific element is exactly what made html2canvas slice the top off every Selling Mark glyph
-   in the exported PDF (only this column was affected; .grade/.price, with no overflow:hidden,
-   always rendered cleanly — tested and ruled out align-items:baseline vs center and line-height
-   first, neither changed anything, before finding overflow:hidden itself was the trigger).
-   The tradeoff: a name too long for its card no longer gets a clean "…" cutoff, it just runs
-   past its own column into whatever's next to it — accepted because TPP_BULLETIN_COLUMNS/the
-   card widths are already sized for real Selling Mark names to fit on one line in practice (the
-   original's own design intent for this column — ellipsis was only ever its last-resort net). */
+/* No overflow:hidden/text-overflow:ellipsis on ANY of mark/grade/at/price — confirmed at full
+   pixel resolution (exporting a real PDF and opening it in an actual PDF viewer, not just eyeballing
+   the on-screen preview) that overflow:hidden on a flex item is what makes html2canvas corrupt
+   text inside it in the captured PDF: .mark was the first one found this way (glyphs sliced clean
+   off the top), and grade/at/price turned out to have the SAME bug in a different guise — a full
+   illegible blur rather than a clean slice — despite an earlier comment here claiming they
+   "always rendered cleanly" (that claim was never actually re-verified against a real exported
+   PDF, only assumed). Every one of these four columns now relies on its box already being sized
+   to fit its own content instead: .mark truncates the actual string with JS ellipsis
+   (TopPriceBulletin.tsx's truncateMark, sized per section's own markMaxChars); .grade's box is
+   sized in JS to the sale's longest actual grade code (topPricePageExport.ts's gradeBasisFor);
+   .at and .price hold fixed short content (a single "@"/blank, or a formatted number) that never
+   needs truncation in practice. white-space:nowrap on mark/grade still guards against wrapping
+   onto a second line if a width computation is ever a rounding pixel short. */
 .mark {
   flex: 1;
   min-width: 0;
@@ -275,22 +306,20 @@
 /* grade/at/price are all flex-shrink:0, but a flex item's default automatic min-width is its own
    content size regardless of flex-shrink — without min-width:0 here, a wider-than-usual grade
    code (or the bold "@" marker row) silently grows the box past its flex-basis, and that stolen
-   width comes straight out of .mark's "whatever's left" allotment, which is what actually
-   collided with neighboring text (not .mark's own min-width:0, which was already correct).
-   Pinning these three to their flex-basis exactly makes .mark's leftover space predictable. */
+   width comes straight out of .mark's "whatever's left" allotment. Pinning these three to their
+   flex-basis exactly makes .mark's leftover space predictable. */
 .grade {
-  flex: 0 0 44px;
+  flex: 0 0 var(--tpp-grade-basis);
   min-width: 0;
-  overflow: hidden;
+  white-space: nowrap;
   font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9.5px;
+  font-size: var(--tpp-grade-font-size);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 .at {
-  flex: 0 0 10px;
+  flex: 0 0 var(--tpp-at-basis);
   min-width: 0;
-  overflow: hidden;
   text-align: center;
   font-weight: 700;
   color: #1f7a4d;
@@ -298,162 +327,22 @@
 .price {
   font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
   font-weight: 700;
-  font-size: 11px;
+  font-size: var(--tpp-price-font-size);
   font-variant-numeric: tabular-nums;
-  flex: 0 0 54px;
+  flex: 0 0 var(--tpp-price-basis);
   min-width: 0;
-  overflow: hidden;
+  white-space: nowrap;
   text-align: right;
 }
 .row[data-ours="true"] {
   color: #1f7a4d;
   background: rgba(0, 0, 0, 0.08);
   border-left: 3px solid #1f7a4d;
-  padding-left: 7px;
+  padding-left: var(--tpp-ours-pad-left);
 }
 .row[data-ours="true"] .mark,
 .row[data-ours="true"] .grade {
   font-weight: 700;
-}
-
-/* --- density auto-fit: 'compact' shrinks type/spacing across the whole bulletin -----------
-   Every number here has an exact match in TPP_DENSITY_COMPACT (topPricePageExport.ts) — the
-   two must move together, or the JS page-count estimate and what renders here disagree. */
-.bulletin[data-density="compact"] .head {
-  padding: 3px 6px;
-  font-size: 7.5px;
-}
-.bulletin[data-density="compact"] .body {
-  columns: 105px 5;
-  column-gap: 12px;
-}
-.bulletin[data-density="compact"] .block {
-  padding: 2px 5px 1px;
-  margin-top: 4px;
-  font-size: 6.5px;
-}
-.bulletin[data-density="compact"] .row {
-  gap: 3px;
-  padding: 1px 5px;
-  font-size: 7px;
-}
-.bulletin[data-density="compact"] .row[data-grade-start="true"] {
-  margin-top: 2px;
-}
-.bulletin[data-density="compact"] .grade {
-  flex-basis: 30px;
-  font-size: 7px;
-}
-.bulletin[data-density="compact"] .at {
-  flex-basis: 7px;
-}
-.bulletin[data-density="compact"] .price {
-  flex-basis: 40px;
-  font-size: 8px;
-}
-.bulletin[data-density="compact"] .row[data-ours="true"] {
-  padding-left: 5px;
-}
-.bulletin[data-density="compact"] .masthead {
-  padding: 7px 16px;
-}
-.bulletin[data-density="compact"] .mastheadMeta {
-  font-size: 10px;
-}
-.bulletin[data-density="compact"] .mastheadTitle {
-  font-size: 16px;
-}
-.bulletin[data-density="compact"] .mastheadSub {
-  font-size: 9px;
-}
-.bulletin[data-density="compact"] .mastheadRight {
-  font-size: 10px;
-}
-.bulletin[data-density="compact"] .mastheadPage {
-  font-size: 8px;
-}
-.bulletin[data-density="compact"] .footer {
-  margin-top: 2px;
-  padding-top: 6px;
-}
-.bulletin[data-density="compact"] .footerCaption {
-  font-size: 8.5px;
-}
-.bulletin[data-density="compact"] .bands,
-.bulletin[data-density="compact"] .regionCol,
-.bulletin[data-density="compact"] .regions {
-  gap: 6px;
-}
-
-/* --- ultra density: last-resort preset for sales "compact" still can't fit in 2 pages -----
-   Font sizes barely move from compact's own (already near the practical floor for print
-   legibility) — padding, margins and gaps are what actually shrink here, since squeezing those
-   costs far less readability per pixel recovered than shrinking type any further would. */
-.bulletin[data-density="ultra"] .head {
-  padding: 2px 5px;
-  font-size: 7px;
-}
-.bulletin[data-density="ultra"] .body {
-  columns: 90px 7;
-  column-gap: 8px;
-}
-.bulletin[data-density="ultra"] .block {
-  padding: 1px 4px 0;
-  margin-top: 2px;
-  font-size: 6px;
-}
-.bulletin[data-density="ultra"] .row {
-  gap: 2px;
-  padding: 0 4px;
-  font-size: 6.5px;
-  line-height: 1.15;
-}
-.bulletin[data-density="ultra"] .row[data-grade-start="true"] {
-  margin-top: 1px;
-}
-.bulletin[data-density="ultra"] .grade {
-  flex-basis: 28px;
-  font-size: 6.5px;
-}
-.bulletin[data-density="ultra"] .at {
-  flex-basis: 6px;
-}
-.bulletin[data-density="ultra"] .price {
-  flex-basis: 38px;
-  font-size: 7px;
-}
-.bulletin[data-density="ultra"] .row[data-ours="true"] {
-  padding-left: 4px;
-}
-.bulletin[data-density="ultra"] .masthead {
-  padding: 5px 12px;
-}
-.bulletin[data-density="ultra"] .mastheadMeta {
-  font-size: 9px;
-}
-.bulletin[data-density="ultra"] .mastheadTitle {
-  font-size: 14px;
-}
-.bulletin[data-density="ultra"] .mastheadSub {
-  font-size: 8px;
-}
-.bulletin[data-density="ultra"] .mastheadRight {
-  font-size: 9px;
-}
-.bulletin[data-density="ultra"] .mastheadPage {
-  font-size: 7px;
-}
-.bulletin[data-density="ultra"] .footer {
-  margin-top: 1px;
-  padding-top: 4px;
-}
-.bulletin[data-density="ultra"] .footerCaption {
-  font-size: 7.5px;
-}
-.bulletin[data-density="ultra"] .bands,
-.bulletin[data-density="ultra"] .regionCol,
-.bulletin[data-density="ultra"] .regions {
-  gap: 4px;
 }
 
 @media print {
@@ -472,8 +361,14 @@
   .masthead {
     break-inside: avoid;
   }
+  /* margin:0, not the visual 7mm/8mm this used to have — .page is already a full 297x210mm sheet
+     with its own 16px internal padding providing breathing room; a nonzero @page margin shrinks
+     the browser's PRINTABLE area to less than 297x210mm while .page still renders at the full
+     297x210mm size, clipping its left/right/top/bottom edges (confirmed: real content, e.g. "LOW
+     GROWN", was cut down to "OW GROWN" under the old margin, and the resulting page-count
+     overflow inflated a real 2-page sale to 4 printed pages, 2 of them blank). */
   @page {
     size: 297mm 210mm;
-    margin: 7mm 8mm;
+    margin: 0;
   }
 }

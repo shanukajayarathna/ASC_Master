@@ -64,9 +64,13 @@ public class LandingPageContentController(MongoContext db, IAuditLogger audit) :
         content.CompanyStats = new CompanyStatsContent
         {
             FoundedYear = dto.CompanyStats.FoundedYear,
-            AvgAnnualVolumeKg = dto.CompanyStats.AvgAnnualVolumeKg,
-            BrokerCount = dto.CompanyStats.BrokerCount,
             YearsOperating = dto.CompanyStats.YearsOperating,
+            Ranking = dto.CompanyStats.Ranking,
+            MarketShareLabel = dto.CompanyStats.MarketShareLabel,
+            EmployeeCount = dto.CompanyStats.EmployeeCount,
+            WarehouseCount = dto.CompanyStats.WarehouseCount,
+            Vision = dto.CompanyStats.Vision,
+            Mission = dto.CompanyStats.Mission,
         };
         content.PlatformStats = dto.PlatformStats
             .Select(s => new PlatformStat { Label = s.Label, Value = s.Value, IsLive = s.IsLive, LiveSourceKey = s.LiveSourceKey })
@@ -125,7 +129,15 @@ public class LandingPageContentController(MongoContext db, IAuditLogger audit) :
 
     private static LandingPageContentDto ToDto(LandingPageContent content, List<PlatformStat> stats, List<Testimonial> testimonials) => new(
         new HeroDto(content.Hero.Headline, content.Hero.Subhead, content.Hero.CtaPrimaryLabel, content.Hero.CtaSecondaryLabel),
-        new CompanyStatsDto(content.CompanyStats.FoundedYear, content.CompanyStats.AvgAnnualVolumeKg, content.CompanyStats.BrokerCount, content.CompanyStats.YearsOperating),
+        new CompanyStatsDto(
+            content.CompanyStats.FoundedYear,
+            content.CompanyStats.YearsOperating,
+            content.CompanyStats.Ranking,
+            content.CompanyStats.MarketShareLabel,
+            content.CompanyStats.EmployeeCount,
+            content.CompanyStats.WarehouseCount,
+            content.CompanyStats.Vision,
+            content.CompanyStats.Mission),
         stats.Select(s => new PlatformStatDto(s.Label, s.Value, s.IsLive, s.LiveSourceKey)).ToList(),
         content.FiveIntelligences.OrderBy(i => i.Order).Select(i => new IntelligenceItemDto(i.Title, i.Description, i.IconKey, i.Order)).ToList(),
         testimonials.Select(t => new TestimonialDto(t.Id, t.Name, t.Role, t.Quote, t.AvatarUrl, t.Order, t.IsPublished)).ToList(),

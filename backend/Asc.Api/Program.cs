@@ -418,14 +418,24 @@ app.MapHealthChecks("/health");
 
 // One-time seed so the public landing page is never empty before an Admin fills in real
 // copy through its CMS panel — mirrors /auth/register's "bootstrap on empty collection"
-// pattern, just run eagerly at startup instead of on first request.
+// pattern, just run eagerly at startup instead of on first request. Also refreshes the seed
+// in place while it's still untouched (UpdatedBy == "system-seed", i.e. no real Admin has
+// edited it yet) — covers the CMS schema evolving during development without ever
+// overwriting a real Admin's edits, which always carry a different UpdatedBy.
 using (var seedScope = app.Services.CreateScope())
 {
     var seedDb = seedScope.ServiceProvider.GetRequiredService<MongoContext>();
-    if (!await seedDb.LandingPageContent.Find(FilterDefinition<LandingPageContent>.Empty).AnyAsync())
+    // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+    var existing = await seedDb.LandingPageContent.Find(FilterDefinition<LandingPageContent>.Empty).FirstOrDefaultAsync();
+    if (existing is null)
     {
-        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
         await seedDb.LandingPageContent.InsertOneAsync(LandingPageContentSeed.Default());
+    }
+    else if (existing.UpdatedBy == "system-seed")
+    {
+        var refreshed = LandingPageContentSeed.Default();
+        refreshed.Id = existing.Id;
+        await seedDb.LandingPageContent.ReplaceOneAsync(c => c.Id == existing.Id, refreshed);
     }
 }
 

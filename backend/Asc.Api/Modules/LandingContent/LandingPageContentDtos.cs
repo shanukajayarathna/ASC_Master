@@ -1,7 +1,15 @@
 namespace Asc.Api.Modules.LandingContent;
 
 public record HeroDto(string Headline, string Subhead, string CtaPrimaryLabel, string CtaSecondaryLabel);
-public record CompanyStatsDto(int FoundedYear, long AvgAnnualVolumeKg, int BrokerCount, int YearsOperating);
+public record CompanyStatsDto(
+    int FoundedYear,
+    int YearsOperating,
+    string Ranking,
+    string MarketShareLabel,
+    int EmployeeCount,
+    int WarehouseCount,
+    string Vision,
+    string Mission);
 public record PlatformStatDto(string Label, string Value, bool IsLive, string? LiveSourceKey);
 public record IntelligenceItemDto(string Title, string Description, string IconKey, int Order);
 public record TestimonialDto(Guid Id, string Name, string Role, string Quote, string AvatarUrl, int Order, bool IsPublished);

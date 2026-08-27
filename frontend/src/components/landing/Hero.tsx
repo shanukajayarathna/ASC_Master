@@ -1,70 +1,60 @@
 import type { LandingHero } from "@/types/api";
 import PublicTicker from "@/components/landing/PublicTicker";
+import Button from "@mui/material/Button";
+import Link from "next/link";
 
 /**
- * Full-bleed cinematic hero — reuses the same licensed Wikimedia Commons estate photography
- * already vetted for the login page's TeaCinematic intro (see
- * public/tea/intro/ATTRIBUTION.md), rather than pulling in unverified stock imagery. The one
- * Ken Burns zoom on this whole page lives here (`.landing-hero-zoom`, 26s, subtle).
+ * The landing page's opening banner — sized and composed like the rest of this app's real
+ * surfaces (a bordered `--surface` panel, `font-display text-2xl/3xl` headline, a contained
+ * photo rather than a full-bleed cinematic backdrop), not a separate marketing-site register.
+ * The photo is the same licensed Wikimedia Commons estate shot already vetted for the login
+ * page's TeaCinematic intro (public/tea/intro/ATTRIBUTION.md).
  */
 export default function Hero({ hero }: { hero: LandingHero }) {
   return (
-    <div id="top" className="relative">
-      <div className="relative w-full overflow-hidden" style={{ height: "min(92vh, 900px)", minHeight: 560 }}>
+    <div id="top">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         <div
-          className="absolute inset-0 landing-hero-zoom bg-cover bg-center"
-          style={{ backgroundImage: "url(/tea/intro/estate-mist-hatton.webp)" }}
-          aria-hidden="true"
-        />
-        <div
-          className="absolute inset-0"
-          aria-hidden="true"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(15,20,16,0.55) 0%, rgba(15,20,16,0.35) 40%, rgba(15,20,16,0.85) 100%)",
-          }}
-        />
-
-        <div className="relative h-full flex items-center">
-          <div className="max-w-7xl mx-auto px-5 sm:px-8 w-full">
-            <div className="max-w-2xl">
-              <p className="font-mono text-[11px] tracking-[0.28em] uppercase mb-5" style={{ color: "var(--brand-gold-soft)" }}>
-                Asia Siyaka Commodities · Colombo Tea Auction
-              </p>
-              <h1
-                className="font-display font-bold leading-[1.05] m-0 mb-6"
-                style={{ color: "#FFFDF7", fontSize: "clamp(40px, 6vw, 88px)", textShadow: "0 4px 24px rgba(0,0,0,0.35)" }}
-              >
-                {hero.headline}
-              </h1>
-              <p
-                className="text-[16px] sm:text-[18px] leading-relaxed max-w-xl mb-9"
-                style={{ color: "rgba(244,241,230,0.92)" }}
-              >
-                {hero.subhead}
-              </p>
-              <div className="flex flex-wrap items-center gap-4">
-                <a
-                  href="/login"
-                  className="no-underline inline-flex items-center px-7 py-3.5 rounded-full text-[14px] font-semibold transition-transform hover:-translate-y-0.5"
-                  style={{ background: "var(--tea-liquor)", color: "var(--tea-ink)" }}
-                >
-                  {hero.ctaPrimaryLabel}
-                </a>
-                <a
-                  href="#how-it-works"
-                  className="no-underline inline-flex items-center px-7 py-3.5 rounded-full text-[14px] font-semibold border transition-colors hover:bg-white/10"
-                  style={{ borderColor: "rgba(244,241,230,0.45)", color: "#FFFDF7" }}
-                >
-                  {hero.ctaSecondaryLabel}
-                </a>
-              </div>
+          className="rounded-[var(--radius-lg)] border border-border overflow-hidden grid grid-cols-1 lg:grid-cols-2"
+          style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)" }}
+        >
+          <div className="p-6 sm:p-9 flex flex-col justify-center order-2 lg:order-1">
+            <p className="font-mono text-[11px] tracking-[0.18em] uppercase mb-3" style={{ color: "var(--liquor)" }}>
+              Asia Siyaka Commodities · Colombo Tea Auction
+            </p>
+            <h1
+              className="font-display font-bold leading-tight m-0 mb-3"
+              style={{ color: "var(--text-strong)", fontSize: "clamp(26px, 3.2vw, 38px)" }}
+            >
+              {hero.headline}
+            </h1>
+            <p className="text-[14px] leading-relaxed m-0 mb-6" style={{ color: "var(--text-muted)" }}>
+              {hero.subhead}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button component={Link} href="/login" variant="contained" color="primary">
+                {hero.ctaPrimaryLabel}
+              </Button>
+              <Button component={Link} href="#how-it-works" variant="outlined" color="primary">
+                {hero.ctaSecondaryLabel}
+              </Button>
             </div>
+          </div>
+          <div className="relative h-[220px] lg:h-auto order-1 lg:order-2">
+            <div
+              className="absolute inset-0 bg-cover bg-center"
+              style={{ backgroundImage: "url(/tea/intro/estate-mist-hatton.webp)" }}
+              role="img"
+              aria-label="Misty tea estate in the Central Highlands of Sri Lanka"
+            />
+            <div className="absolute inset-0" style={{ background: "var(--rule-brand)", opacity: 0.18 }} aria-hidden="true" />
           </div>
         </div>
       </div>
 
-      <PublicTicker />
+      <div className="mt-6">
+        <PublicTicker />
+      </div>
     </div>
   );
 }

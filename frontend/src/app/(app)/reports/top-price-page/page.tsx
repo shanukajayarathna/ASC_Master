@@ -59,15 +59,7 @@ export default function TopPricePagePage() {
   const totalRows = useMemo(() => {
     if (!layout) return 0;
     const rowsOf = (entry: TppRegionEntry) => entry.category.grades.reduce((j, g) => j + g.rows.length, 0);
-    return layout.pages.reduce(
-      (n, p) =>
-        n +
-        p.bands.reduce(
-          (m, band) => m + (band.kind === "wide" ? rowsOf(band.entry) : band.columns.reduce((k, col) => k + col.reduce((j, e) => j + rowsOf(e), 0), 0)),
-          0
-        ),
-      0
-    );
+    return layout.pages.reduce((n, p) => n + p.sections.reduce((m, s) => m + rowsOf(s.entry), 0), 0);
   }, [layout]);
 
   const exportExcel = async () => {
@@ -103,7 +95,7 @@ export default function TopPricePagePage() {
       {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Top Price Page"
-        subtitle="Every ranked region — Low Grown through CTC Teas — combined into one executive bulletin, matching the original's exact page layout, right down to how it's exported."
+        subtitle="Every ranked region — Low Grown through CTC Teas — combined into one executive bulletin, auto-densified to always fit within 2 pages."
         backTo={{ href: "/reports", label: "Reports" }}
         actions={
           <Select
@@ -142,7 +134,11 @@ export default function TopPricePagePage() {
       )}
 
       {!loading && combined && layout && meta && (
-        <div>
+        // report-print-area (globals.css) is the same "print only this element" scoping every
+        // other report page uses for its own Print button — this page never had it, so
+        // window.print() here was rendering blank (the global @media print rule hides
+        // `body *` by default and only un-hides content inside a `.report-print-area`).
+        <div className="report-print-area">
           <div className="border-b border-border pb-4 mb-5 flex items-center justify-between flex-wrap gap-3 print:hidden">
             <p className="text-[12.5px] text-text-muted m-0">
               {combined.sourceName} · {layout.pages.length} page{layout.pages.length === 1 ? "" : "s"} at {layout.density.name} density ·{" "}

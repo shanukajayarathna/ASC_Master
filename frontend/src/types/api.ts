@@ -997,9 +997,13 @@ export interface LandingHero {
 
 export interface LandingCompanyStats {
   foundedYear: number;
-  avgAnnualVolumeKg: number;
-  brokerCount: number;
   yearsOperating: number;
+  ranking: string;
+  marketShareLabel: string;
+  employeeCount: number;
+  warehouseCount: number;
+  vision: string;
+  mission: string;
 }
 
 export interface LandingPlatformStat {

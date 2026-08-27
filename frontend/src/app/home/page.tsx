@@ -13,18 +13,22 @@ import MetricsStrip from "@/components/landing/MetricsStrip";
 import Testimonials from "@/components/landing/Testimonials";
 import FinalCta from "@/components/landing/FinalCta";
 import LandingFooter from "@/components/landing/LandingFooter";
-import FullScreenLoader from "@/components/shared/FullScreenLoader";
+import TeaLoader from "@/components/shared/TeaLoader";
 import { useEffect, useState } from "react";
 
 /**
  * The public front door (spec: "/" was already claimed by the authenticated app shell's own
  * redirect-to-/dashboard, so this lives at /home instead — see plan discovery notes).
  *
+ * Built entirely on the same components/tokens the authenticated app already uses (Topbar
+ * shell, `--surface`/`--radius-lg`/`--shadow-sm` bordered cards, MUI Button, ModuleTile's tile
+ * pattern, the dashboard's KPI-strip pattern, TeaLoader) — this page is a front door to that
+ * app, not a separate visual product.
+ *
  * Client-fetch-after-mount, same as every other page in this app (see the "every page here
  * is a client component" convention noted in lib/api.ts) — deliberately not server-rendered
- * ISR as the original spec sketch assumed, since that would make `next build` depend on the
- * backend being reachable at build time, which nothing else in this app does. The CMS content
- * still updates live: this page just polls it the same way every other page polls its data.
+ * ISR, since that would make `next build` depend on the backend being reachable at build
+ * time, which nothing else in this app does.
  */
 export default function LandingPage() {
   const [content, setContent] = useState<LandingPageContent | null>(null);
@@ -39,22 +43,22 @@ export default function LandingPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "var(--tea-ledger)" }}>
-        <p className="text-[14px]" style={{ color: "var(--tea-ink)" }}>{error}</p>
+      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "var(--surface-alt)" }}>
+        <p className="text-[14px]" style={{ color: "var(--text)" }}>{error}</p>
       </div>
     );
   }
 
   if (!content) {
     return (
-      <div className="min-h-screen" style={{ background: "var(--tea-ink)" }}>
-        <FullScreenLoader message="Loading ASC Intelligent Hub…" onDark />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--surface-alt)" }}>
+        <TeaLoader size={56} />
       </div>
     );
   }
 
   return (
-    <div style={{ background: "var(--tea-ledger)" }}>
+    <div className="min-h-screen pb-6" style={{ background: "var(--surface-alt)" }}>
       <LandingNav />
       <Hero hero={content.hero} />
       <ProblemSection />

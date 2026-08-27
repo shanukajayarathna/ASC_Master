@@ -1,4 +1,3 @@
-import ScrollReveal from "@/components/landing/ScrollReveal";
 import type { LandingIntelligenceItem } from "@/types/api";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
@@ -7,72 +6,74 @@ import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import RequestQuoteOutlinedIcon from "@mui/icons-material/RequestQuoteOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 
-// Same icon-per-concept mapping the internal app already uses for these five modules
-// (Catalogue/Data Import, Valuation Centre, Knowledge Base, Market Intelligence, AI
-// Assistant — see components/shell/nav.ts) so the public page and the product it's selling
-// read as the same visual language.
-const ICONS: Record<string, SvgIconComponent> = {
+// Same icon *and* gradient per concept the internal launchpad already assigns to these exact
+// five modules (Catalogue/Data Import, Valuation Centre, Knowledge Base, Market Intelligence,
+// AI Assistant — see components/shell/nav.ts / --tile-gradient-*), so this grid reads as more
+// of the same product rather than a rebranded feature list.
+const ICON: Record<string, SvgIconComponent> = {
   document: Inventory2OutlinedIcon,
   valuation: RequestQuoteOutlinedIcon,
   knowledge: MenuBookOutlinedIcon,
   market: PublicOutlinedIcon,
   assistant: AutoAwesomeOutlinedIcon,
 };
-
-const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+const GRADIENT: Record<string, number> = { document: 2, valuation: 6, knowledge: 7, market: 1, assistant: 5 };
 
 /**
- * The "5 Intelligences" showcase — editorial grid (roman numeral + title + one sentence +
- * icon), not a generic feature-icon grid. Hover reveal is pure CSS (no JS, no mock
- * screenshot asset to fabricate) so it stays within the motion budget.
+ * The "5 Intelligences" showcase, built on the exact same tile shell as the authenticated
+ * launchpad's `ModuleTile` (rounded-[var(--radius-xl)] border card, `lift-on-hover`,
+ * gradient-header + icon badge, `--shadow-sm`) — no photo per tile (these are capabilities,
+ * not literal screens), which mirrors ModuleTile's own designed fallback for tiles with no
+ * `image` set (Master Search, Performance, Market Pulse on the real launchpad all render this
+ * same way today).
  */
 export default function FiveIntelligences({ items }: { items: LandingIntelligenceItem[] }) {
   const sorted = [...items].sort((a, b) => a.order - b.order);
 
   return (
-    <section id="intelligence" className="py-20 sm:py-28" style={{ background: "var(--tea-ink)" }}>
-      <div className="max-w-7xl mx-auto px-5 sm:px-8">
-        <ScrollReveal className="max-w-2xl mb-14">
-          <p className="font-mono text-[11px] tracking-[0.24em] uppercase mb-4" style={{ color: "var(--brand-gold-soft)" }}>
-            The Platform
-          </p>
-          <h2 className="font-display font-bold m-0" style={{ color: "#FFFDF7", fontSize: "clamp(30px, 4vw, 48px)" }}>
-            Five intelligences, one workspace.
-          </h2>
-        </ScrollReveal>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-px" style={{ background: "rgba(244,241,230,0.12)" }}>
-          {sorted.map((item, i) => {
-            const Icon = ICONS[item.iconKey] ?? AutoAwesomeOutlinedIcon;
-            return (
-              <ScrollReveal key={item.title} className="group">
-                <div
-                  className="h-full p-6 sm:p-7 transition-colors duration-300 group-hover:bg-white/[0.04]"
-                  style={{ background: "var(--tea-ink)" }}
-                >
-                  <span className="font-display text-[13px] font-semibold" style={{ color: "var(--tea-liquor)" }}>
-                    {ROMAN[i] ?? i + 1}
-                  </span>
-                  <div className="mt-5 mb-4 flex items-center justify-between">
-                    <Icon sx={{ fontSize: 26, color: "var(--brand-gold-soft)" }} />
-                    <span
-                      className="w-8 h-px transition-all duration-300 group-hover:w-14"
-                      style={{ background: "var(--tea-liquor)" }}
-                      aria-hidden="true"
-                    />
-                  </div>
-                  <h3 className="font-display text-[17px] font-semibold m-0 mb-2" style={{ color: "#FFFDF7" }}>
-                    {item.title}
-                  </h3>
-                  <p className="text-[13px] leading-relaxed m-0" style={{ color: "rgba(244,241,230,0.72)" }}>
-                    {item.description}
-                  </p>
-                </div>
-              </ScrollReveal>
-            );
-          })}
-        </div>
+    <div id="intelligence" className="max-w-7xl mx-auto px-4 sm:px-6 mt-6">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="font-display text-[15px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
+          Five intelligences, one workspace
+        </h2>
       </div>
-    </section>
+      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+        {sorted.map((item) => {
+          const Icon = ICON[item.iconKey] ?? AutoAwesomeOutlinedIcon;
+          const gradient = GRADIENT[item.iconKey] ?? 1;
+          return (
+            <div
+              key={item.title}
+              className="flex flex-col rounded-[var(--radius-xl)] border border-border overflow-hidden lift-on-hover"
+              style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)" }}
+            >
+              <div
+                className="h-[100px] flex items-end shrink-0 relative overflow-hidden"
+                style={{ background: `var(--tile-gradient-${gradient})` }}
+              >
+                <div
+                  className="absolute inset-0"
+                  style={{ background: "radial-gradient(120% 140% at 15% 15%, rgba(255,255,255,0.22), transparent 55%)" }}
+                  aria-hidden="true"
+                />
+                <div className="relative z-10 p-3">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.28)" }}>
+                    <Icon sx={{ fontSize: 20, color: "#fff" }} />
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 flex-1 flex flex-col gap-1">
+                <h3 className="font-display text-[15px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
+                  {item.title}
+                </h3>
+                <p className="text-[12.5px] leading-snug m-0" style={{ color: "var(--text-muted)" }}>
+                  {item.description}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

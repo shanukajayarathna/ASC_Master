@@ -1,7 +1,8 @@
 "use client";
 
-import type { TppBand, TppBulletinPage, TppDensity, TppGradeGroup, TppMeta, TppRegionEntry } from "@/lib/topPricePageExport";
+import type { TppBulletinPage, TppDensity, TppGradeGroup, TppMeta, TppRegionEntry } from "@/lib/topPricePageExport";
 import type { RankedLotRow } from "@/types/api";
+import type { CSSProperties } from "react";
 import styles from "./TopPriceBulletin.module.css";
 
 /** Ellipsis-truncates the actual string, never CSS (text-overflow/overflow:hidden on .mark is
@@ -45,26 +46,41 @@ function withBlockFlags(grades: TppGradeGroup[], multiBlock: boolean): { grade: 
   });
 }
 
-/** One region card — a header bar plus its ranked grades, or an empty placeholder for a region
- *  the workbook had no data for (matches the original's own manual-card fallback: nothing
- *  silently vanishes from the bulletin). The SAME markup renders whether this card lands in a
- *  narrow grid column or gets a wide band's full width — `.body`'s native CSS `columns:` (see
- *  TopPriceBulletin.module.css) is what reflows a wide card's rows into extra columns; nothing
- *  here has to know which it got. */
-function Card({ entry, markMaxChars }: { entry: TppRegionEntry; markMaxChars: number }) {
+/** One region section — a full-page-width header bar plus its ranked grades, or an empty
+ *  placeholder for a region the workbook had no data for (nothing silently vanishes from the
+ *  bulletin). `internalCols` (see topPricePageExport.ts's spanColsForRegion) is how many of its
+ *  OWN internal reading columns this section's rows reflow into, sized to its OWN row count —
+ *  reflowed via native CSS `column-count`, exactly matching the column width `markMaxChars` (also
+ *  passed in, computed for that same column count) already assumed. `gradeBasisPx` overrides
+ *  `--tpp-grade-basis` on this card alone (a CSS custom property cascades to any descendant that
+ *  doesn't set its own) — only a region whose own longest grade code needs more room than the
+ *  shared density default gets a wider `.grade` column, so one long code elsewhere on the page
+ *  never steals Selling Mark width from every OTHER region too (see topPricePageExport.ts's
+ *  gradeBasisFor). */
+function Card({
+  entry,
+  markMaxChars,
+  internalCols,
+  gradeBasisPx,
+}: {
+  entry: TppRegionEntry;
+  markMaxChars: number;
+  internalCols: number;
+  gradeBasisPx: number;
+}) {
   const cat = entry.category;
   const multiBlock = new Set(cat.grades.map((g) => g.block || "")).size > 1;
   const gradesWithFlags = withBlockFlags(cat.grades, multiBlock);
 
   return (
-    <div className={styles.card} data-card-title={cat.title}>
+    <div className={styles.card} data-card-title={cat.title} style={{ "--tpp-grade-basis": `${gradeBasisPx}px` } as CSSProperties}>
       <div className={styles.head}>
         <span>{cat.title}</span>
       </div>
       {cat.grades.length === 0 ? (
         <div className={styles.empty}>No ranked lots for this region in the generated report.</div>
       ) : (
-        <div className={styles.body}>
+        <div className={styles.body} style={internalCols > 1 ? { columnCount: internalCols, columnGap: "var(--tpp-grid-gap)" } : undefined}>
           {gradesWithFlags.map(({ grade: g, showBlock }, gi) => (
             <div key={gi}>
               {showBlock && <div className={styles.block}>{g.block || "Other"}</div>}
@@ -88,18 +104,57 @@ export interface TopPriceBulletinProps {
   onPageRef?: (el: HTMLDivElement | null, index: number) => void;
 }
 
-/** The on-screen executive bulletin — a faithful port of the original standalone tool's own
- *  DOM/CSS (asc-components.css §K2's .asc-tpp-* classes, read directly from the source): a
- *  vertical stack of BANDS per page, each either a narrow 3-column grid of small region cards
- *  (LPT-packed by planTppRegionBandedLayout) or one big region given the full page width to
- *  reflow into its own reading columns via native CSS `columns:`. This is also literally what
- *  gets exported to PDF — exportTopPricePagePdf screenshots each `.page` node captured via
- *  onPageRef, exactly like the original tool's own html2canvas-based export. */
+/** Every density.css field as an inline CSS custom property, consumed directly by the base rules
+ *  in TopPriceBulletin.module.css — there are no discrete `[data-density="x"]` breakpoints to
+ *  keep in sync: planTppBulletinAutoFit solves a continuous `t` per sale (topPricePageExport.ts),
+ *  and every rendered pixel here follows that exact number, not a nearest-bucket approximation. */
+function densityCssVars(density: TppDensity): CSSProperties {
+  const c = density.css;
+  return {
+    "--tpp-head-pad-v": `${c.headPadV}px`,
+    "--tpp-head-pad-h": `${c.headPadH}px`,
+    "--tpp-head-font-size": `${c.headFontSize}px`,
+    "--tpp-block-pad-v": `${c.blockPadV}px`,
+    "--tpp-block-pad-h": `${c.blockPadH}px`,
+    "--tpp-block-margin-top": `${c.blockMarginTop}px`,
+    "--tpp-block-font-size": `${c.blockFontSize}px`,
+    "--tpp-row-gap": `${c.rowGap}px`,
+    "--tpp-row-pad-v": `${c.rowPadV}px`,
+    "--tpp-row-pad-h": `${c.rowPadH}px`,
+    "--tpp-row-font-size": `${c.rowFontSize}px`,
+    "--tpp-row-line-height": `${c.rowLineHeight}`,
+    "--tpp-grade-start-margin-top": `${c.gradeStartMarginTop}px`,
+    "--tpp-grade-basis": `${c.gradeBasis}px`,
+    "--tpp-grade-font-size": `${c.gradeFontSize}px`,
+    "--tpp-at-basis": `${c.atBasis}px`,
+    "--tpp-price-basis": `${c.priceBasis}px`,
+    "--tpp-price-font-size": `${c.priceFontSize}px`,
+    "--tpp-ours-pad-left": `${c.oursPadLeft}px`,
+    "--tpp-masthead-pad-v": `${c.mastheadPadV}px`,
+    "--tpp-masthead-pad-h": `${c.mastheadPadH}px`,
+    "--tpp-masthead-meta-font-size": `${c.mastheadMetaFontSize}px`,
+    "--tpp-masthead-title-font-size": `${c.mastheadTitleFontSize}px`,
+    "--tpp-masthead-sub-font-size": `${c.mastheadSubFontSize}px`,
+    "--tpp-masthead-right-font-size": `${c.mastheadRightFontSize}px`,
+    "--tpp-masthead-page-font-size": `${c.mastheadPageFontSize}px`,
+    "--tpp-footer-margin-top": `${c.footerMarginTop}px`,
+    "--tpp-footer-pad-top": `${c.footerPadTop}px`,
+    "--tpp-footer-caption-font-size": `${c.footerCaptionFontSize}px`,
+    "--tpp-grid-gap": `${c.gridGap}px`,
+  } as CSSProperties;
+}
+
+/** The on-screen executive bulletin — a vertical stack of full-page-width region sections per
+ *  page (planTppBulletinAutoFit/planTppFullWidthLayout in topPricePageExport.ts), each reflowing
+ *  its own rows into however many of its own internal columns suit its own row count — never
+ *  split into page-wide side-by-side card columns (see that file's own header comment for why
+ *  that was tried and rejected). This is also literally what gets exported to PDF —
+ *  exportTopPricePagePdf screenshots each `.page` node captured via onPageRef. */
 export default function TopPriceBulletin({ pages, density, meta, onPageRef }: TopPriceBulletinProps) {
   const totalPages = pages.length;
 
   return (
-    <div className={styles.bulletin} data-density={density.name}>
+    <div className={styles.bulletin} data-density={density.name} style={densityCssVars(density)}>
       {pages.map((page, pi) => (
         <div key={pi} className={styles.page} ref={(el) => onPageRef?.(el, pi)}>
           <div className={styles.masthead}>
@@ -123,32 +178,16 @@ export default function TopPriceBulletin({ pages, density, meta, onPageRef }: To
             </div>
           </div>
 
-          <div className={styles.bands}>
-            {page.bands.map((band: TppBand, bi) =>
-              band.kind === "wide" ? (
-                <div key={bi} data-band="wide">
-                  <Card entry={band.entry} markMaxChars={density.markMaxChars} />
-                </div>
-              ) : (
-                <div key={bi} className={styles.regions} data-band="grid">
-                  {band.columns
-                    .filter((col) => col.length > 0)
-                    .map((col, ci) => (
-                      <div key={ci} className={styles.regionCol}>
-                        {col.map((entry) => (
-                          <Card key={entry.title} entry={entry} markMaxChars={density.markMaxChars} />
-                        ))}
-                      </div>
-                    ))}
-                </div>
-              )
-            )}
+          <div className={styles.sections}>
+            {page.sections.map((s, si) => (
+              <Card key={si} entry={s.entry} markMaxChars={s.markMaxChars} internalCols={s.spanCols} gradeBasisPx={s.gradeBasisPx} />
+            ))}
           </div>
 
           <div className={styles.footer}>
             <span className={styles.footerRule} aria-hidden="true" />
             <span className={styles.footerCaption}>
-              ◆ {[meta.broker || "Asia Siyaka Commodities PLC", "Weekly Top Price Bulletin", `Sale No. ${meta.auctionNumber || "—"}`, meta.saleDate]
+              ◆ {[meta.broker || "Asia Siyaka Commodities PLC", "Weekly Top Price", `Sale No. ${meta.auctionNumber || "—"}`, meta.saleDate]
                 .filter(Boolean)
                 .join("   ·   ")}{" "}
               ◆

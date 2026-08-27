@@ -1,63 +1,74 @@
-import ScrollReveal from "@/components/landing/ScrollReveal";
 import type { LandingCompanyStats } from "@/types/api";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
 
-function formatKg(kg: number): string {
-  if (kg >= 1_000_000) return `${(kg / 1_000_000).toFixed(kg % 1_000_000 === 0 ? 0 : 1)}M kg`;
-  if (kg >= 1_000) return `${Math.round(kg / 1_000)}K kg`;
-  return `${kg} kg`;
-}
+const CORE_VALUES = ["Morality", "Etiquette", "Public Welfare", "Assurance", "Honor", "Clarity", "Esteem", "Proficiency"];
 
 /**
- * About Asia Siyaka Commodities — company credibility section. All figures come from the
- * CMS (Admin-editable), seeded with realistic placeholder values on first run rather than
- * invented-and-presented-as-fact numbers.
+ * About Asia Siyaka Commodities — company credibility section, built from the real, sourced
+ * facts in the CMS (founding year, industry ranking, market share, employee/warehouse counts,
+ * vision/mission — see LandingPageContentSeed for provenance), not invented placeholder
+ * numbers. Same bordered `--surface` panel + KPI-strip pattern the dashboard's own glance bar
+ * uses (divided columns, `font-mono` numbers) rather than a bespoke stat layout. Core values
+ * are a fixed, unlikely-to-change corporate list, kept static here rather than added to the
+ * CMS schema for a handful of words.
  */
 export default function AboutSection({ stats }: { stats: LandingCompanyStats }) {
   const items = [
     { label: "Founded", value: String(stats.foundedYear) },
-    { label: "Years operating", value: `${stats.yearsOperating}+` },
-    { label: "Avg. annual volume", value: formatKg(stats.avgAnnualVolumeKg) },
-    { label: "Brokers on the floor", value: String(stats.brokerCount) },
+    { label: "Years Operating", value: `${stats.yearsOperating}+` },
+    { label: "Employees", value: `${stats.employeeCount}+` },
+    { label: "Warehouses", value: String(stats.warehouseCount) },
   ];
 
   return (
-    <section id="about" className="py-20 sm:py-28" style={{ background: "var(--tea-ledger)" }}>
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-        <ScrollReveal className="relative rounded-2xl overflow-hidden aspect-[4/3]">
-          <div
-            className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: "url(/tea/intro/estate-terraces-nuwara-eliya.webp)" }}
-          />
-        </ScrollReveal>
-
-        <ScrollReveal>
-          <p className="font-mono text-[11px] tracking-[0.24em] uppercase mb-4" style={{ color: "var(--tea-liquor)" }}>
-            About Asia Siyaka Commodities
+    <div id="about" className="max-w-7xl mx-auto px-4 sm:px-6 mt-6">
+      <div className="rounded-[var(--radius-lg)] border border-border p-5 sm:p-6" style={{ background: "var(--surface)", boxShadow: "var(--shadow-sm)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <EmojiEventsOutlinedIcon sx={{ fontSize: 16, color: "var(--liquor)" }} />
+          <p className="font-mono text-[11px] tracking-[0.18em] uppercase m-0" style={{ color: "var(--liquor)" }}>
+            About Asia Siyaka Commodities · {stats.ranking}
           </p>
-          <h2 className="font-display font-bold m-0 mb-5" style={{ color: "var(--tea-ink)", fontSize: "clamp(28px, 3.4vw, 44px)" }}>
-            A brokerage built on a century of Colombo auction trust.
-          </h2>
-          <p className="text-[15px] leading-relaxed m-0 mb-9" style={{ color: "var(--tea-leaf)" }}>
-            Asia Siyaka Commodities is one of the Colombo tea auction&rsquo;s established
-            brokerages — trusted by estates, factories and buyers to move volume through the
-            floor accurately, every sale week. This platform is how that trust extends into
-            the next generation of tools.
-          </p>
+        </div>
+        <h2 className="font-display text-[20px] sm:text-[22px] font-semibold m-0 mb-2" style={{ color: "var(--text-strong)" }}>
+          A brokerage built on decades of Colombo auction trust.
+        </h2>
+        <p className="text-[13.5px] leading-relaxed m-0 mb-1" style={{ color: "var(--text-muted)" }}>
+          {stats.marketShareLabel}. Asia Siyaka owns and operates the world&rsquo;s only
+          LEED-certified &ldquo;green&rdquo; tea auction logistics center, and is the leading
+          tea auction logistics provider in Sri Lanka.
+        </p>
+        <p className="text-[13px] leading-relaxed italic m-0 mb-5" style={{ color: "var(--text-muted)" }}>
+          &ldquo;{stats.mission}&rdquo;
+        </p>
 
-          <div className="grid grid-cols-2 gap-6 pt-6" style={{ borderTop: "1px solid var(--gold-hairline)" }}>
-            {items.map((s) => (
-              <div key={s.label}>
-                <p className="font-display font-bold m-0" style={{ color: "var(--tea-ink)", fontSize: "clamp(24px, 2.6vw, 32px)" }}>
-                  {s.value}
-                </p>
-                <p className="font-mono text-[10.5px] tracking-[0.1em] uppercase m-0 mt-1" style={{ color: "var(--tea-leaf)" }}>
-                  {s.label}
-                </p>
+        <div className="mb-5 rounded-[var(--radius-lg)] border border-border grid" style={{ background: "var(--surface-alt)", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+          {items.map((s, i) => (
+            <div key={s.label} className="p-3.5" style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}>
+              <div className="font-mono text-[19px] font-semibold leading-tight" style={{ color: "var(--text-strong)" }}>
+                {s.value}
               </div>
-            ))}
-          </div>
-        </ScrollReveal>
+              <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                {s.label}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1.5 mb-2.5">
+          <AutoAwesomeOutlinedIcon sx={{ fontSize: 14, color: "var(--liquor)" }} />
+          <span className="text-[12px] font-semibold" style={{ color: "var(--text-strong)" }}>
+            Our Values
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {CORE_VALUES.map((v) => (
+            <span key={v} className="px-3 py-1.5 rounded-full border border-border text-[12px]" style={{ color: "var(--text)", background: "var(--surface-alt)" }}>
+              {v}
+            </span>
+          ))}
+        </div>
       </div>
-    </section>
+    </div>
   );
 }
