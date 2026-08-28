@@ -7,6 +7,7 @@ using Asc.Api.Modules.ApiKeys;
 using Asc.Api.Modules.Assistant;
 using Asc.Api.Modules.Audit;
 using Asc.Api.Modules.Auth;
+using Asc.Api.Modules.CategoryReports;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Knowledge;
@@ -230,6 +231,10 @@ builder.Services.AddSingleton<IScheduledReportJob, MonthlyCombinedPlaceholderJob
 // the same pattern WeeklyFactAutoReportJob uses for its HttpClientName constant.
 builder.Services.AddSingleton<FactorySaleSummaryReportJob>();
 builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<FactorySaleSummaryReportJob>());
+// Registered as itself too, same reasoning as FactorySaleSummaryReportJob just above —
+// CategoryReportsController injects the concrete type for its own on-demand generate endpoint.
+builder.Services.AddSingleton<EstateCategoryReportJob>();
+builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<EstateCategoryReportJob>());
 builder.Services.AddSingleton<IScheduledReportJobRegistry, ScheduledReportJobRegistry>();
 builder.Services.AddSingleton<ScheduledReportRunnerService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduledReportRunnerService>());

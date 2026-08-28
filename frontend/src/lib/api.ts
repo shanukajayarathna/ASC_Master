@@ -13,6 +13,8 @@ import type {
   BrokerStats,
   CatalogueDetail,
   CatalogueSummary,
+  CategoryAnalysis,
+  CategoryOption,
   ChatMessage,
   ChatResponse,
   CombinedReport,
@@ -80,6 +82,23 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058"
 let authToken: string | null = null;
 export function setAuthToken(token: string | null) {
   authToken = token;
+}
+
+/** The localStorage key AuthContext persists the bearer token under — owned here (not
+ *  AuthContext) since `request()` needs it too, to clear a token the server has just told us
+ *  is no longer valid (see the 401 handling below). */
+export const AUTH_TOKEN_STORAGE_KEY = "asc_auth_token";
+
+// AuthContext registers itself here on mount so a 401 anywhere in the app — not just the one
+// request that happened to hit it — immediately clears the session everywhere: `user` drops
+// to null, and every route guard that already watches for that (AppLayout, the auth pages'
+// own force-logout-on-public-page hook) reacts on its own. Without this, a token that expires
+// or gets revoked mid-session would sit invisible until whichever page's error handling
+// happened to notice, and most just render a generic "request failed" message instead of
+// recognizing it as a dead session.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
 }
 
 /** What media a lot currently has: a photo, and which remark fields carry a voice note. */
@@ -155,6 +174,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
       const message =
         (body as { message?: string } | undefined)?.message || text || `Request failed: ${res.status} ${res.statusText}`;
+      // A 401 while we believed we had a valid token means the server disagrees — expired,
+      // revoked, or a role change that invalidated it. Only fires when a token was actually
+      // sent: an anonymous request 401ing (e.g. an admin-only endpoint called by a signed-out
+      // visitor) is normal and not a session that needs tearing down.
+      if (res.status === 401 && authToken) {
+        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        authToken = null;
+        onUnauthorized?.();
+      }
       throw new ApiError(message, res.status, body);
     }
     if (res.status === 204) return undefined as T;
@@ -908,6 +936,24 @@ export const api = {
     }),
 
   listFactorySaleSummaryOutputs: () => request<ScheduledReportOutput[]>("/api/v1/reports/factory-sale-summary/outputs"),
+
+  // ---- Category Analysis (Price & Classification — Sale x Broker) ---------------------
+
+  listCategoryOptions: () => request<CategoryOption[]>("/api/v1/reports/category-analysis/categories"),
+
+  previewCategoryAnalysis: (category: string, catalogueIds: string[]) => {
+    const qs = new URLSearchParams({ category });
+    for (const id of catalogueIds) qs.append("catalogueIds", id);
+    return request<CategoryAnalysis>(`/api/v1/reports/category-analysis/preview?${qs.toString()}`);
+  },
+
+  generateCategoryAnalysis: (category: string, catalogueIds: string[]) =>
+    request<ScheduledReportOutput>("/api/v1/reports/category-analysis/generate", {
+      method: "POST",
+      body: JSON.stringify({ category, catalogueIds }),
+    }),
+
+  listCategoryAnalysisOutputs: () => request<ScheduledReportOutput[]>("/api/v1/reports/category-analysis/outputs"),
 
   mslSearch: (filters: MslFilters, page = 1, pageSize = 50) => {
     const qs = new URLSearchParams();

@@ -438,6 +438,118 @@ export interface CatalogueSummary {
   importedAt: string;
 }
 
+// ---- Category Analysis (Price & Classification — Sale x Broker) — see backend/Modules/CategoryReports ----
+
+export interface CategoryOption {
+  category: string;
+  lotCount: number;
+}
+
+export interface SaleRef {
+  saleNo: number;
+  saleYear: number;
+  label: string;
+}
+
+export interface BrokerDistributionRow {
+  broker: string;
+  lots: number;
+  sharePct: number;
+  distinctMarks: number;
+  qtyOfferedKg: number;
+  qtySoldKg: number;
+  proceedsRs: number;
+  avgPriceRsKg: number;
+}
+
+export interface CategoryStatusRow {
+  broker: string;
+  sold: number;
+  outsold: number;
+  unsold: number;
+  total: number;
+  soldPct: number;
+  outsoldPct: number;
+  unsoldPct: number;
+}
+
+export interface TierRow {
+  tier: string;
+  lots: number;
+  sharePct: number;
+  qtyKg: number;
+  avgPriceRsKg: number;
+  minPriceRsKg: number;
+  maxPriceRsKg: number;
+}
+
+export interface TierBrokerRow {
+  tier: string;
+  broker: string;
+  lots: number;
+  qtyKg: number;
+  avgPriceRsKg: number;
+}
+
+export interface SaleTrendRow {
+  saleNo: number;
+  saleYear: number;
+  lotsOffered: number;
+  sold: number;
+  outsold: number;
+  unsold: number;
+  soldPct: number;
+  qtyOfferedKg: number;
+  qtySoldKg: number;
+  avgPriceRsKg: number;
+  proceedsRs: number;
+}
+
+/** The flagship row: one (sale, broker) — achieved price plus the full Select Best/Best/Below
+ *  Best/Poor split for that broker's sold lots in that one sale. */
+export interface SaleBrokerRow {
+  saleNo: number;
+  saleYear: number;
+  broker: string;
+  lots: number;
+  sold: number;
+  soldPct: number;
+  avgPriceRsKg: number;
+  selectBestLots: number;
+  selectBestSharePct: number;
+  selectBestAvgPriceRsKg: number;
+  bestLots: number;
+  bestSharePct: number;
+  bestAvgPriceRsKg: number;
+  belowBestLots: number;
+  belowBestSharePct: number;
+  belowBestAvgPriceRsKg: number;
+  poorLots: number;
+  poorSharePct: number;
+  poorAvgPriceRsKg: number;
+}
+
+export interface CategoryAnalysisSummary {
+  totalLots: number;
+  sold: number;
+  outsold: number;
+  unsold: number;
+  brokerCount: number;
+  distinctMarks: number;
+}
+
+export interface CategoryAnalysis {
+  category: string;
+  sales: SaleRef[];
+  summary: CategoryAnalysisSummary;
+  brokerDistribution: BrokerDistributionRow[];
+  status: CategoryStatusRow[];
+  tiers: TierRow[];
+  tierByBroker: TierBrokerRow[];
+  trend: SaleTrendRow[];
+  saleBroker: SaleBrokerRow[];
+}
+
 export interface CatalogueDetail {
   id: string;
   sourceName: string;
