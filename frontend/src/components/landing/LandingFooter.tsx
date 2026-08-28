@@ -1,8 +1,8 @@
 import BrandLogo from "@/components/shell/BrandLogo";
 
 const LINKS = [
-  { href: "#platform", label: "Platform" },
-  { href: "#intelligence", label: "Intelligence" },
+  { href: "#intelligence", label: "Platform" },
+  { href: "#how-it-works", label: "How It Works" },
   { href: "#about", label: "About" },
   { href: "/request-access", label: "Request Access" },
   { href: "/login", label: "Sign In" },
@@ -11,15 +11,14 @@ const LINKS = [
 /**
  * Photography credit line is required by the licensed images this page reuses from the login
  * page's TeaCinematic asset set (CC BY / CC BY-SA require attribution — see
- * public/tea/intro/ATTRIBUTION.md). Styled as a plain bordered `--surface` footer, matching
- * the dashboard's own `text-center pt-4 border-t border-border` sign-off rather than a
- * separate dark marketing footer.
+ * public/tea/intro/ATTRIBUTION.md). A plain full-width footer band with a top border, the
+ * standard landing-page footer pattern, rather than the whole thing boxed as one more card.
  */
 export default function LandingFooter() {
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 mt-6 mb-8">
-      <div className="rounded-[var(--radius-lg)] border border-border p-5 sm:p-6" style={{ background: "var(--surface)" }}>
-        <div className="flex flex-wrap items-start justify-between gap-6 mb-5">
+    <footer className="border-t border-border" style={{ background: "var(--surface-alt)" }}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12">
+        <div className="flex flex-wrap items-start justify-between gap-8 mb-8">
           <div>
             <BrandLogo height={26} />
             <p className="text-[12px] leading-relaxed mt-3 m-0 max-w-xs" style={{ color: "var(--text-muted)" }}>
@@ -30,7 +29,7 @@ export default function LandingFooter() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
             {LINKS.map((l) => (
               <a key={l.href} href={l.href} className="text-[12.5px] no-underline" style={{ color: "var(--text)" }}>
                 {l.label}
@@ -39,7 +38,7 @@ export default function LandingFooter() {
           </div>
         </div>
 
-        <div className="text-center pt-4 border-t border-border">
+        <div className="text-center pt-6 border-t border-border">
           <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
             © {new Date().getFullYear()} Asia Siyaka Commodities PLC · Powered by ASC Intelligent Hub
           </p>
@@ -48,6 +47,6 @@ export default function LandingFooter() {
           </p>
         </div>
       </div>
-    </div>
+    </footer>
   );
 }

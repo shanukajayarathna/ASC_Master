@@ -1,26 +1,28 @@
 "use client";
 
+import AuthShell from "@/components/auth/AuthShell";
+import LoggedOutNotice from "@/components/auth/LoggedOutNotice";
 import TeaCinematic from "@/components/auth/TeaCinematic";
-import BrandLogo from "@/components/shell/BrandLogo";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
 import FullScreenLoader from "@/components/shared/FullScreenLoader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { useForceLogoutOnPublicPage } from "@/hooks/useForceLogoutOnPublicPage";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
-  const { user, loading, login } = useAuth();
+  const { loading, login } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // The "Ceylon Tea Journey" intro overlay (TeaCinematic) — purely visual, plays above the
-  // form once per page visit and never blocks it. Component-local state on purpose: docs/28's
-  // no-global-loading-state rule applies to this too.
+  // The "Ceylon Tea Journey" intro overlay (TeaCinematic) — purely visual, plays full-screen
+  // above the split-screen layout below and then fades away. Component-local state on
+  // purpose: docs/28's no-global-loading-state rule applies to this too.
   const [introDone, setIntroDone] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
 
@@ -32,11 +34,12 @@ export default function LoginPage() {
     if (introDone) emailRef.current?.focus();
   }, [introDone]);
 
-  // Already signed in and landed here anyway (e.g. a stale bookmark) — the app, not the
-  // login form, is where that session belongs.
-  useEffect(() => {
-    if (!loading && user) router.replace(user.roles.includes("Admin") ? "/admin" : "/dashboard");
-  }, [loading, user, router]);
+  // Reaching /login with a session still live in this tab (e.g. the browser Back button out
+  // of the authenticated app) used to silently `router.replace` straight back into the
+  // dashboard, skipping re-entering credentials entirely — the same underlying gap as "/"'s,
+  // just less obvious since it never showed a form to notice was being skipped. Now it ends
+  // that session and shows the login form instead, same as "/".
+  const justLoggedOut = useForceLogoutOnPublicPage();
 
   // useAsyncAction's synchronous guard is what actually stops a double-Enter from firing two
   // overlapping login calls — the previous `submitting` state alone couldn't, since React
@@ -51,7 +54,7 @@ export default function LoginPage() {
     }
   });
 
-  if (loading || user) {
+  if (loading) {
     return (
       <div className="login-bg flex items-center justify-center min-h-screen">
         <FullScreenLoader message="Preparing your workspace…" onDark />
@@ -60,29 +63,21 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-bg flex items-center justify-center min-h-screen px-5">
+    <>
       {!introDone && <TeaCinematic onDone={() => setIntroDone(true)} />}
-      <div
-        className="w-full max-w-[380px] rounded-lg overflow-hidden"
-        style={{ background: "var(--paper-0)", boxShadow: "var(--shadow-lg)" }}
-      >
-        {/* Fixed light band, independent of the app's own theme — the artwork is drawn for
-            light surfaces (same fix Sidebar uses for the same logo, same reason). */}
-        <div className="flex flex-col items-center gap-2 pt-8 pb-6 px-8" style={{ background: "#F7F3E8" }}>
-          <BrandLogo height={52} />
-          <p className="font-mono text-[10px] tracking-widest uppercase m-0" style={{ color: "var(--brand-olive-deep)" }}>
-            Intelligence Hub
-          </p>
-        </div>
 
+      <AuthShell>
+        {justLoggedOut && <LoggedOutNotice />}
         <form
           onSubmit={(e) => {
             e.preventDefault();
             submit();
           }}
-          className="px-8 pt-6 pb-8"
         >
-          <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-5">Log in to continue</h1>
+          <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-1 text-center">Log in to continue</h1>
+          <p className="text-[13px] text-center mb-6" style={{ color: "var(--text-muted)" }}>
+            Sign in with your ASC Intelligent Hub account.
+          </p>
 
           {error && (
             <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">
@@ -141,7 +136,7 @@ export default function LoginPage() {
             <a href="/request-access" style={{ color: "var(--liquor)" }}>Need access? Request it</a>
           </p>
         </form>
-      </div>
-    </div>
+      </AuthShell>
+    </>
   );
 }

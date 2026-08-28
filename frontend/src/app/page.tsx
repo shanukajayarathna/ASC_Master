@@ -2,6 +2,8 @@
 
 import { api, ApiError } from "@/lib/api";
 import type { LandingPageContent } from "@/types/api";
+import { useForceLogoutOnPublicPage } from "@/hooks/useForceLogoutOnPublicPage";
+import LoggedOutNotice from "@/components/auth/LoggedOutNotice";
 import LandingNav from "@/components/landing/LandingNav";
 import Hero from "@/components/landing/Hero";
 import ProblemSection from "@/components/landing/ProblemSection";
@@ -17,22 +19,24 @@ import TeaLoader from "@/components/shared/TeaLoader";
 import { useEffect, useState } from "react";
 
 /**
- * The public front door (spec: "/" was already claimed by the authenticated app shell's own
- * redirect-to-/dashboard, so this lives at /home instead — see plan discovery notes).
+ * The public front door — lives at "/" (the (app) route group's old bare redirect-to-
+ * /dashboard shim is gone; the authenticated shell is reached via /login → /dashboard or
+ * /admin from here on, never via "/"). Built on the same tokens/components the authenticated
+ * app uses (Topbar shell, MUI Button, `--liquor`/`--tea-ink` palette, TeaLoader) but composed
+ * as ordinary full-width marketing sections — alternating background bands with generous
+ * vertical rhythm — rather than the dashboard's own stacked-widget layout, which is a
+ * different reading register (an operator's tool, not a front door for a first-time visitor).
  *
- * Built entirely on the same components/tokens the authenticated app already uses (Topbar
- * shell, `--surface`/`--radius-lg`/`--shadow-sm` bordered cards, MUI Button, ModuleTile's tile
- * pattern, the dashboard's KPI-strip pattern, TeaLoader) — this page is a front door to that
- * app, not a separate visual product.
- *
- * Client-fetch-after-mount, same as every other page in this app (see the "every page here
- * is a client component" convention noted in lib/api.ts) — deliberately not server-rendered
- * ISR, since that would make `next build` depend on the backend being reachable at build
- * time, which nothing else in this app does.
+ * Client-fetch-after-mount, same as every other page in this app — deliberately not
+ * server-rendered ISR, since that would make `next build` depend on the backend being
+ * reachable at build time, which nothing else in this app does.
  */
 export default function LandingPage() {
   const [content, setContent] = useState<LandingPageContent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Reaching "/" with a session still live in this tab (almost always via the browser Back
+  // button out of the authenticated app) ends that session — see the hook's own doc comment.
+  const justLoggedOut = useForceLogoutOnPublicPage();
 
   useEffect(() => {
     api
@@ -58,8 +62,13 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen pb-6" style={{ background: "var(--surface-alt)" }}>
+    <div style={{ background: "var(--surface-alt)" }}>
       <LandingNav />
+      {justLoggedOut && (
+        <div className="pt-5 px-4 sm:px-6">
+          <LoggedOutNotice />
+        </div>
+      )}
       <Hero hero={content.hero} />
       <ProblemSection />
       <FiveIntelligences items={content.fiveIntelligences} />

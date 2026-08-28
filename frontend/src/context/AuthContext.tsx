@@ -1,10 +1,10 @@
 "use client";
 
-import { api, setAuthToken } from "@/lib/api";
+import { AUTH_TOKEN_STORAGE_KEY, api, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
 import type { AuthUser } from "@/types/api";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-const TOKEN_KEY = "asc_auth_token";
+const TOKEN_KEY = AUTH_TOKEN_STORAGE_KEY;
 
 interface AuthCtx {
   user: AuthUser | null;
@@ -55,6 +55,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthToken(null);
     setUser(null);
   }, []);
+
+  // A 401 anywhere in the app (lib/api.ts) means the server has already invalidated this
+  // token — clear our own state to match rather than let `user` keep claiming a session the
+  // backend no longer honors.
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
+  // Browsers can restore a fully-rendered previous page from the back/forward cache instead
+  // of re-running this provider's mount effect — `pageshow` with `persisted: true` is the one
+  // reliable signal that happened. Re-validating the token on that signal is defense in depth
+  // alongside the public-pages' own force-logout-on-entry check (useForceLogoutOnPublicPage):
+  // that check only covers landing/login specifically, this covers a bfcache restore of *any*
+  // page, including one that never went through those.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      const stored = window.localStorage.getItem(TOKEN_KEY);
+      if (!stored) {
+        setUser(null);
+        return;
+      }
+      setAuthToken(stored);
+      api.me().then(setUser).catch(logout);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [logout]);
 
   const value = useMemo<AuthCtx>(() => ({ user, loading, login, logout }), [user, loading, login, logout]);
 

@@ -19,9 +19,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * misty Hatton estate → plucking → withering → graded tea becoming lot/value data → cup →
  * ASC mark) that plays above the auth card and then fades away. Presentation-only:
  *
- * - The login form is mounted and interactive underneath the whole time — the overlay is
- *   pointer-events-none except the Skip control, and any keypress skips it, so the intro
- *   can never delay or trap authentication (docs/28's "animation never blocks auth" rule).
+ * - The login form is mounted underneath the whole time, but the overlay blocks clicks from
+ *   reaching it while visually opaque (click-through onto invisible fields read as a broken
+ *   page, not a feature) — any keypress still skips instantly, and the Skip control is always
+ *   available, so the intro can never delay or trap authentication (docs/28's "animation
+ *   never blocks auth" rule) even though it isn't click-through anymore.
  * - Pure CSS scenes (`.tea-cine-*` in globals.css): crossfades + transform-only Ken Burns
  *   moves, no canvas, no rAF loop, no filter blur — same GPU budget rules as .lift-on-hover.
  * - First desktop visit plays the full journey; narrow viewports get a ~3s cut with 1280px

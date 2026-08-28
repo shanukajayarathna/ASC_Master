@@ -48,9 +48,9 @@ export default function PublicTicker() {
   if (error || (items && items.length === 0)) return null;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6">
-      <div className="w-full rounded-[var(--radius-md)] overflow-hidden" style={{ background: "var(--tea-ink)", boxShadow: "var(--shadow-md)" }}>
-        <div className="flex items-center" style={{ minHeight: 56 }}>
+    <div className="w-full overflow-hidden" style={{ background: "var(--tea-ink)" }}>
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center" style={{ minHeight: 52 }}>
           <div className="flex items-center gap-2 px-4 sm:px-6 py-3 shrink-0 border-r" style={{ borderColor: "rgba(244,241,230,0.14)" }}>
             <span aria-hidden className="w-1.5 h-1.5 rounded-full mp-live-dot shrink-0" style={{ background: "var(--tea-liquor)" }} />
             <span className="font-mono text-[10px] tracking-[0.16em] uppercase whitespace-nowrap" style={{ color: "var(--tea-liquor)" }}>

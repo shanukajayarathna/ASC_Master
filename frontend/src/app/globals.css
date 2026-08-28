@@ -449,7 +449,12 @@ body {
   z-index: 60; /* above the login card; below nothing else — login has no other chrome */
   background: #0C0F07; /* scene-1 ground, so first paint and scene gaps read as one ground */
   overflow: hidden;
-  pointer-events: none;
+  /* Blocks clicks from reaching the login form hidden underneath — the overlay is visually
+     opaque the whole time it plays, so click-through onto invisible fields just looked like
+     a broken page, not a feature. Skipping is still always one keypress or the Skip button
+     away (both still work with this at auto), so this doesn't reintroduce any risk of the
+     intro blocking authentication — see TeaCinematic.tsx's doc comment. */
+  pointer-events: auto;
   opacity: 1;
   transition: opacity 0.5s ease;
 }

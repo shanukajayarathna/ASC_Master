@@ -11,8 +11,8 @@ import Link from "next/link";
 import { useState } from "react";
 
 const LINKS = [
-  { href: "#platform", label: "Platform" },
-  { href: "#intelligence", label: "Intelligence" },
+  { href: "#intelligence", label: "Platform" },
+  { href: "#how-it-works", label: "How It Works" },
   { href: "#about", label: "About" },
   { href: "#insights", label: "Insights" },
 ];
@@ -37,7 +37,7 @@ export default function LandingNav() {
       style={{ boxShadow: "var(--shadow-sm)" }}
     >
       <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-        <Link href="/home" className="shrink-0 flex items-center gap-2 no-underline">
+        <Link href="/" className="shrink-0 flex items-center gap-2 no-underline">
           <BrandLogo height={30} onDark={mode === "dark"} />
           <span className="hidden lg:flex flex-col leading-none border-l border-border pl-2">
             <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>

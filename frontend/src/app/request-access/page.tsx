@@ -1,6 +1,6 @@
 "use client";
 
-import BrandLogo from "@/components/shell/BrandLogo";
+import AuthShell from "@/components/auth/AuthShell";
 import { ApiError, api } from "@/lib/api";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import Button from "@mui/material/Button";
@@ -33,73 +33,60 @@ export default function RequestAccessPage() {
   });
 
   return (
-    <div className="login-bg flex items-center justify-center min-h-screen px-5">
-      <div
-        className="w-full max-w-[420px] rounded-lg overflow-hidden"
-        style={{ background: "var(--paper-0)", boxShadow: "var(--shadow-lg)" }}
-      >
-        <div className="flex flex-col items-center gap-2 pt-8 pb-6 px-8" style={{ background: "#F7F3E8" }}>
-          <BrandLogo height={52} />
-          <p className="font-mono text-[10px] tracking-widest uppercase m-0" style={{ color: "var(--brand-olive-deep)" }}>
-            Intelligence Hub
+    <AuthShell>
+      {submitted ? (
+        <div className="text-center">
+          <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-3">Request sent</h1>
+          <p className="text-[13px] text-text-muted m-0">
+            An administrator will review your request and reach out with access details.
           </p>
+          <a href="/" className="inline-block mt-6 text-[13px]" style={{ color: "var(--liquor)" }}>
+            ← Back to the homepage
+          </a>
         </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-1 text-center">Request Access</h1>
+          <p className="text-[13px] text-text-muted text-center mb-6">
+            Accounts are provisioned by an administrator. Tell us who you are and we&apos;ll follow up.
+          </p>
 
-        {submitted ? (
-          <div className="px-8 pt-8 pb-9 text-center">
-            <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-3">Request sent</h1>
-            <p className="text-[13px] text-text-muted m-0">
-              An administrator will review your request and reach out with access details.
-            </p>
-            <a href="/home" className="inline-block mt-6 text-[13px]" style={{ color: "var(--liquor)" }}>
-              ← Back to the homepage
-            </a>
-          </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit();
-            }}
-            className="px-8 pt-6 pb-8"
-          >
-            <h1 className="font-display text-xl font-bold text-text-strong m-0 mb-1">Request Access</h1>
-            <p className="text-[13px] text-text-muted m-0 mb-5">
-              Accounts are provisioned by an administrator. Tell us who you are and we&apos;ll follow up.
-            </p>
-
-            {error && (
-              <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">
-                {error}
-              </div>
-            )}
-
-            <div className="flex flex-col gap-3.5 mb-6">
-              <TextField label="Full name" value={name} onChange={(e) => setName(e.target.value)} size="small" required fullWidth disabled={busy} />
-              <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} size="small" required fullWidth disabled={busy} />
-              <TextField label="Company / Estate" value={company} onChange={(e) => setCompany(e.target.value)} size="small" required fullWidth disabled={busy} />
-              <TextField
-                label="What would you like to use this for? (optional)"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                size="small"
-                fullWidth
-                multiline
-                minRows={2}
-                disabled={busy}
-              />
+          {error && (
+            <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">
+              {error}
             </div>
+          )}
 
-            <Button type="submit" variant="contained" color="primary" fullWidth disabled={busy} aria-busy={busy} size="large">
-              {busy ? "Sending…" : "Send Request"}
-            </Button>
+          <div className="flex flex-col gap-3.5 mb-6">
+            <TextField label="Full name" value={name} onChange={(e) => setName(e.target.value)} size="small" required fullWidth disabled={busy} />
+            <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} size="small" required fullWidth disabled={busy} />
+            <TextField label="Company / Estate" value={company} onChange={(e) => setCompany(e.target.value)} size="small" required fullWidth disabled={busy} />
+            <TextField
+              label="What would you like to use this for? (optional)"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              size="small"
+              fullWidth
+              multiline
+              minRows={2}
+              disabled={busy}
+            />
+          </div>
 
-            <p className="text-[12.5px] text-center mt-5 mb-0">
-              <a href="/login" style={{ color: "var(--liquor)" }}>Already have an account? Sign in</a>
-            </p>
-          </form>
-        )}
-      </div>
-    </div>
+          <Button type="submit" variant="contained" color="primary" fullWidth disabled={busy} aria-busy={busy} size="large">
+            {busy ? "Sending…" : "Send Request"}
+          </Button>
+
+          <p className="text-[12.5px] text-center mt-5 mb-0">
+            <a href="/login" style={{ color: "var(--liquor)" }}>Already have an account? Sign in</a>
+          </p>
+        </form>
+      )}
+    </AuthShell>
   );
 }
