@@ -1,6 +1,7 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
+import SendReportEmailButton from "@/components/shared/SendReportEmailButton";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api, ApiError } from "@/lib/api";
 import type { ScheduledReportOutput } from "@/types/api";
@@ -114,13 +115,16 @@ export default function FactorySaleSummaryPage() {
                 <span className="flex-1 min-w-0 truncate text-text-strong">{o.title}</span>
                 <span className="font-mono text-[12px] text-text-muted shrink-0">{new Date(o.createdAt).toLocaleString()}</span>
                 {o.downloadable ? (
-                  <Tooltip title="Download">
-                    <span>
-                      <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
-                        {downloadingId === o.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                  <>
+                    <Tooltip title="Download">
+                      <span>
+                        <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
+                          {downloadingId === o.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <SendReportEmailButton reportId={o.id} reportTitle={o.title} />
+                  </>
                 ) : (
                   <span className="text-[11px] text-text-muted italic shrink-0">{o.notes}</span>
                 )}

@@ -35,4 +35,9 @@ public static class Policies
     /// stats, testimonials, etc). Reading it needs no policy — it's public. See
     /// Modules/LandingContent.</summary>
     public const string ManageLandingContent = "ManageLandingContent";
+
+    /// <summary>Adding/editing/removing Plantations, Factories and Marks, and triggering a
+    /// re-mine of the broker-history archive. Browsing the hierarchy needs no policy — any
+    /// authenticated user can read it. See Modules/MarkIntelligence.</summary>
+    public const string ManageMarkIntelligence = "ManageMarkIntelligence";
 }

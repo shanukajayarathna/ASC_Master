@@ -18,6 +18,12 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Weekly FACT report PDFs (api/weekly-fact/pdf/route.ts) are produced by converting the real
+# .xlsx through LibreOffice headless, so the output matches Excel's own Export-to-PDF exactly —
+# libreoffice-calc is the Alpine package with the pieces that conversion needs; the DejaVu fonts
+# avoid missing-glyph fallback since the workbooks' fonts (Calibri/Arial) aren't in the base image.
+RUN apk add --no-cache libreoffice-calc ttf-dejavu
+
 COPY --from=build /app/public ./public
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static

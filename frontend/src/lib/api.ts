@@ -38,6 +38,11 @@ import type {
   MarketPulsePagedResult,
   MarketPulseSource,
   MasterDataEntity,
+  DeactivatedInsteadOfDeleted,
+  FactoryRecord,
+  MarkRecord,
+  MiningRunResult,
+  Plantation,
   MslAggregateRow,
   MslAnalyticsFilter,
   MslBatchUploadResult,
@@ -265,6 +270,44 @@ export const api = {
   getUnmappedMasterData: (type: string) =>
     request<UnmappedMasterDataValue[]>(`/api/v1/master-data/unmapped?type=${encodeURIComponent(type)}`),
 
+  // ---- mark intelligence (Plantation → Factory → Mark, mined broker history) ---------
+
+  listPlantations: () => request<Plantation[]>("/api/v1/mark-intelligence/plantations"),
+  createPlantation: (name: string) =>
+    request<Plantation>("/api/v1/mark-intelligence/plantations", { method: "POST", body: JSON.stringify({ name }) }),
+  updatePlantation: (id: string, name: string, isActive: boolean) =>
+    request<void>(`/api/v1/mark-intelligence/plantations/${id}`, { method: "PUT", body: JSON.stringify({ name, isActive }) }),
+  deletePlantation: (id: string) =>
+    request<DeactivatedInsteadOfDeleted | undefined>(`/api/v1/mark-intelligence/plantations/${id}`, { method: "DELETE" }),
+
+  listFactoriesForPlantation: (plantationId: string) =>
+    request<FactoryRecord[]>(`/api/v1/mark-intelligence/plantations/${plantationId}/factories`),
+  listUnassignedFactories: () => request<FactoryRecord[]>("/api/v1/mark-intelligence/factories/unassigned"),
+  createFactory: (plantationId: string | null, code: string, name: string) =>
+    request<FactoryRecord>("/api/v1/mark-intelligence/factories", {
+      method: "POST",
+      body: JSON.stringify({ plantationId, code, name }),
+    }),
+  updateFactory: (id: string, plantationId: string | null, code: string, name: string, isActive: boolean) =>
+    request<void>(`/api/v1/mark-intelligence/factories/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ plantationId, code, name, isActive }),
+    }),
+  deleteFactory: (id: string) =>
+    request<DeactivatedInsteadOfDeleted | undefined>(`/api/v1/mark-intelligence/factories/${id}`, { method: "DELETE" }),
+
+  listMarksForFactory: (factoryId: string) => request<MarkRecord[]>(`/api/v1/mark-intelligence/factories/${factoryId}/marks`),
+  getMark: (id: string) => request<MarkRecord>(`/api/v1/mark-intelligence/marks/${id}`),
+  searchMarkIntelligence: (q: string) => request<MarkRecord[]>(`/api/v1/mark-intelligence/search?q=${encodeURIComponent(q)}`),
+  createMark: (factoryId: string, name: string, code: string) =>
+    request<MarkRecord>("/api/v1/mark-intelligence/marks", { method: "POST", body: JSON.stringify({ factoryId, name, code }) }),
+  updateMark: (id: string, name: string, code: string, status: string) =>
+    request<void>(`/api/v1/mark-intelligence/marks/${id}`, { method: "PUT", body: JSON.stringify({ name, code, status }) }),
+  deleteMark: (id: string) =>
+    request<DeactivatedInsteadOfDeleted | undefined>(`/api/v1/mark-intelligence/marks/${id}`, { method: "DELETE" }),
+
+  runMarkIntelligenceMining: () => request<MiningRunResult>("/api/v1/mark-intelligence/mine", { method: "POST" }),
+
   // ---- audit log (who did what, for admin-mutating actions) --------------------------
 
   listAuditLog: (skip: number, take: number) =>
@@ -397,6 +440,15 @@ export const api = {
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
 
+  /** Emails a Saved Report's file (see ReportsController.EmailSaved) — server-side attaches the
+   *  same bytes downloadSavedReport streams and sends via SMTP, so there's no separate upload
+   *  step here. Only ever called for a `downloadable` report (the backend 404s otherwise). */
+  emailSavedReport: (id: string, to: string[], message?: string) =>
+    request<void>(`/api/v1/reports/saved/${id}/email`, {
+      method: "POST",
+      body: JSON.stringify({ to, message: message || null }),
+    }),
+
   downloadSavedReport: async (id: string): Promise<{ blob: Blob; fileName: string | null }> => {
     const res = await fetch(`${API_BASE}/api/v1/reports/saved/${id}/download`, {
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
@@ -408,6 +460,37 @@ export const api = {
     const disposition = res.headers.get("Content-Disposition");
     const fileName = disposition?.match(/filename="([^"]+)"/)?.[1] ?? null;
     return { blob: await res.blob(), fileName };
+  },
+
+  // ---- Weekly FACT reports: Excel-accurate PDF conversion -----------------------------
+
+  /** Converts a Weekly FACT workbook (FACT category / RANK / LOW RANK / LOW MARK — see
+   *  weeklyFactPdf.ts's file-level comment for why these moved off the jsPDF path) into a PDF
+   *  that matches Excel's own File > Export > Create PDF pixel-for-pixel, via a LibreOffice
+   *  headless conversion run by this app's own Next.js server (frontend/src/app/api/weekly-fact
+   *  /pdf/route.ts) — a relative path, not API_BASE, since that route lives here, not on the
+   *  .NET backend. */
+  convertWeeklyFactPdf: async (buffer: ArrayBuffer, filename: string): Promise<Blob> => {
+    const res = await fetch("/api/weekly-fact/pdf", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "x-filename": encodeURIComponent(filename),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: buffer,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text;
+      try {
+        message = (JSON.parse(text) as { error?: string }).error ?? text;
+      } catch {
+        // Plain-text error body — use as-is.
+      }
+      throw new Error(message || `PDF conversion failed: ${res.status} ${res.statusText}`);
+    }
+    return res.blob();
   },
 
   // ---- auction reports (Combined Report / Top Prices) --------------------------------

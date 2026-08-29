@@ -1,6 +1,8 @@
+using System.Net.Mail;
 using Asc.Api.Controllers;
 using Asc.Api.Data;
 using Asc.Api.Models;
+using Asc.Api.Modules.Email;
 using Asc.Api.Modules.ScheduledReports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,7 +22,11 @@ namespace Asc.Api.Modules.Reports;
 [ApiController]
 [Route("api/v1/reports")]
 [Authorize]
-public class ReportsController(ReportGenerator generator, MongoContext db, IGeneratedReportFileStore fileStore) : ControllerBase
+public class ReportsController(
+    ReportGenerator generator,
+    MongoContext db,
+    IGeneratedReportFileStore fileStore,
+    IReportEmailSender emailSender) : ControllerBase
 {
     [HttpGet("{catalogueId:guid}/{type}")]
     public async Task<ActionResult<ReportDto>> Generate(Guid catalogueId, string type)
@@ -182,6 +188,40 @@ public class ReportsController(ReportGenerator generator, MongoContext db, IGene
         if (file is null) return NotFound();
 
         return PhysicalFile(file.Value.Path, file.Value.ContentType, file.Value.FileName);
+    }
+
+    /// <summary>Emails a Saved Report's file to one or more recipients via SMTP — same
+    /// downloadable-only gate as DownloadSaved above, since there's nothing to attach otherwise.
+    /// Every signed-in user can reach this, same visibility as the download/list actions.</summary>
+    [HttpPost("saved/{id:guid}/email")]
+    public async Task<IActionResult> EmailSaved(Guid id, EmailSavedReportRequestDto dto, CancellationToken ct)
+    {
+        if (dto.To is not { Count: > 0 }) return BadRequest("At least one recipient email address is required.");
+        foreach (var address in dto.To)
+        {
+            if (!MailAddress.TryCreate(address, out _)) return BadRequest($"'{address}' isn't a valid email address.");
+        }
+        if (!emailSender.IsConfigured) return StatusCode(StatusCodes.Status503ServiceUnavailable, "Email sending isn't configured on the server yet.");
+
+        var report = await db.SavedReports.Find(r => r.Id == id).FirstOrDefaultAsync(ct);
+        if (report?.StoredFileId is not { } fileId) return NotFound();
+
+        var file = fileStore.Get(fileId);
+        if (file is null) return NotFound();
+
+        var bytes = await System.IO.File.ReadAllBytesAsync(file.Value.Path, ct);
+        var message = string.IsNullOrWhiteSpace(dto.Message) ? $"Attached: {file.Value.FileName}" : dto.Message;
+
+        try
+        {
+            await emailSender.SendReportAsync(dto.To, report.Title, message, bytes, file.Value.FileName, file.Value.ContentType, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
+
+        return NoContent();
     }
 
     private static SavedReportDto ToDto(SavedReport r) =>

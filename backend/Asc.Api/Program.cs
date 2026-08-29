@@ -10,6 +10,7 @@ using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.CategoryReports;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
+using Asc.Api.Modules.Email;
 using Asc.Api.Modules.Knowledge;
 using Asc.Api.Modules.LandingContent;
 using Asc.Api.Modules.MarketPulse;
@@ -122,6 +123,9 @@ builder.Services.AddSingleton<MslReportExportService>();
 // Weekly FACT Reports' "generate from database" option — reproduces the WES master
 // workbook's factory rows from already-imported auctionLots (see its own doc comment).
 builder.Services.AddSingleton<MslWeeklyReportService>();
+// Plantation/Factory/Mark reference hierarchy + mined broker-history, built on top of the
+// Msl archive above — admin-triggered, not a background job, so scoped is enough.
+builder.Services.AddScoped<Asc.Api.Modules.MarkIntelligence.MarkIntelligenceMiningService>();
 
 // AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
 // OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own
@@ -256,6 +260,11 @@ builder.Services.AddSingleton<Asc.Api.Modules.Worksheet.WorksheetExcelBuilder>()
 // one on a dead/slow external endpoint (see WebhookSender's own doc comment).
 builder.Services.AddHttpClient<IWebhookSender, WebhookSender>(client => client.Timeout = TimeSpan.FromSeconds(5));
 
+// Emailing a Saved Report's file (ReportsController's saved/{id}/email) via SMTP through an
+// already-owned mailbox — see SmtpReportEmailSender's own doc comment for why (a transactional
+// API like Resend needs a verified domain this deployment doesn't have).
+builder.Services.AddSingleton<IReportEmailSender, SmtpReportEmailSender>();
+
 // Workflow Layer — n8n today, swappable for Temporal (or anything else) later behind
 // IWorkflowService (see Modules/Workflow). N8nWorkflowProvider is just a name over the
 // webhook sender above — wrapping an AddHttpClient-backed transient inside a singleton
@@ -327,6 +336,7 @@ builder.Services.AddAuthorization(opts =>
     opts.AddPolicy(Policies.ManageMarketPulse, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ManageScheduledReports, p => p.RequireRole(RoleNames.Admin));
     opts.AddPolicy(Policies.ManageLandingContent, p => p.RequireRole(RoleNames.Admin));
+    opts.AddPolicy(Policies.ManageMarkIntelligence, p => p.RequireRole(RoleNames.Admin));
 });
 
 // Liveness probe for container orchestration (Phase 9) — deliberately just "did the process

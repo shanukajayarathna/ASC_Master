@@ -779,5 +779,9 @@ body {
 @media (prefers-reduced-motion: reduce) { .agent-underglow { animation: none; opacity: 0.7; } }
 
 /* Public landing page (/home) reuses the app's existing surfaces/cards/buttons and the
-   Market Pulse ticker's own .mp-marquee-track/.mp-live-dot above — no page-specific motion
-   or tokens of its own. */
+   Market Pulse ticker's own .mp-marquee-track/.mp-live-dot above. Scroll-reveal/parallax/
+   count-up motion lives in components/landing/motion/* via the `motion` package; the only
+   page-specific CSS is this nav scroll-shadow transition (box-shadow value itself is toggled
+   from React state in LandingNav.tsx). */
+.landing-nav-scrolled { transition: box-shadow 200ms ease; }
+@media (prefers-reduced-motion: reduce) { .landing-nav-scrolled { transition: none; } }

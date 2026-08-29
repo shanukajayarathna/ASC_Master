@@ -5,10 +5,8 @@ import PageHeader from "@/components/shared/PageHeader";
 import { api, ApiError } from "@/lib/api";
 import { dateStamp } from "@/lib/worksheetPdf";
 import {
-  buildFactCategoryPdf,
   buildMarketShareComparePdf,
   buildMarketSharePdf,
-  buildRankPdf,
   type MarketShareCompareTablePdfData,
   type MarketShareTablePdfData,
 } from "@/lib/weeklyFactPdf";
@@ -21,7 +19,6 @@ import {
   runJob,
   wesReportFromDatabase,
   type MarketShareCompareRow,
-  type RankTabData,
   type WeeklyJobResult,
   type WesInput,
   type WesReport,
@@ -572,12 +569,12 @@ export default function WeeklyFactReportsPage() {
   };
 
   const downloadFactPdf = async (outcome: WeeklyJobResult["outcomes"][number]) => {
-    if (!job || pdfBusy) return;
+    if (!job || pdfBusy || !outcome.buffer) return;
     const name = pdfNameOf(outcome.filename);
     setPdfBusy(name);
     setError(null);
     try {
-      const blob = await buildFactCategoryPdf(outcome, job.saleDate, job.saleNumber);
+      const blob = await api.convertWeeklyFactPdf(outcome.buffer, outcome.filename);
       triggerDownload(blob, name, "application/pdf");
     } catch (e) {
       setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
@@ -587,12 +584,12 @@ export default function WeeklyFactReportsPage() {
   };
 
   const downloadRankPdf = async () => {
-    if (!job?.rankWorkbook?.filename || pdfBusy) return;
+    if (!job?.rankWorkbook?.filename || !job.rankWorkbook.buffer || pdfBusy) return;
     const name = pdfNameOf(job.rankWorkbook.filename);
     setPdfBusy(name);
     setError(null);
     try {
-      const blob = await buildRankPdf(job.rankTabs, job.rankHeaderText);
+      const blob = await api.convertWeeklyFactPdf(job.rankWorkbook.buffer, job.rankWorkbook.filename);
       triggerDownload(blob, name, "application/pdf");
     } catch (e) {
       setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
@@ -601,24 +598,14 @@ export default function WeeklyFactReportsPage() {
     }
   };
 
-  // The LOW RANK/MARK WISE sheets share the RANK tabs' exact layout (benchmarks, legend,
-  // FACTORY..RANK columns, above/below coloring), so their PDF mirror is buildRankPdf fed a
-  // single LOW tab whose rows are the variant's own sorted array.
-  const lowTabOf = (j: WeeklyJobResult, variant: "rank" | "mark"): RankTabData => ({
-    category: "LOW",
-    tabName: `LOW FAC-${j.saleNumber != null ? j.saleNumber : "X"}`,
-    rows: variant === "rank" ? j.lowRankRows : j.lowMarkRows,
-    benchmark: j.lowBenchmark,
-  });
-
   const downloadLowPdf = async (variant: "rank" | "mark") => {
     const wbk = variant === "rank" ? job?.lowRankWorkbook : job?.lowMarkWorkbook;
-    if (!job || !wbk?.filename || pdfBusy) return;
+    if (!job || !wbk?.filename || !wbk.buffer || pdfBusy) return;
     const name = pdfNameOf(wbk.filename);
     setPdfBusy(name);
     setError(null);
     try {
-      const blob = await buildRankPdf([lowTabOf(job, variant)], job.lowHeaderText);
+      const blob = await api.convertWeeklyFactPdf(wbk.buffer, wbk.filename);
       triggerDownload(blob, name, "application/pdf");
     } catch (e) {
       setError(e instanceof Error ? `Failed to build the PDF: ${e.message}` : "Failed to build the PDF.");
@@ -686,16 +673,16 @@ export default function WeeklyFactReportsPage() {
       // The PDF mirror of every workbook rides along in the same ZIP, one .pdf per .xlsx.
       if (job) {
         for (const o of job.outcomes) {
-          if (o.buffer) zip.file(pdfNameOf(o.filename), await buildFactCategoryPdf(o, job.saleDate, job.saleNumber));
+          if (o.buffer) zip.file(pdfNameOf(o.filename), await api.convertWeeklyFactPdf(o.buffer, o.filename));
         }
         if (job.rankWorkbook?.buffer && job.rankWorkbook.filename) {
-          zip.file(pdfNameOf(job.rankWorkbook.filename), await buildRankPdf(job.rankTabs, job.rankHeaderText));
+          zip.file(pdfNameOf(job.rankWorkbook.filename), await api.convertWeeklyFactPdf(job.rankWorkbook.buffer, job.rankWorkbook.filename));
         }
         if (job.lowRankWorkbook?.buffer && job.lowRankWorkbook.filename) {
-          zip.file(pdfNameOf(job.lowRankWorkbook.filename), await buildRankPdf([lowTabOf(job, "rank")], job.lowHeaderText));
+          zip.file(pdfNameOf(job.lowRankWorkbook.filename), await api.convertWeeklyFactPdf(job.lowRankWorkbook.buffer, job.lowRankWorkbook.filename));
         }
         if (job.lowMarkWorkbook?.buffer && job.lowMarkWorkbook.filename) {
-          zip.file(pdfNameOf(job.lowMarkWorkbook.filename), await buildRankPdf([lowTabOf(job, "mark")], job.lowHeaderText));
+          zip.file(pdfNameOf(job.lowMarkWorkbook.filename), await api.convertWeeklyFactPdf(job.lowMarkWorkbook.buffer, job.lowMarkWorkbook.filename));
         }
       }
       if (marketShareResult) {

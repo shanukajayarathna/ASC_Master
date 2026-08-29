@@ -8,6 +8,7 @@ using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.LandingContent;
 using Asc.Api.Modules.MarketPulse;
+using Asc.Api.Modules.MarkIntelligence;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Msl;
 using Asc.Api.Modules.Notifications;
@@ -157,6 +158,35 @@ public class MongoContext
         [
             new CreateIndexModel<AccessRequest>(Builders<AccessRequest>.IndexKeys.Ascending(r => r.Status).Descending(r => r.CreatedAt)),
         ]);
+
+        // MarkIntelligenceMiningService aggregates the whole archive by MslCode — a pure
+        // performance index for that new access pattern (no existing Msl query is affected).
+        AuctionLots.Indexes.CreateMany(
+        [
+            new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.MslCode)),
+        ]);
+
+        // Factory/Mark codes are each other's unique trading identity (see
+        // Modules/MarkIntelligence's design notes) — the DB-level unique index is the
+        // authoritative backstop behind the service-layer check the admin "add" form does
+        // for a fast, friendly error.
+        Factories.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Factory>(Builders<Factory>.IndexKeys.Ascending(f => f.Code), new CreateIndexOptions { Unique = true }),
+        ]);
+        Marks.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Mark>(Builders<Mark>.IndexKeys.Ascending(m => m.Code), new CreateIndexOptions { Unique = true }),
+            new CreateIndexModel<Mark>(Builders<Mark>.IndexKeys.Ascending(m => m.FactoryId)),
+        ]);
+        MarkBrokerPeriodFacts.Indexes.CreateMany(
+        [
+            new CreateIndexModel<MarkBrokerPeriodFact>(Builders<MarkBrokerPeriodFact>.IndexKeys.Ascending(f => f.MarkId)),
+        ]);
+        MarkBrokerEras.Indexes.CreateMany(
+        [
+            new CreateIndexModel<MarkBrokerEra>(Builders<MarkBrokerEra>.IndexKeys.Ascending(e => e.MarkId)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -208,4 +238,12 @@ public class MongoContext
     /// <summary>"Request Access" submissions from the public landing page, reviewed by an
     /// Admin in the Admin Panel — this app is admin-provisioned only, no self-service signup.</summary>
     public IMongoCollection<AccessRequest> AccessRequests => Database.GetCollection<AccessRequest>("accessRequests");
+
+    /// <summary>Plantation → Factory → Mark reference hierarchy and its mined broker
+    /// history — curated on top of the Msl archive above, not a replacement for it.</summary>
+    public IMongoCollection<Plantation> Plantations => Database.GetCollection<Plantation>("plantations");
+    public IMongoCollection<Factory> Factories => Database.GetCollection<Factory>("factories");
+    public IMongoCollection<Mark> Marks => Database.GetCollection<Mark>("marks");
+    public IMongoCollection<MarkBrokerEra> MarkBrokerEras => Database.GetCollection<MarkBrokerEra>("markBrokerEras");
+    public IMongoCollection<MarkBrokerPeriodFact> MarkBrokerPeriodFacts => Database.GetCollection<MarkBrokerPeriodFact>("markBrokerPeriodFacts");
 }

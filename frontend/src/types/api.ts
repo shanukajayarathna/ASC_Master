@@ -52,6 +52,67 @@ export interface UnmappedMasterDataValue {
   count: number;
 }
 
+// ---- Mark Intelligence (Plantation → Factory → Mark → Broker) ---------------------------
+
+export interface Plantation {
+  id: string;
+  name: string;
+  isActive: boolean;
+  factoryCount: number;
+}
+
+export interface FactoryRecord {
+  id: string;
+  plantationId: string | null;
+  code: string;
+  name: string;
+  isActive: boolean;
+  markCount: number;
+}
+
+export interface MarkBrokerEra {
+  brokers: string[];
+  isShared: boolean;
+  startYear: number;
+  startSaleNo: number;
+  endYear: number | null;
+  endSaleNo: number | null;
+}
+
+export interface MarkRecord {
+  id: string;
+  factoryId: string;
+  factoryCode: string;
+  factoryName: string;
+  plantationId: string | null;
+  plantationName: string | null;
+  code: string;
+  name: string;
+  status: "Active" | "Discontinued";
+  currentBrokers: string[];
+  isCurrentlyShared: boolean;
+  timeline: MarkBrokerEra[];
+}
+
+export interface MiningRunResult {
+  factoriesSeen: number;
+  marksSeen: number;
+  newMarksCreated: number;
+  periodFactsWritten: number;
+  erasComputed: number;
+  marksWithMultipleEras: number;
+  marksEverShared: number;
+  marksThatChangedFactory: number;
+  runAt: string;
+}
+
+/** Delete endpoints return 204 when hard-deleted, or 200 with this when deactivated
+ *  instead because the entity has real history under it. */
+export interface DeactivatedInsteadOfDeleted {
+  deactivated: true;
+  reason: string;
+}
+
 /** One "who did what" record from the audit trail. */
 export interface AuditLogEntry {
   id: string;

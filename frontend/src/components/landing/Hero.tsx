@@ -1,7 +1,12 @@
+"use client";
+
 import type { LandingHero } from "@/types/api";
 import PublicTicker from "@/components/landing/PublicTicker";
+import Reveal from "@/components/landing/motion/Reveal";
 import Button from "@mui/material/Button";
+import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import Link from "next/link";
+import { useRef } from "react";
 
 /**
  * The landing page's opening section — a standard two-column marketing hero (headline/CTA
@@ -12,16 +17,21 @@ import Link from "next/link";
  * page's TeaCinematic intro (public/tea/intro/ATTRIBUTION.md).
  */
 export default function Hero({ hero }: { hero: LandingHero }) {
+  const bandRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
+  const { scrollYProgress } = useScroll({ target: bandRef, offset: ["start start", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], [0, 28]);
+
   return (
     <div id="top">
-      <div className="relative overflow-hidden" style={{ background: "var(--surface)" }}>
+      <div ref={bandRef} className="relative overflow-hidden" style={{ background: "var(--surface)" }}>
         <div
           className="absolute inset-0 pointer-events-none"
           aria-hidden="true"
           style={{ background: "radial-gradient(120% 100% at 100% 0%, var(--liquor-light) 0%, transparent 55%)" }}
         />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-14 pb-16 sm:pt-20 sm:pb-24 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center">
-          <div>
+          <Reveal>
             <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-4" style={{ color: "var(--liquor)" }}>
               Asia Siyaka Commodities · Colombo Tea Auction
             </p>
@@ -42,12 +52,17 @@ export default function Hero({ hero }: { hero: LandingHero }) {
                 {hero.ctaSecondaryLabel}
               </Button>
             </div>
-          </div>
+          </Reveal>
 
           <div className="relative aspect-[4/3] rounded-[var(--radius-xl)] overflow-hidden" style={{ boxShadow: "var(--shadow-lg)" }}>
-            <div
+            <motion.div
               className="absolute inset-0 bg-cover bg-center"
-              style={{ backgroundImage: "url(/tea/intro/estate-mist-hatton.webp)" }}
+              style={{
+                backgroundImage: "url(/tea/intro/estate-mist-hatton.webp)",
+                top: -36,
+                bottom: -36,
+                y: reduceMotion ? 0 : y,
+              }}
               role="img"
               aria-label="Misty tea estate in the Central Highlands of Sri Lanka"
             />

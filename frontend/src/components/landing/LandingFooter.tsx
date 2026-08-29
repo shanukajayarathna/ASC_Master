@@ -29,9 +29,9 @@ export default function LandingFooter() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 -my-2">
             {LINKS.map((l) => (
-              <a key={l.href} href={l.href} className="text-[12.5px] no-underline" style={{ color: "var(--text)" }}>
+              <a key={l.href} href={l.href} className="text-[12.5px] no-underline py-2 inline-block" style={{ color: "var(--text)" }}>
                 {l.label}
               </a>
             ))}

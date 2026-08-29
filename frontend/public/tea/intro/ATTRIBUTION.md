@@ -5,6 +5,13 @@ verified via the Commons API on **14 August 2026**. Files were downloaded at red
 resolution and re-encoded to WebP (2560px desktop / 1280px `-sm` mobile variants) — the
 only modifications are resizing and format conversion.
 
+Several of these files are also reused directly on the public landing page (`/`) —
+`Hero.tsx` and `HeritageSection.tsx` already did this; a 2026-08-29 audit added
+`withering-troughs-damro` (ProblemSection background), `ceylon-tea-grading-macro`
+(HowItWorks banner), and `estate-terraces-nuwara-eliya` (FinalCta background) rather than
+sourcing new images for those sections. Same files, same license terms below — no new
+attribution entries were needed, just new consumers of the existing ones.
+
 > CC BY and CC BY-SA require attribution; CC BY-SA additionally requires derivatives to be
 > shared under the same license (resized re-encodes of the images themselves are covered by
 > this file; the app's code is not a derivative of the images). If ASC publishes a public

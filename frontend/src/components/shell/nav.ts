@@ -1,3 +1,4 @@
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
@@ -122,6 +123,18 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CompareArrowsOutlinedIcon,
     gradient: 4,
     image: "https://images.unsplash.com/photo-1758519288905-38b7b00c1023",
+  },
+  {
+    href: "/mark-intelligence",
+    label: "Mark Intelligence",
+    section: "Intelligence",
+    status: "live",
+    description: "Plantations, factories and marks — current broker(s) and history of change.",
+    icon: AccountTreeOutlinedIcon,
+    gradient: 2,
+    // No `image` — matching the Admin Panel tile's own convention (see its comment): every
+    // other tile's Unsplash photo was individually verified before being wired in, and this
+    // one hasn't been, so it stays the plain gradient + icon treatment rather than guessing.
   },
   {
     href: "/master-search",

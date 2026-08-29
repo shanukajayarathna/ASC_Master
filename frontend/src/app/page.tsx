@@ -16,6 +16,8 @@ import Testimonials from "@/components/landing/Testimonials";
 import FinalCta from "@/components/landing/FinalCta";
 import LandingFooter from "@/components/landing/LandingFooter";
 import TeaLoader from "@/components/shared/TeaLoader";
+import Button from "@mui/material/Button";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 /**
@@ -47,8 +49,17 @@ export default function LandingPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "var(--surface-alt)" }}>
-        <p className="text-[14px]" style={{ color: "var(--text)" }}>{error}</p>
+      <div style={{ background: "var(--surface-alt)" }}>
+        <LandingNav />
+        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
+          <p className="text-[15px] font-medium m-0" style={{ color: "var(--text-strong)" }}>
+            We couldn&rsquo;t load this page right now.
+          </p>
+          <p className="text-[13.5px] m-0 max-w-sm" style={{ color: "var(--text-muted)" }}>{error}</p>
+          <Button component={Link} href="/login" variant="contained" color="primary">
+            Sign In
+          </Button>
+        </div>
       </div>
     );
   }
@@ -63,7 +74,7 @@ export default function LandingPage() {
 
   return (
     <div style={{ background: "var(--surface-alt)" }}>
-      <LandingNav />
+      <LandingNav hasTestimonials={content.testimonials.length > 0} />
       {justLoggedOut && (
         <div className="pt-5 px-4 sm:px-6">
           <LoggedOutNotice />

@@ -11,21 +11,27 @@ import type {
   ApiKeySummary,
   AuditLogEntry,
   AuthUser,
+  FactoryRecord,
   LandingIntelligenceItem,
   LandingPageContent,
   LandingPlatformStat,
   LandingTestimonial,
+  MarkBrokerEra,
+  MarkRecord,
   MarketPulseCategory,
   MarketPulseSource,
   MasterDataEntity,
+  MiningRunResult,
   MslBatchUploadResult,
   MslScanSummary,
   MslStageBatchResult,
   MslStatus,
   MslTrackedFile,
+  Plantation,
   UnmappedMasterDataValue,
   WebhookSummary,
 } from "@/types/api";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
@@ -74,28 +80,84 @@ const ADMIN_SECTIONS = [
   { id: "apikeys", label: "API Keys", icon: <VpnKeyOutlinedIcon fontSize="small" />, accent: 8 as const },
   { id: "webhooks", label: "Webhooks", icon: <LinkOutlinedIcon fontSize="small" />, accent: 6 as const },
   { id: "masterdata", label: "Master Data", icon: <CategoryOutlinedIcon fontSize="small" />, accent: 7 as const },
+  { id: "markintelligence", label: "Mark Intelligence", icon: <AccountTreeOutlinedIcon fontSize="small" />, accent: 2 as const },
   { id: "audit", label: "Audit Log", icon: <HistoryOutlinedIcon fontSize="small" />, accent: 4 as const },
 ];
 
-/** Quick-jump row under the page header — a flat scan of every section by name and icon,
- *  the thing a one-long-scroll page can't offer. Plain anchor links (not sticky: the shell's
- *  Topbar is itself sticky and wraps to a taller height on narrow screens, and stacking a
- *  second sticky bar under one of variable height is exactly the kind of thing that looks
- *  fine on the one viewport you tested and overlaps content on every other). */
-function AdminSectionNav() {
+/** The app shell's Topbar (Shell.tsx) is `position: sticky` at the document level, but every
+ *  fixed-position element *within* this admin page (the sidebar, the pinned header below)
+ *  needs to know its real rendered height to sit just below it without guessing a pixel value
+ *  that's wrong the moment the Topbar's content wraps differently. Shared by both so there's
+ *  one measurement, not two independently-guessed ones that could drift apart. */
+function useTopbarHeight(): number {
+  const [height, setHeight] = useState(68);
+  useEffect(() => {
+    const topbar = document.querySelector<HTMLElement>(".app-topbar");
+    if (!topbar) return;
+    const update = () => setHeight(topbar.getBoundingClientRect().height);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(topbar);
+    return () => observer.disconnect();
+  }, []);
+  return height;
+}
+
+/** Section sidebar — with 11 sections now on this page, a horizontal pill row got cramped
+ *  fast, and a single long scroll wasn't navigable at all, so only the selected section
+ *  renders: click an item, see that section, nothing else. Each section's own data-fetch
+ *  effect only fires once it's actually selected, as a side benefit (previously every section
+ *  fetched on page load regardless of whether you ever looked at it). A vertical list on
+ *  desktop (the standard admin-dashboard shape for this many destinations); collapses to a
+ *  horizontally-scrollable row on narrow screens, where a fixed-width column would eat too
+ *  much of the viewport.
+ *
+ *  `position: fixed`, not `sticky` — confirmed by hand that `sticky` doesn't work here at all
+ *  (scrolls away with the page instead of holding position): Shell.tsx's `<main>` carries
+ *  `overflow-x-hidden`, which per the CSS spec forces `overflow-y` to `auto` too, making
+ *  `<main>` a sticky-positioning container even though it never actually gets shorter than
+ *  its own content — so it never scrolls internally, and a `sticky` element bound to it never
+ *  finds anything to stick against while the real, visible scrolling happens on the document
+ *  instead. `fixed` escapes that ancestor entirely (only a `transform`/`filter`/`perspective`
+ *  ancestor would trap it, and none exists here), so it's pinned to the viewport for real.
+ *
+ *  Two things a first pass got wrong, fixed here: (1) a hardcoded top offset guessed the
+ *  Topbar's height instead of measuring it, so the sidebar started too high and visually
+ *  overlapped the page title/banner; this now measures the real `.app-topbar` element with a
+ *  ResizeObserver, so it's correct regardless of whether the Topbar wraps to a second row on
+ *  a narrower desktop width. (2) the sidebar had no background, so it read as transparent
+ *  floating text over whatever page content sat behind it — it's now a solid full-height panel
+ *  (own background, right border, spans to the bottom of the viewport) like an actual sidebar,
+ *  not a see-through overlay. AdminPage now indents its header/banner too, not just the
+ *  section content, so the sidebar reads as a true left column rather than something dropped
+ *  on top of the page title. */
+function AdminSidebar({ activeId, onSelect }: { activeId: string; onSelect: (id: string) => void }) {
+  const topOffset = useTopbarHeight();
+
   return (
-    <nav aria-label="Admin sections" className="mb-6 -mx-1 px-1 flex items-center gap-1.5 overflow-x-auto pb-1">
-      {ADMIN_SECTIONS.map((s) => (
-        <a
-          key={s.id}
-          href={`#${s.id}`}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap border border-border shrink-0 no-underline transition-colors hover:border-[var(--liquor)] hover:text-[var(--liquor)]"
-          style={{ color: "var(--text)", background: "var(--surface)" }}
-        >
-          {s.icon}
-          {s.label}
-        </a>
-      ))}
+    <nav
+      aria-label="Admin sections"
+      className="mb-6 md:mb-0 md:fixed md:left-0 md:bottom-0 md:w-[232px] md:overflow-y-auto md:z-10 md:border-r md:border-border md:px-3 md:py-4"
+      style={{ top: topOffset, background: "var(--surface)" }}
+    >
+      <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible md:w-full -mx-1 px-1 pb-1 md:pb-0">
+        {ADMIN_SECTIONS.map((s) => {
+          const active = s.id === activeId;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onSelect(s.id)}
+              aria-current={active ? "page" : undefined}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium whitespace-nowrap shrink-0 md:shrink md:w-full text-left transition-colors ${active ? "" : "hover:bg-surface-sunken"}`}
+              style={active ? { color: "#fff", background: "var(--liquor)" } : { color: "var(--text)" }}
+            >
+              {s.icon}
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }
@@ -1194,7 +1256,13 @@ function LandingPageSection() {
       title="Landing Page"
       subtitle="Every field on the public /home page — hero copy, company stats, the 5 Intelligences grid, testimonials and heritage copy. Nothing here needs a deploy."
       actions={
-        <Button size="small" variant="contained" onClick={save} disabled={saving} sx={{ background: "rgba(255,255,255,0.2)" }}>
+        <Button
+          size="small"
+          variant="contained"
+          onClick={save}
+          disabled={saving || !content.hero.headline.trim() || !content.hero.subhead.trim() || !content.heritage.pullQuote.trim()}
+          sx={{ background: "rgba(255,255,255,0.2)" }}
+        >
           {saving ? "Saving…" : "Save"}
         </Button>
       }
@@ -1269,8 +1337,16 @@ function LandingPageSection() {
               onChange={(e) => setContent({ ...content, fiveIntelligences: content.fiveIntelligences.map((x, xi) => xi === i ? { ...x, title: e.target.value } : x) })} />
             <input className={inputCls} placeholder="Description" value={item.description}
               onChange={(e) => setContent({ ...content, fiveIntelligences: content.fiveIntelligences.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x) })} />
-            <input className={inputCls} placeholder="Icon key" value={item.iconKey}
-              onChange={(e) => setContent({ ...content, fiveIntelligences: content.fiveIntelligences.map((x, xi) => xi === i ? { ...x, iconKey: e.target.value } : x) })} />
+            <select className={inputCls} value={item.iconKey}
+              onChange={(e) => setContent({ ...content, fiveIntelligences: content.fiveIntelligences.map((x, xi) => xi === i ? { ...x, iconKey: e.target.value } : x) })}>
+              {/* Must match the ICON/GRADIENT maps in components/landing/FiveIntelligences.tsx —
+                  a free-text key here used to silently fall back to a generic icon on typos. */}
+              <option value="document">Document</option>
+              <option value="valuation">Valuation</option>
+              <option value="knowledge">Knowledge</option>
+              <option value="market">Market</option>
+              <option value="assistant">Assistant</option>
+            </select>
             <IconButton size="small" onClick={() => setContent({ ...content, fiveIntelligences: content.fiveIntelligences.filter((_, xi) => xi !== i) })}>
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
@@ -1305,6 +1381,8 @@ function LandingPageSection() {
             </div>
             <textarea className={inputCls} rows={2} placeholder="Quote" value={t.quote}
               onChange={(e) => setContent({ ...content, testimonials: content.testimonials.map((x, xi) => xi === i ? { ...x, quote: e.target.value } : x) })} />
+            <input className={inputCls} placeholder="Avatar URL (optional — shows initials if left blank)" value={t.avatarUrl}
+              onChange={(e) => setContent({ ...content, testimonials: content.testimonials.map((x, xi) => xi === i ? { ...x, avatarUrl: e.target.value } : x) })} />
           </div>
         ))}
       </div>
@@ -2354,6 +2432,540 @@ function MasterDataSection() {
   );
 }
 
+/** Plantation → Factory → Mark reference hierarchy + the mined broker-history job. Marks
+ *  are added from a specific Factory's row ("+ Mark"), matching the natural drill-down order
+ *  (pick the factory first) rather than a separate top-level form needing its own factory
+ *  search box. Factories/Marks are searched rather than always-listed — there are hundreds
+ *  of factories and well over a thousand marks, too many for an always-rendered table like
+ *  the CMS-sized lists elsewhere on this page. */
+function MarkIntelligenceSection() {
+  const [plantations, setPlantations] = useState<Plantation[]>([]);
+  const [plantationsLoading, setPlantationsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [mining, setMining] = useState(false);
+  const [miningResult, setMiningResult] = useState<MiningRunResult | null>(null);
+  const [miningError, setMiningError] = useState<string | null>(null);
+
+  const refreshPlantations = () => {
+    setPlantationsLoading(true);
+    api
+      .listPlantations()
+      .then(setPlantations)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load plantations"))
+      .finally(() => setPlantationsLoading(false));
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshPlantations();
+  }, []);
+
+  const runMining = async () => {
+    setMining(true);
+    setMiningError(null);
+    try {
+      const result = await api.runMarkIntelligenceMining();
+      setMiningResult(result);
+      refreshPlantations();
+    } catch (e) {
+      setMiningError(e instanceof ApiError ? e.message : "Mining run failed");
+    } finally {
+      setMining(false);
+    }
+  };
+
+  // --- Plantation add/edit dialog ---
+  const [plantationDialogOpen, setPlantationDialogOpen] = useState(false);
+  const [editingPlantation, setEditingPlantation] = useState<Plantation | null>(null);
+  const [plantationName, setPlantationName] = useState("");
+  const [plantationActive, setPlantationActive] = useState(true);
+  const [plantationBusy, setPlantationBusy] = useState(false);
+  const [plantationFormError, setPlantationFormError] = useState<string | null>(null);
+
+  const openCreatePlantation = () => {
+    setEditingPlantation(null);
+    setPlantationName("");
+    setPlantationActive(true);
+    setPlantationFormError(null);
+    setPlantationDialogOpen(true);
+  };
+  const openEditPlantation = (p: Plantation) => {
+    setEditingPlantation(p);
+    setPlantationName(p.name);
+    setPlantationActive(p.isActive);
+    setPlantationFormError(null);
+    setPlantationDialogOpen(true);
+  };
+  const savePlantation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPlantationBusy(true);
+    setPlantationFormError(null);
+    try {
+      if (editingPlantation) await api.updatePlantation(editingPlantation.id, plantationName.trim(), plantationActive);
+      else await api.createPlantation(plantationName.trim());
+      setPlantationDialogOpen(false);
+      refreshPlantations();
+    } catch (err) {
+      setPlantationFormError(err instanceof ApiError ? err.message : "Couldn't save that plantation");
+    } finally {
+      setPlantationBusy(false);
+    }
+  };
+  const deletePlantationRow = async (p: Plantation) => {
+    try {
+      const result = await api.deletePlantation(p.id);
+      if (result?.deactivated) setPlantations((list) => list.map((x) => (x.id === p.id ? { ...x, isActive: false } : x)));
+      else setPlantations((list) => list.filter((x) => x.id !== p.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't delete that plantation");
+    }
+  };
+
+  // --- Factory search + add/edit dialog ---
+  const [factoryQuery, setFactoryQuery] = useState("");
+  const [factories, setFactories] = useState<FactoryRecord[]>([]);
+  const [factoriesLoading, setFactoriesLoading] = useState(false);
+  const [factoryDialogOpen, setFactoryDialogOpen] = useState(false);
+  const [editingFactory, setEditingFactory] = useState<FactoryRecord | null>(null);
+  const [factoryPlantationId, setFactoryPlantationId] = useState<string>("");
+  const [factoryCode, setFactoryCode] = useState("");
+  const [factoryName, setFactoryName] = useState("");
+  const [factoryActive, setFactoryActive] = useState(true);
+  const [factoryBusy, setFactoryBusy] = useState(false);
+  const [factoryFormError, setFactoryFormError] = useState<string | null>(null);
+
+  const searchFactories = () => {
+    if (!factoryQuery.trim()) {
+      setFactories([]);
+      return;
+    }
+    setFactoriesLoading(true);
+    // The backend doesn't have a dedicated factory-text-search endpoint yet — reuse the
+    // combined mark/factory search and de-duplicate by factory, since every mark result
+    // already carries its parent factory's code/name/plantation.
+    api
+      .searchMarkIntelligence(factoryQuery.trim())
+      .then((marks) => {
+        const seen = new Map<string, FactoryRecord>();
+        for (const m of marks) {
+          if (!seen.has(m.factoryId)) {
+            seen.set(m.factoryId, { id: m.factoryId, plantationId: m.plantationId, code: m.factoryCode, name: m.factoryName, isActive: true, markCount: 0 });
+          }
+        }
+        setFactories([...seen.values()]);
+      })
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't search factories"))
+      .finally(() => setFactoriesLoading(false));
+  };
+
+  const openCreateFactory = (plantationId?: string) => {
+    setEditingFactory(null);
+    setFactoryPlantationId(plantationId ?? "");
+    setFactoryCode("");
+    setFactoryName("");
+    setFactoryActive(true);
+    setFactoryFormError(null);
+    setFactoryDialogOpen(true);
+  };
+  const openEditFactory = (f: FactoryRecord) => {
+    setEditingFactory(f);
+    setFactoryPlantationId(f.plantationId ?? "");
+    setFactoryCode(f.code);
+    setFactoryName(f.name);
+    setFactoryActive(f.isActive);
+    setFactoryFormError(null);
+    setFactoryDialogOpen(true);
+  };
+  const saveFactory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFactoryBusy(true);
+    setFactoryFormError(null);
+    const pid = factoryPlantationId || null;
+    try {
+      if (editingFactory) await api.updateFactory(editingFactory.id, pid, factoryCode.trim(), factoryName.trim(), factoryActive);
+      else await api.createFactory(pid, factoryCode.trim(), factoryName.trim());
+      setFactoryDialogOpen(false);
+      if (factoryQuery.trim()) searchFactories();
+    } catch (err) {
+      setFactoryFormError(err instanceof ApiError ? err.message : "Couldn't save that factory");
+    } finally {
+      setFactoryBusy(false);
+    }
+  };
+  const deleteFactoryRow = async (f: FactoryRecord) => {
+    try {
+      const result = await api.deleteFactory(f.id);
+      if (result?.deactivated) setFactories((list) => list.map((x) => (x.id === f.id ? { ...x, isActive: false } : x)));
+      else setFactories((list) => list.filter((x) => x.id !== f.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't delete that factory");
+    }
+  };
+
+  // --- Mark search + add/edit dialog ---
+  const [markQuery, setMarkQuery] = useState("");
+  const [marks, setMarks] = useState<MarkRecord[]>([]);
+  const [marksLoading, setMarksLoading] = useState(false);
+  const [markDialogOpen, setMarkDialogOpen] = useState(false);
+  const [editingMark, setEditingMark] = useState<MarkRecord | null>(null);
+  const [markFactoryId, setMarkFactoryId] = useState("");
+  const [markFactoryLabel, setMarkFactoryLabel] = useState("");
+  const [markCode, setMarkCode] = useState("");
+  const [markName, setMarkName] = useState("");
+  const [markStatus, setMarkStatus] = useState<"Active" | "Discontinued">("Active");
+  const [markBusy, setMarkBusy] = useState(false);
+  const [markFormError, setMarkFormError] = useState<string | null>(null);
+
+  const searchMarks = () => {
+    if (!markQuery.trim()) {
+      setMarks([]);
+      return;
+    }
+    setMarksLoading(true);
+    api
+      .searchMarkIntelligence(markQuery.trim())
+      .then(setMarks)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't search marks"))
+      .finally(() => setMarksLoading(false));
+  };
+
+  const openCreateMarkForFactory = (f: FactoryRecord) => {
+    setEditingMark(null);
+    setMarkFactoryId(f.id);
+    setMarkFactoryLabel(`${f.code} — ${f.name}`);
+    setMarkCode("");
+    setMarkName("");
+    setMarkStatus("Active");
+    setMarkFormError(null);
+    setMarkDialogOpen(true);
+  };
+  const openEditMark = (m: MarkRecord) => {
+    setEditingMark(m);
+    setMarkFactoryId(m.factoryId);
+    setMarkFactoryLabel(`${m.factoryCode} — ${m.factoryName}`);
+    setMarkCode(m.code);
+    setMarkName(m.name);
+    setMarkStatus(m.status);
+    setMarkFormError(null);
+    setMarkDialogOpen(true);
+  };
+  const saveMark = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMarkBusy(true);
+    setMarkFormError(null);
+    try {
+      if (editingMark) await api.updateMark(editingMark.id, markName.trim(), markCode.trim(), markStatus);
+      else await api.createMark(markFactoryId, markName.trim(), markCode.trim());
+      setMarkDialogOpen(false);
+      if (markQuery.trim()) searchMarks();
+    } catch (err) {
+      setMarkFormError(err instanceof ApiError ? err.message : "Couldn't save that mark");
+    } finally {
+      setMarkBusy(false);
+    }
+  };
+  const deleteMarkRow = async (m: MarkRecord) => {
+    try {
+      const result = await api.deleteMark(m.id);
+      if (result?.deactivated) setMarks((list) => list.map((x) => (x.id === m.id ? { ...x, status: "Discontinued" } : x)));
+      else setMarks((list) => list.filter((x) => x.id !== m.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't delete that mark");
+    }
+  };
+
+  const inputCls = "w-full text-[13px] px-2.5 py-2 rounded border border-border bg-surface";
+  const eraLabel = (era: MarkBrokerEra) =>
+    `${era.brokers.join("+")} (${era.startYear}·S${era.startSaleNo}–${era.endYear ? `${era.endYear}·S${era.endSaleNo}` : "present"})`;
+
+  return (
+    <AdminSectionCard
+      id="markintelligence"
+      icon={<AccountTreeOutlinedIcon fontSize="small" />}
+      accent={2}
+      title="Mark Intelligence"
+      subtitle="Plantation → Factory → Mark reference data and which broker(s) currently sell each mark — mined from the MSL auction archive, editable here."
+      actions={
+        <Button size="small" variant="contained" onClick={runMining} disabled={mining} sx={{ background: "rgba(255,255,255,0.2)" }}>
+          {mining ? "Mining…" : "Run Mining"}
+        </Button>
+      }
+    >
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
+      {miningError && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{miningError}</div>}
+      {miningResult && (
+        <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-border text-[12.5px]" style={{ background: "var(--surface-sunken)" }}>
+          Last run: {miningResult.factoriesSeen} factories, {miningResult.marksSeen} marks ({miningResult.newMarksCreated} new),{" "}
+          {miningResult.marksWithMultipleEras} with a detected broker change, {miningResult.marksEverShared} ever shared,{" "}
+          {miningResult.marksThatChangedFactory} spanned more than one factory code.
+        </div>
+      )}
+
+      {/* Plantations */}
+      <div className="flex items-center justify-between gap-3 mb-2.5">
+        <h3 className="text-[13px] font-semibold m-0">Plantations</h3>
+        <Button size="small" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={openCreatePlantation}>
+          Add
+        </Button>
+      </div>
+      {plantationsLoading ? (
+        <div className="flex justify-center py-6">
+          <TeaLoader size={32} />
+        </div>
+      ) : (
+        <div className="overflow-x-auto mb-6">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Name</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Factories</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Status</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {plantations.map((p) => (
+                <tr key={p.id} className="border-b border-border last:border-0">
+                  <td className="px-2 py-2">{p.name}</td>
+                  <td className="px-2 py-2 text-text-muted">{p.factoryCount}</td>
+                  <td className="px-2 py-2">{p.isActive ? "Active" : <span className="text-text-muted">Inactive</span>}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap">
+                    <IconButton size="small" onClick={() => openEditPlantation(p)} aria-label="Edit">
+                      <EditOutlinedIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton size="small" color="error" onClick={() => deletePlantationRow(p)} aria-label="Delete">
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Factories */}
+      <h3 className="text-[13px] font-semibold mb-2.5">Factories</h3>
+      <div className="flex items-center gap-2 mb-2.5">
+        <TextField
+          size="small"
+          placeholder="Search factories by code or name…"
+          value={factoryQuery}
+          onChange={(e) => setFactoryQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && searchFactories()}
+          sx={{ flex: 1 }}
+        />
+        <Button size="small" onClick={searchFactories} disabled={factoriesLoading}>
+          Search
+        </Button>
+        <Button size="small" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={() => openCreateFactory()}>
+          Add
+        </Button>
+      </div>
+      {factoriesLoading ? (
+        <div className="flex justify-center py-6">
+          <TeaLoader size={32} />
+        </div>
+      ) : factories.length > 0 ? (
+        <div className="overflow-x-auto mb-6">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Code</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Name</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Plantation</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {factories.map((f) => (
+                <tr key={f.id} className="border-b border-border last:border-0">
+                  <td className="px-2 py-2 font-mono">{f.code}</td>
+                  <td className="px-2 py-2">{f.name}</td>
+                  <td className="px-2 py-2 text-text-muted">{plantations.find((p) => p.id === f.plantationId)?.name ?? "—"}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap">
+                    <Button size="small" onClick={() => openCreateMarkForFactory(f)}>
+                      + Mark
+                    </Button>
+                    <IconButton size="small" onClick={() => openEditFactory(f)} aria-label="Edit">
+                      <EditOutlinedIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton size="small" color="error" onClick={() => deleteFactoryRow(f)} aria-label="Delete">
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[12.5px] text-text-muted m-0 mb-6">Search for a factory by code or name to edit it, or add one from a plantation.</p>
+      )}
+
+      {/* Marks */}
+      <h3 className="text-[13px] font-semibold mb-2.5">Marks</h3>
+      <div className="flex items-center gap-2 mb-2.5">
+        <TextField
+          size="small"
+          placeholder="Search marks by code or name…"
+          value={markQuery}
+          onChange={(e) => setMarkQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && searchMarks()}
+          sx={{ flex: 1 }}
+        />
+        <Button size="small" onClick={searchMarks} disabled={marksLoading}>
+          Search
+        </Button>
+      </div>
+      {marksLoading ? (
+        <div className="flex justify-center py-6">
+          <TeaLoader size={32} />
+        </div>
+      ) : marks.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Code / Name</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Factory</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Current Broker(s)</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Status</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {marks.map((m) => (
+                <tr key={m.id} className="border-b border-border last:border-0 align-top">
+                  <td className="px-2 py-2 font-mono">{m.code}</td>
+                  <td className="px-2 py-2 text-text-muted">
+                    {m.factoryCode} — {m.factoryName}
+                  </td>
+                  <td className="px-2 py-2">
+                    {m.currentBrokers.length === 0 ? (
+                      <span className="text-text-muted">—</span>
+                    ) : (
+                      m.currentBrokers.map((b) => (
+                        <span key={b} className="inline-block mr-1 mb-1 px-2 py-0.5 rounded-full border border-border text-[11px]">
+                          {b}
+                        </span>
+                      ))
+                    )}
+                    {m.timeline.length > 1 && (
+                      <div className="text-[11px] text-text-muted mt-1" title={m.timeline.map(eraLabel).join(" → ")}>
+                        {m.timeline.length} eras
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-2 py-2">{m.status}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap">
+                    <IconButton size="small" onClick={() => openEditMark(m)} aria-label="Edit">
+                      <EditOutlinedIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton size="small" color="error" onClick={() => deleteMarkRow(m)} aria-label="Delete">
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[12.5px] text-text-muted m-0">Search for a mark by code or name, or add one from a factory&apos;s row above.</p>
+      )}
+
+      {/* Plantation dialog */}
+      <Dialog open={plantationDialogOpen} onClose={() => setPlantationDialogOpen(false)} maxWidth="xs" fullWidth>
+        <form onSubmit={savePlantation}>
+          <DialogTitle>{editingPlantation ? "Edit Plantation" : "Add Plantation"}</DialogTitle>
+          <DialogContent className="flex flex-col gap-3 pt-2">
+            {plantationFormError && <div className="p-2 rounded border border-danger bg-danger-light text-[12px] text-danger">{plantationFormError}</div>}
+            <input className={inputCls} placeholder="Name" value={plantationName} onChange={(e) => setPlantationName(e.target.value)} required />
+            {editingPlantation && (
+              <FormControlLabel
+                control={<Switch checked={plantationActive} onChange={(e) => setPlantationActive(e.target.checked)} />}
+                label="Active"
+              />
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPlantationDialogOpen(false)} disabled={plantationBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={plantationBusy || !plantationName.trim()}>
+              {plantationBusy ? "Saving…" : "Save"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Factory dialog */}
+      <Dialog open={factoryDialogOpen} onClose={() => setFactoryDialogOpen(false)} maxWidth="xs" fullWidth>
+        <form onSubmit={saveFactory}>
+          <DialogTitle>{editingFactory ? "Edit Factory" : "Add Factory"}</DialogTitle>
+          <DialogContent className="flex flex-col gap-3 pt-2">
+            {factoryFormError && <div className="p-2 rounded border border-danger bg-danger-light text-[12px] text-danger">{factoryFormError}</div>}
+            <Select size="small" displayEmpty value={factoryPlantationId} onChange={(e) => setFactoryPlantationId(e.target.value)}>
+              <MenuItem value="">
+                <em>No plantation</em>
+              </MenuItem>
+              {plantations.map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.name}
+                </MenuItem>
+              ))}
+            </Select>
+            <input className={inputCls} placeholder="Code (e.g. MF0294)" value={factoryCode} onChange={(e) => setFactoryCode(e.target.value)} required />
+            <input className={inputCls} placeholder="Name" value={factoryName} onChange={(e) => setFactoryName(e.target.value)} required />
+            {editingFactory && (
+              <FormControlLabel control={<Switch checked={factoryActive} onChange={(e) => setFactoryActive(e.target.checked)} />} label="Active" />
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setFactoryDialogOpen(false)} disabled={factoryBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={factoryBusy || !factoryCode.trim() || !factoryName.trim()}>
+              {factoryBusy ? "Saving…" : "Save"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Mark dialog */}
+      <Dialog open={markDialogOpen} onClose={() => setMarkDialogOpen(false)} maxWidth="xs" fullWidth>
+        <form onSubmit={saveMark}>
+          <DialogTitle>{editingMark ? "Edit Mark" : "Add Mark"}</DialogTitle>
+          <DialogContent className="flex flex-col gap-3 pt-2">
+            {markFormError && <div className="p-2 rounded border border-danger bg-danger-light text-[12px] text-danger">{markFormError}</div>}
+            <p className="text-[12.5px] text-text-muted m-0">
+              Factory: <strong>{markFactoryLabel}</strong>
+            </p>
+            <input className={inputCls} placeholder="Mark name" value={markName} onChange={(e) => setMarkName(e.target.value)} required />
+            <input className={inputCls} placeholder="Mark code (defaults to name)" value={markCode} onChange={(e) => setMarkCode(e.target.value)} />
+            {editingMark && (
+              <Select size="small" value={markStatus} onChange={(e) => setMarkStatus(e.target.value as "Active" | "Discontinued")}>
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Discontinued">Discontinued</MenuItem>
+              </Select>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setMarkDialogOpen(false)} disabled={markBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={markBusy || !markName.trim()}>
+              {markBusy ? "Saving…" : "Save"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+    </AdminSectionCard>
+  );
+}
+
 const AUDIT_LOG_PAGE_SIZE = 50;
 
 /** Read-only view of the audit trail — entries are written inline from the actions being
@@ -2445,9 +3057,44 @@ function AuditLogSection() {
  *  rows tucked under personal account settings. Non-admins never had a way here (no nav tile,
  *  no command palette entry — see nav.ts's `adminOnly`), but a direct URL visit still gets
  *  turned away rather than silently rendering an empty admin page. */
+/** One entry per ADMIN_SECTIONS id — the tab strip renders exactly one of these at a time. */
+const SECTION_COMPONENTS: Record<string, React.ComponentType> = {
+  sales: SalesDataSection,
+  msl: MslDataSection,
+  newssources: NewsSourcesSection,
+  landing: LandingPageSection,
+  accessrequests: AccessRequestsSection,
+  users: UsersSection,
+  apikeys: ApiKeysSection,
+  webhooks: WebhooksSection,
+  masterdata: MasterDataSection,
+  markintelligence: MarkIntelligenceSection,
+  audit: AuditLogSection,
+};
+
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.roles.includes("Admin") ?? false;
+  const [activeSectionId, setActiveSectionId] = useState<string>(ADMIN_SECTIONS[0].id);
+  const topOffset = useTopbarHeight();
+
+  // The "Home" pill up here is this app's only way back out of Admin (there's no persistent
+  // sidebar app-wide — see PageHeader's own doc comment) — losing it on scroll meant losing
+  // the way out. Pinned the same way as AdminSidebar (fixed + measured Topbar height, not
+  // sticky — see AdminSidebar's doc comment for why sticky doesn't work in this shell at all),
+  // with its own height measured so the content below it can reserve exactly that much space
+  // rather than a guessed number that's wrong the moment the title/subtitle wraps differently.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () => setHeaderHeight(el.getBoundingClientRect().height);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   if (authLoading) return null;
 
@@ -2465,36 +3112,47 @@ export default function AdminPage() {
 
   return (
     <div>
-      <PageHeader title="Admin Panel" subtitle="Full administrative control — users, access, master data and sale/MSL data." />
+      <AdminSidebar activeId={activeSectionId} onSelect={setActiveSectionId} />
 
-      <div
-        className="mb-6 rounded-[var(--radius-lg)] px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap"
-        style={{ background: "var(--tile-gradient-4)" }}
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span
-            className="flex items-center justify-center w-10 h-10 rounded-full shrink-0"
-            style={{ background: "rgba(255,255,255,0.18)" }}
-          >
-            <AdminPanelSettingsOutlinedIcon sx={{ color: "#fff", fontSize: 22 }} />
-          </span>
-          <p className="text-[13px] font-semibold text-white m-0 truncate">Signed in as {user?.displayName} · Administrator</p>
+      {/* Matches the sidebar's fixed width (232px) — it's out of flow (position: fixed) at
+          md+, so the whole page body (header included, not just the active section) reserves
+          its space by hand instead of a flex row doing it automatically. Keeping the header
+          and "signed in" banner inside this indent too — not just the section content — is
+          what makes the sidebar read as a real left column running the full page height,
+          rather than something dropped on top of the title. */}
+      <div className="md:ml-[232px]">
+        <div
+          ref={headerRef}
+          className="md:fixed md:right-0 md:left-[232px] md:z-10 md:px-8 md:pt-4 md:border-b md:border-border"
+          style={{ top: topOffset, background: "var(--surface-alt)" }}
+        >
+          <PageHeader title="Admin Panel" subtitle="Full administrative control — users, access, master data and sale/MSL data." />
         </div>
-        <p className="text-[12px] text-white m-0 opacity-80 shrink-0">{ADMIN_SECTIONS.length} control areas below</p>
+        {/* Reserves the fixed header's real height so content doesn't render underneath it —
+            only needed at md+, where the header above is actually taken out of flow. */}
+        <div className="hidden md:block" style={{ height: headerHeight }} />
+
+        <div
+          className="mb-6 rounded-[var(--radius-lg)] px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap"
+          style={{ background: "var(--tile-gradient-4)" }}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span
+              className="flex items-center justify-center w-10 h-10 rounded-full shrink-0"
+              style={{ background: "rgba(255,255,255,0.18)" }}
+            >
+              <AdminPanelSettingsOutlinedIcon sx={{ color: "#fff", fontSize: 22 }} />
+            </span>
+            <p className="text-[13px] font-semibold text-white m-0 truncate">Signed in as {user?.displayName} · Administrator</p>
+          </div>
+          <p className="text-[12px] text-white m-0 opacity-80 shrink-0">{ADMIN_SECTIONS.length} control areas</p>
+        </div>
+
+        {(() => {
+          const ActiveSection = SECTION_COMPONENTS[activeSectionId];
+          return <ActiveSection />;
+        })()}
       </div>
-
-      <AdminSectionNav />
-
-      <SalesDataSection />
-      <MslDataSection />
-      <NewsSourcesSection />
-      <LandingPageSection />
-      <AccessRequestsSection />
-      <UsersSection />
-      <ApiKeysSection />
-      <WebhooksSection />
-      <MasterDataSection />
-      <AuditLogSection />
     </div>
   );
 }

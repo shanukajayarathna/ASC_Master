@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using Asc.Api.Data;
 using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
@@ -23,6 +24,10 @@ public class AccessRequestsController(MongoContext db) : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Company))
             return BadRequest("Name, email, and company are required.");
+        if (dto.Name.Length > 200 || dto.Company.Length > 200 || (dto.Message?.Length ?? 0) > 2000)
+            return BadRequest("One or more fields exceed the maximum allowed length.");
+        if (!MailAddress.TryCreate(dto.Email.Trim(), out _))
+            return BadRequest("Email is not a valid email address.");
 
         var request = new AccessRequest
         {

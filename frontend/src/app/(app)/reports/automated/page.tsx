@@ -1,6 +1,7 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
+import SendReportEmailButton from "@/components/shared/SendReportEmailButton";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api, ApiError } from "@/lib/api";
 import type { ScheduledReportJob, ScheduledReportOutput, StagedCbac } from "@/types/api";
@@ -157,9 +158,12 @@ function JobRow({ job, onChanged }: { job: ScheduledReportJob; onChanged: () => 
                     <span className="flex-1 min-w-0 truncate text-text-strong">{o.title}</span>
                     <span className="font-mono text-[12px] text-text-muted shrink-0">{new Date(o.createdAt).toLocaleDateString()}</span>
                     {o.downloadable ? (
-                      <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
-                        {downloadingId === o.id ? <CircularProgress size={14} /> : <DownloadOutlinedIcon sx={{ fontSize: 15 }} />}
-                      </IconButton>
+                      <>
+                        <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
+                          {downloadingId === o.id ? <CircularProgress size={14} /> : <DownloadOutlinedIcon sx={{ fontSize: 15 }} />}
+                        </IconButton>
+                        <SendReportEmailButton reportId={o.id} reportTitle={o.title} />
+                      </>
                     ) : (
                       <span className="text-[11px] text-text-muted italic shrink-0">{o.notes}</span>
                     )}

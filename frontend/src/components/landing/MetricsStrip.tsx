@@ -1,4 +1,8 @@
+"use client";
+
 import type { LandingPlatformStat } from "@/types/api";
+import CountUp from "@/components/landing/motion/CountUp";
+import Reveal from "@/components/landing/motion/Reveal";
 
 /**
  * The live metrics strip — a dark full-width stats belt (the standard landing-page contrast
@@ -12,16 +16,21 @@ import type { LandingPlatformStat } from "@/types/api";
 export default function MetricsStrip({ stats }: { stats: LandingPlatformStat[] }) {
   return (
     <section className="py-14 sm:py-16" style={{ background: "var(--tea-ink)" }}>
+      <Reveal className="max-w-7xl mx-auto px-4 sm:px-6 text-center mb-8">
+        <h2 className="font-mono text-[11px] tracking-[0.2em] uppercase m-0" style={{ color: "rgba(244,241,230,0.65)" }}>
+          Platform Impact
+        </h2>
+      </Reveal>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-2 lg:grid-cols-4 gap-8 sm:gap-6 text-center">
-        {stats.map((s) => (
-          <div key={s.label}>
+        {stats.map((s, i) => (
+          <Reveal key={s.label} delay={i * 0.06}>
             <div className="font-mono font-bold leading-tight" style={{ color: "#FFFDF7", fontSize: "clamp(26px, 3vw, 36px)" }}>
-              {s.value}
+              <CountUp value={s.value} />
             </div>
             <div className="font-mono text-[11px] tracking-[0.1em] uppercase mt-2" style={{ color: "rgba(244,241,230,0.65)" }}>
               {s.label}
             </div>
-          </div>
+          </Reveal>
         ))}
       </div>
     </section>

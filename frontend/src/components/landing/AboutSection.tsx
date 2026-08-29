@@ -1,4 +1,8 @@
+"use client";
+
 import type { LandingCompanyStats } from "@/types/api";
+import CountUp from "@/components/landing/motion/CountUp";
+import Reveal from "@/components/landing/motion/Reveal";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
 
@@ -22,7 +26,7 @@ export default function AboutSection({ stats }: { stats: LandingCompanyStats }) 
   return (
     <section id="about" className="py-16 sm:py-20" style={{ background: "var(--surface)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-        <div>
+        <Reveal direction="left">
           <div className="inline-flex items-center gap-1.5 mb-4 px-3 py-1.5 rounded-full" style={{ background: "var(--liquor-light)" }}>
             <EmojiEventsOutlinedIcon sx={{ fontSize: 15, color: "var(--liquor)" }} />
             <span className="font-mono text-[10.5px] tracking-wide" style={{ color: "var(--liquor-dark)" }}>
@@ -43,9 +47,16 @@ export default function AboutSection({ stats }: { stats: LandingCompanyStats }) 
             LEED-certified &ldquo;green&rdquo; tea auction logistics center, and is the leading
             tea auction logistics provider in Sri Lanka.
           </p>
-          <p className="text-[13.5px] leading-relaxed italic m-0 mb-6" style={{ color: "var(--text-muted)" }}>
-            &ldquo;{stats.mission}&rdquo;
-          </p>
+          <div className="mb-6">
+            <p className="text-[13.5px] leading-relaxed italic m-0" style={{ color: "var(--text-muted)" }}>
+              &ldquo;{stats.mission}&rdquo;
+            </p>
+            {stats.vision && (
+              <p className="text-[13.5px] leading-relaxed italic m-0 mt-3" style={{ color: "var(--text-muted)" }}>
+                &ldquo;{stats.vision}&rdquo;
+              </p>
+            )}
+          </div>
 
           <div className="flex items-center gap-1.5 mb-2.5">
             <AutoAwesomeOutlinedIcon sx={{ fontSize: 14, color: "var(--liquor)" }} />
@@ -60,22 +71,23 @@ export default function AboutSection({ stats }: { stats: LandingCompanyStats }) 
               </span>
             ))}
           </div>
-        </div>
+        </Reveal>
 
         <div className="grid grid-cols-2 gap-4">
-          {items.map((s) => (
-            <div
-              key={s.label}
-              className="rounded-[var(--radius-lg)] border border-border p-5"
-              style={{ background: "var(--surface-alt)" }}
-            >
-              <div className="font-mono font-semibold leading-tight" style={{ color: "var(--liquor-dark)", fontSize: "clamp(26px, 2.6vw, 34px)" }}>
-                {s.value}
+          {items.map((s, i) => (
+            <Reveal key={s.label} delay={i * 0.08}>
+              <div
+                className="rounded-[var(--radius-lg)] border border-border p-5"
+                style={{ background: "var(--surface-alt)" }}
+              >
+                <div className="font-mono font-semibold leading-tight" style={{ color: "var(--liquor-dark)", fontSize: "clamp(26px, 2.6vw, 34px)" }}>
+                  <CountUp value={s.value} />
+                </div>
+                <div className="text-[12.5px] mt-1" style={{ color: "var(--text-muted)" }}>
+                  {s.label}
+                </div>
               </div>
-              <div className="text-[12.5px] mt-1" style={{ color: "var(--text-muted)" }}>
-                {s.label}
-              </div>
-            </div>
+            </Reveal>
           ))}
         </div>
       </div>
