@@ -1,7 +1,6 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
-import SendReportEmailButton from "@/components/shared/SendReportEmailButton";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
 import type { SavedReport } from "@/types/api";
@@ -99,22 +98,19 @@ export default function SavedReportsPage() {
                 </div>
               </div>
               {r.downloadable ? (
-                <>
-                  <Tooltip title="Download">
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={() => download(r)}
-                        disabled={downloadingId === r.id}
-                        aria-busy={downloadingId === r.id}
-                        aria-label={`Download ${r.title}`}
-                      >
-                        {downloadingId === r.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <SendReportEmailButton reportId={r.id} reportTitle={r.title} />
-                </>
+                <Tooltip title="Download">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => download(r)}
+                      disabled={downloadingId === r.id}
+                      aria-busy={downloadingId === r.id}
+                      aria-label={`Download ${r.title}`}
+                    >
+                      {downloadingId === r.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
               ) : (
                 r.catalogueId && (
                   <Tooltip title="Reopen">

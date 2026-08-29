@@ -25,13 +25,6 @@ See `.env.example` for the full list. The two that matter most:
 provider with no key simply reports `configured: false` from `GET /api/v1/assistant/providers`
 rather than failing startup. At least one should be set for the AI Assistant to do anything.
 
-`SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` are optional too — set all three to enable "Send by
-email" on a Saved Report (see `ReportsController.EmailSaved`); without them, that action
-returns a clear 503 instead of failing startup. Sends through an already-owned mailbox (Gmail,
-Microsoft 365, ...) via SMTP rather than a transactional-email API — those require verifying a
-domain, which isn't assumed here. `SMTP_PASSWORD` is an app password once the account has
-2FA/MFA on, not its real login password.
-
 ## Persistent data
 
 Sale-import Excel files, uploaded Knowledge Base documents, and lot photos/voice notes are

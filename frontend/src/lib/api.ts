@@ -440,15 +440,6 @@ export const api = {
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
 
-  /** Emails a Saved Report's file (see ReportsController.EmailSaved) — server-side attaches the
-   *  same bytes downloadSavedReport streams and sends via SMTP, so there's no separate upload
-   *  step here. Only ever called for a `downloadable` report (the backend 404s otherwise). */
-  emailSavedReport: (id: string, to: string[], message?: string) =>
-    request<void>(`/api/v1/reports/saved/${id}/email`, {
-      method: "POST",
-      body: JSON.stringify({ to, message: message || null }),
-    }),
-
   downloadSavedReport: async (id: string): Promise<{ blob: Blob; fileName: string | null }> => {
     const res = await fetch(`${API_BASE}/api/v1/reports/saved/${id}/download`, {
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},

@@ -24,9 +24,6 @@
     <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.19" />
     <PackageReference Include="Cronos" Version="0.10.0" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
-    <!-- SMTP client for emailing Saved Reports (Modules/Email/SmtpReportEmailSender.cs) —
-         Microsoft's own recommended replacement for the deprecated System.Net.Mail.SmtpClient. -->
-    <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.17" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.17" />
     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="9.0.17" />

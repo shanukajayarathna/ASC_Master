@@ -28,8 +28,3 @@ public record ReportDto(string Type, string Title, string Subtitle, string Sourc
 public record SavedReportDto(Guid Id, string Type, string Title, Guid? CatalogueId, string? Source, DateTime CreatedAt, bool Downloadable, string? Notes);
 
 public record SaveReportRequestDto(string Type, string Title, Guid? CatalogueId, string? Source);
-
-/// <summary>Message is optional — ReportsController falls back to a plain "Attached: {filename}"
-/// line when it's blank, so the dialog on the frontend can be a one-field "type an address and
-/// send" flow without forcing a body every time.</summary>
-public record EmailSavedReportRequestDto(List<string> To, string? Message);
