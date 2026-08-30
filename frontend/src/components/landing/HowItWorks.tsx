@@ -1,21 +1,28 @@
 "use client";
 
 import Reveal from "@/components/landing/motion/Reveal";
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import type { SvgIconComponent } from "@mui/icons-material";
 
-const STEPS = [
-  { n: "01", title: "Upload", body: "A weekly sale catalogue or a document lands in the system — no manual re-keying." },
-  { n: "02", title: "AI extracts & values", body: "Lots are structured and valued automatically, grounded in real historical and current-season data." },
-  { n: "03", title: "Insights surface", body: "Trends, comparisons and anomalies surface on their own, across every module." },
-  { n: "04", title: "Reports auto-generate", body: "Executive, broker and grade reports are ready to export the moment the sale closes." },
+const STEPS: { n: string; title: string; body: string; icon: SvgIconComponent }[] = [
+  { n: "01", title: "Upload", body: "A weekly sale catalogue or a document lands in the system — no manual re-keying.", icon: CloudUploadOutlinedIcon },
+  { n: "02", title: "AI extracts & values", body: "Lots are structured and valued automatically, grounded in real historical and current-season data.", icon: AutoAwesomeOutlinedIcon },
+  { n: "03", title: "Insights surface", body: "Trends, comparisons and anomalies surface on their own, across every module.", icon: InsightsOutlinedIcon },
+  { n: "04", title: "Reports auto-generate", body: "Executive, broker and grade reports are ready to export the moment the sale closes.", icon: DescriptionOutlinedIcon },
 ];
 
 /**
  * How the platform works — static process strip, not part of the CMS content model. A
  * full-width band with a centered heading, a supporting banner photo, and a divided-column
- * step strip underneath, the standard "process" beat on a landing page. The banner reuses the
- * same licensed Wikimedia Commons grading/macro shot the login page's TeaCinematic already
- * vetted (see public/tea/intro/ATTRIBUTION.md) — its own scene description is literally
- * "grading / tea-becomes-data", a close match for this section's AI-extraction copy.
+ * step strip underneath, the standard "process" beat on a landing page. The banner is a
+ * sorting/grading room (crated, numbered machine stations) rather than a loose-leaf macro shot
+ * — it reads as organized/systematic, a closer visual match for a software-workflow strip (see
+ * public/tea/intro/ATTRIBUTION.md). Each step also carries a small icon badge, the same
+ * icon-in-circle treatment FiveIntelligences uses, so this strip reads as the same product
+ * rather than a generic marketing "process" template.
  */
 export default function HowItWorks() {
   return (
@@ -35,9 +42,9 @@ export default function HowItWorks() {
         >
           <div
             className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: "url(/tea/intro/ceylon-tea-grading-macro.webp)" }}
+            style={{ backgroundImage: "url(/tea/intro/tea-sorting-grading-room.webp)" }}
             role="img"
-            aria-label="Tea grading photograph"
+            aria-label="Tea sorting and grading room photograph"
           />
           <div
             className="absolute inset-0"
@@ -51,10 +58,18 @@ export default function HowItWorks() {
         >
           {STEPS.map((step, i) => (
             <Reveal key={step.n} delay={i * 0.1} className="p-5" style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}>
-              <span className="font-mono text-[13px]" style={{ color: "var(--liquor)" }}>
-                {step.n}
-              </span>
-              <h3 className="font-display text-[15px] font-semibold m-0 mt-1.5 mb-1.5" style={{ color: "var(--text-strong)" }}>
+              <div className="flex items-center justify-between mb-2.5">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                  style={{ background: "var(--liquor-light)" }}
+                >
+                  <step.icon sx={{ fontSize: 17 }} style={{ color: "var(--liquor)" }} />
+                </div>
+                <span className="font-mono text-[13px]" style={{ color: "var(--liquor)" }}>
+                  {step.n}
+                </span>
+              </div>
+              <h3 className="font-display text-[15px] font-semibold m-0 mb-1.5" style={{ color: "var(--text-strong)" }}>
                 {step.title}
               </h3>
               <p className="text-[13px] leading-snug m-0" style={{ color: "var(--text-muted)" }}>

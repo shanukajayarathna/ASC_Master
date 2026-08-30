@@ -68,6 +68,16 @@ attribution entries were needed, just new consumers of the existing ones.
 - (Replaced a low-resolution unlicensed user-supplied pour image, and before that the
   interim CC0 StockSnap "Lemon Tea".)
 
+### tea-sorting-grading-room(.webp / -sm.webp) — HowItWorks banner
+- Source: Wikimedia Commons — https://commons.wikimedia.org/wiki/File:SL_NuwaraEDistrict_asv2020-01_img05_Damro_tea_factory.jpg
+- Author: A.Savin
+- License: Free Art License (FAL) 1.3 — http://artlibre.org/licence/lal/en/ (attribution: "A.Savin, Wikipedia")
+- Original: 7401×4626 · Subject: sorting/grading room, Damro tea factory, Nuwara Eliya — crated,
+  numbered machine stations read as organized/systematic rather than raw agricultural product,
+  a better fit for the "catalogue → insight" software-workflow copy below it than a loose-leaf
+  macro shot. Replaced ceylon-tea-grading-macro as the HowItWorks banner 30 Aug 2026 (that file
+  is left in place, just no longer referenced there).
+
 ## Rejected candidates (for the record)
 
 - "Fresh tea.jpg" (CC BY-SA 4.0) — East African estate, not Sri Lanka

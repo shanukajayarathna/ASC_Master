@@ -1,6 +1,7 @@
 "use client";
 
 import BrandLogo from "@/components/shell/BrandLogo";
+import ThemeMenu from "@/components/shell/ThemeMenu";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
@@ -8,16 +9,11 @@ import { api } from "@/lib/api";
 import type { AppNotification } from "@/types/api";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
-import CheckIcon from "@mui/icons-material/Check";
-import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
 import SearchIcon from "@mui/icons-material/Search";
-import SettingsBrightnessOutlinedIcon from "@mui/icons-material/SettingsBrightnessOutlined";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
 import Select from "@mui/material/Select";
@@ -102,46 +98,6 @@ function UserMenu() {
         >
           Log out
         </MenuItem>
-      </Menu>
-    </>
-  );
-}
-
-const THEME_OPTIONS = [
-  { value: "light", label: "Light", icon: LightModeOutlinedIcon },
-  { value: "dark", label: "Dark", icon: DarkModeOutlinedIcon },
-  { value: "system", label: "System", icon: SettingsBrightnessOutlinedIcon },
-] as const;
-
-function ThemeMenu() {
-  const { mode, preference, setPreference } = useThemeMode();
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const CurrentIcon = mode === "dark" ? DarkModeOutlinedIcon : LightModeOutlinedIcon;
-
-  return (
-    <>
-      <Tooltip title="Theme">
-        <IconButton onClick={(e) => setAnchor(e.currentTarget)} size="small" aria-label="Change theme">
-          <CurrentIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
-        {THEME_OPTIONS.map((opt) => (
-          <MenuItem
-            key={opt.value}
-            selected={preference === opt.value}
-            onClick={() => {
-              setPreference(opt.value);
-              setAnchor(null);
-            }}
-          >
-            <ListItemIcon>
-              <opt.icon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>{opt.label}</ListItemText>
-            {preference === opt.value && <CheckIcon fontSize="small" sx={{ color: "var(--liquor)", ml: 1 }} />}
-          </MenuItem>
-        ))}
       </Menu>
     </>
   );

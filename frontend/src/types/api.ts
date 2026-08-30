@@ -720,58 +720,7 @@ export interface DashboardStats {
   avgGrossWeight: number | null;
 }
 
-// ---- MSL archive (master search over the 2013–present auction history) ----
-
-export interface MslAuctionLot {
-  saleYear: number;
-  saleNo: number;
-  saleDate: string;
-  broker: string | null;
-  brokerName: string | null;
-  isPrivate: boolean;
-  lotNo: string;
-  invoice: string | null;
-  factoryCode: string;
-  sellingMark: string;
-  grade: string;
-  quantityKg: number;
-  priceRs: number;
-  sold: boolean;
-  buyerCode: string | null;
-  buyerName: string | null;
-  estateName: string;
-  mslCode: string | null;
-  elevationCode: string | null;
-  elevation: string | null;
-  refuseTea: boolean;
-}
-
-export interface MslSearchAggregate {
-  lots: number;
-  soldLots: number;
-  totalQtyKg: number;
-  soldQtyKg: number;
-  weightedAvgRs: number | null;
-  minPriceRs: number | null;
-  maxPriceRs: number | null;
-}
-
-export interface MslSearchResult {
-  items: MslAuctionLot[];
-  total: number;
-  aggregate: MslSearchAggregate;
-}
-
-export interface MslAggregateRow {
-  key: string;
-  lots: number;
-  soldLots: number;
-  totalQtyKg: number;
-  soldQtyKg: number;
-  weightedAvgRs: number | null;
-  minPriceRs: number | null;
-  maxPriceRs: number | null;
-}
+// ---- MSL archive (imported auction/private-sale/Tea Board history) ----
 
 export interface MslScanSummary {
   filesImported: number;
@@ -918,20 +867,6 @@ export interface MarketPulseIngestionSummary {
   stillUnscored: number;
 }
 
-/** Shared filter set for /msl/search and /msl/aggregate. */
-export interface MslFilters {
-  q?: string;
-  broker?: string;
-  grade?: string;
-  elevation?: string;
-  buyer?: string;
-  factory?: string;
-  yearFrom?: number;
-  yearTo?: number;
-  saleNo?: number;
-  sold?: boolean;
-  isPrivate?: boolean;
-}
 
 // ---- MSL analytics rollups (Analysis page: pre/post auction dashboards) ----
 

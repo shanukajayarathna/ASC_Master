@@ -1,6 +1,7 @@
 "use client";
 
 import BrandLogo from "@/components/shell/BrandLogo";
+import ThemeMenu from "@/components/shell/ThemeMenu";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import CloseOutlinedIcon from "@mui/icons-material/CloseOutlined";
@@ -87,6 +88,7 @@ export default function LandingNav({ hasTestimonials = false }: { hasTestimonial
         </nav>
 
         <div className="flex items-center gap-1.5">
+          <ThemeMenu />
           <Button component={Link} href={ctaHref} variant="contained" color="primary" size="small">
             {ctaLabel}
           </Button>

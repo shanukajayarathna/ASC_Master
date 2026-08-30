@@ -8,7 +8,6 @@ import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined
 import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
-import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
@@ -135,15 +134,6 @@ export const NAV_ITEMS: NavItem[] = [
     // No `image` — matching the Admin Panel tile's own convention (see its comment): every
     // other tile's Unsplash photo was individually verified before being wired in, and this
     // one hasn't been, so it stays the plain gradient + icon treatment rather than guessing.
-  },
-  {
-    href: "/master-search",
-    label: "Master Search",
-    section: "Intelligence",
-    status: "live",
-    description: "Search 13 years of auction history — every lot, price, buyer and estate.",
-    icon: ManageSearchOutlinedIcon,
-    gradient: 4,
   },
   {
     href: "/market",

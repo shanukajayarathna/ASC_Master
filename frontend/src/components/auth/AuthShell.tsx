@@ -1,6 +1,7 @@
 "use client";
 
 import BrandLogo from "@/components/shell/BrandLogo";
+import ThemeMenu from "@/components/shell/ThemeMenu";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
 import Link from "next/link";
@@ -58,14 +59,19 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 flex items-center justify-center px-5 py-10 sm:py-14" style={{ background: "var(--surface-alt)" }}>
         <div className="w-full max-w-[380px]">
-          <Link
-            href="/"
-            className="lg:hidden inline-flex items-center gap-1.5 no-underline text-[13px] font-semibold mb-7"
-            style={{ color: "var(--liquor)" }}
-          >
-            <ArrowBackOutlinedIcon sx={{ fontSize: 16 }} />
-            Back to ASC Intelligent Hub
-          </Link>
+          <div className="flex items-center mb-7">
+            <Link
+              href="/"
+              className="lg:hidden inline-flex items-center gap-1.5 no-underline text-[13px] font-semibold"
+              style={{ color: "var(--liquor)" }}
+            >
+              <ArrowBackOutlinedIcon sx={{ fontSize: 16 }} />
+              Back to ASC Intelligent Hub
+            </Link>
+            <div className="ml-auto">
+              <ThemeMenu />
+            </div>
+          </div>
 
           <div className="flex flex-col items-center gap-1.5 mb-8">
             {/* BrandLogo's artwork is drawn for light surfaces — boosted for legibility

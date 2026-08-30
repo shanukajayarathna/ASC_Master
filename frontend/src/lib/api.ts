@@ -43,13 +43,10 @@ import type {
   MarkRecord,
   MiningRunResult,
   Plantation,
-  MslAggregateRow,
   MslAnalyticsFilter,
   MslBatchUploadResult,
   MslFilterOptions,
-  MslFilters,
   MslScanSummary,
-  MslSearchResult,
   MslStageBatchResult,
   MslStatus,
   MslTrackedFile,
@@ -864,7 +861,7 @@ export const api = {
       body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null }),
     }),
 
-  // ---- MSL archive (master search) ----
+  // ---- MSL archive ----
 
   mslStatus: () => request<MslStatus>("/api/v1/msl/status"),
 
@@ -1028,22 +1025,6 @@ export const api = {
     }),
 
   listCategoryAnalysisOutputs: () => request<ScheduledReportOutput[]>("/api/v1/reports/category-analysis/outputs"),
-
-  mslSearch: (filters: MslFilters, page = 1, pageSize = 50) => {
-    const qs = new URLSearchParams();
-    Object.entries({ ...filters, page, pageSize }).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
-    });
-    return request<MslSearchResult>(`/api/v1/msl/search?${qs.toString()}`);
-  },
-
-  mslAggregate: (groupBy: string, filters: MslFilters, limit = 100) => {
-    const qs = new URLSearchParams({ groupBy, limit: String(limit) });
-    Object.entries(filters).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
-    });
-    return request<MslAggregateRow[]>(`/api/v1/msl/aggregate?${qs.toString()}`);
-  },
 
   /**
    * Excel export. Lots are (catalogue, lot) pairs so one workbook can span several sales

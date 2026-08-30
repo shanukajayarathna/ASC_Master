@@ -101,9 +101,10 @@ public class MongoContext
             new CreateIndexModel<AiUsageLogEntry>(Builders<AiUsageLogEntry>.IndexKeys.Descending(e => e.CreatedAt)),
         ]);
 
-        // MSL archive — millions of lot rows, so every filter the master search offers gets
-        // an index: sale identity, the searchable name fields, buyer, and elevation. The
-        // SourceFile index backs the idempotent per-file delete+reinsert on re-import.
+        // MSL archive — millions of lot rows, so every filter the analytics/filtered-lots
+        // endpoints offer gets an index: sale identity, the searchable name fields, buyer,
+        // and elevation. The SourceFile index backs the idempotent per-file delete+reinsert
+        // on re-import.
         AuctionLots.Indexes.CreateMany(
         [
             new CreateIndexModel<AuctionLot>(Builders<AuctionLot>.IndexKeys.Ascending(l => l.SaleYear).Ascending(l => l.SaleNo)),
