@@ -54,28 +54,38 @@
   grid-area: top;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  align-items: center;
+  /* NOT align-items:center — the center column (title + subtitle) is two lines and is always
+     the tallest, so it alone dictates the row's height and needs no alignment at all; the two
+     single-line side columns are what's shorter, and centering THEM used to rely on the grid
+     splitting the leftover space evenly above/below. html2canvas doesn't reliably reproduce that
+     split (same bug documented on .head/.row below — it renders content noticeably BELOW true
+     center, worse the more leftover space there is to divide), which is exactly why this row —
+     the tallest gap between a column and its sibling anywhere in this file — is where it finally
+     became visible. align-items:start makes every column's own top edge the reference point
+     (nothing to divide, so nothing for html2canvas to get wrong); .mastheadBrand/.mastheadRight
+     below push themselves down from there with fixed, computed padding instead. */
+  align-items: start;
   gap: 20px;
   background-color: #2f7d52;
   color: #fff;
   padding: var(--tpp-masthead-pad-v) var(--tpp-masthead-pad-h);
   border-radius: 8px;
 }
-/* .mastheadBrand deliberately has NO rule here — it used to be display:flex; align-items:center;
-   but there's only ever one child (.mastheadMeta), so flex was never doing real cross-axis
-   alignment work in the first place. Confirmed by exporting a real PDF and examining the raw
-   captured pixels: html2canvas does not reliably reproduce flexbox align-items:center vertical
-   centering, consistently rendering text noticeably BELOW the true center of its box (worse the
-   taller the box, since the bias reads as closer to a fixed pixel amount than a proportional
-   one). A plain block box with no flex at all is vertically centered here by the PARENT
-   `.masthead`'s own grid align-items:center instead (a separate, unaffected mechanism) — see
-   .head's own comment below for the same fix applied to card headers, and .row's for how a
-   MULTI-child flex row (which still needs flex for its horizontal layout) works around the same
-   bug differently. */
+/* Pushes this single-line column down to sit level with the middle of the title block (title
+   line + subtitle line) it shares a row with — see .masthead's own comment above for why this
+   is fixed padding instead of align-items:center. Explicit line-height:1.2 everywhere in this
+   masthead (here and on .mastheadTitle/.mastheadSub/.mastheadRight) makes that arithmetic exact
+   instead of guessing at each font's own browser-default line-height. */
+.mastheadBrand {
+  padding-top: calc(
+    (var(--tpp-masthead-title-font-size) * 1.2 + 2px + var(--tpp-masthead-sub-font-size) * 1.2 - var(--tpp-masthead-meta-font-size) * 1.2) / 2
+  );
+}
 .mastheadMeta {
   display: flex;
   gap: 20px;
   font-size: var(--tpp-masthead-meta-font-size);
+  line-height: 1.2;
 }
 .mastheadMeta dt {
   display: inline;
@@ -94,6 +104,7 @@
   font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
   font-weight: 700;
   font-size: var(--tpp-masthead-title-font-size);
+  line-height: 1.2;
   text-align: center;
   white-space: nowrap;
   letter-spacing: 0.005em;
@@ -102,28 +113,27 @@
   display: block;
   font-weight: 600;
   font-size: var(--tpp-masthead-sub-font-size);
+  line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: #d9b44a;
   margin-top: 2px;
   text-align: center;
 }
+/* Same fixed-padding fix as .mastheadBrand above (mirrored: this column's own font-size var is
+   mastheadRightFontSize, but it's numerically identical to mastheadMetaFontSize at every density
+   preset in topPricePageExport.ts, so both columns land at the same computed offset). */
 .mastheadRight {
   text-align: right;
   font-size: var(--tpp-masthead-right-font-size);
+  line-height: 1.2;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  padding-top: calc(
+    (var(--tpp-masthead-title-font-size) * 1.2 + 2px + var(--tpp-masthead-sub-font-size) * 1.2 - var(--tpp-masthead-right-font-size) * 1.2) / 2
+  );
 }
-.mastheadPage {
-  font-size: var(--tpp-masthead-page-font-size);
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
-  margin-top: 3px;
-}
-
 /* --- footer: a decorative closing line --------------------------------------------------- */
 .footer {
   grid-area: foot;
@@ -197,8 +207,15 @@
    visibly below-center in the exported PDF, measured pixel-for-pixel against the raw captured
    canvas before this fix (roughly 3x more green space above the text than below it) — a plain
    block box with equal top/bottom padding fixes it by not needing flex's alignment math at all. */
+/* padding-bottom gets a bit extra, not the equal-on-all-sides value the comment above describes —
+   .card's own comment a few lines up already documents html2canvas rounding a box's computed
+   height sub-pixel SHORT (there, short enough to clip a comma's descender). That shortfall is
+   invisible on a plain paragraph, but .head paints a solid fill, so here the shortfall instead
+   reads as the green fill ending before the text's true bottom edge — text apparently "touching"
+   or overrunning the border. The extra padding is slack for that rounding to eat into, not visible
+   height (on-screen, unrounded, it just adds an imperceptible sliver of green below the text). */
 .head {
-  padding: var(--tpp-head-pad-v) var(--tpp-head-pad-h);
+  padding: var(--tpp-head-pad-v) var(--tpp-head-pad-h) calc(var(--tpp-head-pad-v) + 2px);
   background: #2f7d52;
   color: #fff;
   font-size: var(--tpp-head-font-size);
@@ -256,11 +273,15 @@
    both the fix (a far more fundamental, reliably-implemented text-layout primitive than
    geometric cross-axis centering) and arguably the more CORRECT choice regardless — it's how a
    printed price list's differently-sized columns actually line up on one another. */
+/* padding-bottom carries the same +2px rounding slack as .head above — invisible on a plain row,
+   but data-ours="true" below paints a background on this same box, which is exactly where
+   html2canvas's documented short-rounded height (see .card's comment) would otherwise show as the
+   highlight fill ending before the row's own text does. */
 .row {
   display: flex;
   align-items: baseline;
   gap: var(--tpp-row-gap);
-  padding: var(--tpp-row-pad-v) var(--tpp-row-pad-h);
+  padding: var(--tpp-row-pad-v) var(--tpp-row-pad-h) calc(var(--tpp-row-pad-v) + 2px);
   font-size: var(--tpp-row-font-size);
   line-height: var(--tpp-row-line-height);
   color: var(--tpp-ink, #124734);

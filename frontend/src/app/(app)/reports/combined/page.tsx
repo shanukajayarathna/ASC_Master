@@ -170,7 +170,7 @@ export default function CombinedReportPage() {
       {exportingAll && <BusyOverlay message={exportingAll === "excel" ? "Building workbooks…" : "Building PDFs…"} />}
       {uploading && <BusyOverlay message="Reading workbook…" />}
       <PageHeader
-        title="Combined Report"
+        title="Top Price Reports"
         subtitle="Top Prices, CTC, Off Grades & Dust, Low Grown and Premium Flowery — ranked against every broker in the sale."
         backTo={{ href: "/reports", label: "Reports" }}
         actions={

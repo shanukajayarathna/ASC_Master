@@ -30,7 +30,7 @@ const ASC_CODE = "ASC";
 // PDF letterhead) and filename prefix are per report family, independent of whatever label this
 // app's own UI tab happens to show.
 const REPORT_EXPORT_META: Record<string, { title: string; prefix: string }> = {
-  "top-prices": { title: "UH, UM & WH, WM Report", prefix: "top-prices-report" },
+  "top-prices": { title: "UH, UM & WH, WM Report", prefix: "UH, UM & WH, WM" },
   ctc: { title: "CTC Report", prefix: "ctc-report" },
   "off-grades-dust": { title: "Off Grades & Dust Report", prefix: "off-grades-dust-report" },
   "low-grown-premium-flowery": { title: "Low Grown & Premium Flowery Report", prefix: "low-grown-premium-flowery-report" },

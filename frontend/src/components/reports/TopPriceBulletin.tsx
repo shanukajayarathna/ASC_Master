@@ -151,8 +151,6 @@ function densityCssVars(density: TppDensity): CSSProperties {
  *  that was tried and rejected). This is also literally what gets exported to PDF —
  *  exportTopPricePagePdf screenshots each `.page` node captured via onPageRef. */
 export default function TopPriceBulletin({ pages, density, meta, onPageRef }: TopPriceBulletinProps) {
-  const totalPages = pages.length;
-
   return (
     <div className={styles.bulletin} data-density={density.name} style={densityCssVars(density)}>
       {pages.map((page, pi) => (
@@ -172,9 +170,6 @@ export default function TopPriceBulletin({ pages, density, meta, onPageRef }: To
             </div>
             <div className={styles.mastheadRight}>
               <div>Sale No. {meta.auctionNumber || "—"}</div>
-              <div className={styles.mastheadPage}>
-                Page {pi + 1} of {totalPages}
-              </div>
             </div>
           </div>
 

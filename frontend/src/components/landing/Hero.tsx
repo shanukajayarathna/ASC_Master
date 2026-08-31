@@ -24,13 +24,21 @@ export default function Hero({ hero }: { hero: LandingHero }) {
 
   return (
     <div id="top">
-      <div ref={bandRef} className="relative overflow-hidden" style={{ background: "var(--surface)" }}>
+      <div
+        ref={bandRef}
+        // Content-sized alone, the band falls well short of one screen on tall/high-res
+        // monitors, leaving ProblemSection's dark band peeking in before any scroll — desktop
+        // only (lg:) since mobile already fills the fold naturally. 120px = LandingNav's
+        // min-h-[68px] + PublicTicker's minHeight:52 sitting above this band.
+        className="relative overflow-hidden lg:min-h-[calc(100dvh-120px)] lg:flex lg:flex-col lg:justify-center"
+        style={{ background: "var(--surface)" }}
+      >
         <div
           className="absolute inset-0 pointer-events-none"
           aria-hidden="true"
           style={{ background: "radial-gradient(120% 100% at 100% 0%, var(--liquor-light) 0%, transparent 55%)" }}
         />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-14 pb-16 sm:pt-20 sm:pb-24 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+        <div className="relative w-full max-w-7xl mx-auto px-4 sm:px-6 pt-14 pb-16 sm:pt-20 sm:pb-24 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center">
           <Reveal>
             <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-4" style={{ color: "var(--liquor)" }}>
               Asia Siyaka Commodities · Colombo Tea Auction

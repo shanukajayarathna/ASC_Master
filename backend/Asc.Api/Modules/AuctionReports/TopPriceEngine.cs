@@ -302,7 +302,7 @@ public class TopPriceEngine
                 BuildGradeBlock(upRows, "Udupussellawa", tpStats, MainGradeOrder),
             ]),
         };
-        var topPrices = new AuctionReportDto("top-prices", "Top Prices — UH, UM & WH, WM", sourceName, now, ToStatsDto(tpStats), tpSheets);
+        var topPrices = new AuctionReportDto("top-prices", "UH, UM & WH, WM", sourceName, now, ToStatsDto(tpStats), tpSheets);
 
         // ---- CTC ----
         var ctcStats = new Stats();

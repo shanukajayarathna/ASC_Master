@@ -29,7 +29,7 @@ const REPORT_TILES: NavItem[] = [
   },
   {
     href: "/reports/combined",
-    label: "Combined Report",
+    label: "Top Price Reports",
     section: "Reports",
     status: "live",
     description: "Top Prices, CTC, Off Grades & Dust, Low Grown and Premium Flowery — ranked against every broker.",
