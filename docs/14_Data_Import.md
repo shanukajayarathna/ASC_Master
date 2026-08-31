@@ -20,6 +20,7 @@ File upload with format validation, an import-status indicator (especially relev
 ## Business rules
 - Catalogue import is the point at which lot data becomes authoritative for a sale — once imported, lot identity (lot number, broker, grade, garden, etc.) should be treated as stable; valuations and other overlays key off it.
 - Actual-price import must be matched to existing lots unambiguously (by lot key) — an unmatched actual price should be surfaced as an error/warning, not silently dropped.
+- Catalogues are year-wise: 2026 sale files sit flat in `/data/sales` (the legacy namespace — their catalogue/lot ids are frozen forever and must never be recomputed) and every other year lives under `/data/sales/{year}/`, with year folded into that year's id hash from the start. `CataloguesController.Import` takes an optional `year` form field (defaulting to 2026) that decides which of those two locations a file lands in. This is a stopgap of the current file-based store — see the note in [01_System_Architecture.md](01_System_Architecture.md).
 
 ## Dependencies
 [09_Catalogue_Manager.md](09_Catalogue_Manager.md), [12_Market_Intelligence.md](12_Market_Intelligence.md) (actual-price consumer), [01_System_Architecture.md](01_System_Architecture.md) (file-store model).

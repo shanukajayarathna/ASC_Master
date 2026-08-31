@@ -119,6 +119,19 @@ export default function CataloguePage() {
   const [selectedSaleIds, setSelectedSaleIds] = useState<string[]>([]);
   const [salesMenuAnchor, setSalesMenuAnchor] = useState<HTMLElement | null>(null);
 
+  // Year filter for the Sales picker — only shown once more than one year is loaded.
+  // Distinct from `yearFilter` below, which filters the currently loaded lots by their
+  // SaleYear column; this one filters which catalogues the picker menu lists.
+  const [pickerYearFilter, setPickerYearFilter] = useState<number | null>(null);
+  const saleYears = useMemo(
+    () => Array.from(new Set(catalogues.map((c) => c.year))).sort((a, b) => b - a),
+    [catalogues]
+  );
+  const visibleCatalogues = useMemo(
+    () => (pickerYearFilter === null ? catalogues : catalogues.filter((c) => c.year === pickerYearFilter)),
+    [catalogues, pickerYearFilter]
+  );
+
   const [combined, setCombined] = useState<CombinedCatalogue>(EMPTY_COMBINED);
   const [loadingLots, setLoadingLots] = useState(false);
 
@@ -248,6 +261,21 @@ export default function CataloguePage() {
       // Order by the catalogue list (newest first) so sale blocks stay in a stable order.
       return catalogues.filter((c) => next.includes(c.id)).map((c) => c.id);
     });
+  };
+
+  // Picking a year in the Filters panel's Year dropdown (FilterPanel.allYears lists every
+  // year in the system, not just currently-loaded lots) auto-loads that year's sales into
+  // the working set if none of them are loaded yet — otherwise picking "2025" with only a
+  // 2026 sale loaded would just filter everything down to zero rows.
+  const handleYearFilterChange = (v: string) => {
+    setYearFilter(v);
+    const year = Number(v);
+    if (!v || !Number.isFinite(year)) return;
+    const yearCatalogueIds = catalogues.filter((c) => c.year === year).map((c) => c.id);
+    if (yearCatalogueIds.length === 0) return;
+    const alreadyLoaded = yearCatalogueIds.some((id) => selectedSaleIds.includes(id));
+    if (alreadyLoaded) return;
+    setSelectedSaleIds((prev) => catalogues.filter((c) => [...prev, ...yearCatalogueIds].includes(c.id)).map((c) => c.id));
   };
 
   const toggleColumn = (header: string) => {
@@ -650,10 +678,10 @@ export default function CataloguePage() {
         <Menu anchorEl={salesMenuAnchor} open={!!salesMenuAnchor} onClose={() => setSalesMenuAnchor(null)}>
           <div className="px-3.5 pt-1 pb-2 flex items-center gap-2">
             <span className="text-[12px] text-text-muted font-mono">
-              {selectedSaleIds.length} of {catalogues.length} sales
+              {selectedSaleIds.length} of {visibleCatalogues.length} sales
             </span>
             <div className="ml-auto flex gap-1">
-              <Button size="small" onClick={() => setSelectedSaleIds(catalogues.map((c) => c.id))}>
+              <Button size="small" onClick={() => setSelectedSaleIds(visibleCatalogues.map((c) => c.id))}>
                 All
               </Button>
               <Button size="small" onClick={() => activeCatalogueId && setSelectedSaleIds([activeCatalogueId])}>
@@ -661,8 +689,27 @@ export default function CataloguePage() {
               </Button>
             </div>
           </div>
+          {saleYears.length > 1 && (
+            <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap">
+              <Chip
+                label="All years"
+                size="small"
+                color={pickerYearFilter === null ? "primary" : "default"}
+                onClick={() => setPickerYearFilter(null)}
+              />
+              {saleYears.map((y) => (
+                <Chip
+                  key={y}
+                  label={y}
+                  size="small"
+                  color={pickerYearFilter === y ? "primary" : "default"}
+                  onClick={() => setPickerYearFilter(y)}
+                />
+              ))}
+            </div>
+          )}
           <Divider />
-          {catalogues.map((c) => (
+          {visibleCatalogues.map((c) => (
             <MenuItem key={c.id} onClick={() => toggleSale(c.id)} dense>
               <Checkbox checked={selectedSaleIds.includes(c.id)} size="small" />
               <ListItemText primary={c.sourceName} secondary={`${c.rowCount.toLocaleString()} lots`} />
@@ -733,7 +780,8 @@ export default function CataloguePage() {
           classification={classificationFilter}
           onClassificationChange={setClassificationFilter}
           year={yearFilter}
-          onYearChange={setYearFilter}
+          onYearChange={handleYearFilterChange}
+          allYears={saleYears}
           onClearAll={clearAllFilters}
           extraCategoricalHeaders={multiSale ? [SALE_COLUMN_HEADER] : undefined}
         />

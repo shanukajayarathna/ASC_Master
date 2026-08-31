@@ -30,7 +30,7 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     public ActionResult<List<CatalogueSummaryDto>> List()
     {
         var items = source.ListCatalogues();
-        return Ok(items.Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt)).ToList());
+        return Ok(items.Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt, c.Year)).ToList());
     }
 
     [HttpGet("{id:guid}")]
@@ -39,7 +39,7 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
         var c = source.GetCatalogue(id);
         if (c is null) return NotFound();
         var columnMeta = importer.RefreshDefaultVisibility(c.ColumnMeta);
-        return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt));
+        return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt, c.Year));
     }
 
     [HttpDelete("{id:guid}")]
@@ -51,34 +51,42 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     }
 
     /// <summary>
-    /// "Import" = save the uploaded sale file into data/sales, where it loads like any other
-    /// sale. A filename numbered like the weekly files (e.g. 31.xlsx) slots into that exact
-    /// sale — re-uploading a number replaces it; any other name is imported as the next free
-    /// sale number so ad-hoc files still get a stable identity and appear alongside the rest.
+    /// "Import" = save the uploaded sale file into data/sales (flat root for 2026, the legacy
+    /// namespace; data/sales/{year}/ for any other year), where it loads like any other sale.
+    /// A filename numbered like the weekly files (e.g. 31.xlsx) slots into that exact sale —
+    /// re-uploading a number replaces it; any other name is imported as the next free sale
+    /// number for that year so ad-hoc files still get a stable identity and appear alongside
+    /// the rest. Year defaults to 2026 (the legacy behavior) when the caller doesn't send one.
     /// </summary>
     [HttpPost("import")]
     [RequestSizeLimit(100_000_000)]
     [Authorize(Policy = Asc.Api.Modules.Auth.Policies.ManageDataFiles)]
-    public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file, CancellationToken ct)
+    public async Task<ActionResult<CatalogueDetailDto>> Import(IFormFile file, [FromForm] int? year, CancellationToken ct)
     {
         if (file is null || file.Length == 0) return BadRequest("No file uploaded.");
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (ext is not (".xlsx" or ".xls"))
             return BadRequest("Sale files are Excel files (.xlsx or .xls).");
 
+        var saleYear = year ?? SaleFileStore.LegacyYear;
+
         var digits = new string(Path.GetFileNameWithoutExtension(file.FileName).Where(char.IsDigit).ToArray());
         var saleNo = digits.Length is > 0 and <= 3 && int.TryParse(digits, out var parsed)
             ? parsed
-            : fileStore.NextSaleNumber();
+            : fileStore.NextSaleNumber(saleYear);
 
-        Directory.CreateDirectory(fileStore.SalesDir);
-        var target = Path.Combine(fileStore.SalesDir, $"{saleNo:00}{ext}");
+        // New 2026 uploads default to the flat root for simplicity — data/sales/2026/ is
+        // also recognized (same legacy hash formula either way, see SaleFileStore.ScanFiles)
+        // for files placed there directly on disk.
+        var targetDir = saleYear == SaleFileStore.LegacyYear ? fileStore.SalesDir : Path.Combine(fileStore.SalesDir, saleYear.ToString());
+        Directory.CreateDirectory(targetDir);
+        var target = Path.Combine(targetDir, $"{saleNo:00}{ext}");
         await using (var stream = System.IO.File.Create(target))
         {
             await file.CopyToAsync(stream);
         }
 
-        var catalogue = source.GetCatalogue(SaleFileStore.CatalogueIdFor(saleNo));
+        var catalogue = source.GetCatalogue(SaleFileStore.CatalogueIdFor(saleYear, saleNo));
         if (catalogue is null) return BadRequest("The uploaded file couldn't be parsed as a sale catalogue.");
 
         await webhooks.SendAsync("catalogue.imported", new
@@ -89,7 +97,7 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
             importedAt = catalogue.ImportedAt,
         }, ct);
 
-        return Ok(new CatalogueDetailDto(catalogue.Id, catalogue.SourceName, catalogue.Headers, catalogue.ColumnMeta, catalogue.RowCount, catalogue.ImportedAt));
+        return Ok(new CatalogueDetailDto(catalogue.Id, catalogue.SourceName, catalogue.Headers, catalogue.ColumnMeta, catalogue.RowCount, catalogue.ImportedAt, catalogue.Year));
     }
 
     /// <summary>

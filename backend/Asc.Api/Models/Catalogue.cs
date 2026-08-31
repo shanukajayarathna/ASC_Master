@@ -11,6 +11,10 @@ public class Catalogue
 
     public string SourceName { get; set; } = string.Empty;
 
+    /// <summary>Calendar year this sale belongs to. 2026 sales are the legacy flat-root
+    /// namespace (data/sales/*.xlsx); any other year lives under data/sales/{year}/.</summary>
+    public int Year { get; set; }
+
     /// <summary>Ordered column headers as detected in the uploaded file, preserved for display order.</summary>
     public List<string> Headers { get; set; } = new();
 

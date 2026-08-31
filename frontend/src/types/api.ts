@@ -497,6 +497,7 @@ export interface CatalogueSummary {
   rowCount: number;
   columnCount: number;
   importedAt: string;
+  year: number;
 }
 
 // ---- Category Analysis (Price & Classification — Sale x Broker) — see backend/Modules/CategoryReports ----
@@ -618,6 +619,7 @@ export interface CatalogueDetail {
   columnMeta: Record<string, ColumnMeta>;
   rowCount: number;
   importedAt: string;
+  year: number;
 }
 
 export type ClassificationValue = "Unclassified" | "SelectBest" | "Best" | "BelowBest" | "Poor";

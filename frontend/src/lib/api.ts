@@ -653,9 +653,10 @@ export const api = {
   deleteCatalogue: (id: string) =>
     request<void>(`/api/catalogues/${id}`, { method: "DELETE" }),
 
-  importCatalogue: async (file: File): Promise<CatalogueDetail> => {
+  importCatalogue: async (file: File, year?: number): Promise<CatalogueDetail> => {
     const form = new FormData();
     form.append("file", file);
+    if (year) form.append("year", String(year));
     const res = await fetch(`${API_BASE}/api/catalogues/import`, {
       method: "POST",
       headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},

@@ -102,6 +102,7 @@ export default function FilterPanel({
   onClassificationChange,
   year,
   onYearChange,
+  allYears,
   onClearAll,
   variant = "default",
   extraCategoricalHeaders,
@@ -123,6 +124,11 @@ export default function FilterPanel({
   onClassificationChange: (v: string) => void;
   year: string;
   onYearChange: (v: string) => void;
+  /** Every year known to the system (from all catalogues, not just currently-loaded
+   *  lots) — merged into the Year dropdown's options so a year with no sale loaded yet
+   *  is still pickable; picking one is expected to load its sales (see onYearChange's
+   *  call site, which auto-expands the working set). */
+  allYears?: number[];
   onClearAll: () => void;
   /**
    * "valuation" tailors the panel to the Valuation Centre: the auction-outcome tick
@@ -223,8 +229,12 @@ export default function FilterPanel({
       Object.keys(dColumnFilters).length === 0 && !dStatus && !dClassification
         ? lots
         : filterLots(lots, { search: "", columnFilters: dColumnFilters, status: dStatus, classification: dClassification, year: "" });
-    return [...new Set(relevant.map((l) => l.saleYear).filter((y): y is string => !!y))].sort();
-  }, [lots, dColumnFilters, dStatus, dClassification]);
+    const loaded = relevant.map((l) => l.saleYear).filter((y): y is string => !!y);
+    // Union with every year the system knows about (not just currently-loaded lots) —
+    // otherwise a year with no sale in the working set yet simply can't be picked here.
+    const known = (allYears ?? []).map(String);
+    return [...new Set([...loaded, ...known])].sort();
+  }, [lots, dColumnFilters, dStatus, dClassification, allYears]);
 
   const selectedOf = (header: string): string[] => {
     const f = columnFilters[header];

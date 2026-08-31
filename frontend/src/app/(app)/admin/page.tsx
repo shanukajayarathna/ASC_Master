@@ -217,13 +217,19 @@ function SalesDataSection() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Defaults to the newest year already on disk (2026 until 2025 files show up) — a free
+  // number field rather than a dropdown of known years, so uploading the *first* file of a
+  // brand new year doesn't need that year to already exist somewhere first.
+  const newestYear = catalogues.reduce((max, c) => Math.max(max, c.year), 2026);
+  const [importYear, setImportYear] = useState(newestYear);
+
   const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     setError(null);
     try {
-      await importFile(file, { select: false });
+      await importFile(file, { select: false, year: importYear });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
     }
@@ -241,7 +247,15 @@ function SalesDataSection() {
         <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error ?? importError}</div>
       )}
       <input ref={fileInputRef} type="file" className="hidden" accept=".xlsx,.xls" onChange={onFileChosen} />
-      <div className="flex justify-end mb-3">
+      <div className="flex justify-end items-center gap-2 mb-3">
+        <TextField
+          label="Year"
+          type="number"
+          size="small"
+          value={importYear}
+          onChange={(e) => setImportYear(Number(e.target.value) || newestYear)}
+          sx={{ width: 100 }}
+        />
         <Button
           variant="outlined"
           size="small"

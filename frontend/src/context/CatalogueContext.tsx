@@ -32,8 +32,9 @@ interface CatalogueCtx {
   refreshList: () => Promise<void>;
   selectCatalogue: (id: string | null) => Promise<void>;
   /** Import a sale file. Returns the new catalogue; pass `{ select: false }` to add it to the
-   *  list without switching the active sale (e.g. to fold it into a multi-sale selection). */
-  importFile: (file: File, options?: { select?: boolean }) => Promise<CatalogueDetail>;
+   *  list without switching the active sale (e.g. to fold it into a multi-sale selection).
+   *  `year` defaults to the legacy 2026 namespace when omitted, matching the API. */
+  importFile: (file: File, options?: { select?: boolean; year?: number }) => Promise<CatalogueDetail>;
   removeCatalogue: (id: string) => Promise<void>;
 }
 
@@ -113,11 +114,11 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const importFile = useCallback(
-    async (file: File, options?: { select?: boolean }) => {
+    async (file: File, options?: { select?: boolean; year?: number }) => {
       setImporting(true);
       try {
         setError(null);
-        const detail = await api.importCatalogue(file);
+        const detail = await api.importCatalogue(file, options?.year);
         await refreshList();
         if (options?.select !== false) await selectCatalogue(detail.id);
         return detail;

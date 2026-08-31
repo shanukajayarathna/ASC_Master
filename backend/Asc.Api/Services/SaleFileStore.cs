@@ -38,7 +38,10 @@ public record ValuedLotSlim(Guid LotId, string RowKey, string? Grade, Valuation 
 /// Reads the company's weekly-sale Excel files straight from data/sales — the files ARE
 /// the catalogue store (the database only holds user-entered valuations). Files are named
 /// by sale number (01.xlsx … 30.xlsx); dropping next week's file into the folder is all it
-/// takes for the sale to appear — the folder is rescanned on every listing.
+/// takes for the sale to appear — the folder is rescanned on every listing. Sales are
+/// year-wise: 2026 (<see cref="LegacyYear"/>) is the legacy namespace and may sit flat in
+/// data/sales, under data/sales/2026/, or split across both — same hash formula either way;
+/// any other year lives under data/sales/{year}/.
 ///
 /// A 35MB market file takes ~25s to parse, so each parse is cached under data/.cache as
 /// gzipped JSON keyed by the file's size+mtime: full reloads take ~1–2s and survive
@@ -46,27 +49,75 @@ public record ValuedLotSlim(Guid LotId, string RowKey, string? Grade, Valuation 
 /// in memory (small LRU); a slim valued-lots extract per sale is kept separately so
 /// classification history never needs 29 full sales in memory.
 ///
-/// All ids are deterministic (MD5 of sale number / row key), so lot references and stored
-/// valuations stay valid across restarts and cache rebuilds. A lot id embeds its sale
-/// number in the first two bytes, so an id alone is enough to find the right file.
+/// All ids are deterministic (MD5 of sale number / row key, plus year for anything other
+/// than the legacy 2026 namespace — see the CatalogueIdFor/LotIdFor overloads below), so
+/// lot references and stored valuations stay valid across restarts and cache rebuilds. A
+/// lot id embeds its sale number in the first two bytes (plus its year in the next two, for
+/// non-legacy ids), so an id alone is enough to find the right file — see FindLot.
 /// </summary>
 public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment env) : ICatalogueSource
 {
-    /// <summary>Sale 28 runs in the next auction week; every sale is anchored a week apart from it.</summary>
-    private static readonly DateTime Sale28Date = new(2026, 7, 21, 9, 30, 0, DateTimeKind.Utc);
+    /// <summary>The legacy single-year namespace: predates year-awareness and keeps its
+    /// original identity (CatalogueIdFor(saleNo)/LotIdFor(saleNo, rowKey)) forever, regardless
+    /// of whether its files sit flat in data/sales or under data/sales/2026/.</summary>
+    public const int LegacyYear = 2026;
+
+    /// <summary>One anchor date per year — every other sale in that year is a week apart
+    /// from its anchor's sale number. Only needed for a year with no <see cref="YearSaleDates"/>
+    /// entries; this is deliberately not config-driven since it changes maybe once a year.</summary>
+    private static readonly Dictionary<int, (int SaleNo, DateTime Date)> YearAnchors = new()
+    {
+        [2026] = (28, new DateTime(2026, 7, 21, 9, 30, 0, DateTimeKind.Utc)),
+    };
+
+    /// <summary>Real per-sale dates, read from each file's own "Selling End Time" column
+    /// (min value per sale) rather than assumed from a weekly offset — real auction weeks
+    /// aren't always exactly 7 days apart (see the 2025 gaps below), so this is more accurate
+    /// than YearAnchors wherever it's populated. Takes priority over YearAnchors when both
+    /// have an entry for a sale.
+    /// 2025: sale 4's source file read "29/01/2024" in that column — an evident year typo,
+    /// bracketed by sale 3 (22/01/2025) and sale 5 (05/02/2025) a week either side — corrected
+    /// to 2025 here.</summary>
+    private static readonly Dictionary<int, Dictionary<int, DateTime>> YearSaleDates = new()
+    {
+        [2025] = new()
+        {
+            [1] = new DateTime(2025, 1, 8), [2] = new DateTime(2025, 1, 15), [3] = new DateTime(2025, 1, 22),
+            [4] = new DateTime(2025, 1, 29), [5] = new DateTime(2025, 2, 5), [6] = new DateTime(2025, 2, 11),
+            [7] = new DateTime(2025, 2, 19), [8] = new DateTime(2025, 2, 26), [9] = new DateTime(2025, 3, 5),
+            [10] = new DateTime(2025, 3, 11), [11] = new DateTime(2025, 3, 19), [12] = new DateTime(2025, 3, 26),
+            [13] = new DateTime(2025, 4, 2), [14] = new DateTime(2025, 4, 8), [15] = new DateTime(2025, 4, 23),
+            [16] = new DateTime(2025, 4, 29), [17] = new DateTime(2025, 5, 7), [18] = new DateTime(2025, 5, 14),
+            [19] = new DateTime(2025, 5, 21), [20] = new DateTime(2025, 5, 28), [21] = new DateTime(2025, 6, 4),
+            [22] = new DateTime(2025, 6, 11), [23] = new DateTime(2025, 6, 18), [24] = new DateTime(2025, 6, 25),
+            [25] = new DateTime(2025, 7, 2), [26] = new DateTime(2025, 7, 8), [27] = new DateTime(2025, 7, 16),
+            [28] = new DateTime(2025, 7, 23), [29] = new DateTime(2025, 7, 30), [30] = new DateTime(2025, 8, 5),
+            [31] = new DateTime(2025, 8, 13), [32] = new DateTime(2025, 8, 20), [33] = new DateTime(2025, 8, 27),
+            [34] = new DateTime(2025, 9, 2), [35] = new DateTime(2025, 9, 10), [36] = new DateTime(2025, 9, 17),
+            [37] = new DateTime(2025, 9, 24), [38] = new DateTime(2025, 9, 30), [39] = new DateTime(2025, 10, 8),
+            [40] = new DateTime(2025, 10, 15), [41] = new DateTime(2025, 10, 22), [42] = new DateTime(2025, 10, 29),
+            [43] = new DateTime(2025, 11, 4), [44] = new DateTime(2025, 11, 12), [45] = new DateTime(2025, 11, 19),
+            [46] = new DateTime(2025, 11, 26), [47] = new DateTime(2025, 12, 9), [48] = new DateTime(2025, 12, 16),
+            [49] = new DateTime(2025, 12, 23), [50] = new DateTime(2025, 12, 30),
+        },
+    };
+
     private const int MaxLoadedSales = 4;
 
     private readonly object _mapLock = new();
-    private readonly Dictionary<int, object> _saleLocks = new();
-    private readonly Dictionary<int, LoadedSale> _loaded = new();
-    private readonly Dictionary<int, (Signature Sig, ValuedLotSlim[] Rows)> _slims = new();
-    private readonly Dictionary<int, (Signature Sig, SaleMeta Meta)> _meta = new();
+    private readonly Dictionary<(int Year, int SaleNo), object> _saleLocks = new();
+    private readonly Dictionary<(int Year, int SaleNo), LoadedSale> _loaded = new();
+    private readonly Dictionary<(int Year, int SaleNo), (Signature Sig, ValuedLotSlim[] Rows)> _slims = new();
+    private readonly Dictionary<(int Year, int SaleNo), (Signature Sig, SaleMeta Meta)> _meta = new();
     private long _touchCounter;
     private bool _metaFileLoaded;
     private int _warmInFlight; // 0 = idle, 1 = a background catch-up warm pass is running
 
     private sealed record Signature(long Size, long MTimeTicks);
-    private sealed record SaleFile(int SaleNo, string Path, Signature Sig);
+    private sealed record SaleFile(int Year, int SaleNo, string Path, Signature Sig)
+    {
+        public bool IsLegacy => Year == LegacyYear;
+    }
     private sealed class SaleMeta
     {
         public int RowCount { get; set; }
@@ -96,8 +147,16 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
     // ---- deterministic identity ------------------------------------------------------
 
+    // Legacy (2026, flat-root) ids are frozen exactly as they were before years existed —
+    // already-stored valuations/reports/webhooks reference them, so this hash and its inputs
+    // must never change. Every year other than 2026 folds year into the hash from the start,
+    // since there's no existing data to protect there.
+
     public static Guid CatalogueIdFor(int saleNo) =>
         new(MD5.HashData(Encoding.UTF8.GetBytes($"sale:{saleNo}")));
+
+    public static Guid CatalogueIdFor(int year, int saleNo) =>
+        year == LegacyYear ? CatalogueIdFor(saleNo) : new(MD5.HashData(Encoding.UTF8.GetBytes($"sale:{year}:{saleNo}")));
 
     /// <summary>Lot id = MD5 of sale + row key, with the sale number stamped into the
     /// first two bytes so the id alone identifies which file to load.</summary>
@@ -109,13 +168,44 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         return new Guid(hash);
     }
 
+    /// <summary>Non-legacy lot id: same sale-number stamping as the legacy scheme (bytes
+    /// 0-1), plus the year stamped into bytes 2-3 so FindLot can locate the right year's
+    /// file straight from the id, the same way it already does for sale number.</summary>
+    public static Guid LotIdFor(int year, int saleNo, string rowKey)
+    {
+        if (year == LegacyYear) return LotIdFor(saleNo, rowKey);
+        var hash = MD5.HashData(Encoding.UTF8.GetBytes($"lot:{year}:{saleNo}:{rowKey}"));
+        hash[0] = (byte)(saleNo & 0xFF);
+        hash[1] = (byte)((saleNo >> 8) & 0xFF);
+        hash[2] = (byte)(year & 0xFF);
+        hash[3] = (byte)((year >> 8) & 0xFF);
+        return new Guid(hash);
+    }
+
     private static int SaleNoOfLotId(Guid lotId)
     {
         var b = lotId.ToByteArray();
         return b[0] | (b[1] << 8);
     }
 
-    private static DateTime SaleDateFor(int saleNo) => Sale28Date.AddDays((saleNo - 28) * 7);
+    private static int YearHintOfLotId(Guid lotId)
+    {
+        var b = lotId.ToByteArray();
+        return b[2] | (b[3] << 8);
+    }
+
+    /// <summary>Real date if known (YearSaleDates), else the weekly-offset anchor if the
+    /// year has one (YearAnchors), else the file's last-write time — e.g. new files dropped
+    /// in before either is known. Sales still list with a usable date instead of the whole
+    /// listing failing.</summary>
+    private static DateTime SaleDateFor(int year, int saleNo, DateTime fileMTimeUtc)
+    {
+        if (YearSaleDates.TryGetValue(year, out var dates) && dates.TryGetValue(saleNo, out var date))
+            return date;
+        if (YearAnchors.TryGetValue(year, out var anchor))
+            return anchor.Date.AddDays((saleNo - anchor.SaleNo) * 7);
+        return fileMTimeUtc;
+    }
 
     // ---- public surface --------------------------------------------------------------
 
@@ -126,22 +216,24 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         var anyStale = false;
         foreach (var file in ScanFiles())
         {
+            var key = (file.Year, file.SaleNo);
             SaleMeta? meta;
             lock (_mapLock)
             {
-                meta = _meta.TryGetValue(file.SaleNo, out var m) && m.Sig == file.Sig ? m.Meta : null;
+                meta = _meta.TryGetValue(key, out var m) && m.Sig == file.Sig ? m.Meta : null;
             }
             if (meta is null) anyStale = true;
             result.Add(new Catalogue
             {
-                Id = CatalogueIdFor(file.SaleNo),
-                SourceName = $"Sale {file.SaleNo} - 2026",
+                Id = CatalogueIdFor(file.Year, file.SaleNo),
+                Year = file.Year,
+                SourceName = $"Sale {file.SaleNo} - {file.Year}",
                 // Row count / headers are known once the sale has been parsed at least once
                 // (the warm pass, an opportunistic re-warm below, or first open); until then
                 // the sale still lists, just bare.
                 RowCount = meta?.RowCount ?? 0,
                 Headers = meta?.Headers ?? new List<string>(),
-                ImportedAt = SaleDateFor(file.SaleNo),
+                ImportedAt = SaleDateFor(file.Year, file.SaleNo, new DateTime(file.Sig.MTimeTicks, DateTimeKind.Utc)),
             });
         }
         // A file with no meta entry is either brand new or was replaced on disk (different
@@ -164,12 +256,13 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         });
     }
 
-    /// <summary>The next unused sale number — the highest on disk + 1 (or 1 when the folder
-    /// is empty). Lets a file that isn't named by sale number still be imported: it slots in
-    /// as the next sale, keeping the deterministic-id / weekly-sequence identity intact.</summary>
-    public int NextSaleNumber()
+    /// <summary>The next unused sale number for a given year — the highest on disk in that
+    /// year + 1 (or 1 when that year has no files yet). Lets a file that isn't named by sale
+    /// number still be imported: it slots in as the next sale, keeping the deterministic-id
+    /// / weekly-sequence identity intact.</summary>
+    public int NextSaleNumber(int year)
     {
-        var files = ScanFiles();
+        var files = ScanFiles().Where(f => f.Year == year).ToList();
         return files.Count == 0 ? 1 : files.Max(f => f.SaleNo) + 1;
     }
 
@@ -180,28 +273,44 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     public (Lot Lot, Catalogue Catalogue)? FindLot(Guid lotId)
     {
         var saleNo = SaleNoOfLotId(lotId);
-        var file = ScanFiles().FirstOrDefault(f => f.SaleNo == saleNo);
-        if (file is null) return null;
-        var sale = LoadSale(file);
-        return sale.ById.TryGetValue(lotId, out var lot) ? (lot, sale.Catalogue) : null;
+        var files = ScanFiles();
+
+        // Legacy ids never carry a year hint (bytes 2-3 are hash noise for them), so the
+        // legacy flat-root file is always tried first — this exactly preserves lookup
+        // behavior for every id that existed before years did.
+        var legacy = files.FirstOrDefault(f => f.IsLegacy && f.SaleNo == saleNo);
+        if (legacy is not null)
+        {
+            var sale = LoadSale(legacy);
+            if (sale.ById.TryGetValue(lotId, out var lot)) return (lot, sale.Catalogue);
+        }
+
+        // Not a legacy id (or the legacy sale doesn't have it) — try the year folded into
+        // bytes 2-3. A wrong/garbage hint just misses the ById lookup below and falls through.
+        var yearHint = YearHintOfLotId(lotId);
+        var foldered = files.FirstOrDefault(f => !f.IsLegacy && f.Year == yearHint && f.SaleNo == saleNo);
+        if (foldered is null) return null;
+        var foldSale = LoadSale(foldered);
+        return foldSale.ById.TryGetValue(lotId, out var foldLot) ? (foldLot, foldSale.Catalogue) : null;
     }
 
     public IReadOnlyList<ValuedLotSlim> GetValuedSlim(Guid catalogueId)
     {
-        var file = ScanFiles().FirstOrDefault(f => CatalogueIdFor(f.SaleNo) == catalogueId);
+        var file = ScanFiles().FirstOrDefault(f => CatalogueIdFor(f.Year, f.SaleNo) == catalogueId);
         if (file is null) return Array.Empty<ValuedLotSlim>();
+        var key = (file.Year, file.SaleNo);
 
         lock (_mapLock)
         {
-            if (_slims.TryGetValue(file.SaleNo, out var hit) && hit.Sig == file.Sig) return hit.Rows;
+            if (_slims.TryGetValue(key, out var hit) && hit.Sig == file.Sig) return hit.Rows;
         }
 
         // Try the slim cache file; else derive it from the (cached or parsed) full sale.
-        var fromDisk = ReadCache<List<ValuedLotSlim>>(SlimCachePath(file.SaleNo), file.Sig);
+        var fromDisk = ReadCache<List<ValuedLotSlim>>(SlimCachePath(file.Year, file.SaleNo), file.Sig);
         var rows = fromDisk?.ToArray() ?? BuildSlim(LoadSale(file).Lots);
-        if (fromDisk is null) WriteCache(SlimCachePath(file.SaleNo), file.Sig, rows.ToList());
+        if (fromDisk is null) WriteCache(SlimCachePath(file.Year, file.SaleNo), file.Sig, rows.ToList());
 
-        lock (_mapLock) _slims[file.SaleNo] = (file.Sig, rows);
+        lock (_mapLock) _slims[key] = (file.Sig, rows);
         return rows;
     }
 
@@ -219,7 +328,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             if (ct.IsCancellationRequested) return;
             bool known;
             lock (_mapLock)
-                known = _meta.TryGetValue(file.SaleNo, out var m) && m.Sig == file.Sig;
+                known = _meta.TryGetValue((file.Year, file.SaleNo), out var m) && m.Sig == file.Sig;
             if (known) continue;
             try
             {
@@ -237,15 +346,16 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
     private LoadedSale? LoadByCatalogueId(Guid catalogueId)
     {
-        var file = ScanFiles().FirstOrDefault(f => CatalogueIdFor(f.SaleNo) == catalogueId);
+        var file = ScanFiles().FirstOrDefault(f => CatalogueIdFor(f.Year, f.SaleNo) == catalogueId);
         return file is null ? null : LoadSale(file);
     }
 
     private LoadedSale LoadSale(SaleFile file)
     {
+        var key = (file.Year, file.SaleNo);
         lock (_mapLock)
         {
-            if (_loaded.TryGetValue(file.SaleNo, out var hit) && hit.Sig == file.Sig)
+            if (_loaded.TryGetValue(key, out var hit) && hit.Sig == file.Sig)
             {
                 hit.Touch = ++_touchCounter;
                 return hit;
@@ -255,20 +365,20 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         // Per-sale load lock: parallel requests for the same sale parse once; requests for
         // other (already loaded) sales aren't blocked behind a 25s parse.
         object saleLock;
-        lock (_mapLock) saleLock = _saleLocks.TryGetValue(file.SaleNo, out var l) ? l : _saleLocks[file.SaleNo] = new object();
+        lock (_mapLock) saleLock = _saleLocks.TryGetValue(key, out var l) ? l : _saleLocks[key] = new object();
 
         lock (saleLock)
         {
             lock (_mapLock)
             {
-                if (_loaded.TryGetValue(file.SaleNo, out var hit) && hit.Sig == file.Sig)
+                if (_loaded.TryGetValue(key, out var hit) && hit.Sig == file.Sig)
                 {
                     hit.Touch = ++_touchCounter;
                     return hit;
                 }
             }
 
-            var cached = ReadCache<CachedSale>(SaleCachePath(file.SaleNo), file.Sig);
+            var cached = ReadCache<CachedSale>(SaleCachePath(file.Year, file.SaleNo), file.Sig);
             Catalogue catalogue;
             List<Lot> lots;
             if (cached is not null)
@@ -278,9 +388,9 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             else
             {
                 (catalogue, lots) = ParseSale(file);
-                WriteCache(SaleCachePath(file.SaleNo), file.Sig,
+                WriteCache(SaleCachePath(file.Year, file.SaleNo), file.Sig,
                     new CachedSale { Catalogue = catalogue, Lots = lots });
-                WriteCache(SlimCachePath(file.SaleNo), file.Sig, BuildSlim(lots).ToList());
+                WriteCache(SlimCachePath(file.Year, file.SaleNo), file.Sig, BuildSlim(lots).ToList());
             }
 
             var sale = new LoadedSale
@@ -294,7 +404,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
             lock (_mapLock)
             {
-                _loaded[file.SaleNo] = sale;
+                _loaded[key] = sale;
                 RecordMeta(file, catalogue);
                 // Keep only the most recently used sales in memory — each holds ~12k lots.
                 foreach (var evict in _loaded.OrderByDescending(kv => kv.Value.Touch).Skip(MaxLoadedSales).Select(kv => kv.Key).ToList())
@@ -312,12 +422,13 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         var parsed = importer.ParseFile(stream, Path.GetFileName(file.Path));
         var rows = parsed.Rows.Where(r => !string.IsNullOrWhiteSpace(r.GetValueOrDefault("Lot No"))).ToList();
 
-        var importedAt = SaleDateFor(file.SaleNo);
-        var catalogueId = CatalogueIdFor(file.SaleNo);
+        var importedAt = SaleDateFor(file.Year, file.SaleNo, new DateTime(file.Sig.MTimeTicks, DateTimeKind.Utc));
+        var catalogueId = CatalogueIdFor(file.Year, file.SaleNo);
         var catalogue = new Catalogue
         {
             Id = catalogueId,
-            SourceName = $"Sale {file.SaleNo} - 2026",
+            Year = file.Year,
+            SourceName = $"Sale {file.SaleNo} - {file.Year}",
             Headers = parsed.Headers,
             RowCount = rows.Count,
             ColumnMeta = importer.BuildColumnMeta(parsed.Headers, rows),
@@ -336,9 +447,9 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                 lot.RowKey = $"{lot.RowKey}#{n + 1}";
             }
             else seenKeys[lot.RowKey] = 0;
-            lot.Id = LotIdFor(file.SaleNo, lot.RowKey);
+            lot.Id = LotIdFor(file.Year, file.SaleNo, lot.RowKey);
             lot.SaleNo = file.SaleNo.ToString();
-            lot.SaleYear = "2026";
+            lot.SaleYear = file.Year.ToString();
             lot.Valuation = ParseValuation(row.GetValueOrDefault("Valuation", ""), importedAt);
             return lot;
         }).ToList();
@@ -401,23 +512,40 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     // ---- folder scanning & meta ------------------------------------------------------
 
     /// <summary>Every sale file currently in data/sales — the folder is the source of
-    /// truth, so a newly dropped file (e.g. 31.xlsx next week) appears immediately.</summary>
+    /// truth, so a newly dropped file (e.g. 31.xlsx next week) appears immediately. Files
+    /// sitting flat in the root, and files under a data/sales/2026/ subfolder, are both the
+    /// legacy 2026 namespace and hash identically (CatalogueIdFor/LotIdFor dispatch off the
+    /// year value alone, not the file's path) — 2026 can live in either location, or split
+    /// across both, with no effect on existing ids. Any other numbered subfolder
+    /// (data/sales/2025/…) belongs to that year under the new year-folded hash scheme.</summary>
     private List<SaleFile> ScanFiles()
     {
         if (!Directory.Exists(SalesDir)) return new List<SaleFile>();
         var result = new List<SaleFile>();
-        foreach (var path in Directory.GetFiles(SalesDir, "*.xls*"))
+
+        void ScanDir(string dir, int year)
         {
-            var digits = new string(Path.GetFileNameWithoutExtension(path).Where(char.IsDigit).ToArray());
-            if (digits.Length is 0 or > 3 || !int.TryParse(digits, out var saleNo)) continue;
-            var info = new FileInfo(path);
-            result.Add(new SaleFile(saleNo, path, new Signature(info.Length, info.LastWriteTimeUtc.Ticks)));
+            foreach (var path in Directory.GetFiles(dir, "*.xls*"))
+            {
+                var digits = new string(Path.GetFileNameWithoutExtension(path).Where(char.IsDigit).ToArray());
+                if (digits.Length is 0 or > 3 || !int.TryParse(digits, out var saleNo)) continue;
+                var info = new FileInfo(path);
+                result.Add(new SaleFile(year, saleNo, path, new Signature(info.Length, info.LastWriteTimeUtc.Ticks)));
+            }
         }
-        // Same sale number twice (e.g. 05.xlsx and 05.xls) — keep the newest file.
+
+        ScanDir(SalesDir, LegacyYear);
+        foreach (var dir in Directory.GetDirectories(SalesDir))
+        {
+            if (!int.TryParse(Path.GetFileName(dir), out var year)) continue;
+            ScanDir(dir, year);
+        }
+
+        // Same (year, sale number) twice (e.g. 05.xlsx and 05.xls) — keep the newest file.
         return result
-            .GroupBy(f => f.SaleNo)
+            .GroupBy(f => (f.Year, f.SaleNo))
             .Select(g => g.OrderByDescending(f => f.Sig.MTimeTicks).First())
-            .OrderBy(f => f.SaleNo)
+            .OrderBy(f => f.Year).ThenBy(f => f.SaleNo)
             .ToList();
     }
 
@@ -427,13 +555,13 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         // so the first sale opened after a restart rewrote meta.json with only itself and
         // every other sale listed as 0 lots until re-opened.
         EnsureMetaLoaded();
-        _meta[file.SaleNo] = (file.Sig, new SaleMeta { RowCount = catalogue.RowCount, Headers = catalogue.Headers });
+        _meta[(file.Year, file.SaleNo)] = (file.Sig, new SaleMeta { RowCount = catalogue.RowCount, Headers = catalogue.Headers });
         try
         {
             Directory.CreateDirectory(CacheDir);
             File.WriteAllText(MetaPath(), JsonSerializer.Serialize(
                 _meta.ToDictionary(
-                    kv => kv.Key.ToString(),
+                    kv => $"{kv.Key.Year}:{kv.Key.SaleNo}",
                     kv => new { kv.Value.Sig.Size, kv.Value.Sig.MTimeTicks, kv.Value.Meta.RowCount, kv.Value.Meta.Headers })));
         }
         catch
@@ -454,8 +582,16 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                 var doc = JsonSerializer.Deserialize<Dictionary<string, MetaEntry>>(File.ReadAllText(MetaPath()));
                 if (doc is null) return;
                 foreach (var (key, e) in doc)
-                    if (int.TryParse(key, out var saleNo))
-                        _meta[saleNo] = (new Signature(e.Size, e.MTimeTicks), new SaleMeta { RowCount = e.RowCount, Headers = e.Headers ?? new() });
+                {
+                    // Pre-year meta.json used bare sale-number keys ("28"); read those back
+                    // as legacy 2026 entries rather than forcing a cold re-warm on upgrade.
+                    var parts = key.Split(':');
+                    (int Year, int SaleNo)? parsed = parts.Length == 2 && int.TryParse(parts[0], out var y) && int.TryParse(parts[1], out var s)
+                        ? (y, s)
+                        : int.TryParse(key, out var legacySaleNo) ? (LegacyYear, legacySaleNo) : null;
+                    if (parsed is { } k)
+                        _meta[k] = (new Signature(e.Size, e.MTimeTicks), new SaleMeta { RowCount = e.RowCount, Headers = e.Headers ?? new() });
+                }
             }
             catch
             {
@@ -478,12 +614,12 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     // otherwise silently deserialize with nulls for any newly-added field) are ignored and
     // every sale transparently re-parses once, on its next request — no manual cache-clearing
     // step needed. v2: added SellingMark/Status/PurchasedPrice/Buyer/BuyerName to Lot.
-    // v3: added Factory/FactoryName to Lot.
-    private const string CacheSchemaVersion = "v4";
+    // v3: added Factory/FactoryName to Lot. v5: cache keys became (year, saleNo) composite.
+    private const string CacheSchemaVersion = "v5";
 
     private string MetaPath() => Path.Combine(CacheDir, "meta.json");
-    private string SaleCachePath(int saleNo) => Path.Combine(CacheDir, $"sale-{CacheSchemaVersion}-{saleNo}.json.gz");
-    private string SlimCachePath(int saleNo) => Path.Combine(CacheDir, $"valued-{CacheSchemaVersion}-{saleNo}.json.gz");
+    private string SaleCachePath(int year, int saleNo) => Path.Combine(CacheDir, $"sale-{CacheSchemaVersion}-{year}-{saleNo}.json.gz");
+    private string SlimCachePath(int year, int saleNo) => Path.Combine(CacheDir, $"valued-{CacheSchemaVersion}-{year}-{saleNo}.json.gz");
 
     private sealed class CacheEnvelope<T>
     {
