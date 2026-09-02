@@ -188,6 +188,28 @@ public class MongoContext
         [
             new CreateIndexModel<MarkBrokerEra>(Builders<MarkBrokerEra>.IndexKeys.Ascending(e => e.MarkId)),
         ]);
+
+        // AscActivityStatus is the real stored field reports filter "currently at-risk/lost"
+        // on — IsCurrentlyOurs is computed-only (see Mark's doc comment) and can't be indexed
+        // directly. MarkActivitySnapshots is queried both per-mark (its own history) and
+        // per-trigger-run (cross-mark "what changed" listings).
+        Marks.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Mark>(Builders<Mark>.IndexKeys.Ascending(m => m.AscActivityStatus)),
+        ]);
+        MarkActivitySnapshots.Indexes.CreateMany(
+        [
+            new CreateIndexModel<MarkActivitySnapshot>(Builders<MarkActivitySnapshot>.IndexKeys.Ascending(s => s.MarkId).Descending(s => s.RunAt)),
+            new CreateIndexModel<MarkActivitySnapshot>(Builders<MarkActivitySnapshot>.IndexKeys.Ascending(s => s.TriggerKey).Descending(s => s.RunAt)),
+        ]);
+
+        // The Admin Panel's "unresolved marks" panel and GetActivitySummary both filter on
+        // Resolved==false — the whole point of this collection is a small, cheap "what still
+        // needs attention" list.
+        UnresolvedMarkSightings.Indexes.CreateMany(
+        [
+            new CreateIndexModel<UnresolvedMarkSighting>(Builders<UnresolvedMarkSighting>.IndexKeys.Ascending(s => s.Resolved)),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -247,4 +269,6 @@ public class MongoContext
     public IMongoCollection<Mark> Marks => Database.GetCollection<Mark>("marks");
     public IMongoCollection<MarkBrokerEra> MarkBrokerEras => Database.GetCollection<MarkBrokerEra>("markBrokerEras");
     public IMongoCollection<MarkBrokerPeriodFact> MarkBrokerPeriodFacts => Database.GetCollection<MarkBrokerPeriodFact>("markBrokerPeriodFacts");
+    public IMongoCollection<MarkActivitySnapshot> MarkActivitySnapshots => Database.GetCollection<MarkActivitySnapshot>("markActivitySnapshots");
+    public IMongoCollection<UnresolvedMarkSighting> UnresolvedMarkSightings => Database.GetCollection<UnresolvedMarkSighting>("unresolvedMarkSightings");
 }

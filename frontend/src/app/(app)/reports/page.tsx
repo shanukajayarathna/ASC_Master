@@ -12,6 +12,7 @@ import SellOutlinedIcon from "@mui/icons-material/SellOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import SummarizeOutlinedIcon from "@mui/icons-material/SummarizeOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
+import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
 
 // Sub-destinations of Reports, not top-level modules — a local tile array rather than
 // NAV_ITEMS/nav.ts (which is the global launchpad). No `image` on the not-yet-built tiles:
@@ -89,6 +90,15 @@ const REPORT_TILES: NavItem[] = [
     description: "Price & Classification, Sale x Broker — any catalogue category, broker distribution, sold/outsold/unsold, and Select Best/Best/Below Best/Poor price tiers.",
     icon: DonutLargeOutlinedIcon,
     gradient: 6,
+  },
+  {
+    href: "/reports/shared-mark-catalogue-summary",
+    label: "Sharing Mark Catalogued Summary",
+    section: "Reports",
+    status: "live",
+    description: "Every estate ASC shares with another broker — catalogued Sale/MTD/YTD quantity per side, from the 8 broker pre-sale files, before the sale even happens.",
+    icon: ShareOutlinedIcon,
+    gradient: 7,
   },
   {
     href: "/reports/automated",

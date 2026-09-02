@@ -42,6 +42,10 @@ import type {
   FactoryRecord,
   MarkRecord,
   MiningRunResult,
+  MarkActivitySnapshot,
+  MarkActivityChange,
+  ActivitySummary,
+  UnresolvedMarkSighting,
   Plantation,
   MslAnalyticsFilter,
   MslBatchUploadResult,
@@ -304,6 +308,19 @@ export const api = {
     request<DeactivatedInsteadOfDeleted | undefined>(`/api/v1/mark-intelligence/marks/${id}`, { method: "DELETE" }),
 
   runMarkIntelligenceMining: () => request<MiningRunResult>("/api/v1/mark-intelligence/mine", { method: "POST" }),
+
+  // ---- mark intelligence: ASC activity (3mo/6mo reconciliation, shared-mark detection) -
+
+  getMarkActivity: (markId: string) => request<MarkActivitySnapshot[]>(`/api/v1/mark-intelligence/marks/${markId}/activity`),
+  listActivityChanges: (params: { window?: "3mo" | "6mo"; kind?: "AtRisk" | "Lost" | "NewlyIncoming" | "NewlyShared" } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.window) qs.set("window", params.window);
+    if (params.kind) qs.set("kind", params.kind);
+    const suffix = qs.toString();
+    return request<MarkActivityChange[]>(`/api/v1/mark-intelligence/activity/changes${suffix ? `?${suffix}` : ""}`);
+  },
+  getActivitySummary: () => request<ActivitySummary>("/api/v1/mark-intelligence/activity/summary"),
+  listUnresolvedMarks: () => request<UnresolvedMarkSighting[]>("/api/v1/mark-intelligence/activity/unresolved-marks"),
 
   // ---- audit log (who did what, for admin-mutating actions) --------------------------
 
@@ -1008,6 +1025,42 @@ export const api = {
     }),
 
   listFactorySaleSummaryOutputs: () => request<ScheduledReportOutput[]>("/api/v1/reports/factory-sale-summary/outputs"),
+
+  // ---- Sharing Mark Catalogued Summary (manual-only — see the report's own page) ------
+
+  generateSharedMarkCatalogueSummary: (saleYear: number, saleNo: number) =>
+    request<ScheduledReportOutput>("/api/v1/reports/shared-mark-catalogue-summary/generate", {
+      method: "POST",
+      body: JSON.stringify({ saleYear, saleNo }),
+    }),
+
+  /** files is keyed by broker code (BrokerCode.All on the backend: ASC, EB, BC, JK, LC,
+   *  MPB, FW, CT) — all 8 are required, matched by the backend on field name "file_{code}". */
+  generateSharedMarkCatalogueSummaryFromUpload: async (
+    files: Record<string, File>,
+    saleYear: number,
+    saleNo: number,
+    saleDate: string,
+  ): Promise<ScheduledReportOutput> => {
+    const form = new FormData();
+    form.append("saleYear", String(saleYear));
+    form.append("saleNo", String(saleNo));
+    form.append("saleDate", saleDate);
+    for (const [broker, file] of Object.entries(files)) form.append(`file_${broker}`, file);
+    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-upload`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Couldn't generate this report from the uploaded files");
+    }
+    return res.json();
+  },
+
+  listSharedMarkCatalogueSummaryOutputs: () =>
+    request<ScheduledReportOutput[]>("/api/v1/reports/shared-mark-catalogue-summary/outputs"),
 
   // ---- Category Analysis (Price & Classification — Sale x Broker) ---------------------
 

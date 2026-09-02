@@ -56,6 +56,9 @@ public class CatalogueImportService
         // first-matching-header rule would put the factory's full name into the MF-code field.
         ("Factory", [new Regex("factory", RegexOptions.IgnoreCase)], new Regex("name", RegexOptions.IgnoreCase)),
         ("FactoryName", [new Regex("factory.?name", RegexOptions.IgnoreCase)], null),
+        // Anchored exact match — a loose "rp" pattern would false-positive on unrelated
+        // headers; real files carry this as its own bare "RP" column ("Yes"/"No").
+        ("Rp", [new Regex("^rp$", RegexOptions.IgnoreCase)], null),
     ];
 
     public ParsedCatalogue ParseFile(Stream stream, string fileName)
@@ -348,6 +351,7 @@ public class CatalogueImportService
             BuyerName = Find("BuyerName"),
             Factory = Find("Factory"),
             FactoryName = Find("FactoryName"),
+            IsReprint = string.Equals(Find("Rp"), "Yes", StringComparison.OrdinalIgnoreCase),
             // Empty cells are dropped rather than stored — real market catalogues carry
             // ~50 columns, most sparse, and every consumer already treats a missing key
             // as blank. Cuts stored size dramatically at ~12k lots per weekly sale.

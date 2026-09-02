@@ -61,6 +61,12 @@ public class Lot
     /// <summary>The producing factory's full name (e.g. "MATALE WEST TEA FACTORY").</summary>
     public string? FactoryName { get; set; }
 
+    /// <summary>True when the sale file's "RP" column reads "Yes" — a lot carried over
+    /// from an earlier sale (a reprint), not newly catalogued this sale. Reports that
+    /// compare catalogued quantity across brokers/sales must exclude these or they
+    /// double-count.</summary>
+    public bool IsReprint { get; set; }
+
     /// <summary>Full original row, header -> value, for columns not promoted to typed fields.</summary>
     public Dictionary<string, string> RawData { get; set; } = new();
 

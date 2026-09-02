@@ -22,6 +22,8 @@ import type {
   MarketPulseSource,
   MasterDataEntity,
   MiningRunResult,
+  ActivitySummary,
+  UnresolvedMarkSighting,
   MslBatchUploadResult,
   MslScanSummary,
   MslStageBatchResult,
@@ -2461,6 +2463,14 @@ function MarkIntelligenceSection() {
   const [miningResult, setMiningResult] = useState<MiningRunResult | null>(null);
   const [miningError, setMiningError] = useState<string | null>(null);
 
+  const [activitySummary, setActivitySummary] = useState<ActivitySummary | null>(null);
+  const [unresolvedMarks, setUnresolvedMarks] = useState<UnresolvedMarkSighting[] | null>(null);
+
+  useEffect(() => {
+    api.getActivitySummary().then(setActivitySummary).catch(() => undefined);
+    api.listUnresolvedMarks().then(setUnresolvedMarks).catch(() => undefined);
+  }, []);
+
   const refreshPlantations = () => {
     setPlantationsLoading(true);
     api
@@ -2713,6 +2723,56 @@ function MarkIntelligenceSection() {
           Last run: {miningResult.factoriesSeen} factories, {miningResult.marksSeen} marks ({miningResult.newMarksCreated} new),{" "}
           {miningResult.marksWithMultipleEras} with a detected broker change, {miningResult.marksEverShared} ever shared,{" "}
           {miningResult.marksThatChangedFactory} spanned more than one factory code.
+        </div>
+      )}
+
+      {activitySummary && (
+        <div className="mb-4 grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          {[
+            { label: "At Risk", value: activitySummary.atRisk, color: "var(--warn)" },
+            { label: "Lost", value: activitySummary.lost, color: "var(--danger)" },
+            { label: "Newly Incoming (30d)", value: activitySummary.newlyIncoming30d, color: "var(--liquor)" },
+            { label: "Newly Shared (30d)", value: activitySummary.newlyShared30d, color: "var(--liquor)" },
+            { label: "Unresolved Marks", value: activitySummary.unresolvedMarks, color: "var(--warn)" },
+          ].map((stat) => (
+            <div key={stat.label} className="p-3 rounded-[var(--radius-lg)] border border-border" style={{ background: "var(--surface)" }}>
+              <p className="text-[20px] font-display font-bold m-0" style={{ color: stat.color }}>{stat.value}</p>
+              <p className="text-[11.5px] m-0 mt-0.5" style={{ color: "var(--text-muted)" }}>{stat.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {unresolvedMarks && unresolvedMarks.length > 0 && (
+        <div className="mb-6 p-3 rounded-[var(--radius-lg)] border border-border" style={{ background: "var(--surface)" }}>
+          <p className="text-[11px] uppercase tracking-wide font-semibold mb-2" style={{ color: "var(--text-muted)" }}>
+            Unresolved Marks — seen in /data/sales, no matching Mark yet
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left px-2 py-1.5 font-medium text-text-muted">Mark</th>
+                  <th className="text-left px-2 py-1.5 font-medium text-text-muted">Last Seen</th>
+                  <th className="text-left px-2 py-1.5 font-medium text-text-muted">Sale</th>
+                  <th className="text-left px-2 py-1.5 font-medium text-text-muted">Sightings</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unresolvedMarks.map((u) => (
+                  <tr key={u.markCode} className="border-b border-border last:border-0">
+                    <td className="px-2 py-1.5 font-mono">{u.markCode}</td>
+                    <td className="px-2 py-1.5">{new Date(u.lastSeenAt).toLocaleDateString()}</td>
+                    <td className="px-2 py-1.5">Sale {u.saleNo}/{u.saleYear}</td>
+                    <td className="px-2 py-1.5">{u.sightingCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[12px] m-0 mt-2" style={{ color: "var(--text-muted)" }}>
+            Resolves automatically once a Mark exists for the code — via the next Run Mining, or by adding it below.
+          </p>
         </div>
       )}
 

@@ -238,6 +238,27 @@ builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<F
 // CategoryReportsController injects the concrete type for its own on-demand generate endpoint.
 builder.Services.AddSingleton<EstateCategoryReportJob>();
 builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<EstateCategoryReportJob>());
+// ASC mark-activity reconciliation (see Modules/MarkIntelligence/MarkAscActivityCheckService)
+// — one shared service and evaluation (Active/AtRisk/Lost is always computed against both the
+// 90-day and 180-day thresholds together, never against just one job's own window — see the
+// service's own doc comment), registered as two job instances purely so each is independently
+// visible/schedulable/enable-disable-able in the Admin Panel, matching the spec's two named
+// triggers, with redundancy if one is disabled or fails.
+builder.Services.AddSingleton<Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckService>();
+builder.Services.AddSingleton<IScheduledReportJob>(sp => new Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckJob(
+    sp.GetRequiredService<Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckService>(),
+    key: "mark-activity-3mo", displayName: "ASC Mark Activity — 3 Month Check", cron: "0 6 * * 1"));
+builder.Services.AddSingleton<IScheduledReportJob>(sp => new Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckJob(
+    sp.GetRequiredService<Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckService>(),
+    key: "mark-activity-6mo", displayName: "ASC Mark Activity — 6 Month Check", cron: "0 7 * * 1"));
+// "Sharing Mark Catalogued Summary" — manual-only (see Modules/MarkIntelligence/
+// SharedMarkCatalogueService.cs's own doc comment for why this isn't an
+// IScheduledReportJob: the source files are pre-sale broker catalogues for a sale that
+// hasn't happened yet, so an AfterSaleClose trigger could never fire in time). Generated
+// on demand via SharedMarkCatalogueController, either from /data/sales (if it's already
+// there) or from uploaded raw broker files.
+builder.Services.AddSingleton<Asc.Api.Modules.MarkIntelligence.SharedMarkCatalogueService>();
+builder.Services.AddSingleton<Asc.Api.Modules.MarkIntelligence.SharedMarkCatalogueGenerationService>();
 builder.Services.AddSingleton<IScheduledReportJobRegistry, ScheduledReportJobRegistry>();
 builder.Services.AddSingleton<ScheduledReportRunnerService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduledReportRunnerService>());

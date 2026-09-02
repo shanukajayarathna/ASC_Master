@@ -79,6 +79,8 @@ export interface MarkBrokerEra {
   endSaleNo: number | null;
 }
 
+export type AscActivityStatus = "Active" | "AtRisk" | "Lost";
+
 export interface MarkRecord {
   id: string;
   factoryId: string;
@@ -92,6 +94,57 @@ export interface MarkRecord {
   currentBrokers: string[];
   isCurrentlyShared: boolean;
   timeline: MarkBrokerEra[];
+  ascActivityStatus: AscActivityStatus;
+  isCurrentlyOurs: boolean;
+  lastAscActivityAt: string | null;
+  firstSeenWithAsc: string | null;
+}
+
+/** One durable record of a mark's ASC-activity evaluation from a single 3-month/6-month
+ *  trigger run — see docs/29_Mark_Intelligence.md. */
+export interface MarkActivitySnapshot {
+  triggerKey: string;
+  runAt: string;
+  status: AscActivityStatus;
+  isCurrentlyOurs: boolean;
+  lastAscActivityAt: string | null;
+  statusChanged: boolean;
+  brokerSetAtRun: string[];
+  newlySharedDetected: boolean;
+  newlyIncomingForAsc: boolean;
+}
+
+/** One row of the cross-mark "what changed" list backing the Activity Alerts view. */
+export interface MarkActivityChange {
+  markId: string;
+  markCode: string;
+  factoryCode: string;
+  factoryName: string;
+  status: AscActivityStatus;
+  lastAscActivityAt: string | null;
+  runAt: string;
+  newlySharedDetected: boolean;
+  newlyIncomingForAsc: boolean;
+  brokerSetAtRun: string[];
+}
+
+export interface ActivitySummary {
+  atRisk: number;
+  lost: number;
+  newlyIncoming30d: number;
+  newlyShared30d: number;
+  unresolvedMarks: number;
+}
+
+/** A SellingMark seen in /data/sales with no matching Mark yet — see
+ *  docs/29_Mark_Intelligence.md's "New-mark detection" section. */
+export interface UnresolvedMarkSighting {
+  markCode: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  saleYear: number;
+  saleNo: number;
+  sightingCount: number;
 }
 
 export interface MiningRunResult {

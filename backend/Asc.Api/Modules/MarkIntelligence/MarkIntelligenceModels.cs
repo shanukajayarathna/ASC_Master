@@ -71,6 +71,20 @@ public static class MarkStatus
     public const string Discontinued = "Discontinued";
 }
 
+/// <summary>ASC's own relationship to a mark — separate from <see cref="MarkStatus"/>,
+/// which tracks whether the mark exists at all (any broker). Active/AtRisk/Lost is set by
+/// MarkAscActivityCheckService's two scheduled jobs (3-month early warning, 6-month hard
+/// cutoff), never by the general mining job.</summary>
+public enum AscActivityStatus
+{
+    /// <summary>ASC sold this mark within the 3-month window.</summary>
+    Active,
+    /// <summary>No ASC activity in 3 months, but still within 6 — early warning.</summary>
+    AtRisk,
+    /// <summary>No ASC activity in 6 months — hard cutoff, no longer "our mark."</summary>
+    Lost,
+}
+
 [BsonIgnoreExtraElements]
 public class Mark
 {
@@ -102,6 +116,31 @@ public class Mark
     public List<string> CurrentBrokers { get; set; } = [];
 
     public bool IsCurrentlyShared => CurrentBrokers.Count > 1;
+
+    /// <summary>Set by MarkAscActivityCheckService's 3-month/6-month jobs — defaults to
+    /// Active so a mark with no check run yet (new admin-added mark, or before the jobs
+    /// have run for the first time) doesn't read as already lost.</summary>
+    [BsonRepresentation(BsonType.String)]
+    public AscActivityStatus AscActivityStatus { get; set; } = AscActivityStatus.Active;
+
+    /// <summary>Most recent (year, sale) ASC sold this mark in, reconciled from /data/sales
+    /// + the archive per MarkAscActivityCheckService's precedence rule. Null until a check
+    /// has run and found at least one ASC fact.</summary>
+    public DateTime? LastAscActivityAt { get; set; }
+
+    /// <summary>Set once, the first time a check finds ASC activity for a mark that never
+    /// had any before — the "newly incoming for ASC" signal. Never cleared.</summary>
+    public DateTime? FirstSeenWithAsc { get; set; }
+
+    public DateTime? AscActivityCheckedAt { get; set; }
+
+    /// <summary>The broker set as of the last ASC-activity check run (CurrentBrokers plus
+    /// "AS" folded in/out per that run's own finding, since /data/sales can reveal ASC
+    /// activity before the manual mining job's CurrentBrokers catches up) — the baseline
+    /// the next run compares against to detect a newly-shared mark.</summary>
+    public List<string> LastKnownBrokerSet { get; set; } = [];
+
+    public bool IsCurrentlyOurs => AscActivityStatus != AscActivityStatus.Lost;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -160,4 +199,78 @@ public class MarkBrokerPeriodFact
     public int SaleNo { get; set; }
     public string BrokerCode { get; set; } = string.Empty;
     public decimal QuantityKg { get; set; }
+}
+
+/// <summary>
+/// One durable record of a single mark's ASC-activity evaluation, written every time
+/// MarkAscActivityCheckService's 3-month or 6-month job runs — deliberately never
+/// overwritten (unlike Mark's own cached fields), so "how has this mark's status changed
+/// over time" is a plain indexed query against this collection rather than something a
+/// future report has to re-derive. Mirrors how MarkBrokerPeriodFact/MarkBrokerEra sit
+/// alongside Mark rather than replacing it.
+/// </summary>
+[BsonIgnoreExtraElements]
+public class MarkActivitySnapshot
+{
+    [BsonId]
+    public ObjectId Id { get; set; }
+
+    [BsonRepresentation(BsonType.String)]
+    public Guid MarkId { get; set; }
+
+    /// <summary>The job that produced this snapshot — "mark-activity-3mo" or
+    /// "mark-activity-6mo" (matches that job's IScheduledReportJob.Key).</summary>
+    public string TriggerKey { get; set; } = string.Empty;
+
+    public DateTime RunAt { get; set; }
+
+    [BsonRepresentation(BsonType.String)]
+    public AscActivityStatus Status { get; set; }
+
+    public bool IsCurrentlyOurs { get; set; }
+    public DateTime? LastAscActivityAt { get; set; }
+
+    /// <summary>True when this run's Status differs from the mark's previously persisted
+    /// AscActivityStatus — what a "what changed recently" report filters on.</summary>
+    public bool StatusChanged { get; set; }
+
+    /// <summary>The mark's effective broker set as of this run (see Mark.LastKnownBrokerSet).</summary>
+    public List<string> BrokerSetAtRun { get; set; } = [];
+
+    /// <summary>True when this run's broker set gained a broker it didn't have before, in
+    /// either direction — the durable "this mark just became shared" signal.</summary>
+    public bool NewlySharedDetected { get; set; }
+
+    /// <summary>True when this run is the one that set Mark.FirstSeenWithAsc.</summary>
+    public bool NewlyIncomingForAsc { get; set; }
+}
+
+/// <summary>
+/// A SellingMark seen in /data/sales with no matching Mark.Code anywhere yet — a genuinely
+/// new mark ASC has started selling that neither the archive (not yet mined) nor an admin
+/// (not yet manually added) has turned into a real Mark/Factory record. MarkAscActivityCheckService
+/// only evaluates EXISTING marks (see its own doc comment) — it deliberately never fabricates
+/// a Factory/Mark from a sale-file row alone, since a real Factory needs a resolved MSL code,
+/// which /data/sales' own factory field can't safely provide (see MarkIntelligenceMiningService's
+/// design notes on raw-code-to-MslCode resolution). This collection is the surfaced version of
+/// that gap: upserted by MarkCode (its natural key) every run a sighting recurs, and marked
+/// Resolved once a real Mark with that Code exists (via the next mining run, or an admin
+/// manually adding it) — so it never needs its own cleanup job.
+/// </summary>
+[BsonIgnoreExtraElements]
+public class UnresolvedMarkSighting
+{
+    /// <summary>The normalized (trimmed, upper-invariant) SellingMark value — natural key,
+    /// same normalization MarkIntelligenceMiningService uses for Mark.Code.</summary>
+    [BsonId]
+    public string MarkCode { get; set; } = string.Empty;
+
+    public DateTime FirstSeenAt { get; set; }
+    public DateTime LastSeenAt { get; set; }
+    public int SaleYear { get; set; }
+    public int SaleNo { get; set; }
+    public int SightingCount { get; set; }
+
+    public bool Resolved { get; set; }
+    public DateTime? ResolvedAt { get; set; }
 }

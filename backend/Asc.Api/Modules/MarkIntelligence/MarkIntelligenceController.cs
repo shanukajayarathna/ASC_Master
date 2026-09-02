@@ -3,6 +3,7 @@ using Asc.Api.Modules.Audit;
 using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Asc.Api.Modules.MarkIntelligence;
@@ -352,7 +353,166 @@ public class MarkIntelligenceController(MongoContext db, IAuditLogger audit, Mar
             return new MarkDto(
                 m.Id, m.FactoryId, factory?.Code ?? "", factory?.Name ?? "",
                 factory?.PlantationId, plantation?.Name,
-                m.Code, m.Name, m.Status, m.CurrentBrokers, m.IsCurrentlyShared, timeline);
+                m.Code, m.Name, m.Status, m.CurrentBrokers, m.IsCurrentlyShared, timeline,
+                m.AscActivityStatus.ToString(), m.IsCurrentlyOurs, m.LastAscActivityAt, m.FirstSeenWithAsc);
         }).ToList();
     }
+
+    // ---------------------------------------------------------------------------------
+    // ASC activity — read-only, same "any authenticated user, internal reference data"
+    // tier as Search/GetMark above. See MarkAscActivityCheckService for how these are
+    // computed (the 3-month/6-month scheduled jobs write MarkActivitySnapshot rows).
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>Recent ASC-activity snapshots for one mark, newest first — the "how has
+    /// this mark's status changed over time" history.</summary>
+    [HttpGet("marks/{id:guid}/activity")]
+    public async Task<ActionResult<List<MarkActivitySnapshotDto>>> GetMarkActivity(Guid id, [FromQuery] int limit, CancellationToken ct)
+    {
+        var take = limit is > 0 and <= 200 ? limit : 50;
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var snapshots = await db.MarkActivitySnapshots.Find(s => s.MarkId == id)
+            .SortByDescending(s => s.RunAt).Limit(take).ToListAsync(ct);
+        return Ok(snapshots.Select(ToSnapshotDto).ToList());
+    }
+
+    /// <summary>Cross-mark "what changed recently" — the durable, indexed query the future
+    /// report pipeline (and this module's own Activity Alerts UI) reads instead of
+    /// re-deriving anything live. kind filters which cut of the most-recent snapshot per
+    /// mark to return; window bounds RunAt for AtRisk/Lost/NewlyIncoming/NewlyShared.</summary>
+    [HttpGet("activity/changes")]
+    public async Task<ActionResult<List<MarkActivityChangeDto>>> ListActivityChanges(
+        [FromQuery] string? window, [FromQuery] string? kind, CancellationToken ct)
+    {
+        var since = window switch
+        {
+            "3mo" => DateTime.UtcNow.AddMonths(-3),
+            "6mo" => DateTime.UtcNow.AddMonths(-6),
+            _ => DateTime.UtcNow.AddMonths(-6),
+        };
+
+        // "Latest snapshot per mark" is computed server-side via aggregation (not a capped
+        // client-side Find().Limit(...).ToList() — with a run every week from 2 jobs, a
+        // 6-month window can hold far more than a few thousand snapshots once there's real
+        // history, and a hard cap would silently drop older marks from the list with no
+        // error). Filtering by kind BEFORE collapsing to "latest per mark" would also let an
+        // old matching snapshot outrank a mark's real, more-recent (non-matching) status —
+        // e.g. a mark that recovered to Active last week still showing as Lost because its
+        // 4-month-old Lost snapshot was the only one a pre-filter let through — so AtRisk/Lost
+        // (standing states) always read off each mark's true latest snapshot in the window,
+        // filtered client-side afterward; NewlyIncoming/NewlyShared (point-in-time events)
+        // read off the most recent snapshot where that flag was actually true, independently.
+        async Task<List<MarkActivitySnapshot>> LatestPerMarkAsync(BsonDocument matchStage)
+        {
+            var pipeline = new[]
+            {
+                new BsonDocument("$match", matchStage),
+                new BsonDocument("$sort", new BsonDocument(nameof(MarkActivitySnapshot.RunAt), -1)),
+                new BsonDocument("$group", new BsonDocument
+                {
+                    ["_id"] = $"${nameof(MarkActivitySnapshot.MarkId)}",
+                    ["doc"] = new BsonDocument("$first", "$$ROOT"),
+                }),
+                new BsonDocument("$replaceRoot", new BsonDocument("newRoot", "$doc")),
+            };
+            // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+            return await db.MarkActivitySnapshots.Aggregate<MarkActivitySnapshot>(pipeline, cancellationToken: ct).ToListAsync(ct);
+        }
+
+        var withinWindow = new BsonDocument(nameof(MarkActivitySnapshot.RunAt), new BsonDocument("$gte", since));
+        BsonDocument WithinWindowAnd(string field) => new()
+        {
+            [nameof(MarkActivitySnapshot.RunAt)] = new BsonDocument("$gte", since),
+            [field] = true,
+        };
+
+        List<MarkActivitySnapshot> rows;
+        switch (kind)
+        {
+            case "AtRisk":
+                rows = (await LatestPerMarkAsync(withinWindow)).Where(s => s.Status == AscActivityStatus.AtRisk).ToList();
+                break;
+            case "Lost":
+                rows = (await LatestPerMarkAsync(withinWindow)).Where(s => s.Status == AscActivityStatus.Lost).ToList();
+                break;
+            case "NewlyIncoming":
+                rows = await LatestPerMarkAsync(WithinWindowAnd(nameof(MarkActivitySnapshot.NewlyIncomingForAsc)));
+                break;
+            case "NewlyShared":
+                rows = await LatestPerMarkAsync(WithinWindowAnd(nameof(MarkActivitySnapshot.NewlySharedDetected)));
+                break;
+            default:
+                var latest = await LatestPerMarkAsync(withinWindow);
+                var newlyIncoming = await LatestPerMarkAsync(WithinWindowAnd(nameof(MarkActivitySnapshot.NewlyIncomingForAsc)));
+                var newlyShared = await LatestPerMarkAsync(WithinWindowAnd(nameof(MarkActivitySnapshot.NewlySharedDetected)));
+                rows = latest.Where(s => s.Status is AscActivityStatus.AtRisk or AscActivityStatus.Lost)
+                    .Concat(newlyIncoming).Concat(newlyShared)
+                    .GroupBy(s => s.MarkId).Select(g => g.OrderByDescending(s => s.RunAt).First()).ToList();
+                break;
+        }
+        if (rows.Count == 0) return Ok(new List<MarkActivityChangeDto>());
+
+        var markIds = rows.Select(s => s.MarkId).ToList();
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var marks = await db.Marks.Find(m => markIds.Contains(m.Id)).ToListAsync(ct);
+        var marksById = marks.ToDictionary(m => m.Id);
+        var factoryIds = marks.Select(m => m.FactoryId).Distinct().ToList();
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var factories = await db.Factories.Find(f => factoryIds.Contains(f.Id)).ToListAsync(ct);
+        var factoriesById = factories.ToDictionary(f => f.Id);
+
+        return Ok(rows
+            .Where(s => marksById.ContainsKey(s.MarkId))
+            .Select(s =>
+            {
+                var mark = marksById[s.MarkId];
+                var factory = factoriesById.GetValueOrDefault(mark.FactoryId);
+                return new MarkActivityChangeDto(
+                    mark.Id, mark.Code, factory?.Code ?? "", factory?.Name ?? "",
+                    s.Status.ToString(), s.LastAscActivityAt, s.RunAt,
+                    s.NewlySharedDetected, s.NewlyIncomingForAsc, s.BrokerSetAtRun);
+            })
+            .OrderByDescending(c => c.RunAt)
+            .ToList());
+    }
+
+    /// <summary>Aggregate counts for the Admin Panel's mining card — current AtRisk/Lost
+    /// marks (from Mark's own cached status, cheap and always current) plus newly
+    /// incoming/shared in the last 30 days (from snapshots, since those are point-in-time
+    /// events rather than a standing status).</summary>
+    [HttpGet("activity/summary")]
+    public async Task<ActionResult<ActivitySummaryDto>> GetActivitySummary(CancellationToken ct)
+    {
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var atRisk = await db.Marks.Find(m => m.AscActivityStatus == AscActivityStatus.AtRisk).CountDocumentsAsync(ct);
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var lost = await db.Marks.Find(m => m.AscActivityStatus == AscActivityStatus.Lost).CountDocumentsAsync(ct);
+
+        var since = DateTime.UtcNow.AddDays(-30);
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var newlyIncoming = await db.MarkActivitySnapshots
+            .Find(s => s.NewlyIncomingForAsc && s.RunAt >= since).CountDocumentsAsync(ct);
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var newlyShared = await db.MarkActivitySnapshots
+            .Find(s => s.NewlySharedDetected && s.RunAt >= since).CountDocumentsAsync(ct);
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var unresolvedMarks = await db.UnresolvedMarkSightings.Find(s => !s.Resolved).CountDocumentsAsync(ct);
+
+        return Ok(new ActivitySummaryDto((int)atRisk, (int)lost, (int)newlyIncoming, (int)newlyShared, (int)unresolvedMarks));
+    }
+
+    /// <summary>SellingMark codes seen in /data/sales with no matching Mark yet — see
+    /// UnresolvedMarkSighting's own doc comment. Newest sighting first.</summary>
+    [HttpGet("activity/unresolved-marks")]
+    public async Task<ActionResult<List<UnresolvedMarkSightingDto>>> ListUnresolvedMarks(CancellationToken ct)
+    {
+        // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
+        var sightings = await db.UnresolvedMarkSightings.Find(s => !s.Resolved).SortByDescending(s => s.LastSeenAt).ToListAsync(ct);
+        return Ok(sightings.Select(s => new UnresolvedMarkSightingDto(
+            s.MarkCode, s.FirstSeenAt, s.LastSeenAt, s.SaleYear, s.SaleNo, s.SightingCount)).ToList());
+    }
+
+    private static MarkActivitySnapshotDto ToSnapshotDto(MarkActivitySnapshot s) => new(
+        s.TriggerKey, s.RunAt, s.Status.ToString(), s.IsCurrentlyOurs, s.LastAscActivityAt,
+        s.StatusChanged, s.BrokerSetAtRun, s.NewlySharedDetected, s.NewlyIncomingForAsc);
 }

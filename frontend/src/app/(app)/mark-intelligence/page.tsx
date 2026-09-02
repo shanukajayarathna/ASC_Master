@@ -4,7 +4,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api, ApiError } from "@/lib/api";
 import { brokerColorVar, brokerName, brokerPaletteCss } from "@/lib/brokers";
-import type { FactoryRecord, MarkBrokerEra, MarkRecord, Plantation } from "@/types/api";
+import type { AscActivityStatus, FactoryRecord, MarkActivityChange, MarkBrokerEra, MarkRecord, Plantation } from "@/types/api";
 import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import TextField from "@mui/material/TextField";
@@ -16,6 +16,47 @@ type View =
   | { level: "factories"; plantation: Plantation }
   | { level: "marks"; plantation: Plantation; factory: FactoryRecord }
   | { level: "mark"; plantation: Plantation; factory: FactoryRecord; mark: MarkRecord };
+
+type Tab = "browse" | "alerts";
+
+const ASC_STATUS_COLOR: Record<AscActivityStatus, string> = {
+  Active: "var(--sage-dark)",
+  AtRisk: "var(--warn)",
+  Lost: "var(--danger)",
+};
+
+const ASC_STATUS_LABEL: Record<AscActivityStatus, string> = {
+  Active: "Active with ASC",
+  AtRisk: "At risk — no ASC activity in 3 months",
+  Lost: "Lost — no ASC activity in 6 months",
+};
+
+function AscActivityBadge({ status }: { status: AscActivityStatus }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium"
+      style={{ background: "var(--surface-sunken)", color: ASC_STATUS_COLOR[status] }}
+    >
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: ASC_STATUS_COLOR[status] }} />
+      {ASC_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "never on record";
+  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** A mark counts as "newly incoming" for badge purposes while it's within the 3-month
+ *  early-warning window of first being seen — after that it's just a normal active mark.
+ *  90 days must match MarkAscActivityCheckService.WarningWindow (backend/Asc.Api/Modules/
+ *  MarkIntelligence/MarkAscActivityCheckService.cs) — there's no API exposing that constant
+ *  today, so change both together if it's ever retuned. */
+function isRecentlyIncoming(firstSeenWithAsc: string | null): boolean {
+  if (!firstSeenWithAsc) return false;
+  return Date.now() - new Date(firstSeenWithAsc).getTime() <= 90 * 24 * 60 * 60 * 1000;
+}
 
 function BrokerChip({ code }: { code: string }) {
   return (
@@ -56,6 +97,7 @@ function EraTimeline({ eras }: { eras: MarkBrokerEra[] }) {
 }
 
 export default function MarkIntelligencePage() {
+  const [tab, setTab] = useState<Tab>("browse");
   const [view, setView] = useState<View>({ level: "plantations" });
   const [plantations, setPlantations] = useState<Plantation[] | null>(null);
   const [factories, setFactories] = useState<FactoryRecord[] | null>(null);
@@ -109,33 +151,89 @@ export default function MarkIntelligencePage() {
       .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load marks"));
   };
 
+  // Reached via search or an Activity Alert, with no drill-down context yet — synthesize
+  // just enough of a trail from the mark's own denormalized factory/plantation fields.
+  // plantationId/plantation.id can be "" here (a mark with no known plantation group) —
+  // goToFactories below treats that as "nothing to fetch" rather than dead-ending.
+  const viewForMark = (m: MarkRecord): View => ({
+    level: "mark",
+    plantation: { id: m.plantationId ?? "", name: m.plantationName ?? "—", isActive: true, factoryCount: 0 },
+    factory: { id: m.factoryId, plantationId: m.plantationId, code: m.factoryCode, name: m.factoryName, isActive: true, markCount: 0 },
+    mark: m,
+  });
+
   const openMark = (m: MarkRecord) => {
-    if (view.level === "marks") {
-      setView({ level: "mark", plantation: view.plantation, factory: view.factory, mark: m });
-    } else {
-      // Reached via search, with no drill-down context yet — synthesize just enough of a
-      // trail from the mark's own denormalized factory/plantation fields.
-      setView({
-        level: "mark",
-        plantation: { id: m.plantationId ?? "", name: m.plantationName ?? "—", isActive: true, factoryCount: 0 },
-        factory: { id: m.factoryId, plantationId: m.plantationId, code: m.factoryCode, name: m.factoryName, isActive: true, markCount: 0 },
-        mark: m,
-      });
-    }
+    if (view.level === "marks") setView({ level: "mark", plantation: view.plantation, factory: view.factory, mark: m });
+    else setView(viewForMark(m));
+  };
+
+  const openMarkById = (markId: string) => {
+    api
+      .getMark(markId)
+      .then((m) => {
+        setTab("browse");
+        setView(viewForMark(m));
+      })
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load mark"));
   };
 
   const goToPlantations = () => setView({ level: "plantations" });
-  const goToFactories = () => view.level !== "plantations" && setView({ level: "factories", plantation: view.plantation });
-  const goToMarks = () => view.level === "mark" && setView({ level: "marks", plantation: view.plantation, factory: view.factory });
+
+  // Reachable from a mark opened via search/an alert, where factories/marks were never
+  // fetched for this plantation/factory (unlike the normal drill-down path) — fetch here
+  // too so the breadcrumb never dead-ends on a stuck loading state.
+  const goToFactories = () => {
+    if (view.level === "plantations") return;
+    setView({ level: "factories", plantation: view.plantation });
+    if (!view.plantation.id) {
+      setFactories([]); // synthetic "no known plantation" trail — nothing to fetch
+      return;
+    }
+    setFactories(null);
+    api
+      .listFactoriesForPlantation(view.plantation.id)
+      .then(setFactories)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load factories"));
+  };
+
+  const goToMarks = () => {
+    if (view.level !== "mark") return;
+    setView({ level: "marks", plantation: view.plantation, factory: view.factory });
+    setMarks(null);
+    api
+      .listMarksForFactory(view.factory.id)
+      .then(setMarks)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load marks"));
+  };
 
   return (
     <div>
       <style>{brokerPaletteCss()}</style>
       <PageHeader
         title="Mark Intelligence"
-        subtitle="Plantations, factories and the marks they sell under — current broker(s) and how that's changed over time."
+        subtitle="Plantations, factories and the marks they sell under — current broker(s), ASC activity, and how both have changed over time."
       />
 
+      <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] mb-5 w-fit" style={{ background: "var(--surface-sunken)" }}>
+        {(["browse", "alerts"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className="px-3.5 py-1.5 rounded-[calc(var(--radius-lg)-4px)] text-[13px] font-medium transition-colors"
+            style={tab === t ? { background: "var(--surface)", color: "var(--text-strong)" } : { color: "var(--text-muted)" }}
+          >
+            {t === "browse" ? "Browse" : "Activity Alerts"}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
+
+      {tab === "alerts" ? (
+        <ActivityAlertsView onOpenMark={openMarkById} onError={(msg) => setError(msg)} />
+      ) : (
+      <>
       <TextField
         fullWidth
         size="small"
@@ -145,8 +243,6 @@ export default function MarkIntelligencePage() {
         className="mb-5"
         slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchOutlinedIcon fontSize="small" /></InputAdornment> } }}
       />
-
-      {error && <div className="mb-4 p-3 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
 
       {query.trim() ? (
         <div>
@@ -213,6 +309,8 @@ export default function MarkIntelligencePage() {
 
           {view.level === "mark" && <MarkDetail mark={view.mark} factory={view.factory} />}
         </div>
+      )}
+      </>
       )}
     </div>
   );
@@ -326,6 +424,21 @@ function MarkDetail({ mark, factory }: { mark: MarkRecord; factory: FactoryRecor
         {mark.name}
       </h2>
 
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <AscActivityBadge status={mark.ascActivityStatus} />
+        {isRecentlyIncoming(mark.firstSeenWithAsc) && (
+          <span
+            className="inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-medium"
+            style={{ background: "var(--liquor-light)", color: "var(--liquor)" }}
+          >
+            Newly incoming for ASC
+          </span>
+        )}
+        <span className="text-[12.5px]" style={{ color: "var(--text-muted)" }}>
+          Last ASC activity: {formatDate(mark.lastAscActivityAt)}
+        </span>
+      </div>
+
       <div className="mb-5">
         <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5" style={{ color: "var(--text-muted)" }}>
           Current Broker{mark.isCurrentlyShared ? "s" : ""}
@@ -345,6 +458,94 @@ function MarkDetail({ mark, factory }: { mark: MarkRecord; factory: FactoryRecor
         </p>
         <EraTimeline eras={mark.timeline} />
       </div>
+    </div>
+  );
+}
+
+type AlertKind = "All" | "AtRisk" | "Lost" | "NewlyIncoming" | "NewlyShared";
+
+const ALERT_KIND_LABEL: Record<AlertKind, string> = {
+  All: "All",
+  AtRisk: "At Risk",
+  Lost: "Lost",
+  NewlyIncoming: "Newly Incoming",
+  NewlyShared: "Newly Shared",
+};
+
+/** The durable "what changed" view — backed entirely by MarkActivitySnapshot via
+ *  GET activity/changes (see docs/29_Mark_Intelligence.md), never re-derived live. */
+function ActivityAlertsView({ onOpenMark, onError }: { onOpenMark: (markId: string) => void; onError: (message: string) => void }) {
+  const [kind, setKind] = useState<AlertKind>("All");
+  const [changes, setChanges] = useState<MarkActivityChange[] | null>(null);
+
+  useEffect(() => {
+    setChanges(null);
+    api
+      .listActivityChanges({ window: "6mo", kind: kind === "All" ? undefined : kind })
+      .then(setChanges)
+      .catch((e) => onError(e instanceof ApiError ? e.message : "Couldn't load activity alerts"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {(Object.keys(ALERT_KIND_LABEL) as AlertKind[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setKind(k)}
+            className="px-3 py-1.5 rounded-full text-[12.5px] font-medium border transition-colors"
+            style={
+              kind === k
+                ? { background: "var(--liquor)", borderColor: "var(--liquor)", color: "var(--surface)" }
+                : { background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-muted)" }
+            }
+          >
+            {ALERT_KIND_LABEL[k]}
+          </button>
+        ))}
+      </div>
+
+      {changes === null ? (
+        <div className="flex justify-center py-10">
+          <TeaLoader size={36} />
+        </div>
+      ) : changes.length === 0 ? (
+        <p className="text-[13px] text-text-muted text-center py-10">Nothing to show for this filter over the last 6 months.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {changes.map((c) => (
+            <button
+              key={c.markId}
+              type="button"
+              onClick={() => onOpenMark(c.markId)}
+              className="flex items-center justify-between gap-3 text-left p-3.5 rounded-[var(--radius-lg)] border border-border transition-colors hover:border-[var(--liquor)]"
+              style={{ background: "var(--surface)" }}
+            >
+              <div className="min-w-0">
+                <p className="font-mono text-[13.5px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>{c.markCode}</p>
+                <p className="text-[12px] m-0 mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>
+                  {c.factoryCode} — {c.factoryName}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {c.newlyIncomingForAsc && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ background: "var(--liquor-light)", color: "var(--liquor)" }}>
+                    Newly incoming
+                  </span>
+                )}
+                {c.newlySharedDetected && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ background: "var(--liquor-light)", color: "var(--liquor)" }}>
+                    Newly shared
+                  </span>
+                )}
+                <AscActivityBadge status={c.status} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -615,7 +615,8 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     // every sale transparently re-parses once, on its next request — no manual cache-clearing
     // step needed. v2: added SellingMark/Status/PurchasedPrice/Buyer/BuyerName to Lot.
     // v3: added Factory/FactoryName to Lot. v5: cache keys became (year, saleNo) composite.
-    private const string CacheSchemaVersion = "v5";
+    // v6: added IsReprint to Lot.
+    private const string CacheSchemaVersion = "v6";
 
     private string MetaPath() => Path.Combine(CacheDir, "meta.json");
     private string SaleCachePath(int year, int saleNo) => Path.Combine(CacheDir, $"sale-{CacheSchemaVersion}-{year}-{saleNo}.json.gz");
