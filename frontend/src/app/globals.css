@@ -741,6 +741,13 @@ body {
   .report-print-area,
   .report-print-area * {
     visibility: visible;
+    /* Without this, Chrome/Firefox drop every background-color (the Top Price Page's green
+       masthead, gold footer rule, and "ours" row highlight included) unless the user happens
+       to have "Background graphics" checked in the print dialog — most don't. This is what
+       makes window.print() → "Save as PDF" actually preserve the report's look, not just its
+       text, the same as every other report page that prints through .report-print-area. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .report-print-area {
     position: absolute;

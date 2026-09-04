@@ -293,6 +293,37 @@ export interface CombinedReport {
   reports: AuctionReport[];
 }
 
+// ---- market bulletin (Valuation Centre price-tier ranges, this sale vs last) -----------------
+
+export interface PriceRange {
+  min: number | null;
+  max: number | null;
+  lotCount: number;
+}
+
+export interface BulletinRow {
+  label: string;
+  thisWeek: PriceRange;
+  lastWeek: PriceRange;
+}
+
+export interface BulletinTable {
+  gradeLabel: string;
+  rows: BulletinRow[];
+}
+
+export interface BulletinSection {
+  title: string;
+  tables: BulletinTable[];
+}
+
+export interface MarketBulletin {
+  sourceName: string;
+  previousSourceName: string | null;
+  generatedAt: string;
+  sections: BulletinSection[];
+}
+
 // ---- worksheet (rough pre-auction scratchpad — never persisted server-side) -----------------
 
 export interface WorksheetRow {
@@ -377,6 +408,11 @@ export interface ScheduledReportOutput {
   createdAt: string;
   notes: string | null;
   downloadable: boolean;
+}
+
+export interface SharedMarkCatalogueGenerateResponse {
+  outputs: ScheduledReportOutput[];
+  unmatchedMarks: string[];
 }
 
 export interface StagedCbac {

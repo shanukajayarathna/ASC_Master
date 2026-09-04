@@ -23,22 +23,29 @@ public class SharedMarkCatalogueController(
 {
     public record GenerateFromSalesDataRequestDto(int SaleYear, int SaleNo);
 
+    /// <summary>UnmatchedMarks: estate names that appear in the report but had no elevation
+    /// history for their code anywhere on file — defaulted to "High & Medium Grown" with no
+    /// way to confirm that's actually correct (see SharedMarkCatalogueService's own doc
+    /// comment). Always empty for GenerateFromSalesData, since /data/sales lots already
+    /// carry real elevation.</summary>
+    public record GenerateResponseDto(List<SavedReportSummaryDto> Outputs, IReadOnlyList<string> UnmatchedMarks);
+
     [HttpPost("generate")]
-    public async Task<ActionResult<SavedReportSummaryDto>> GenerateFromSalesData(GenerateFromSalesDataRequestDto dto, CancellationToken ct)
+    public async Task<ActionResult<GenerateResponseDto>> GenerateFromSalesData(GenerateFromSalesDataRequestDto dto, CancellationToken ct)
     {
         if (dto.SaleYear <= 0 || dto.SaleNo <= 0) return BadRequest("Sale year and sale number are both required.");
 
-        Guid savedId;
+        GenerationResult result;
         try
         {
-            savedId = await generator.GenerateForSaleAsync(dto.SaleYear, dto.SaleNo, ct);
+            result = await generator.GenerateForSaleAsync(dto.SaleYear, dto.SaleNo, ct);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
         }
 
-        return await BuildSummaryAsync(savedId, ct);
+        return await BuildResponseAsync(result, ct);
     }
 
     /// <summary>The primary path: all 8 broker files, one per required form field named
@@ -48,7 +55,7 @@ public class SharedMarkCatalogueController(
     /// figures and every other broker's to know which estates are actually shared.</summary>
     [HttpPost("generate-from-upload")]
     [RequestSizeLimit(50_000_000)]
-    public async Task<ActionResult<SavedReportSummaryDto>> GenerateFromUpload(
+    public async Task<ActionResult<GenerateResponseDto>> GenerateFromUpload(
         [FromForm] int saleYear, [FromForm] int saleNo, [FromForm] DateTime saleDate, CancellationToken ct)
     {
         if (saleYear <= 0 || saleNo <= 0) return BadRequest("Sale year and sale number are both required.");
@@ -63,22 +70,22 @@ public class SharedMarkCatalogueController(
             var file = Request.Form.Files.GetFile($"file_{code}")!;
             await using var stream = file.OpenReadStream();
             var rows = importer.ParseExcel(stream);
-            var lots = BrokerCatalogueUploadParser.Parse(code, importer, rows);
+            var lots = BrokerCatalogueUploadParser.Parse(code, importer, rows, saleNo);
             if (lots.Count == 0) return BadRequest($"Couldn't read any lots from the {code} file — check it's the right file/format.");
             allLots.AddRange(lots);
         }
 
-        Guid savedId;
+        GenerationResult result;
         try
         {
-            savedId = await generator.GenerateFromUploadAsync(saleYear, saleNo, saleDate, allLots, ct);
+            result = await generator.GenerateFromUploadAsync(saleYear, saleNo, saleDate, allLots, ct);
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
         }
 
-        return await BuildSummaryAsync(savedId, ct);
+        return await BuildResponseAsync(result, ct);
     }
 
     [HttpGet("outputs")]
@@ -88,11 +95,15 @@ public class SharedMarkCatalogueController(
         return Ok(reports.Select(ToDto).ToList());
     }
 
-    private async Task<ActionResult<SavedReportSummaryDto>> BuildSummaryAsync(Guid savedId, CancellationToken ct)
+    private async Task<ActionResult<GenerateResponseDto>> BuildResponseAsync(GenerationResult result, CancellationToken ct)
     {
-        var report = await savedReports.GetAsync(savedId, ct);
-        if (report is null) return NotFound();
-        return Ok(ToDto(report));
+        var dtos = new List<SavedReportSummaryDto>();
+        foreach (var id in result.SavedReportIds)
+        {
+            var report = await savedReports.GetAsync(id, ct);
+            if (report is not null) dtos.Add(ToDto(report));
+        }
+        return Ok(new GenerateResponseDto(dtos, result.UnmatchedMarks));
     }
 
     private static SavedReportSummaryDto ToDto(Models.SavedReport r) =>

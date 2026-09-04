@@ -29,6 +29,22 @@ public interface ICatalogueSource
     /// <summary>Just the valued lots of a sale, from the slim cache — cheap enough to call
     /// for every previous sale when building classification history.</summary>
     IReadOnlyList<ValuedLotSlim> GetValuedSlim(Guid catalogueId);
+
+    /// <summary>Every sale number whose resolved date falls in the given calendar month,
+    /// ascending — including sale numbers with no file on disk yet (e.g. later weeks of the
+    /// month that haven't happened). Reports that lay out one column per week of a month
+    /// (Sharing Mark Catalogued Summary) need the full month's calendar up front, not just
+    /// whichever sales already have data, so future weeks render as blank columns instead
+    /// of being omitted entirely.</summary>
+    IReadOnlyList<(int SaleNo, DateTime Date)> SalesInMonth(int year, int month);
+
+    /// <summary>Every Trade Mark/Factory code seen across every catalogue on file, mapped to
+    /// its canonical Selling Mark spelling and non-blank Sub Elevation (first-seen-wins).
+    /// Built once and persisted to disk (see SaleFileStore's own doc comment) — every call
+    /// after the first only has to parse whichever catalogues have appeared since the index
+    /// was last built, not the entire multi-year corpus, so callers doing a cross-year
+    /// code lookup (SharedMarkCatalogueService) don't re-pay a full scan on every request.</summary>
+    IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex();
 }
 
 /// <summary>One valued lot, reduced to what classification history needs.</summary>
@@ -198,13 +214,152 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     /// year has one (YearAnchors), else the file's last-write time — e.g. new files dropped
     /// in before either is known. Sales still list with a usable date instead of the whole
     /// listing failing.</summary>
-    private static DateTime SaleDateFor(int year, int saleNo, DateTime fileMTimeUtc)
+    private static DateTime SaleDateFor(int year, int saleNo, DateTime fileMTimeUtc) =>
+        EstimateSaleDate(year, saleNo) ?? fileMTimeUtc;
+
+    /// <summary>Same lookup as SaleDateFor, minus the file-mtime fallback — meaningless for
+    /// a hypothetical sale number with no file at all, which is exactly the case
+    /// SalesInMonth needs (enumerating a whole month's calendar including weeks that
+    /// haven't happened yet). Null means genuinely unknown for this year.</summary>
+    private static DateTime? EstimateSaleDate(int year, int saleNo)
     {
         if (YearSaleDates.TryGetValue(year, out var dates) && dates.TryGetValue(saleNo, out var date))
             return date;
         if (YearAnchors.TryGetValue(year, out var anchor))
             return anchor.Date.AddDays((saleNo - anchor.SaleNo) * 7);
-        return fileMTimeUtc;
+        return null;
+    }
+
+    /// <summary>Colombo tea auctions run at most ~53 sales/year (weekly) — a safe upper
+    /// bound to scan when enumerating a month's calendar.</summary>
+    private const int MaxSaleNoPerYear = 53;
+
+    public IReadOnlyList<(int SaleNo, DateTime Date)> SalesInMonth(int year, int month)
+    {
+        var result = new List<(int, DateTime)>();
+        for (var saleNo = 1; saleNo <= MaxSaleNoPerYear; saleNo++)
+        {
+            var date = EstimateSaleDate(year, saleNo);
+            if (date is { } d && d.Year == year && d.Month == month)
+                result.Add((saleNo, d));
+        }
+        return result.OrderBy(x => x.Item1).ToList();
+    }
+
+    // ---- mark code index ---------------------------------------------------------------
+
+    // Only leading zeros are normalized (MF01257 -> MF1257 — brokers pad differently for the
+    // same estate); any trailing letter is kept, since it can distinguish a genuinely
+    // different mark sharing a code block (confirmed live: "GREEN MOUNT" is MF1188, "GREEN
+    // MOUNT SUPER" is MF1188A — not necessarily the same mark; a base-number merge was tried
+    // and reverted — see SharedMarkCatalogueService's own doc comment for the full story).
+    // Mirrors SharedMarkCatalogueService.NormalizeMarkCode; duplicated rather than shared
+    // because Services deliberately doesn't depend on the feature modules built on top of it.
+    private static string NormalizeMarkCode(string raw)
+    {
+        var trimmed = raw.Trim().ToUpperInvariant();
+        var m = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([A-Z]+)0*(\d+[A-Z]*)$");
+        return m.Success ? $"{m.Groups[1].Value}{m.Groups[2].Value}" : trimmed;
+    }
+
+    private readonly object _markCodeIndexLock = new();
+    private (HashSet<Guid> IndexedIds, Dictionary<string, (string Name, string Elevation)> Index)? _markCodeIndex;
+
+    private sealed class MarkCodeIndexFile
+    {
+        public HashSet<Guid> IndexedCatalogueIds { get; set; } = [];
+        public Dictionary<string, MarkCodeEntry> Index { get; set; } = new();
+    }
+    private sealed class MarkCodeEntry
+    {
+        public string Name { get; set; } = "";
+        public string Elevation { get; set; } = "";
+    }
+
+    // v2: NormalizeMarkCode briefly stripped the trailing letter too (base factory number
+    // only) for a factory-wide merge that was later reverted (see SharedMarkCatalogueService's
+    // doc comment). v3: reverted back to keeping the trailing letter, so v2's keys (base
+    // number only) no longer match anything callers look up — bumping the filename abandons
+    // the stale file and lets a fresh one build under the restored key shape, the same
+    // "just re-parse once" pattern SaleCachePath uses.
+    private string MarkCodeIndexPath => Path.Combine(CacheDir, "mark-code-index-v3.json");
+
+    /// <summary>Builds/extends the index in memory + on disk, then returns it. Only
+    /// catalogues not already folded in get parsed (via the normal GetLots path, so a
+    /// catalogue already sale-cached on disk is cheap) — after the first call in this
+    /// process (or the first call ever, if the persisted file already covers everything),
+    /// this is a dictionary lookup, not a multi-year scan.</summary>
+    public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex()
+    {
+        lock (_markCodeIndexLock)
+        {
+            var (indexedIds, index) = _markCodeIndex ??= LoadMarkCodeIndexFromDisk();
+
+            var newCatalogues = ListCatalogues().Where(c => !indexedIds.Contains(c.Id)).ToList();
+            if (newCatalogues.Count > 0)
+            {
+                foreach (var cat in newCatalogues)
+                {
+                    foreach (var lot in GetLots(cat.Id) ?? [])
+                    {
+                        if (string.IsNullOrWhiteSpace(lot.Mark) || string.IsNullOrWhiteSpace(lot.SellingMark) ||
+                            string.IsNullOrWhiteSpace(lot.Elevation)) continue;
+                        var code = NormalizeMarkCode(lot.Mark);
+                        if (!index.ContainsKey(code))
+                            index[code] = (lot.SellingMark.Trim(), lot.Elevation);
+                    }
+                    indexedIds.Add(cat.Id);
+                }
+                SaveMarkCodeIndexToDisk(indexedIds, index);
+                _markCodeIndex = (indexedIds, index);
+            }
+
+            return new Dictionary<string, (string Name, string Elevation)>(index, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private (HashSet<Guid>, Dictionary<string, (string Name, string Elevation)>) LoadMarkCodeIndexFromDisk()
+    {
+        try
+        {
+            var path = MarkCodeIndexPath;
+            if (File.Exists(path))
+            {
+                var file = JsonSerializer.Deserialize<MarkCodeIndexFile>(File.ReadAllText(path));
+                if (file is not null)
+                {
+                    var index = file.Index.ToDictionary(
+                        kv => kv.Key, kv => (kv.Value.Name, kv.Value.Elevation), StringComparer.OrdinalIgnoreCase);
+                    return (file.IndexedCatalogueIds, index);
+                }
+            }
+        }
+        catch
+        {
+            // Corrupt/unreadable index — rebuild from scratch below rather than fail the request.
+        }
+        return ([], new Dictionary<string, (string Name, string Elevation)>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private void SaveMarkCodeIndexToDisk(HashSet<Guid> indexedIds, Dictionary<string, (string Name, string Elevation)> index)
+    {
+        try
+        {
+            Directory.CreateDirectory(CacheDir);
+            var file = new MarkCodeIndexFile
+            {
+                IndexedCatalogueIds = indexedIds,
+                Index = index.ToDictionary(kv => kv.Key, kv => new MarkCodeEntry { Name = kv.Value.Name, Elevation = kv.Value.Elevation }),
+            };
+            var path = MarkCodeIndexPath;
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(file));
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            // Cache is an optimization — never fail a request because it couldn't be written.
+        }
     }
 
     // ---- public surface --------------------------------------------------------------

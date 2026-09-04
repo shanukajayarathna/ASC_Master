@@ -31,6 +31,7 @@ import type {
   Lot,
   FilteredAnalytics,
   FilteredLots,
+  MarketBulletin,
   MarketInsight,
   MarketPulseCategory,
   MarketPulseFilters,
@@ -68,6 +69,7 @@ import type {
   SavedReport,
   ScheduledReportJob,
   ScheduledReportOutput,
+  SharedMarkCatalogueGenerateResponse,
   StagedCbac,
   TopBottomLot,
   UnmappedMasterDataValue,
@@ -498,12 +500,40 @@ export const api = {
     return res.blob();
   },
 
+  /** Generic .xlsx -> PDF conversion (frontend/src/app/api/reports/xlsx-to-pdf/route.ts) —
+   *  the same headless-LibreOffice mechanism as convertWeeklyFactPdf above, for any other
+   *  report's already-built workbook rather than a Weekly-FACT-specific one. */
+  convertXlsxToPdf: async (buffer: ArrayBuffer, filename: string): Promise<Blob> => {
+    const res = await fetch("/api/reports/xlsx-to-pdf", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "x-filename": encodeURIComponent(filename),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: buffer,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text;
+      try {
+        message = (JSON.parse(text) as { error?: string }).error ?? text;
+      } catch {
+        // Plain-text error body — use as-is.
+      }
+      throw new Error(message || `PDF conversion failed: ${res.status} ${res.statusText}`);
+    }
+    return res.blob();
+  },
+
   // ---- auction reports (Combined Report / Top Prices) --------------------------------
 
   getCombinedReport: (catalogueId: string) => request<CombinedReport>(`/api/v1/auction-reports/${catalogueId}/combined`),
 
   getAuctionReport: (catalogueId: string, reportKey: string) =>
     request<AuctionReport>(`/api/v1/auction-reports/${catalogueId}/${reportKey}`),
+
+  getMarketBulletin: (catalogueId: string) => request<MarketBulletin>(`/api/v1/market-bulletin/${catalogueId}`),
 
   // Combined Report from an uploaded workbook instead of an imported Catalogue — mirrors the
   // original standalone tool's own single-dropzone flow for a sale that isn't in the system yet.
@@ -1028,8 +1058,16 @@ export const api = {
 
   // ---- Sharing Mark Catalogued Summary (manual-only — see the report's own page) ------
 
+  // Both generate endpoints return TWO outputs per call — one for Low Grown, one for High &
+  // Medium Grown — mirroring the user's original two separate hand-built files rather than
+  // one combined workbook (see SharedMarkCatalogueGenerationService's own doc comment).
+  /** UnmatchedMarks: estate names in the report whose code had no elevation history
+   *  anywhere on file — defaulted to High & Medium Grown with no way to confirm that's
+   *  actually correct (see backend SharedMarkCatalogueService's own doc comment). Always
+   *  empty for the /data/sales-sourced generate call, since those lots already carry real
+   *  elevation. */
   generateSharedMarkCatalogueSummary: (saleYear: number, saleNo: number) =>
-    request<ScheduledReportOutput>("/api/v1/reports/shared-mark-catalogue-summary/generate", {
+    request<SharedMarkCatalogueGenerateResponse>("/api/v1/reports/shared-mark-catalogue-summary/generate", {
       method: "POST",
       body: JSON.stringify({ saleYear, saleNo }),
     }),
@@ -1041,7 +1079,7 @@ export const api = {
     saleYear: number,
     saleNo: number,
     saleDate: string,
-  ): Promise<ScheduledReportOutput> => {
+  ): Promise<SharedMarkCatalogueGenerateResponse> => {
     const form = new FormData();
     form.append("saleYear", String(saleYear));
     form.append("saleNo", String(saleNo));

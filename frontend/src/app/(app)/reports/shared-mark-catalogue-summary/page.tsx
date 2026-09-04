@@ -5,6 +5,7 @@ import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
 import type { ScheduledReportOutput } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
@@ -40,6 +41,8 @@ export default function SharedMarkCatalogueSummaryPage() {
 
   const [outputs, setOutputs] = useState<ScheduledReportOutput[] | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [convertingPdfId, setConvertingPdfId] = useState<string | null>(null);
+  const [unmatchedMarks, setUnmatchedMarks] = useState<string[]>([]);
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -57,13 +60,15 @@ export default function SharedMarkCatalogueSummaryPage() {
     if (!saleYear || !saleNoNum || !saleDate || !allFilesChosen) return;
     setGenerating(true);
     setError(null);
+    setUnmatchedMarks([]);
     try {
-      await api.generateSharedMarkCatalogueSummaryFromUpload(
+      const { unmatchedMarks: unmatched } = await api.generateSharedMarkCatalogueSummaryFromUpload(
         files as Record<string, File>,
         saleYear,
         saleNoNum,
         saleDate,
       );
+      setUnmatchedMarks(unmatched);
       setFiles({});
       refresh();
     } catch (e) {
@@ -88,6 +93,27 @@ export default function SharedMarkCatalogueSummaryPage() {
     }
   };
 
+  const downloadPdf = async (o: ScheduledReportOutput) => {
+    setConvertingPdfId(o.id);
+    setError(null);
+    try {
+      const { blob, fileName } = await api.downloadSavedReport(o.id);
+      const buffer = await blob.arrayBuffer();
+      const stem = (fileName ?? `${o.title}.xlsx`).replace(/\.xlsx$/i, "");
+      const pdfBlob = await api.convertXlsxToPdf(buffer, stem);
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${stem}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't convert this report to PDF");
+    } finally {
+      setConvertingPdfId(null);
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -98,6 +124,14 @@ export default function SharedMarkCatalogueSummaryPage() {
 
       {error && (
         <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
+      )}
+
+      {unmatchedMarks.length > 0 && (
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-info bg-info-light text-sm text-info">
+          <strong>{unmatchedMarks.length}</strong> mark{unmatchedMarks.length === 1 ? "" : "s"} had no prior catalogue history to
+          confirm Low Grown vs High &amp; Medium Grown, and {unmatchedMarks.length === 1 ? "was" : "were"} defaulted to High &amp;
+          Medium Grown — please verify manually: {unmatchedMarks.join(", ")}.
+        </div>
       )}
 
       <div className="border border-border rounded-[var(--radius-lg)] p-4 mb-5" style={{ background: "var(--surface)" }}>
@@ -189,13 +223,22 @@ export default function SharedMarkCatalogueSummaryPage() {
                 <span className="flex-1 min-w-0 truncate text-text-strong">{o.title}</span>
                 <span className="font-mono text-[12px] text-text-muted shrink-0">{new Date(o.createdAt).toLocaleString()}</span>
                 {o.downloadable ? (
-                  <Tooltip title="Download">
-                    <span>
-                      <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title}`}>
-                        {downloadingId === o.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                  <>
+                    <Tooltip title="Download Excel">
+                      <span>
+                        <IconButton size="small" onClick={() => download(o)} disabled={downloadingId === o.id} aria-label={`Download ${o.title} (Excel)`}>
+                          {downloadingId === o.id ? <CircularProgress size={16} /> : <DownloadOutlinedIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Download PDF">
+                      <span>
+                        <IconButton size="small" onClick={() => downloadPdf(o)} disabled={convertingPdfId === o.id} aria-label={`Download ${o.title} (PDF)`}>
+                          {convertingPdfId === o.id ? <CircularProgress size={16} /> : <PictureAsPdfOutlinedIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </>
                 ) : (
                   <span className="text-[11px] text-text-muted italic shrink-0">{o.notes}</span>
                 )}

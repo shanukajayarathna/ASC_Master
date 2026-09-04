@@ -355,9 +355,25 @@
   white-space: nowrap;
   text-align: right;
 }
+/* ASC's own top prices — same "our broker's rows" highlight used elsewhere in this app's
+   reports (green), so a row sold by ASC stands out here the same way it does everywhere
+   else. Colour + bold text alone isn't enough: this page gets printed/photocopied, where a
+   mid-tone text colour on a near-white row can end up barely distinguishable in black & white
+   — a background fill and a left bar both survive that. #FCE68A is the fixed highlighter-
+   yellow hue (not a theme token — this bulletin's paper stays fixed light regardless of app
+   theme, see .page above), but at 50% alpha, NOT solid: a fully opaque full-row fill under the
+   .price column corrupts the exported PDF under html2canvas (exportTopPricePagePdf) — commas
+   render as periods ("2,200.00" → "2.200.00") and the price text visibly drops below the
+   mark/grade baseline. Confirmed empirically this isn't about the colour itself (a solid
+   OPAQUE blue reproduced the exact same corruption) — it's specifically opacity: a fill that
+   doesn't fully occlude what's beneath renders clean at every alpha tested down from 0.95,
+   correct by 0.5. The native window.print() path (real Blink rendering, no html2canvas) has
+   no such bug and would tolerate a solid fill fine, but the colour has to be one value for
+   both export paths to actually match the on-screen preview. print-color-adjust:exact
+   (globals.css's .report-print-area rule) still applies so this survives a print-to-PDF too. */
 .row[data-ours="true"] {
   color: #1f7a4d;
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(252, 230, 138, 0.5);
   border-left: 3px solid #1f7a4d;
   padding-left: var(--tpp-ours-pad-left);
 }
@@ -372,6 +388,7 @@
   }
   .page {
     break-after: page;
+    break-inside: avoid-page;
   }
   .page:last-child {
     break-after: auto;
@@ -380,6 +397,9 @@
     break-inside: avoid;
   }
   .masthead {
+    break-inside: avoid;
+  }
+  .footer {
     break-inside: avoid;
   }
   /* margin:0, not the visual 7mm/8mm this used to have — .page is already a full 297x210mm sheet

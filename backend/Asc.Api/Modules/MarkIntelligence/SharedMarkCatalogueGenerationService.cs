@@ -4,7 +4,7 @@ using Asc.Api.Modules.ScheduledReports;
 namespace Asc.Api.Modules.MarkIntelligence;
 
 /// <summary>
-/// Builds and saves the "Sharing Mark Catalogued Summary" workbook — manual-only, on
+/// Builds and saves the "Sharing Mark Catalogued Summary" workbooks — manual-only, on
 /// demand from the Reports page. Two entry points:
 ///  - GenerateForSaleAsync: from /data/sales, for a sale already ingested there.
 ///  - GenerateFromUploadAsync: from raw per-broker pre-sale catalogue files uploaded
@@ -13,10 +13,12 @@ namespace Asc.Api.Modules.MarkIntelligence;
 ///    this report can't wait on /data/sales — this used to be an AfterSaleClose
 ///    IScheduledReportJob; that trigger could never fire in time for these files, so it
 ///    was dropped in favor of upload-driven generation only).
-/// Both funnel into the same SharedMarkCatalogueWorkbookBuilder/SavedReport output path,
-/// matching every other manual-generate report in this app (e.g.
-/// FactorySaleSummaryReportJob.GenerateForSaleAsync).
+/// Both produce TWO SavedReports per run — one for Low Grown, one for High & Medium
+/// Grown — mirroring the user's original two separate hand-built files rather than one
+/// two-sheet workbook, so the Outputs list and downloads map 1:1 onto them.
 /// </summary>
+public record GenerationResult(List<Guid> SavedReportIds, IReadOnlyList<string> UnmatchedMarks);
+
 public class SharedMarkCatalogueGenerationService(
     SharedMarkCatalogueService aggregator,
     IGeneratedReportFileStore fileStore,
@@ -24,34 +26,49 @@ public class SharedMarkCatalogueGenerationService(
 {
     public const string ReportType = "shared-mark-catalogue-summary";
 
-    public Task<Guid> GenerateForSaleAsync(int year, int saleNo, CancellationToken ct) =>
-        SaveAsync(() => aggregator.AggregateAsync(year, saleNo, ct), "Generated from /data/sales", ct);
+    public Task<GenerationResult> GenerateForSaleAsync(int year, int saleNo, CancellationToken ct) =>
+        SaveBothAsync(() => aggregator.AggregateAsync(year, saleNo, ct), "Generated from /data/sales", ct);
 
-    public Task<Guid> GenerateFromUploadAsync(int year, int saleNo, DateTime saleDate, IReadOnlyList<Lot> uploadedLots, CancellationToken ct) =>
-        SaveAsync(() => aggregator.AggregateFromUploadAsync(year, saleNo, saleDate, uploadedLots, ct), "Generated from broker file upload", ct);
+    public Task<GenerationResult> GenerateFromUploadAsync(int year, int saleNo, DateTime saleDate, IReadOnlyList<Lot> uploadedLots, CancellationToken ct) =>
+        SaveBothAsync(() => aggregator.AggregateFromUploadAsync(year, saleNo, saleDate, uploadedLots, ct), "Generated from broker file upload", ct);
 
-    private async Task<Guid> SaveAsync(Func<Task<SharedMarkCatalogueResult>> aggregate, string source, CancellationToken ct)
+    private static readonly (string Bucket, string FileSuffix)[] Buckets =
+    [
+        ("Low Grown", "low-grown"),
+        ("High & Medium Grown", "high-medium-grown"),
+    ];
+
+    private async Task<GenerationResult> SaveBothAsync(Func<Task<SharedMarkCatalogueResult>> aggregate, string source, CancellationToken ct)
     {
         var result = await aggregate();
         if (result.Rows.Count == 0) throw new InvalidOperationException("No shared marks found for this sale.");
 
-        var bytes = SharedMarkCatalogueWorkbookBuilder.Build(result);
-
-        using var ms = new MemoryStream(bytes);
-        var fileName = $"shared-mark-catalogue-summary_sale{result.SaleNo}_{result.SaleYear}.xlsx";
-        var storedFileId = await fileStore.SaveAsync(
-            ms, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ct);
-
-        var report = await savedReports.SaveAsync(new SavedReport
+        var ids = new List<Guid>();
+        foreach (var (bucket, fileSuffix) in Buckets)
         {
-            Type = ReportType,
-            Title = $"Sharing Mark Catalogued Summary - Sale {result.SaleNo}/{result.SaleYear} ({result.SaleDate:dd MMM yyyy})",
-            SaleYear = result.SaleYear,
-            SaleNo = result.SaleNo,
-            StoredFileId = storedFileId,
-            Source = source,
-        }, ct);
+            var bucketRows = result.Rows.Where(r => r.ElevationBucket == bucket).ToList();
+            if (bucketRows.Count == 0) continue;
 
-        return report.Id;
+            var bytes = SharedMarkCatalogueWorkbookBuilder.BuildBucket(result, bucket, bucketRows);
+
+            using var ms = new MemoryStream(bytes);
+            var fileName = $"shared-mark-catalogue-summary_{fileSuffix}_sale{result.SaleNo}_{result.SaleYear}.xlsx";
+            var storedFileId = await fileStore.SaveAsync(
+                ms, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ct);
+
+            var report = await savedReports.SaveAsync(new SavedReport
+            {
+                Type = ReportType,
+                Title = $"Sharing Mark Catalogued Summary - {bucket} - Sale {result.SaleNo}/{result.SaleYear} ({result.SaleDate:dd MMM yyyy})",
+                SaleYear = result.SaleYear,
+                SaleNo = result.SaleNo,
+                StoredFileId = storedFileId,
+                Source = source,
+            }, ct);
+
+            ids.Add(report.Id);
+        }
+
+        return new GenerationResult(ids, result.UnmatchedMarks);
     }
 }

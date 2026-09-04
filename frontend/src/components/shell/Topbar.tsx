@@ -24,7 +24,7 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 function timeAgo(iso: string): string {
   const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -225,8 +225,24 @@ interface TopbarProps {
 export default function Topbar({ onSearchClick }: TopbarProps) {
   const { mode } = useThemeMode();
   const { user } = useAuth();
-  const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
+  const { catalogues, activeCatalogueId, selectCatalogue, refreshList } = useCatalogue();
   const isAdmin = user?.roles.includes("Admin") ?? false;
+
+  const activeCatalogue = catalogues.find((c) => c.id === activeCatalogueId) ?? null;
+  // Every year that actually has a sale on file, newest first — drives the year step of the
+  // picker below. Independent of which sale is active so browsing a different year never
+  // needs a sale selected first.
+  const years = useMemo(
+    () => Array.from(new Set(catalogues.map((c) => c.year))).sort((a, b) => b - a),
+    [catalogues]
+  );
+  // The year currently being browsed in the picker. Defaults to the active sale's year (or
+  // the most recent year on file); overridden while the user is browsing a year that doesn't
+  // match the active sale yet, and reset once they pick a sale so it goes back to following
+  // the active sale automatically.
+  const [browsingYear, setBrowsingYear] = useState<number | null>(null);
+  const pickerYear = browsingYear ?? activeCatalogue?.year ?? years[0] ?? null;
+  const salesForYear = catalogues.filter((c) => c.year === pickerYear);
 
   return (
     <header
@@ -260,27 +276,58 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
         <kbd className="font-mono text-[10.5px] px-1.5 py-0.5 rounded border border-border shrink-0 hidden md:inline">Ctrl + K</kbd>
       </button>
 
-      {/* On phones the picker drops to its own full-width row (order-last + wrap) rather
-          than disappearing — switching the active sale must stay possible on every device. */}
-      <div className="order-last w-full sm:order-none sm:w-[180px] lg:w-[220px] min-w-0">
+      {/* Two-step sale picker — year first, then the sale on file for that year — rather than
+          one long flat list of every sale ever imported. On phones it drops to its own
+          full-width row (order-last + wrap) rather than disappearing — switching the active
+          sale must stay possible on every device. */}
+      <div className="order-last w-full sm:order-none flex gap-1.5 sm:w-[220px] lg:w-[280px] min-w-0">
         <Select
           size="small"
-          value={activeCatalogueId ?? ""}
-          onChange={(e) => selectCatalogue(e.target.value || null)}
+          value={pickerYear ?? ""}
+          onChange={(e) => setBrowsingYear(Number(e.target.value))}
+          // Sales are file-backed and rescanned on every listing (see SaleFileStore) — a
+          // week's file dropped into data/sales while this tab was already open otherwise
+          // wouldn't show up until a full page reload. Rescanning right as the user opens
+          // the picker (rather than polling) picks it up exactly when it'd matter.
+          onOpen={() => refreshList()}
           displayEmpty
-          sx={{ width: "100%", fontSize: 13 }}
+          disabled={years.length === 0}
+          sx={{ width: 92, fontSize: 13, flexShrink: 0 }}
+        >
+          {years.length === 0 && (
+            <MenuItem value="" disabled>
+              No years
+            </MenuItem>
+          )}
+          {years.map((y) => (
+            <MenuItem key={y} value={y}>
+              {y}
+            </MenuItem>
+          ))}
+        </Select>
+        <Select
+          size="small"
+          value={activeCatalogue?.year === pickerYear ? activeCatalogueId ?? "" : ""}
+          onChange={(e) => {
+            selectCatalogue(e.target.value || null);
+            setBrowsingYear(null);
+          }}
+          onOpen={() => refreshList()}
+          displayEmpty
+          disabled={salesForYear.length === 0}
+          sx={{ width: "100%", fontSize: 13, minWidth: 0 }}
           renderValue={(v) => {
-            if (!v) return <span className="text-text-muted">No catalogue</span>;
+            if (!v) return <span className="text-text-muted">Choose a sale</span>;
             const c = catalogues.find((x) => x.id === v);
             return c ? `${c.sourceName} · ${c.rowCount.toLocaleString()} lots` : "…";
           }}
         >
-          {catalogues.length === 0 && (
+          {salesForYear.length === 0 && (
             <MenuItem value="" disabled>
-              No catalogues imported yet
+              No sales for this year
             </MenuItem>
           )}
-          {catalogues.map((c) => (
+          {salesForYear.map((c) => (
             <MenuItem key={c.id} value={c.id}>
               {c.sourceName} · {c.rowCount.toLocaleString()} lots
             </MenuItem>

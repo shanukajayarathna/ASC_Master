@@ -28,10 +28,11 @@ public class BrokerCatalogueUploadParserTests
     public void ParseAeb_ReadsRealSample36Row()
     {
         var rows = Blank(Row("EB", "2026", "36A", "1", "MF0034", "STRATHSPEY", "0254R", "BOP", "20", "50", "1000", "1000"));
-        var lots = BrokerCatalogueUploadParser.ParseAeb(rows);
+        var lots = BrokerCatalogueUploadParser.ParseAeb(rows, 36);
 
         var lot = Assert.Single(lots);
         Assert.Equal(BrokerCode.Aeb, lot.Broker);
+        Assert.Equal("36", lot.SaleNo); // stamped from the caller's target sale, not read off the file
         Assert.Equal("MF34", lot.Factory);
         Assert.Equal("STRATHSPEY", lot.SellingMark);
         Assert.Equal(1000m, lot.NetWeight);
@@ -42,7 +43,7 @@ public class BrokerCatalogueUploadParserTests
     public void ParseBc_ReadsRealSample36Row()
     {
         var rows = Blank(Row("BC", "2026", "037", "0001", "MF0864A", "AULTMORE CTC", "", "0252", "PF1", "10", "52", "520", "520", "EX", " Ex-estate Basis"));
-        var lots = BrokerCatalogueUploadParser.ParseBc(rows);
+        var lots = BrokerCatalogueUploadParser.ParseBc(rows, 36);
 
         var lot = Assert.Single(lots);
         Assert.Equal(BrokerCode.Bc, lot.Broker);
@@ -56,7 +57,7 @@ public class BrokerCatalogueUploadParserTests
     public void ParseJk_ReadsRealSample36Row_WithNoBrokerColumnInFile()
     {
         var rows = Blank(Row("0001", "MF0548", "KENILWORTH", "", "0353", "RA", "BOPSp", "10", "42", "B", "0", "420"));
-        var lots = BrokerCatalogueUploadParser.ParseJk(rows);
+        var lots = BrokerCatalogueUploadParser.ParseJk(rows, 36);
 
         var lot = Assert.Single(lots);
         Assert.Equal(BrokerCode.Jk, lot.Broker); // broker comes from the caller's tag, not the file
@@ -75,7 +76,7 @@ public class BrokerCatalogueUploadParserTests
             Row("EX-ESTATE"),
             Row("0001", "MF1257", "UPLANDS", "0346", "BOPF", "20", "B", "55", "SPBS", "0", "1100", "EX-ESTATE"),
             Row("0002", "MF0343", "LABOOKELLIE", "0364R", "BOP", "10", "B", "52", "MWPS", "0", "520", "EX-ESTATE"));
-        var lots = BrokerCatalogueUploadParser.ParseLcbl(rows);
+        var lots = BrokerCatalogueUploadParser.ParseLcbl(rows, 36);
 
         Assert.Equal(2, lots.Count); // the "EX-ESTATE" divider row must not become a lot
         Assert.Equal("MF1257", lots[0].Factory);
@@ -88,7 +89,7 @@ public class BrokerCatalogueUploadParserTests
     public void ParseMb_ReadsRealSample36Row_AndMatchesLcblFactoryAfterNormalization()
     {
         var rows = Blank(Row("MB", "36", "16/09/2026", "1", "MF01257", "UPLANDS", "347", "BOPF", "20", "B", "55", "1100", "EX-ESTATE"));
-        var lots = BrokerCatalogueUploadParser.ParseMb(rows);
+        var lots = BrokerCatalogueUploadParser.ParseMb(rows, 36);
 
         var lot = Assert.Single(lots);
         Assert.Equal(BrokerCode.Mb, lot.Broker); // "MPB", matching MslModels.ExcelCodeToMslCode, not the file's own "MB"
@@ -100,7 +101,7 @@ public class BrokerCatalogueUploadParserTests
     public void ParseFw_ReadsRealSample36Row()
     {
         var rows = Blank(Row("FW", "36", "2026-09-16", "1", "MF0007", "WINDSORFOREST", "179", "BOPF", "20", "B", "58", "1160", "1", "EX-ESTATE", "10"));
-        var lots = BrokerCatalogueUploadParser.ParseFw(rows);
+        var lots = BrokerCatalogueUploadParser.ParseFw(rows, 36);
 
         var lot = Assert.Single(lots);
         Assert.Equal(BrokerCode.Fw, lot.Broker);
@@ -118,7 +119,7 @@ public class BrokerCatalogueUploadParserTests
             Row("Broker", "SaleNumber", "SaleYear", "LotNo", "Mark", "SellingMark", "InvoiceNo", "Grade", "NoOfChests", "WeightPerChest", "NettWeight", "GrossWeight", "Category", "StoreDescription"),
             Row("AS", "036", "2026", "0001", "MF0294", "ROBGILL", "0211R", "BOP", "10", "50", "500", "500", "EX-ESTATE", "EX ESTATE"),
         };
-        var lots = BrokerCatalogueUploadParser.ParseAsc(new CatalogueImportService(), rows);
+        var lots = BrokerCatalogueUploadParser.ParseAsc(new CatalogueImportService(), rows, 36);
 
         var lot = Assert.Single(lots);
         Assert.Equal(BrokerCode.Asc, lot.Broker);
@@ -136,7 +137,7 @@ public class BrokerCatalogueUploadParserTests
         var rows = Blank(
             Row("CT036", "16/09/2026", "1", "MF0835", "HARANGALLA", "1191", "BOPF", "10", "B", "58", "RTS", "0", "580", "Warehouse", "EX"),
             Row("CT036", "16/09/2026", "2", "MF0835", "HARANGALLA", "1192", "BOPF", "10", "B", "58", "RTS", "0", "497", "Warehouse", "EX"));
-        var lots = BrokerCatalogueUploadParser.ParseCtb(rows);
+        var lots = BrokerCatalogueUploadParser.ParseCtb(rows, 36);
 
         Assert.Equal(2, lots.Count);
         Assert.Equal(BrokerCode.Ctb, lots[0].Broker);

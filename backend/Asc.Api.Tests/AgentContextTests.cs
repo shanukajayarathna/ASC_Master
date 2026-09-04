@@ -13,6 +13,9 @@ public class AgentContextTests
         public IReadOnlyList<Lot>? GetLots(Guid catalogueId) => null;
         public (Lot Lot, Catalogue Catalogue)? FindLot(Guid lotId) => null;
         public IReadOnlyList<ValuedLotSlim> GetValuedSlim(Guid catalogueId) => [];
+        public IReadOnlyList<(int SaleNo, DateTime Date)> SalesInMonth(int year, int month) => [];
+        public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex() =>
+            new Dictionary<string, (string Name, string Elevation)>();
     }
 
     private static readonly Guid SaleId = Guid.NewGuid();

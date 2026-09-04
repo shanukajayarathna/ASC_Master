@@ -207,4 +207,35 @@ public class SaleFileStoreTests
         Assert.NotNull(folderedHit);
         Assert.Equal("BrokerB", folderedHit!.Value.Lot.Broker);
     }
+
+    // ---- SalesInMonth (Sharing Mark Catalogued Summary's weekly-column calendar) ---------
+
+    [Fact]
+    public void SalesInMonth_ReturnsEveryWeeklySaleInThatMonth_2026()
+    {
+        // 2026 has no explicit YearSaleDates table — dates come from the YearAnchors
+        // weekly-offset formula (anchor: sale 28 = 2026-07-21 09:30 UTC), which lands sale
+        // 36 on 15 Sep (not the real calendar date of 16 Sep the actual sale file uses —
+        // the anchor formula is a rough estimate for years with no explicit table yet, per
+        // its own doc comment). September 2026 should still resolve to sales 34-38.
+        using var t = new TempStore();
+
+        var sales = t.Store.SalesInMonth(2026, 9);
+
+        Assert.Equal([34, 35, 36, 37, 38], sales.Select(s => s.SaleNo).ToArray());
+        Assert.All(sales, s => Assert.Equal(9, s.Date.Month));
+        Assert.Equal(new DateTime(2026, 9, 15, 9, 30, 0, DateTimeKind.Utc), sales.Single(s => s.SaleNo == 36).Date);
+    }
+
+    [Fact]
+    public void SalesInMonth_ReturnsEveryWeeklySaleInThatMonth_2025FromExplicitTable()
+    {
+        // 2025 uses the explicit YearSaleDates table instead of an anchor formula.
+        using var t = new TempStore();
+
+        var sales = t.Store.SalesInMonth(2025, 1);
+
+        Assert.Equal([1, 2, 3, 4], sales.Select(s => s.SaleNo).ToArray());
+        Assert.Equal(new DateTime(2025, 1, 8), sales.Single(s => s.SaleNo == 1).Date);
+    }
 }

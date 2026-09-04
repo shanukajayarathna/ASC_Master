@@ -13,6 +13,7 @@ import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import SummarizeOutlinedIcon from "@mui/icons-material/SummarizeOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
+import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
 
 // Sub-destinations of Reports, not top-level modules — a local tile array rather than
 // NAV_ITEMS/nav.ts (which is the global launchpad). No `image` on the not-yet-built tiles:
@@ -90,6 +91,15 @@ const REPORT_TILES: NavItem[] = [
     description: "Price & Classification, Sale x Broker — any catalogue category, broker distribution, sold/outsold/unsold, and Select Best/Best/Below Best/Poor price tiers.",
     icon: DonutLargeOutlinedIcon,
     gradient: 6,
+  },
+  {
+    href: "/reports/market-bulletin",
+    label: "Weekly Market Bulletin",
+    section: "Reports",
+    status: "live",
+    description: "Select Best/Best/Below Best/Poor price-tier ranges per grade, this sale vs last, replicating the printed market bulletin.",
+    icon: NewspaperOutlinedIcon,
+    gradient: 3,
   },
   {
     href: "/reports/shared-mark-catalogue-summary",

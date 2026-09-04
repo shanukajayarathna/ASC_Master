@@ -1,0 +1,321 @@
+/* Weekly Market Bulletin — printed/PDF-exported bulletin, deliberately reusing the exact color
+   tokens, typography, masthead layout and html2canvas-safety rules already proven out in
+   TopPriceBulletin's own CSS (flat colors not gradients, baseline not center alignment, no
+   overflow:hidden on text boxes, break-inside:avoid on cards) rather than re-discovering the
+   same failure modes here. Content shape differs (small price-range tables, not ranked-lot
+   rows) and total content size is fixed by construction (see MarketBulletinBulletin.tsx's own
+   comment), so this is its own module with one hand-tuned layout rather than a reusable density
+   system. */
+
+.bulletin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  overflow-x: auto;
+  padding: 4px;
+}
+
+.page {
+  width: 297mm;
+  min-height: 210mm;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas: "top" "body" "foot";
+  gap: 6px;
+  padding: 10px 14px;
+  background: #fcfbf8;
+  color: #124734;
+  font-family: var(--font-plex-sans), -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+/* --- masthead: identical layout/colors to TopPriceBulletin.module.css's own ------------------- */
+.masthead {
+  grid-area: top;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  gap: 20px;
+  background-color: #2f7d52;
+  color: #fff;
+  padding: 6px 16px;
+  border-radius: 6px;
+}
+.mastheadMeta {
+  padding-top: 3px;
+  font-size: 9px;
+  line-height: 1.2;
+  margin: 0;
+}
+.mastheadMeta dt {
+  display: inline;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.8);
+  margin-right: 5px;
+}
+.mastheadMeta dd {
+  display: inline;
+  margin: 0;
+  font-weight: 700;
+}
+.mastheadTitle {
+  font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  letter-spacing: 0.005em;
+}
+.mastheadSub {
+  display: block;
+  font-weight: 600;
+  font-size: 9px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #d9b44a;
+  margin-top: 1px;
+  text-align: center;
+}
+.mastheadRight {
+  text-align: right;
+  font-size: 9px;
+  line-height: 1.3;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 3px;
+}
+.mastheadRightSub {
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.75);
+  text-transform: none;
+  margin-top: 1px;
+}
+
+/* --- footer: decorative closing line, same as TopPriceBulletin's own -------------------------- */
+.footer {
+  grid-area: foot;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 0;
+  padding-top: 4px;
+  border-top: 1px solid #d3d8de;
+}
+.footerRule {
+  flex: 1 1 auto;
+  height: 1px;
+  min-width: 20px;
+  background-color: #b68c2a;
+  opacity: 0.55;
+}
+.footerCaption {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #b68c2a;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* --- body: sections stacked top to bottom, filling the page's leftover height ------------------ */
+.sections {
+  grid-area: body;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.section {
+  border-radius: 3px;
+  border: 1px solid #dedacb;
+  background: #fcfbf8;
+  break-inside: avoid;
+}
+.sectionHead {
+  padding: 2.5px 10px 3px;
+  background: #2f7d52;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+.sectionEmpty {
+  padding: 8px 10px;
+  font-size: 9.5px;
+  color: #8b929e;
+  font-style: italic;
+}
+
+/* One grade-family table per grid cell — column count is set inline per section (see
+   SECTION_COLUMNS in the .tsx) so every section's own row of cards fills its full width edge to
+   edge, rather than auto-fill's uneven trailing gap on a small section. */
+.tableGrid {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+}
+
+.table {
+  border: 1px solid #e4e0d2;
+  border-radius: 2px;
+  background: #fff;
+  break-inside: avoid;
+}
+/* Fixed height + explicit shared line-height on both children, not align-items:baseline — same
+   cross-font (Plex Mono grade label vs Plex Sans unit text) html2canvas baseline-misalignment
+   bug as .row above; see that rule's comment for the full explanation. */
+.tableHead {
+  display: flex;
+  justify-content: space-between;
+  height: 13px;
+  padding: 0 6px;
+  background: #eef0e6;
+  border-bottom: 1px solid #dedacb;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+.tableHead span:first-child {
+  font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8.5px;
+  line-height: 13px;
+  font-weight: 700;
+  color: #124734;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.tableHeadUnit {
+  font-size: 7px;
+  line-height: 13px;
+  font-weight: 500;
+  color: #8b929e;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.colHead {
+  display: flex;
+  padding: 1px 6px;
+  font-size: 6.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a3a696;
+}
+.colHead span:first-child {
+  flex: 1;
+}
+.colHead span {
+  flex: 0 0 60px;
+  text-align: right;
+}
+.colHeadSpacer {
+  flex: 0 0 11px !important;
+}
+
+/* The actual overlap bug (found by measuring live: a rowVal's real text width vs. its box) was
+   plain CSS overflow, present on-screen too, not an html2canvas quirk — rowVal's flex-basis was
+   shrunk to 52px during the fit-to-2-pages pass without re-checking it against the widest real
+   value string ("1,020–1,380" measures ~56px at this font/weight); white-space:nowrap with no
+   overflow:hidden meant it spilled left into the delta/label columns instead of wrapping or
+   clipping, which read as "rows overlapping" once captured. Fixed by widening rowVal/colHead to
+   60px instead. Fixed height + an absolute (px) line-height shared by every child span (kept
+   here as a genuine belt-and-suspenders measure, not the fix for this particular bug) avoids
+   flex align-items:baseline's separate, real risk of cross-font metric mismatches under
+   html2canvas — see TopPriceBulletin.module.css's own row/mark comments for that class of bug. */
+.row {
+  display: flex;
+  height: 12px;
+  padding: 0 6px;
+  font-size: 8.5px;
+  line-height: 12px;
+  background: #fff;
+}
+.row[data-zebra="true"] {
+  background: #f7f5ee;
+}
+/* No overflow:hidden/text-overflow:ellipsis here — same html2canvas corruption already fought
+   and fixed in TopPriceBulletin.module.css's .mark (confirmed there: overflow:hidden on a flex
+   item makes html2canvas slice or blur the text inside it in the exported PDF, even when the
+   on-screen preview renders it perfectly). Every row label here fits its column at the widths
+   chosen in MarketBulletinBulletin.tsx's SECTION_COLUMNS without truncation in practice, so
+   there's nothing to gain from it and a real corruption risk to lose. */
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  line-height: 12px;
+  white-space: nowrap;
+  color: #3a4a44;
+}
+.rowVal {
+  flex: 0 0 60px;
+  min-width: 0;
+  line-height: 12px;
+  text-align: right;
+  font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rowValThis {
+  font-weight: 700;
+  color: #124734;
+}
+.rowValLast {
+  color: #97998c;
+}
+.delta {
+  flex: 0 0 11px;
+  line-height: 12px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 7.5px;
+}
+.deltaUp {
+  color: #1f7a4d;
+}
+.deltaDown {
+  color: #a24b3a;
+}
+
+@media print {
+  .bulletin {
+    gap: 0;
+  }
+  .page {
+    break-after: page;
+    break-inside: avoid-page;
+  }
+  .page:last-child {
+    break-after: auto;
+  }
+  .section {
+    break-inside: avoid;
+  }
+  .table {
+    break-inside: avoid;
+  }
+  .masthead {
+    break-inside: avoid;
+  }
+  .footer {
+    break-inside: avoid;
+  }
+  @page {
+    size: 297mm 210mm;
+    margin: 0;
+  }
+}
