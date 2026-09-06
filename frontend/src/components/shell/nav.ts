@@ -41,6 +41,13 @@ export interface NavItem {
    *  checked at each consumption site (dashboard tile grid, CommandPalette), same pattern as
    *  Settings' admin-gated sections. */
   adminOnly?: boolean;
+  /** Hidden from the dashboard tile grid and the admin dashboard's "day-to-day tools" row
+   *  once its functionality has moved somewhere else (e.g. inside another tile's own
+   *  content, or the Admin Panel) — the route/API/page itself is untouched and stays fully
+   *  reachable directly, via the command palette (unaffected by this flag), and via the
+   *  site-wide footer nav (also unaffected — the footer deliberately lists every section
+   *  regardless of grid visibility, so nothing relocated becomes unreachable). */
+  hiddenFromGrid?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -95,7 +102,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/analysis",
-    label: "Analysis",
+    label: "Analytical Reports (PowerBI 2.0)",
     section: "Intelligence",
     status: "live",
     description: "Distribution, breakdowns and data-quality checks for the active sale.",
@@ -182,6 +189,9 @@ export const NAV_ITEMS: NavItem[] = [
     icon: FilterAltOutlinedIcon,
     gradient: 7,
     image: "https://images.unsplash.com/photo-1544523830-2bef1d330b7d",
+    // Off the primary dashboard grid per the IA consolidation — still fully reachable
+    // directly, from the command palette, and from the site-wide footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/data-import",
@@ -192,6 +202,10 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CloudUploadOutlinedIcon,
     gradient: 2,
     image: "https://images.unsplash.com/photo-1667984390538-3dea7a3fe33d",
+    // Off the primary dashboard grid — relocated to a secondary entry point inside the
+    // Admin Panel's "Data Import" section (already admin-gated functionality). Still
+    // fully reachable directly, from the command palette, and from the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/exports",
@@ -202,6 +216,9 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CloudDownloadOutlinedIcon,
     gradient: 5,
     image: "https://images.unsplash.com/photo-1783115259399-3a5a3e0e4592",
+    // Off the primary dashboard grid per the IA consolidation — still fully reachable
+    // directly, from the command palette, and from the site-wide footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/settings",

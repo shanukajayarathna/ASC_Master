@@ -309,7 +309,7 @@ function UserDashboard() {
   // rest of the grid for anyone who hasn't pinned anything. adminOnly tiles never show
   // here — DashboardPage routes any Admin to AdminDashboard before this component mounts.
   const moduleTiles = useMemo(() => {
-    const visible = NAV_ITEMS.filter((item) => !item.adminOnly);
+    const visible = NAV_ITEMS.filter((item) => !item.adminOnly && !item.hiddenFromGrid);
     const rest = visible.filter((item) => item.href !== "/dashboard" && !pinnedHrefs.includes(item.href));
     const pinned = pinnedHrefs
       .map((href) => visible.find((item) => item.href === href))
@@ -669,15 +669,6 @@ function UserDashboard() {
         <RecentActivityList entries={activity} />
         <AiInsightsPanel insights={insights} loading={insightsLoading} />
         <AttentionList entries={attention} loading={attentionLoading} />
-      </div>
-
-      <div className="text-center pt-4 border-t border-border">
-        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          ASC — Tea Auction Valuation &amp; Business Intelligence Platform
-        </p>
-        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          © {new Date().getFullYear()} Asia Siyaka Commodities PLC. All rights reserved.
-        </p>
       </div>
     </div>
   );

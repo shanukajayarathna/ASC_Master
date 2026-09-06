@@ -67,6 +67,7 @@ import Select from "@mui/material/Select";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 /** The Admin Panel's registry of its own sections — one source of truth for the quick-jump
@@ -74,6 +75,7 @@ import { useEffect, useRef, useState } from "react";
  *  later means one new entry here, not two places kept in sync by hand. */
 const ADMIN_SECTIONS = [
   { id: "sales", label: "Sales Data", icon: <ReceiptLongOutlinedIcon fontSize="small" />, accent: 3 as const },
+  { id: "dataimport", label: "Data Import", icon: <CloudUploadOutlinedIcon fontSize="small" />, accent: 7 as const },
   { id: "msl", label: "MSL Archive", icon: <Inventory2OutlinedIcon fontSize="small" />, accent: 2 as const },
   { id: "newssources", label: "News Sources", icon: <NewspaperOutlinedIcon fontSize="small" />, accent: 1 as const },
   { id: "landing", label: "Landing Page", icon: <LanguageOutlinedIcon fontSize="small" />, accent: 6 as const },
@@ -292,6 +294,31 @@ function SalesDataSection() {
           </table>
         </div>
       )}
+    </AdminSectionCard>
+  );
+}
+
+/** Secondary entry point for the standalone Data Import page (nav.ts's "Data Import" tile
+ *  is off the primary dashboard grid — see its own comment) — this app is admin-provisioned
+ *  and its real upload paths already live in the Sales Data / MSL Archive sections above and
+ *  in Catalogue Manager itself, so this is a link, not a re-embedded upload form. */
+function DataImportSection() {
+  return (
+    <AdminSectionCard
+      id="dataimport"
+      icon={<CloudUploadOutlinedIcon fontSize="small" />}
+      accent={7}
+      title="Data Import"
+      subtitle="Bring lot catalogues and actual post-sale prices into ASC."
+    >
+      <p className="text-[13px] text-text-muted mb-4 leading-relaxed">
+        Sale catalogue files and the MSL archive are uploaded from the sections above. Single-file
+        catalogue import (with automatic column/type detection) happens in Catalogue Manager, and
+        actual post-sale prices are imported from Market Intelligence.
+      </p>
+      <Button component={Link} href="/data-import" variant="outlined" size="small" startIcon={<CloudUploadOutlinedIcon fontSize="small" />}>
+        Open Data Import
+      </Button>
     </AdminSectionCard>
   );
 }
@@ -3134,6 +3161,7 @@ function AuditLogSection() {
 /** One entry per ADMIN_SECTIONS id — the tab strip renders exactly one of these at a time. */
 const SECTION_COMPONENTS: Record<string, React.ComponentType> = {
   sales: SalesDataSection,
+  dataimport: DataImportSection,
   msl: MslDataSection,
   newssources: NewsSourcesSection,
   landing: LandingPageSection,

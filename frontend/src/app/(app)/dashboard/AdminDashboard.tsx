@@ -179,7 +179,7 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
 
   // The regular tools every signed-in user gets — kept reachable but visually secondary,
   // since an admin still does real day-to-day work here (per user request: not oversight-only).
-  const secondaryTools = NAV_ITEMS.filter((item) => !item.adminOnly && item.href !== "/dashboard");
+  const secondaryTools = NAV_ITEMS.filter((item) => !item.adminOnly && item.href !== "/dashboard" && !item.hiddenFromGrid);
 
   return (
     <div>
@@ -270,15 +270,6 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
             );
           })}
         </div>
-      </div>
-
-      <div className="text-center pt-4 border-t border-border">
-        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          ASC — Tea Auction Valuation &amp; Business Intelligence Platform
-        </p>
-        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          © {new Date().getFullYear()} Asia Siyaka Commodities PLC. All rights reserved.
-        </p>
       </div>
     </div>
   );

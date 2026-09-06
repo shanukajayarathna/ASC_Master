@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import CommandPalette from "./CommandPalette";
+import Footer from "./Footer";
 import Topbar from "./Topbar";
 
 /** Sidebar-free shell: a single top bar (brand, search/command-palette, catalogue picker,
@@ -27,6 +28,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {/* Side/bottom paddings live in .app-main-safe (globals.css) so they can fold in the
           display-cutout safe-area insets; only the top padding stays a plain utility. */}
       <main className="app-main-safe flex-1 pt-5 md:pt-8 overflow-x-hidden">{children}</main>
+      <Footer />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
