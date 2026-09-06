@@ -4,18 +4,24 @@ using Asc.Api.Services;
 
 namespace Asc.Api.Modules.MarkIntelligence;
 
-/// <summary>One Selling Mark's catalogued quantity per sale this month (keyed by sale
-/// number, per broker), plus month-to-date/year-to-date running totals. Code is the row's
-/// Trade Mark/Factory code (whichever code was first seen for this mark, pre-reconciliation
-/// — see BuildRows) — the report's own row order sorts by this, not by EstateName, per
-/// explicit instruction.</summary>
+/// <summary>One Factory's catalogued quantity per sale this month (every non-CTC sub-mark
+/// under the same factory code merged into this row — see BuildRows/GroupKey — with any CTC
+/// sub-mark broken out into its own separate row instead, see ExpandToRowCandidates), keyed
+/// by sale number per broker, plus month-to-date/year-to-date running totals. Code is the
+/// row's Factory code (whichever code was first seen for this factory, pre-reconciliation —
+/// see BuildRows) — the report's own row order sorts by this, not by EstateName, per explicit
+/// instruction. ProductionLabel is non-null ("Orthodox" or "Ctc") only for a genuinely
+/// dual-production factory's two rows (see ExpandToRowCandidates) — null for the
+/// overwhelming majority of rows, which stand entirely on their own.</summary>
 public record SharedMarkCatalogueRow(
     string EstateName,
     string Code,
     string ElevationBucket, // "Low Grown" or "High & Medium Grown"
     IReadOnlyDictionary<string, IReadOnlyDictionary<int, decimal>> SaleQtyByBrokerAndSaleNo,
     IReadOnlyDictionary<string, decimal> MonthQtyByBroker,
-    IReadOnlyDictionary<string, decimal> YearQtyByBroker);
+    IReadOnlyDictionary<string, decimal> YearQtyByBroker,
+    string? ProductionLabel = null,
+    string? FactoryDisplayName = null);
 
 /// <summary>MonthCalendar is every sale number in the display month, ascending, including
 /// ones with no data yet (future weeks) — the report lays out one column per week of the
@@ -44,26 +50,40 @@ public record SharedMarkCatalogueResult(
 /// all-broker file (ASC + every other Colombo broker in one sheet) and carries the "RP"
 /// (reprint) column the archive doesn't have at all.
 ///
-/// Grouping is by the full Trade Mark/Factory code (Lot.Mark) as each broker's own file
-/// prints it — trailing letter and all — not by the free-text Selling Mark, and not by a
-/// letter-stripped/normalized code either. This was tried both ways against real data;
-/// here's the full history, since it keeps coming back:
-///  - Full code, never merge across codes (the original design). Fixes free-text spelling
-///    drift (confirmed live: "MISA"/"MISA TEA" and "NEW PANILKANDA"/"NEW PANILKANDE" share
-///    one exact code) without ever combining unrelated estates.
-///  - Base factory number, trailing letter stripped, merge every sub-mark of the same
-///    number into one row — tried per explicit instruction (confirmed live: "WATADENIYA" is
-///    BF0020, "RANSIRINI" is BF0020A, genuinely the same factory). Reverted after checking
-///    against a real hand-built reference for Sale 37/2026 turned up three *different*
-///    correct behaviors for three different same-base-number families in the same
-///    dataset — not one rule: Watadeniya+Ransirini fully merge with no label; Danawala +
-///    Danawala Ctc render as two separately labeled Orthodox/CTC sub-blocks, never summed;
-///    Liverpool renders alone and Liverpool Super (a plain sibling with no CTC involved at
-///    all) doesn't appear anywhere, merged or separate. No signal in the raw data — not the
-///    code, not CTC-in-the-name, not the grade — predicts which of the three applies to a
-///    given factory; it takes knowing the specific estates. Per explicit instruction this
-///    is shelved for now rather than guessed at, so back to the original design: full code,
-///    never merged, until there's a reliable per-factory mapping to drive it.
+/// Grouping is by Factory (Lot.Factory) — the producing factory's own short code, e.g.
+/// "BF0020" — not by the Trade Mark/Mark code, which can carry a distinguishing trailing
+/// letter per sub-mark under that factory (e.g. "BF0020" vs "BF0020A"). Per explicit
+/// instruction, confirmed against a real hand-built reference for Sale 37/2026: every
+/// non-CTC sub-mark under one factory code rolls into a single "Orthodox" row — this
+/// includes genuinely different-NAMED products that just happen to share a factory
+/// (confirmed live: Boscombe/MF0594 and the differently-named "Kinkini"/MF0594A share one
+/// Factory — the reference's own "Boscombe" line's ASC figures match our Boscombe+Kinkini
+/// combined total exactly, week by week and Year-to-date) — while any CTC-worded sub-mark
+/// under that same factory breaks out into its own separate "CTC" row instead of being
+/// folded in (see ExpandToRowCandidates). This was tried three ways against real data
+/// before landing here: full code, never merged (missed the Boscombe/Kinkini-style silent
+/// merges the reference actually does); merge only literal name-matched Orthodox/CTC pairs
+/// (too narrow — the reference's Brombil "Orthodox" total turned out to be two of our own
+/// differently-coded rows summed together, not a name match); factory-level merge with the
+/// CTC portion split out (current) — the one that reproduces the reference's own weekly and
+/// Year-to-date figures exactly.
+///  - EstateName on the row is the factory's own Factory Name where the data carries one
+///    (again a real, separate /data/sales column — confirmed live: "WATADENIYA TEA FACORY",
+///    "DANAWALA", "LIVERPOOL TEA FACTORY" — first-seen-wins, upgrading from a
+///    lower-confidence fallback the moment a real Factory Name is seen, never downgrading
+///    back) UNLESS the lot itself is CTC-flavored (IsCtcSubMark), in which case Selling Mark
+///    always wins instead — a CTC code's Factory Name is frequently identical to its
+///    Orthodox sibling's (confirmed live: Danawala's Factory Name is the plain "DANAWALA"
+///    for both its Orthodox and CTC lots) and would otherwise erase the one thing — the
+///    Selling Mark's own "CTC" wording — that both labels the CTC row and lets
+///    ExpandToRowCandidates recognize a lot as CTC in the first place. Falls back to
+///    first-seen Selling Mark text when no lot for that factory carries a Factory Name at
+///    all — the raw pre-sale broker upload files (BrokerCatalogueUploadParser) carry no
+///    Factory Name column, only a Selling Mark, so an upload-only report (nothing yet in
+///    /data/sales for that factory) still gets a usable label.
+///  - Free-text spelling drift within one factory (confirmed live: "MISA"/"MISA TEA" and
+///    "NEW PANILKANDA"/"NEW PANILKANDE" share one code) unifies the same way it always has —
+///    grouping by a real code rather than free text.
 ///  - A code with no /data/sales history anywhere on file (a mark that's never sold under
 ///    it before) falls back to whatever Selling Mark text its own lots carry, since there's
 ///    nothing to canonicalize against — see AggregateFromUploadAsync's own doc comment.
@@ -208,17 +228,39 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         // else uses) even though the row's bucket is already confirmed via the other
         // brokers' matching codes — a false alarm about something that isn't actually in
         // doubt.
+        // Checked against BOTH possible name sources (Factory Name and Selling Mark), since
+        // BuildRows' own EstateName can end up being either one depending on which of a
+        // factory's lots carried a Factory Name — a row displayed under its Factory Name
+        // must still match here even though the elevation-confirming lot itself only ever
+        // carried a Selling Mark (or vice versa).
         var namesWithConfirmedElevation = taggedLots
             .Select(t => t.Lot)
-            .Where(l => !string.IsNullOrWhiteSpace(l.Elevation) && !string.IsNullOrWhiteSpace(l.SellingMark))
-            .Select(l => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(l.SellingMark!.Trim().ToLowerInvariant()))
+            .Where(l => !string.IsNullOrWhiteSpace(l.Elevation))
+            .SelectMany(l => new[] { l.FactoryName, l.SellingMark })
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(n!.Trim().ToLowerInvariant()))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // A dual-production factory's CTC row is labeled off its own Selling Mark (or a
+        // synthesized "{name} - Ctc" — see ExpandToRowCandidates), which can differ from any
+        // one lot's own Factory Name, so the name check above alone would sometimes flag it
+        // here even though its elevation is exactly as confirmed as its Orthodox sibling's
+        // (both come from the very same factory). Falling back to the row's own Factory
+        // code — shared by both split rows and by every lot that fed it, split or not —
+        // catches this without weakening the name check's own job of catching CT's
+        // mismatched-code case.
+        var codesWithConfirmedElevation = taggedLots
+            .Select(t => t.Lot)
+            .Where(l => !string.IsNullOrWhiteSpace(l.Elevation))
+            .Select(GroupKey)
+            .Where(k => k is not null)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
 
         // Only marks that actually made it into the report — one with no ASC+other-broker
         // share this month never renders anywhere, so flagging it would be noise about
         // something the user can't even see.
         var unmatchedMarks = rows
-            .Where(r => !namesWithConfirmedElevation.Contains(r.EstateName))
+            .Where(r => !namesWithConfirmedElevation.Contains(r.EstateName) && !codesWithConfirmedElevation.Contains(r.Code))
             .Select(r => r.EstateName)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -226,12 +268,22 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         return Task.FromResult(new SharedMarkCatalogueResult(year, saleNo, saleDate, monthCalendar, rows, unmatchedMarks));
     }
 
+    /// <summary>Looks up each lot by SubGroupKey, not the plain factory GroupKey — computed
+    /// from the lot's OWN current Selling Mark, which for an as-yet-unresolved uploaded lot
+    /// is still its original raw broker-file text (nothing has touched it yet) — so an
+    /// Orthodox-side uploaded lot only ever gets canonicalized from history's Orthodox-side
+    /// entry, never a dual-production factory's CTC-side one or vice versa. Found live: a
+    /// plain factory-level lookup could hand an Orthodox lot a CTC-flavored historical name
+    /// (or the reverse) purely because whichever sub-mark's history was indexed first for
+    /// that factory happened to win — silently turning IsCtcSubMark's later read of the
+    /// (now-overwritten) Selling Mark wrong for that lot afterwards, corrupting BuildRows'
+    /// own Orthodox/CTC split for a factory that never actually had that problem.</summary>
     private static void ApplyMarkInfo(IReadOnlyList<Lot> lots, Dictionary<string, (string Name, string Elevation)> markInfoByCode)
     {
         foreach (var lot in lots)
         {
             if (!string.IsNullOrWhiteSpace(lot.Elevation)) continue; // already resolved
-            var key = GroupKey(lot);
+            var key = SubGroupKey(lot);
             if (key is not null && markInfoByCode.TryGetValue(key, out var info))
             {
                 lot.SellingMark = info.Name;
@@ -240,14 +292,51 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         }
     }
 
+    /// <summary>A Selling Mark counts as this factory's CTC line, not its Orthodox one, when
+    /// its own text says so — "\bCTC\b" as a whole word, not a substring, so a hypothetical
+    /// mark merely containing "ctc" mid-word wouldn't false-positive (never seen live, but
+    /// keeps this precise). Confirmed reliable against real data: every "...CTC"-suffixed
+    /// Selling Mark under a dual-production factory (DANAWALA CTC, BROMBIL CTC) carries this
+    /// word, and no Orthodox-side Selling Mark for the same factories does. This is a
+    /// narrower question than "should this factory split at all" (ExpandToRowCandidates'
+    /// own isDualProduction check decides that from the actual data, not from this alone) —
+    /// it only ever says which side of an already-known split a given lot belongs to.</summary>
+    private static readonly System.Text.RegularExpressions.Regex CtcWordRegex =
+        new(@"\bCTC\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static bool IsCtcSubMark(Lot lot) =>
+        !string.IsNullOrWhiteSpace(lot.SellingMark) && CtcWordRegex.IsMatch(lot.SellingMark);
+
+    private static void Accumulate(
+        HashSet<string> brokers, Dictionary<string, decimal> month, Dictionary<string, decimal> year,
+        Dictionary<string, Dictionary<int, decimal>> saleQtyByBroker, string broker, decimal qty, bool isThisMonth, string? saleNoRaw)
+    {
+        brokers.Add(broker);
+        Add(year, broker, qty);
+        if (!isThisMonth) return;
+        Add(month, broker, qty);
+        if (!int.TryParse(saleNoRaw, out var saleNo)) return;
+        if (!saleQtyByBroker.TryGetValue(broker, out var perSale))
+            saleQtyByBroker[broker] = perSale = new Dictionary<int, decimal>();
+        perSale[saleNo] = perSale.GetValueOrDefault(saleNo) + qty;
+    }
+
     /// <summary>Pure grouping/aggregation core — no I/O, fully unit-testable. Groups
-    /// non-reprint lots by GroupKey (the full Trade Mark/Factory code, never merged across
-    /// codes — see this class's own doc comment for why), sums NetWeight per broker into
-    /// per-sale-number/month/year buckets, and keeps only marks with both ASC and at least
-    /// one other broker present. Each lot's own Lot.SaleNo (stamped by SaleFileStore for
-    /// /data/sales lots, or by BrokerCatalogueUploadParser for
-    /// uploaded ones) is what buckets it into a weekly column — no separate "is this the
-    /// target sale" flag needed.</summary>
+    /// non-reprint lots by GroupKey (the Factory code — every non-CTC sub-mark under the
+    /// same factory merges into one row, per explicit instruction — see this class's own
+    /// doc comment for why), sums NetWeight per broker into per-sale-number/month/year
+    /// buckets, and keeps only marks with both ASC and at least one other broker present.
+    /// Each lot's own Lot.SaleNo (stamped by SaleFileStore for /data/sales lots, or by
+    /// BrokerCatalogueUploadParser for uploaded ones) is what buckets it into a weekly
+    /// column — no separate "is this the target sale" flag needed.
+    ///
+    /// A factory whose lots are ALL one production type (the overwhelming majority) still
+    /// renders as a single row, exactly as before. A factory that genuinely runs both
+    /// Orthodox and CTC (confirmed live: Danawala, Brombil) additionally tracks a CTC-only
+    /// slice of the same totals (GroupAccumulator.Ctc) alongside the combined figures — see
+    /// ExpandToRowCandidates for how that becomes two separate rows instead of one, per
+    /// explicit instruction, matching the original hand-built manual report's own Orthodox/
+    /// CTC sub-blocks for these factories.</summary>
     public static IReadOnlyList<SharedMarkCatalogueRow> BuildRows(
         IEnumerable<(Lot Lot, bool IsThisMonth)> taggedLots)
     {
@@ -264,35 +353,53 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             if (!groups.TryGetValue(key, out var acc))
                 groups[key] = acc = new GroupAccumulator();
 
-            // Only ever lock in a non-blank name/elevation, and only once each. Real
-            // /data/sales rows for the same code are inconsistent about carrying a Sub
-            // Elevation value at all — plenty of lots (confirmed live: Alagalla, Allen
-            // Valley, New Rasagalla, Kamarangapitiya, Palmgarden among others) have it blank
-            // on some weeks and "L" on others. The old `??=` treated a blank string as
-            // "already has a value" (blank isn't null), so if a blank-elevation lot for a
-            // mark happened to be enumerated before a lot carrying the real code, the mark
-            // got stuck on blank forever and silently fell into the "High & Medium Grown"
-            // default bucket — a real Low Grown estate misclassified for no reason other
-            // than lot ordering. The same first-non-blank-wins rule picks the display name
-            // when a code's own lots disagree on spelling (confirmed live: "MISA"/"MISA
-            // TEA" share one code) — whichever spelling is seen first for a code wins,
-            // consistently, rather than splitting the code's volume across two row labels.
+            // Only ever lock in a non-blank elevation, and only once. Real /data/sales rows
+            // for the same code are inconsistent about carrying a Sub Elevation value at
+            // all — plenty of lots (confirmed live: Alagalla, Allen Valley, New Rasagalla,
+            // Kamarangapitiya, Palmgarden among others) have it blank on some weeks and "L"
+            // on others. The old `??=` treated a blank string as "already has a value"
+            // (blank isn't null), so if a blank-elevation lot for a mark happened to be
+            // enumerated before a lot carrying the real code, the mark got stuck on blank
+            // forever and silently fell into the "High & Medium Grown" default bucket — a
+            // real Low Grown estate misclassified for no reason other than lot ordering.
             if (string.IsNullOrWhiteSpace(acc.Elevation) && !string.IsNullOrWhiteSpace(lot.Elevation))
                 acc.Elevation = lot.Elevation;
-            if (string.IsNullOrWhiteSpace(acc.EstateName))
-                acc.EstateName = lot.SellingMark.Trim();
-            acc.Code ??= key;
-            acc.Brokers.Add(broker);
-            Add(acc.YearQtyByBroker, broker, qty);
-            if (isThisMonth)
+            // Display name: prefer the file's own Factory Name — a real /data/sales column
+            // naming the actual factory (confirmed live: "WATADENIYA TEA FACORY") — over the
+            // free-text Selling Mark, UNLESS this lot is CTC-flavored (IsCtcSubMark), in
+            // which case Selling Mark always wins instead — see this class's own doc
+            // comment for why. First-seen-wins, upgrading from a lower-confidence fallback
+            // the moment a real Factory Name is seen (raw upload files carry no Factory
+            // Name at all, so an upload-only factory keeps whichever Selling Mark it saw
+            // first), never downgrading back.
+            var isCtcLot = IsCtcSubMark(lot);
+            var candidateName = (!isCtcLot && !string.IsNullOrWhiteSpace(lot.FactoryName)) ? lot.FactoryName.Trim() : lot.SellingMark.Trim();
+            var candidateIsFactoryName = !isCtcLot && !string.IsNullOrWhiteSpace(lot.FactoryName);
+            if (string.IsNullOrWhiteSpace(acc.EstateName) || (candidateIsFactoryName && !acc.EstateNameIsFactoryName))
             {
-                Add(acc.MonthQtyByBroker, broker, qty);
-                if (int.TryParse(lot.SaleNo, out var saleNo))
-                {
-                    if (!acc.SaleQtyByBrokerAndSaleNo.TryGetValue(broker, out var perSale))
-                        acc.SaleQtyByBrokerAndSaleNo[broker] = perSale = new Dictionary<int, decimal>();
-                    perSale[saleNo] = perSale.GetValueOrDefault(saleNo) + qty;
-                }
+                acc.EstateName = candidateName;
+                acc.EstateNameIsFactoryName = candidateIsFactoryName;
+            }
+            acc.Code ??= key;
+            Accumulate(acc.Brokers, acc.MonthQtyByBroker, acc.YearQtyByBroker, acc.SaleQtyByBrokerAndSaleNo, broker, qty, isThisMonth, lot.SaleNo);
+
+            // Same lot, added again into the factory's CTC-only slice when its own Selling
+            // Mark says so — see IsCtcSubMark. Every lot always feeds the combined `acc`
+            // totals above regardless; this is purely an additional, narrower tally kept
+            // alongside it so a genuinely dual-production factory can be split into two rows
+            // later (ExpandToRowCandidates) without a second pass over the lots.
+            if (isCtcLot)
+            {
+                acc.Ctc ??= new CtcSlice();
+                // First-seen wins, same as acc.EstateName — always the CTC lot's own Selling
+                // Mark (never Factory Name): it's guaranteed to carry the word "CTC" (that's
+                // how it got here), which ExpandToRowCandidates falls back to for a factory
+                // whose base name already has "CTC" baked into its own Factory Name
+                // (confirmed live: Batuwangala's real Factory Name is "BATUWANGALA - CTC" for
+                // BOTH its sides) — appending another " - Ctc" there would read as a
+                // redundant "Batuwangala - Ctc - Ctc".
+                acc.Ctc.Name ??= lot.SellingMark.Trim();
+                Accumulate(acc.Ctc.Brokers, acc.Ctc.MonthQtyByBroker, acc.Ctc.YearQtyByBroker, acc.Ctc.SaleQtyByBrokerAndSaleNo, broker, qty, isThisMonth, lot.SaleNo);
             }
         }
 
@@ -330,9 +437,25 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
                 foreach (var (saleNo, qty) in perSale)
                     targetPerSale[saleNo] = targetPerSale.GetValueOrDefault(saleNo) + qty;
             }
+            if (acc.Ctc is not null)
+            {
+                target.Ctc ??= new CtcSlice();
+                target.Ctc.Name ??= acc.Ctc.Name;
+                foreach (var broker in acc.Ctc.Brokers) target.Ctc.Brokers.Add(broker);
+                foreach (var (broker, qty) in acc.Ctc.MonthQtyByBroker) Add(target.Ctc.MonthQtyByBroker, broker, qty);
+                foreach (var (broker, qty) in acc.Ctc.YearQtyByBroker) Add(target.Ctc.YearQtyByBroker, broker, qty);
+                foreach (var (broker, perSale) in acc.Ctc.SaleQtyByBrokerAndSaleNo)
+                {
+                    if (!target.Ctc.SaleQtyByBrokerAndSaleNo.TryGetValue(broker, out var targetPerSale))
+                        target.Ctc.SaleQtyByBrokerAndSaleNo[broker] = targetPerSale = new Dictionary<int, decimal>();
+                    foreach (var (saleNo, qty) in perSale)
+                        targetPerSale[saleNo] = targetPerSale.GetValueOrDefault(saleNo) + qty;
+                }
+            }
         }
 
-        return mergedByName
+        return mergedByName.Values
+            .SelectMany(ExpandToRowCandidates)
             // Scoped to the displayed month, not "shared at any point this year": Brokers
             // accumulates across the whole year (it feeds YearQtyByBroker), so a mark last
             // shared in an earlier month would otherwise pass this filter and produce a
@@ -340,24 +463,113 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             // MonthQtyByBroker to write, since none of its lots fell in this month (found
             // live: "Win Hills" rendered as an empty row with zero data beneath it). A
             // report titled for one month should only list marks actually shared that month.
-            .Where(kv => kv.Value.MonthQtyByBroker.ContainsKey(AscBrokerCode) && kv.Value.MonthQtyByBroker.Keys.Any(b => b != AscBrokerCode))
-            .Select(kv => new SharedMarkCatalogueRow(
-                EstateName: System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(kv.Value.EstateName!.ToLowerInvariant()),
-                Code: kv.Value.Code!,
-                ElevationBucket: string.Equals(kv.Value.Elevation?.Trim(), "L", StringComparison.OrdinalIgnoreCase)
+            // The same filter, applied uniformly after the Orthodox/CTC split, is also what
+            // quietly drops whichever split side had no volume this particular month — no
+            // extra logic needed for that beyond reusing this existing rule.
+            .Where(c => c.MonthQtyByBroker.ContainsKey(AscBrokerCode) && c.MonthQtyByBroker.Keys.Any(b => b != AscBrokerCode))
+            .Select(c => new SharedMarkCatalogueRow(
+                EstateName: System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(c.EstateName.ToLowerInvariant()),
+                Code: c.Code,
+                ElevationBucket: string.Equals(c.Elevation?.Trim(), "L", StringComparison.OrdinalIgnoreCase)
                     ? "Low Grown" : "High & Medium Grown",
-                SaleQtyByBrokerAndSaleNo: kv.Value.SaleQtyByBrokerAndSaleNo.ToDictionary(x => x.Key, x => (IReadOnlyDictionary<int, decimal>)x.Value),
-                MonthQtyByBroker: kv.Value.MonthQtyByBroker,
-                YearQtyByBroker: kv.Value.YearQtyByBroker))
+                SaleQtyByBrokerAndSaleNo: c.SaleQtyByBrokerAndSaleNo.ToDictionary(x => x.Key, x => (IReadOnlyDictionary<int, decimal>)x.Value),
+                MonthQtyByBroker: c.MonthQtyByBroker,
+                YearQtyByBroker: c.YearQtyByBroker,
+                ProductionLabel: c.ProductionLabel,
+                FactoryDisplayName: c.FactoryDisplayName is { } fdn ? System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(fdn.ToLowerInvariant()) : null))
             // By code, not estate name, per explicit instruction — e.g. "BF..." codes sort
             // ahead of "MF..."/"SS..." ones. CodeSortKey, not a raw string compare: a plain
             // string sort puts "MF10" before "MF2" (comparing character by character), when
             // ascending numeric order within a prefix means MF2 comes first — codes need to
-            // read 1, 2, 3 ... 10, 11, not 1, 10, 11, 2, 3. Ties (shouldn't happen — codes
-            // are the grouping key) broken by name for determinism.
+            // read 1, 2, 3 ... 10, 11, not 1, 10, 11, 2, 3. Ties (an Orthodox/CTC split pair
+            // sharing one Code, or the rare genuine collision) broken by name for
+            // determinism — which also keeps a split pair's Orthodox row ("Danawala") right
+            // ahead of its CTC row ("Danawala Ctc"/"Danawala - Ctc"), since the plain name is
+            // (usually) a string prefix of the CTC one.
             .OrderBy(r => CodeSortKey(r.Code))
+            .ThenBy(r => r.ProductionLabel == "Ctc" ? 1 : 0)
             .ThenBy(r => r.EstateName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private sealed record RowCandidate(
+        string EstateName, string Code, string? Elevation,
+        Dictionary<string, decimal> MonthQtyByBroker, Dictionary<string, decimal> YearQtyByBroker,
+        Dictionary<string, Dictionary<int, decimal>> SaleQtyByBrokerAndSaleNo,
+        string? ProductionLabel = null, string? FactoryDisplayName = null);
+
+    /// <summary>One factory accumulator becomes one row candidate normally — even one that
+    /// happens to carry a non-null Ctc slice, if that slice turns out to be the factory's
+    /// ENTIRE volume (a CTC-only factory, no Orthodox side ever) or a negligible sliver with
+    /// nothing left over once subtracted. Per explicit instruction, the Orthodox/CTC split
+    /// is only worth showing "for the factories with these 2 productions" — genuinely both,
+    /// not a factory that merely happens to have one stray CTC-worded lot. That's decided
+    /// here from the YEAR-to-date totals (the broadest window already tracked), not just the
+    /// displayed month, so a factory doesn't flicker between one row and two from month to
+    /// month depending on which side happened to sell that particular week. When it IS a
+    /// genuine two-production factory, the combined `acc` figures are split into an Orthodox
+    /// remainder (acc's totals minus the Ctc slice, broker-by-broker and sale-by-sale) and
+    /// the Ctc slice itself, labeled via ProductionLabel/FactoryDisplayName so the two rows
+    /// are never confused for one another even when (confirmed live, Danawala) the Factory
+    /// Name doesn't itself say which is which — and so the workbook builder can render them
+    /// as one shared factory header with two labeled sub-blocks, matching the original
+    /// hand-built report exactly. Both candidates still pass through BuildRows' own "shared
+    /// this month" filter afterwards like any other row, so a side with no volume this
+    /// particular month simply doesn't render — no separate handling needed for that
+    /// here.</summary>
+    private static IEnumerable<RowCandidate> ExpandToRowCandidates(GroupAccumulator acc)
+    {
+        var ctcYearTotal = acc.Ctc?.YearQtyByBroker.Values.Sum() ?? 0m;
+        var totalYearTotal = acc.YearQtyByBroker.Values.Sum();
+        var isDualProduction = acc.Ctc is not null && ctcYearTotal > 0 && ctcYearTotal < totalYearTotal;
+
+        if (!isDualProduction)
+        {
+            yield return new RowCandidate(acc.EstateName!, acc.Code!, acc.Elevation, acc.MonthQtyByBroker, acc.YearQtyByBroker, acc.SaleQtyByBrokerAndSaleNo);
+            yield break;
+        }
+
+        var ctc = acc.Ctc!;
+        var ctcName = ctc.Name ?? $"{acc.EstateName} - Ctc";
+        yield return new RowCandidate(
+            acc.EstateName!, acc.Code!, acc.Elevation,
+            Subtract(acc.MonthQtyByBroker, ctc.MonthQtyByBroker),
+            Subtract(acc.YearQtyByBroker, ctc.YearQtyByBroker),
+            SubtractPerSale(acc.SaleQtyByBrokerAndSaleNo, ctc.SaleQtyByBrokerAndSaleNo),
+            ProductionLabel: "Orthodox", FactoryDisplayName: acc.EstateName);
+        yield return new RowCandidate(
+            ctcName, acc.Code!, acc.Elevation,
+            ctc.MonthQtyByBroker, ctc.YearQtyByBroker, ctc.SaleQtyByBrokerAndSaleNo,
+            ProductionLabel: "Ctc", FactoryDisplayName: acc.EstateName);
+    }
+
+    private static Dictionary<string, decimal> Subtract(Dictionary<string, decimal> total, Dictionary<string, decimal> sub)
+    {
+        var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (broker, qty) in total)
+        {
+            var remainder = qty - sub.GetValueOrDefault(broker);
+            if (remainder != 0) result[broker] = remainder;
+        }
+        return result;
+    }
+
+    private static Dictionary<string, Dictionary<int, decimal>> SubtractPerSale(
+        Dictionary<string, Dictionary<int, decimal>> total, Dictionary<string, Dictionary<int, decimal>> sub)
+    {
+        var result = new Dictionary<string, Dictionary<int, decimal>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (broker, perSale) in total)
+        {
+            var subPerSale = sub.GetValueOrDefault(broker);
+            var remainder = new Dictionary<int, decimal>();
+            foreach (var (saleNo, qty) in perSale)
+            {
+                var r = qty - (subPerSale?.GetValueOrDefault(saleNo) ?? 0m);
+                if (r != 0) remainder[saleNo] = r;
+            }
+            if (remainder.Count > 0) result[broker] = remainder;
+        }
+        return result;
     }
 
     /// <summary>Splits a normalized code (e.g. "MF634", "MF634C") into (letter prefix,
@@ -377,8 +589,30 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     {
         public HashSet<string> Brokers { get; } = new(StringComparer.OrdinalIgnoreCase);
         public string? EstateName { get; set; }
+        public bool EstateNameIsFactoryName { get; set; }
         public string? Code { get; set; }
         public string? Elevation { get; set; }
+        public Dictionary<string, Dictionary<int, decimal>> SaleQtyByBrokerAndSaleNo { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, decimal> MonthQtyByBroker { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, decimal> YearQtyByBroker { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        // Null for the overwhelming majority of factories (single production type) — only
+        // allocated the moment a lot whose Selling Mark says "CTC" is seen for this factory.
+        // See ExpandToRowCandidates for how (and when) this becomes a second row.
+        public CtcSlice? Ctc { get; set; }
+    }
+
+    /// <summary>Same shape as the numeric half of GroupAccumulator, kept as its own small
+    /// class rather than reusing GroupAccumulator itself since a CTC slice never needs a
+    /// name/elevation/code of its own — ExpandToRowCandidates always labels and buckets it
+    /// off the parent factory's own identity. Name is the one exception: kept here (rather
+    /// than always synthesizing "{base} - Ctc") as the natural label for the common case, and
+    /// as a fallback label for the rare factory whose own base name already contains "Ctc" —
+    /// see ExpandToRowCandidates.</summary>
+    private sealed class CtcSlice
+    {
+        public string? Name { get; set; }
+        public HashSet<string> Brokers { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, Dictionary<int, decimal>> SaleQtyByBrokerAndSaleNo { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, decimal> MonthQtyByBroker { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, decimal> YearQtyByBroker { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -387,15 +621,34 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     private static void Add(Dictionary<string, decimal> map, string broker, decimal qty) =>
         map[broker] = map.GetValueOrDefault(broker) + qty;
 
-    /// <summary>The grouping/lookup key for a lot: its Trade Mark/Factory code (Lot.Mark),
-    /// leading-zero-normalized but with any trailing letter kept — see this class's own doc
-    /// comment for why. Falls back to the trimmed Selling Mark text when a lot carries no
-    /// code at all, so a code-less lot still groups (with itself/exact spelling matches)
-    /// rather than being silently dropped.</summary>
+    /// <summary>The grouping/lookup key for a lot: its own Factory code (Lot.Factory) —
+    /// the real, separate /data/sales column that already identifies the producing factory
+    /// regardless of which sub-mark's Trade Mark code a given lot carries — see this class's
+    /// own doc comment. Falls back to Mark (Trade Mark) when a lot carries no Factory at all
+    /// (the raw pre-sale broker upload files: BrokerCatalogueUploadParser derives Factory
+    /// itself via NormalizeFactoryCode, so this path is mostly a defensive fallback for a
+    /// lot that somehow has neither populated), and finally to the trimmed Selling Mark text
+    /// when there's no code of any kind, so a code-less lot still groups (with itself/exact
+    /// spelling matches) rather than being silently dropped.</summary>
     private static string? GroupKey(Lot lot) =>
-        !string.IsNullOrWhiteSpace(lot.Mark) ? NormalizeMarkCode(lot.Mark)
+        !string.IsNullOrWhiteSpace(lot.Factory) ? NormalizeMarkCode(lot.Factory)
+        : !string.IsNullOrWhiteSpace(lot.Mark) ? NormalizeMarkCode(lot.Mark)
         : !string.IsNullOrWhiteSpace(lot.SellingMark) ? lot.SellingMark.Trim()
         : null;
+
+    /// <summary>GroupKey (plain factory code) plus which side of an Orthodox/CTC split — if
+    /// any — this lot's own current Selling Mark says it belongs to. Used ONLY for
+    /// historical name/elevation lookups (BuildMarkInfoIndex, SaleFileStore.
+    /// GetMarkCodeIndex, ApplyMarkInfo), never for BuildRows' own top-level grouping, which
+    /// deliberately stays keyed by the plain factory code alone so it can see BOTH
+    /// production types together and decide whether to split at all. Keeping the historical
+    /// lookup side-aware instead prevents a dual-production factory's Orthodox lot from
+    /// being canonicalized against its CTC sibling's historical name (or the reverse) —
+    /// found live: a plain factory-level lookup could silently hand an Orthodox lot a
+    /// CTC-flavored name pulled from whichever sub-mark's history happened to be indexed
+    /// first for that factory, corrupting IsCtcSubMark's later read of that lot.</summary>
+    private static string? SubGroupKey(Lot lot) =>
+        GroupKey(lot) is { } factoryKey ? $"{factoryKey}|{(IsCtcSubMark(lot) ? "CTC" : "ORTHODOX")}" : null;
 
     /// <summary>Strips only leading zeros after the letter prefix (MF01257 -> MF1257) —
     /// brokers pad differently for the exact same estate (confirmed: MB's MF01257 vs LCBL's
@@ -409,18 +662,34 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     public static string NormalizeMarkCode(string raw)
     {
         var trimmed = raw.Trim().ToUpperInvariant();
-        var m = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([A-Z]+)0*(\d+[A-Z]*)$");
+        var m = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([A-Z]+)0*(\d+)[A-Z]*$");
         return m.Success ? $"{m.Groups[1].Value}{m.Groups[2].Value}" : trimmed;
     }
 
-    /// <summary>GroupKey -> (canonical Selling Mark spelling, non-blank Sub Elevation),
-    /// first-seen-wins within this set of lots. Used to canonicalize uploaded lots, which
-    /// carry a code but no elevation and no guarantee their own spelling matches history.</summary>
+    /// <summary>SubGroupKey (Factory code + Orthodox/CTC side) -> (canonical display name,
+    /// non-blank Sub Elevation), first-seen-wins within this set of lots. Used to
+    /// canonicalize uploaded lots, which carry a code but no elevation and no guarantee their
+    /// own spelling matches history. Keyed by SubGroupKey rather than the plain factory code
+    /// so a dual-production factory's two sides each canonicalize from their OWN matching
+    /// history — see SubGroupKey's own doc comment for why that matters.</summary>
     private static Dictionary<string, (string Name, string Elevation)> BuildMarkInfoIndex(IEnumerable<Lot> lots) =>
         lots
-            .Where(l => !string.IsNullOrWhiteSpace(l.SellingMark) && !string.IsNullOrWhiteSpace(l.Elevation) && GroupKey(l) is not null)
-            .GroupBy(l => GroupKey(l)!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => (g.First().SellingMark!.Trim(), g.First().Elevation!), StringComparer.OrdinalIgnoreCase);
+            .Where(l => !string.IsNullOrWhiteSpace(l.SellingMark) && !string.IsNullOrWhiteSpace(l.Elevation) && SubGroupKey(l) is not null)
+            .GroupBy(l => SubGroupKey(l)!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (SelectCanonicalName(g), g.First().Elevation!), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A CTC sub-key's own Selling Mark already says "CTC" — that's how a lot ends
+    /// up grouped under this key in the first place — so that's what must survive onto a
+    /// canonicalized upload lot for IsCtcSubMark to still read it correctly afterwards. The
+    /// factory's shared Factory Name would otherwise erase that distinction (confirmed live:
+    /// Danawala's Factory Name is the plain "DANAWALA" for BOTH its Orthodox and CTC lots —
+    /// picking it here would hand a CTC lot a name with no CTC wording left in it). An
+    /// Orthodox sub-key keeps preferring Factory Name exactly as BuildRows' own EstateName
+    /// selection does — unaffected, still the single-row-factory majority case.</summary>
+    private static string SelectCanonicalName(IGrouping<string, Lot> g) =>
+        (g.Key.EndsWith("|CTC", StringComparison.OrdinalIgnoreCase)
+            ? g.First().SellingMark
+            : g.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.FactoryName))?.FactoryName ?? g.First().SellingMark)!.Trim();
 
     /// <summary>SaleFileStore.SalesInMonth estimates every week's date from a once-a-year
     /// anchor formula for years with no explicit date table yet (e.g. 2026) — close, but it

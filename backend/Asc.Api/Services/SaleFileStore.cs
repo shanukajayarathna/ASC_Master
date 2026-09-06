@@ -248,19 +248,31 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
     // ---- mark code index ---------------------------------------------------------------
 
-    // Only leading zeros are normalized (MF01257 -> MF1257 — brokers pad differently for the
-    // same estate); any trailing letter is kept, since it can distinguish a genuinely
-    // different mark sharing a code block (confirmed live: "GREEN MOUNT" is MF1188, "GREEN
-    // MOUNT SUPER" is MF1188A — not necessarily the same mark; a base-number merge was tried
-    // and reverted — see SharedMarkCatalogueService's own doc comment for the full story).
+    // Strips leading zeros (MF01257 -> MF1257 — brokers pad differently for the exact same
+    // estate) AND any trailing letter (MF1188A -> MF1188) — per explicit instruction, a
+    // factory's own code is what identifies it for merging purposes; a trailing letter
+    // distinguishes a sub-mark within the factory, not a different factory (confirmed live:
+    // "WATADENIYA"/BF0020 and "RANSIRINI"/BF0020A both carry Factory "BF0020" in /data/sales'
+    // own General Report, and the hand-built reference's own figures confirm they're meant
+    // to merge — see SharedMarkCatalogueService's own doc comment for the full story).
     // Mirrors SharedMarkCatalogueService.NormalizeMarkCode; duplicated rather than shared
     // because Services deliberately doesn't depend on the feature modules built on top of it.
     private static string NormalizeMarkCode(string raw)
     {
         var trimmed = raw.Trim().ToUpperInvariant();
-        var m = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([A-Z]+)0*(\d+[A-Z]*)$");
+        var m = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([A-Z]+)0*(\d+)[A-Z]*$");
         return m.Success ? $"{m.Groups[1].Value}{m.Groups[2].Value}" : trimmed;
     }
+
+    // Mirrors SharedMarkCatalogueService.IsCtcSubMark; duplicated for the same reason
+    // NormalizeMarkCode is. A factory that genuinely runs both Orthodox and CTC production
+    // needs its two sides indexed separately below (SubKey), or a lot canonicalized from
+    // this index could get handed the wrong side's name — see GetMarkCodeIndex's own comment.
+    private static readonly System.Text.RegularExpressions.Regex CtcWordRegex =
+        new(@"\bCTC\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static bool IsCtcSubMark(Lot lot) =>
+        !string.IsNullOrWhiteSpace(lot.SellingMark) && CtcWordRegex.IsMatch(lot.SellingMark);
 
     private readonly object _markCodeIndexLock = new();
     private (HashSet<Guid> IndexedIds, Dictionary<string, (string Name, string Elevation)> Index)? _markCodeIndex;
@@ -276,13 +288,20 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         public string Elevation { get; set; } = "";
     }
 
-    // v2: NormalizeMarkCode briefly stripped the trailing letter too (base factory number
-    // only) for a factory-wide merge that was later reverted (see SharedMarkCatalogueService's
-    // doc comment). v3: reverted back to keeping the trailing letter, so v2's keys (base
-    // number only) no longer match anything callers look up — bumping the filename abandons
-    // the stale file and lets a fresh one build under the restored key shape, the same
-    // "just re-parse once" pattern SaleCachePath uses.
-    private string MarkCodeIndexPath => Path.Combine(CacheDir, "mark-code-index-v3.json");
+    // v2: base factory number only, from stripping Mark's trailing letter — tried, then
+    // reverted to v3 (full code, trailing letter kept) after a hand-built manual reference
+    // showed inconsistent merging. v4-v5: base factory number again (from the real Factory
+    // column, Orthodox/CTC sides indexed separately) — tried per explicit instruction. v6:
+    // reverted to the full Trade Mark code after that same reference seemed to show unrelated
+    // products (Boscombe/Kinkini) sharing a Factory code — then a closer audit of the
+    // reference's own Year-to-date figures showed it actually DOES merge them (and Brombil's
+    // two Orthodox codes) after all, just splits out the CTC portion separately. v7
+    // (current): back to base factory number with Orthodox/CTC sides indexed separately,
+    // same shape as v5 — see SharedMarkCatalogueService's own doc comment for the full story.
+    // Each version's keys don't match the next's, so bumping the filename abandons the stale
+    // file and lets a fresh one build under the current key shape, the same "just re-parse
+    // once" pattern SaleCachePath uses.
+    private string MarkCodeIndexPath => Path.Combine(CacheDir, "mark-code-index-v7.json");
 
     /// <summary>Builds/extends the index in memory + on disk, then returns it. Only
     /// catalogues not already folded in get parsed (via the normal GetLots path, so a
@@ -302,11 +321,27 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                 {
                     foreach (var lot in GetLots(cat.Id) ?? [])
                     {
-                        if (string.IsNullOrWhiteSpace(lot.Mark) || string.IsNullOrWhiteSpace(lot.SellingMark) ||
-                            string.IsNullOrWhiteSpace(lot.Elevation)) continue;
-                        var code = NormalizeMarkCode(lot.Mark);
+                        if (string.IsNullOrWhiteSpace(lot.Elevation)) continue;
+                        var factoryCode = !string.IsNullOrWhiteSpace(lot.Factory) ? NormalizeMarkCode(lot.Factory)
+                            : !string.IsNullOrWhiteSpace(lot.Mark) ? NormalizeMarkCode(lot.Mark)
+                            : null;
+                        if (factoryCode is null) continue;
+                        // Sub-keyed by Orthodox/CTC side, not just the factory code — a
+                        // dual-production factory's Factory Name is often identical for both
+                        // sides (confirmed live: Danawala's is the plain "DANAWALA" whether
+                        // the lot is its Orthodox or CTC line), so a plain factory-level
+                        // lookup could hand a canonicalized upload lot the wrong side's name
+                        // and silently flip which side it reads as later. On the CTC side,
+                        // prefer Selling Mark over Factory Name for the same reason — the
+                        // Selling Mark is what actually carries the word "CTC" here.
+                        var isCtc = IsCtcSubMark(lot);
+                        var code = $"{factoryCode}|{(isCtc ? "CTC" : "ORTHODOX")}";
+                        var name = isCtc
+                            ? lot.SellingMark
+                            : (!string.IsNullOrWhiteSpace(lot.FactoryName) ? lot.FactoryName : lot.SellingMark);
+                        if (string.IsNullOrWhiteSpace(name)) continue;
                         if (!index.ContainsKey(code))
-                            index[code] = (lot.SellingMark.Trim(), lot.Elevation);
+                            index[code] = (name.Trim(), lot.Elevation);
                     }
                     indexedIds.Add(cat.Id);
                 }

@@ -5,11 +5,10 @@ import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import TopPriceBulletin from "@/components/reports/TopPriceBulletin";
 import { useCatalogue } from "@/context/CatalogueContext";
-import { api } from "@/lib/api";
+import { api, AUTH_TOKEN_STORAGE_KEY } from "@/lib/api";
 import {
   buildTppMeta,
   exportTopPricePageExcel,
-  exportTopPricePagePdf,
   planTppBulletinAutoFit,
   type TppBulletinPage,
   type TppDensity,
@@ -23,7 +22,7 @@ import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import Button from "@mui/material/Button";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function TopPricePagePage() {
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
@@ -33,8 +32,6 @@ export default function TopPricePagePage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
-
-  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     if (!activeCatalogueId) {
@@ -75,13 +72,36 @@ export default function TopPricePagePage() {
     }
   };
 
+  // Server-side render via a real headless Chromium print (Playwright's page.pdf()) — see
+  // api/reports/top-price-page-pdf/route.ts's doc comment for why this replaced the earlier
+  // client-side html2canvas+jsPDF screenshot approach.
   const exportPdf = async () => {
-    if (!combined || !meta) return;
+    if (!combined || !meta || !activeCatalogueId) return;
     setExportingPdf(true);
     setError(null);
     try {
-      const elements = pageRefs.current.filter((el): el is HTMLDivElement => el !== null);
-      await exportTopPricePagePdf(elements, meta);
+      const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+      const res = await fetch("/api/reports/top-price-page-pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ catalogueId: activeCatalogueId, auctionNumber: meta.auctionNumber }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `top-price-page-sale-${meta.auctionNumber || "draft"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "PDF export failed");
     } finally {
@@ -91,7 +111,7 @@ export default function TopPricePagePage() {
 
   return (
     <div>
-      {exportingPdf && <BusyOverlay message="Capturing pages…" />}
+      {exportingPdf && <BusyOverlay message="Rendering PDF…" />}
       {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Top Price Page"
@@ -157,14 +177,7 @@ export default function TopPricePagePage() {
             </div>
           </div>
 
-          <TopPriceBulletin
-            pages={layout.pages}
-            density={layout.density}
-            meta={meta}
-            onPageRef={(el, i) => {
-              pageRefs.current[i] = el;
-            }}
-          />
+          <TopPriceBulletin pages={layout.pages} density={layout.density} meta={meta} />
         </div>
       )}
     </div>

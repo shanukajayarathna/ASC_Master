@@ -36,6 +36,22 @@ public class MarketBulletinController(ICatalogueSource source) : ControllerBase
     }
 
     /// <summary>
+    /// Month-over-month quantity/average-price comparison for the bulletin's 4th page — see
+    /// MarketBulletinMonthlyEngine for the full slot-matching/tiering rules. Null (204, not an
+    /// error) only when the catalogue's own SourceName doesn't match the expected "Sale N -
+    /// YYYY" shape, since there's no sale number to anchor a month calendar to.
+    /// </summary>
+    [HttpGet("{catalogueId:guid}/monthly")]
+    public ActionResult<MonthlyComparisonDto> Monthly(Guid catalogueId)
+    {
+        var catalogue = source.GetCatalogue(catalogueId);
+        if (catalogue is null) return NotFound();
+
+        var dto = MarketBulletinMonthlyEngine.Build(source, catalogue);
+        return dto is null ? NoContent() : Ok(dto);
+    }
+
+    /// <summary>
     /// The previous sale is (same year, sale number - 1) — computed directly via
     /// SaleFileStore's own deterministic id scheme, NOT inferred from list position/
     /// ImportedAt ordering. ImportedAt is a real file-import timestamp for bulk-loaded

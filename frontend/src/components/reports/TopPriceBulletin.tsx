@@ -99,9 +99,6 @@ export interface TopPriceBulletinProps {
   pages: TppBulletinPage[];
   density: TppDensity;
   meta: TppMeta;
-  /** Called once per rendered page with its real DOM node, so the caller (the PDF export) can
-   *  screenshot each one — see exportTopPricePagePdf's own doc comment. */
-  onPageRef?: (el: HTMLDivElement | null, index: number) => void;
 }
 
 /** Every density.css field as an inline CSS custom property, consumed directly by the base rules
@@ -148,13 +145,13 @@ function densityCssVars(density: TppDensity): CSSProperties {
  *  page (planTppBulletinAutoFit/planTppFullWidthLayout in topPricePageExport.ts), each reflowing
  *  its own rows into however many of its own internal columns suit its own row count — never
  *  split into page-wide side-by-side card columns (see that file's own header comment for why
- *  that was tried and rejected). This is also literally what gets exported to PDF —
- *  exportTopPricePagePdf screenshots each `.page` node captured via onPageRef. */
-export default function TopPriceBulletin({ pages, density, meta, onPageRef }: TopPriceBulletinProps) {
+ *  that was tried and rejected). Also rendered, unmodified, by print/top-price-page/page.tsx for
+ *  the server-side PDF export (a real Chromium print, not a screenshot of this component). */
+export default function TopPriceBulletin({ pages, density, meta }: TopPriceBulletinProps) {
   return (
     <div className={styles.bulletin} data-density={density.name} style={densityCssVars(density)}>
       {pages.map((page, pi) => (
-        <div key={pi} className={styles.page} ref={(el) => onPageRef?.(el, pi)}>
+        <div key={pi} className={styles.page}>
           <div className={styles.masthead}>
             <div className={styles.mastheadBrand}>
               <dl className={styles.mastheadMeta}>

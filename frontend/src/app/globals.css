@@ -757,6 +757,26 @@ body {
   }
 }
 
+/* Bare print/<report> routes (print/market-bulletin, print/top-price-page — see either
+   page.tsx's own doc comment): the SAME visibility override as .report-print-area above,
+   minus its position:absolute. Those routes have nothing else on the page to visually escape
+   past, and position:absolute turned out to matter here: it pulls the reprinted content out
+   of normal document flow, and Chromium's print pagination doesn't reliably fragment an
+   absolutely-positioned box's overflow across multiple physical pages the way it does for
+   normal in-flow content — confirmed the hard way on Top Price Page, where a 2-logical-page
+   report (each `.page` div taller than one physical sheet, by design — see TppDensity's own
+   min-height comment) came out as 4 PDF pages with the first and last mostly blank. Staying
+   in normal flow (no repositioning at all) lets Chromium paginate it exactly like it would
+   any other ordinary long document. */
+@media print {
+  .print-root,
+  .print-root * {
+    visibility: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
 
 /* Soft content fade for mode switches on the Analysis page. */
 @keyframes fadeInSoft { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

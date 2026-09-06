@@ -3,9 +3,14 @@
    TopPriceBulletin's own CSS (flat colors not gradients, baseline not center alignment, no
    overflow:hidden on text boxes, break-inside:avoid on cards) rather than re-discovering the
    same failure modes here. Content shape differs (small price-range tables, not ranked-lot
-   rows) and total content size is fixed by construction (see MarketBulletinBulletin.tsx's own
-   comment), so this is its own module with one hand-tuned layout rather than a reusable density
-   system. */
+   rows), so table/section counts are fixed by construction (see MarketBulletinBulletin.tsx's own
+   PAGE_GROUPS comment) — but every vertical sizing number below (row height, table-head height,
+   font sizes, gaps/padding) is a `var(--mb-*, <today's known-good value>)` driven by that same
+   file's density ladder (MB_ROOMY/MB_COZY/MB_COMPACT), which measures real rendered page height
+   and steps down automatically if anything ever overflows a physical sheet — so this still fits
+   whatever data lands in it without any of these fallback numbers needing to be hand-retuned
+   again. The fallback value after each `var()` is today's proven COZY size, used only if JS
+   hasn't set the custom properties yet (e.g. a non-JS render). */
 
 .bulletin {
   display: flex;
@@ -24,8 +29,8 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   grid-template-areas: "top" "body" "foot";
-  gap: 6px;
-  padding: 10px 14px;
+  gap: var(--mb-page-gap, 5px);
+  padding: var(--mb-page-pad-v, 9px) var(--mb-page-pad-h, 13px);
   background: #fcfbf8;
   color: #124734;
   font-family: var(--font-plex-sans), -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -45,7 +50,7 @@
 }
 .mastheadMeta {
   padding-top: 3px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.2;
   margin: 0;
 }
@@ -65,7 +70,7 @@
 .mastheadTitle {
   font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 20px;
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
@@ -74,7 +79,7 @@
 .mastheadSub {
   display: block;
   font-weight: 600;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -84,7 +89,7 @@
 }
 .mastheadRight {
   text-align: right;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.3;
   font-weight: 700;
   text-transform: uppercase;
@@ -92,7 +97,7 @@
   padding-top: 3px;
 }
 .mastheadRightSub {
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 500;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.75);
@@ -121,33 +126,57 @@
   flex: 0 0 auto;
   white-space: nowrap;
   font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   color: #b68c2a;
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
-/* --- body: sections stacked top to bottom, filling the page's leftover height ------------------ */
+/* --- body: sections stacked top to bottom ------------------------------------------------------ */
+/* `justify-content: space-evenly` is the FALLBACK absorber for whatever leftover height no
+   section below claims for itself — see `.section[data-mb-flow]` for which sections claim their
+   own share internally vs. leave it here. A page where every section is "compact" (High Grown/
+   Medium Grown/Unorthodox, all single-row) puts its ENTIRE leftover height here, spread as an
+   even margin above the first section, an even gap between each pair, and an even margin below
+   the last — never dumped unevenly into just one or two of those slots (an earlier JS-measured
+   version of this did exactly that: 10.7mm between sections but only 1.3mm at the very top/
+   bottom, because it had only 2 "gap slots" to put all the leftover space into; space-evenly
+   has no such lever-count problem, splitting N+1 slots exactly equally by construction). */
 .sections {
   grid-area: body;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 4px;
+  justify-content: space-evenly;
+  gap: var(--mb-sections-gap, 5px);
 }
 
+/* Compact by default (flex: 0 0 auto — hugs its own content, header sitting directly above its
+   cards) so a section never looks like it's floating inside an oversized box. Only a section
+   whose own table cards genuinely wrap onto more than one row (isMultiRowSection in the .tsx —
+   H&M Orthodox/Off Grades/Dust/Low Grown, never High Grown/Medium Grown/Unorthodox, which are
+   always exactly one row of 2 cards) gets `flex: 1 1 auto` via [data-mb-flow="grow"], since a
+   multi-row grid has real rows to spread extra height BETWEEN (see .tableGrid's own
+   align-content below) — stretching a single-row section instead just centers that one row with
+   a big dead band above and below it, which reads as unfinished, not spacious. */
 .section {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
   border-radius: 3px;
   border: 1px solid #dedacb;
   background: #fcfbf8;
   break-inside: avoid;
 }
+.section[data-mb-flow="grow"] {
+  flex: 1 1 auto;
+}
 .sectionHead {
-  padding: 2.5px 10px 3px;
+  flex: 0 0 auto;
+  padding: var(--mb-sectionhead-pad-t, 3px) 10px var(--mb-sectionhead-pad-b, 4px);
   background: #2f7d52;
   color: #fff;
-  font-size: 10px;
+  font-size: var(--mb-sectionhead-fs, 13px);
   font-weight: 700;
   line-height: 1.3;
   letter-spacing: 0.05em;
@@ -156,19 +185,31 @@
   border-top-right-radius: 2px;
 }
 .sectionEmpty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 8px 10px;
-  font-size: 9.5px;
+  font-size: 11px;
   color: #8b929e;
   font-style: italic;
 }
 
 /* One grade-family table per grid cell — column count is set inline per section (see
    SECTION_COLUMNS in the .tsx) so every section's own row of cards fills its full width edge to
-   edge, rather than auto-fill's uneven trailing gap on a small section. */
+   edge, rather than auto-fill's uneven trailing gap on a small section. `flex: 1` makes this
+   grid absorb its own section's share of the page's leftover height (from .section's own
+   flex-grow above); `align-content: space-evenly` then spreads that extra height evenly around
+   and between its own rows of table cards — for a section with only one row (every High Grown/
+   Medium Grown/Unorthodox table), that's just an even top/bottom margin; for a many-row section
+   (Low Grown's 5 rows), the extra height splits into 6 even gaps rather than pooling as one big
+   gap in one place. */
 .tableGrid {
   display: grid;
-  gap: 4px;
-  padding: 4px;
+  flex: 1;
+  align-content: space-evenly;
+  gap: var(--mb-tgrid-gap, 3px);
+  padding: var(--mb-tgrid-pad, 3px);
 }
 
 .table {
@@ -183,8 +224,8 @@
 .tableHead {
   display: flex;
   justify-content: space-between;
-  height: 13px;
-  padding: 0 6px;
+  height: var(--mb-thead-h, 16px);
+  padding: 0 7px;
   background: #eef0e6;
   border-bottom: 1px solid #dedacb;
   border-top-left-radius: 2px;
@@ -192,16 +233,16 @@
 }
 .tableHead span:first-child {
   font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8.5px;
-  line-height: 13px;
+  font-size: var(--mb-thead-fs, 11px);
+  line-height: var(--mb-thead-h, 16px);
   font-weight: 700;
   color: #124734;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 .tableHeadUnit {
-  font-size: 7px;
-  line-height: 13px;
+  font-size: var(--mb-thead-unit-fs, 8.5px);
+  line-height: var(--mb-thead-h, 16px);
   font-weight: 500;
   color: #8b929e;
   text-transform: uppercase;
@@ -209,22 +250,23 @@
 }
 .colHead {
   display: flex;
-  padding: 1px 6px;
-  font-size: 6.5px;
+  padding: var(--mb-colhead-pad-v, 1px) 7px;
+  font-size: var(--mb-colhead-fs, 8px);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   color: #a3a696;
+  white-space: nowrap;
 }
 .colHead span:first-child {
   flex: 1;
 }
 .colHead span {
-  flex: 0 0 60px;
+  flex: 0 0 100px;
   text-align: right;
 }
 .colHeadSpacer {
-  flex: 0 0 11px !important;
+  flex: 0 0 20px !important;
 }
 
 /* The actual overlap bug (found by measuring live: a rowVal's real text width vs. its box) was
@@ -239,14 +281,35 @@
    html2canvas — see TopPriceBulletin.module.css's own row/mark comments for that class of bug. */
 .row {
   display: flex;
-  height: 12px;
-  padding: 0 6px;
-  font-size: 8.5px;
-  line-height: 12px;
+  align-items: center;
+  height: var(--mb-row-h, 14px);
+  padding: 0 7px 0 4px;
+  border-left: 3px solid transparent;
+  font-size: var(--mb-row-fs, 10.5px);
+  line-height: var(--mb-row-h, 14px);
   background: #fff;
 }
 .row[data-zebra="true"] {
   background: #f7f5ee;
+}
+/* Subtle accent on the two quality extremes only (see tierAccent's own comment in the .tsx) —
+   a gold rail for the best-quality rows, a rust rail for the worst, so the eye can scan a
+   table's quality shape without reading every label. Left deliberately unaccented for the
+   middle tiers and for non-quality rows (Nuwara Eliya, High/Medium/Low bands) so the color
+   stays a meaningful signal instead of striping every row. */
+.row[data-tier="top"] {
+  border-left-color: #d9b44a;
+  background: rgba(217, 180, 74, 0.08);
+}
+.row[data-tier="top"][data-zebra="true"] {
+  background: rgba(217, 180, 74, 0.14);
+}
+.row[data-tier="poor"] {
+  border-left-color: #a24b3a;
+  background: rgba(162, 75, 58, 0.06);
+}
+.row[data-tier="poor"][data-zebra="true"] {
+  background: rgba(162, 75, 58, 0.11);
 }
 /* No overflow:hidden/text-overflow:ellipsis here — same html2canvas corruption already fought
    and fixed in TopPriceBulletin.module.css's .mark (confirmed there: overflow:hidden on a flex
@@ -257,14 +320,14 @@
 .rowLabel {
   flex: 1;
   min-width: 0;
-  line-height: 12px;
+  line-height: var(--mb-row-h, 14px);
   white-space: nowrap;
   color: #3a4a44;
 }
 .rowVal {
-  flex: 0 0 60px;
+  flex: 0 0 100px;
   min-width: 0;
-  line-height: 12px;
+  line-height: var(--mb-row-h, 14px);
   text-align: right;
   font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
@@ -277,23 +340,170 @@
 .rowValLast {
   color: #97998c;
 }
+/* A small colored pill rather than a bare arrow — the delta is the one genuinely "what
+   changed" signal in the whole table, so it earns a bit more visual weight than plain text. */
 .delta {
-  flex: 0 0 11px;
-  line-height: 12px;
-  text-align: center;
+  flex: 0 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--mb-delta-h, 11px);
+  border-radius: 5px;
   font-weight: 700;
-  font-size: 7.5px;
+  font-size: var(--mb-delta-fs, 8px);
+  line-height: 1;
 }
 .deltaUp {
   color: #1f7a4d;
+  background: rgba(31, 122, 77, 0.15);
 }
 .deltaDown {
   color: #a24b3a;
+  background: rgba(162, 75, 58, 0.15);
+}
+
+/* --- page 4: month-over-month quantity/average-price pie comparison ---------------------------- */
+.monthlyUnit {
+  font-size: 0.75em;
+  font-weight: 500;
+  opacity: 0.75;
+  text-transform: none;
+  letter-spacing: 0.03em;
+}
+.monthlyBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.monthlyLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #6b7a72;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.legendSwatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.pieRowGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pieRowLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #124734;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pieRowLabelSub {
+  font-size: 9px;
+  font-weight: 500;
+  color: #6b7a72;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+.donutRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--mb-donut-gap);
+}
+.donutCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.pieCardBody {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.donutSvg {
+  width: var(--mb-donut-size);
+  height: var(--mb-donut-size);
+  display: block;
+  flex: 0 0 auto;
+}
+.pieLegendList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pieLegendRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+.pieLegendSwatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.pieLegendTier {
+  font-weight: 600;
+  color: #6b7a72;
+  min-width: 34px;
+}
+.pieLegendPrice {
+  font-weight: 700;
+  color: #3a3226;
+}
+.donutLabelThis {
+  max-width: calc(var(--mb-donut-size) * 1.8);
+  text-align: center;
+  line-height: 1.3;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #124734;
+}
+.donutLabelPending {
+  max-width: calc(var(--mb-donut-size) * 1.8);
+  text-align: center;
+  line-height: 1.3;
+  font-size: 9.5px;
+  font-weight: 500;
+  font-style: italic;
+  color: #97998c;
+}
+.pieTotalKg {
+  font-size: 8px;
+  font-weight: 500;
+  color: #97998c;
 }
 
 @media print {
   .bulletin {
     gap: 0;
+    padding: 0;
   }
   .page {
     break-after: page;

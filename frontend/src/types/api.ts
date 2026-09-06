@@ -324,6 +324,26 @@ export interface MarketBulletin {
   sections: BulletinSection[];
 }
 
+export interface MonthlyTierMetrics {
+  tier: string;
+  quantityKg: number | null;
+  averagePrice: number | null;
+  lotCount: number;
+}
+
+export interface MonthlySaleSlot {
+  position: number;
+  sourceName: string | null;
+  tiers: MonthlyTierMetrics[] | null;
+}
+
+export interface MonthlyComparison {
+  thisMonthLabel: string;
+  lastMonthLabel: string;
+  thisMonth: MonthlySaleSlot[];
+  lastMonth: MonthlySaleSlot[];
+}
+
 // ---- worksheet (rough pre-auction scratchpad — never persisted server-side) -----------------
 
 export interface WorksheetRow {
@@ -413,6 +433,13 @@ export interface ScheduledReportOutput {
 export interface SharedMarkCatalogueGenerateResponse {
   outputs: ScheduledReportOutput[];
   unmatchedMarks: string[];
+}
+
+export interface SharedMarkCatalogueSaleInfo {
+  saleYear: number | null;
+  saleNo: number | null;
+  saleDate: string | null;
+  warnings: string[];
 }
 
 export interface StagedCbac {

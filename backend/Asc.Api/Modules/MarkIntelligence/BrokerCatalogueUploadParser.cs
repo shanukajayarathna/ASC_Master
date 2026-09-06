@@ -255,4 +255,160 @@ public static class BrokerCatalogueUploadParser
         BrokerCode.Ctb => ParseCtb(rows, saleNo),
         _ => throw new ArgumentException($"Unknown broker code '{brokerCode}'.", nameof(brokerCode)),
     };
+
+    /// <summary>Best-effort sale year/number/date for ONE already-identified broker's file,
+    /// read from whichever columns that broker's own layout carries — not every broker
+    /// carries all three (JK and LCBL carry none of them at all; ASC/AEB/BC carry year and
+    /// sale number but no date; MB/FW/CTB carry sale number and an actual date, from which
+    /// year is derived). Null fields mean "this broker's file doesn't say", not an error —
+    /// see DetectSaleInfo for combining several brokers' files into one answer.</summary>
+    public static (int? Year, int? SaleNo, DateTime? Date) TryDetectSaleInfo(string brokerCode, CatalogueImportService importer, List<List<string>> rows)
+    {
+        switch (brokerCode)
+        {
+            case BrokerCode.Asc:
+            {
+                // Header-based, like ParseAsc itself — "SaleYear"/"SaleNumber" are this
+                // file's own header text (confirmed live), not a name this app invented.
+                var parsed = ExtractTableViaHeaderRow(importer, rows);
+                var first = parsed.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.GetValueOrDefault("SellingMark")));
+                if (first is null) return (null, null, null);
+                var year = int.TryParse(first.GetValueOrDefault("SaleYear"), out var y) ? y : (int?)null;
+                var saleNo = int.TryParse(first.GetValueOrDefault("SaleNumber"), out var s) ? s : (int?)null;
+                return (year, saleNo, null);
+            }
+            case BrokerCode.Aeb:
+            case BrokerCode.Bc:
+            {
+                // Broker,Year,SaleNo,... for both — row[1]=Year, row[2]=SaleNo.
+                for (var r = FirstDataRow; r < rows.Count; r++)
+                {
+                    var row = rows[r];
+                    if (row.Count < 3) continue;
+                    if (int.TryParse(row[1].Trim(), out var year) && int.TryParse(row[2].Trim(), out var saleNo))
+                        return (year, saleNo, null);
+                }
+                return (null, null, null);
+            }
+            case BrokerCode.Mb:
+            case BrokerCode.Fw:
+            {
+                // Broker,SaleNo,Date,... for both — row[1]=SaleNo, row[2]=Date (MB's own cell
+                // is text "dd/MM/yyyy"; FW's is a real Excel date, which ParseExcel's own
+                // date formatting turns into "yyyy-MM-dd" text — TryParseSaleDate tries both).
+                for (var r = FirstDataRow; r < rows.Count; r++)
+                {
+                    var row = rows[r];
+                    if (row.Count < 3) continue;
+                    if (int.TryParse(row[1].Trim(), out var saleNo))
+                    {
+                        var date = TryParseSaleDate(row[2]);
+                        return (date?.Year, saleNo, date);
+                    }
+                }
+                return (null, null, null);
+            }
+            case BrokerCode.Ctb:
+            {
+                // Broker+SaleNo combined into one column ("CT037"), Date in the next.
+                foreach (var row in rows)
+                {
+                    if (row.Count < 2) continue;
+                    var combined = row[0].Trim().ToUpperInvariant();
+                    if (combined.StartsWith("CT", StringComparison.Ordinal) && combined.Length > 2 &&
+                        int.TryParse(combined[2..], out var saleNo))
+                    {
+                        var date = TryParseSaleDate(row[1]);
+                        return (date?.Year, saleNo, date);
+                    }
+                }
+                return (null, null, null);
+            }
+            default: // JK, LCBL: no Broker/Year/SaleNo/Date columns at all
+                return (null, null, null);
+        }
+    }
+
+    private static DateTime? TryParseSaleDate(string raw)
+    {
+        raw = raw.Trim();
+        if (DateTime.TryParseExact(raw, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var isoDate))
+            return isoDate;
+        if (DateTime.TryParseExact(raw, "dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var slashDate))
+            return slashDate;
+        return null;
+    }
+
+    /// <summary>Combines whichever broker files are on hand (as few as one, as many as all
+    /// 8 — callers use this both for a live guess as files are chosen one at a time and for
+    /// the final zip-upload detection) into one best-effort sale year/number/date, plus a
+    /// human-readable warning for each field the files actually disagree on (never silently
+    /// picks a side when they conflict — surfaces it so the user can check). Year falls back
+    /// to whatever a detected date's own year is when no file states it directly (MB/FW/CTB
+    /// carry a date but not a separate year column).</summary>
+    public static (int? Year, int? SaleNo, DateTime? Date, List<string> Warnings) DetectSaleInfo(
+        IReadOnlyDictionary<string, List<List<string>>> rowsByBroker, CatalogueImportService importer)
+    {
+        var years = new HashSet<int>();
+        var saleNos = new HashSet<int>();
+        var dates = new HashSet<DateTime>();
+
+        foreach (var (broker, rows) in rowsByBroker)
+        {
+            var (year, saleNo, date) = TryDetectSaleInfo(broker, importer, rows);
+            if (year is { } y) years.Add(y);
+            if (saleNo is { } s) saleNos.Add(s);
+            if (date is { } d) dates.Add(d.Date);
+        }
+
+        var warnings = new List<string>();
+        if (years.Count > 1) warnings.Add($"The files disagree on sale year: {string.Join(", ", years.OrderBy(x => x))}.");
+        if (saleNos.Count > 1) warnings.Add($"The files disagree on sale number: {string.Join(", ", saleNos.OrderBy(x => x))}.");
+        if (dates.Count > 1) warnings.Add($"The files disagree on sale date: {string.Join(", ", dates.OrderBy(x => x).Select(d => d.ToString("dd MMM yyyy")))}.");
+
+        var finalDate = dates.Count > 0 ? dates.Min() : (DateTime?)null;
+        var finalYear = years.Count > 0 ? years.Min() : finalDate?.Year;
+        var finalSaleNo = saleNos.Count > 0 ? saleNos.Min() : (int?)null;
+        return (finalYear, finalSaleNo, finalDate, warnings);
+    }
+
+    /// <summary>Identifies which of the 8 brokers a raw file belongs to from its own
+    /// content, not its filename — filenames are inconsistent across sales (confirmed live:
+    /// ASC's own file was "AScat362026xls.xls" for Sale 36 but "cat372026xls.xls" for Sale
+    /// 37, with no "ASC" in the name at all), so a zip's member names can't be trusted.
+    /// Six of the eight files carry their own broker code as the literal first column of
+    /// every data row (confirmed live for both Sale 36 and 37: ASC="AS", AEB="EB", BC="BC",
+    /// MB="MB", FW="FW", CTB="CT037"/"CT036" — a "CT" prefix followed by the sale number) —
+    /// checked against the first few rows in case row 0 is a blank spacer. JK and LCBL carry
+    /// no broker/year/sale columns at all (column 0 is just the numeric LotNo for both), so
+    /// they're told apart from each other by row width instead — confirmed live: JK's rows
+    /// run ~18 columns wide, LCBL's ~13, a wide enough gap that padding differences between
+    /// sales won't close it. Returns null if nothing recognizable enough to make a
+    /// call — never guesses.</summary>
+    public static string? DetectBroker(List<List<string>> rows)
+    {
+        foreach (var row in rows.Take(6))
+        {
+            if (row.Count == 0) continue;
+            var first = row[0].Trim().ToUpperInvariant();
+            switch (first)
+            {
+                case "AS": return BrokerCode.Asc;
+                case "EB": return BrokerCode.Aeb;
+                case "BC": return BrokerCode.Bc;
+                case "MB": return BrokerCode.Mb;
+                case "FW": return BrokerCode.Fw;
+            }
+            if (first.StartsWith("CT", StringComparison.Ordinal) && first.Length > 2 && char.IsDigit(first[2]))
+                return BrokerCode.Ctb;
+
+            // Column 0 is a bare LotNo (no broker/year/sale columns at all) only for JK and
+            // LCBL — row width tells them apart. A LotNo row can appear as early as row 0
+            // (LCBL) or after a blank spacer (JK), so this checks every row in the window
+            // rather than assuming a fixed position.
+            if (int.TryParse(first, out _))
+                return row.Count >= 16 ? BrokerCode.Jk : BrokerCode.Lcbl;
+        }
+        return null;
+    }
 }

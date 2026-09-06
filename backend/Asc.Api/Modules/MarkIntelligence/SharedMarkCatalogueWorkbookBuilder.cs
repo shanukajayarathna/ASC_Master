@@ -10,8 +10,10 @@ namespace Asc.Api.Modules.MarkIntelligence;
 /// column per sale number in the display month, including future weeks with no data yet,
 /// plus a running "Month" total and — Low Grown only — a running "Year" total), a
 /// "Factory Name" row underneath it with each week's actual date, then one block per
-/// Selling Mark ordered by Trade Mark/Factory code (not name — see
-/// SharedMarkCatalogueRow.Code): a bold name row followed by one row per broker with that
+/// Factory (every sub-mark under the same factory code already merged into one row by
+/// SharedMarkCatalogueService — per explicit instruction, same factory code number means
+/// one row) ordered by that Factory code (not name — see SharedMarkCatalogueRow.Code): a
+/// bold name row followed by one row per broker with that
 /// broker's per-week catalogued quantity, ASC first. A week that hasn't happened yet is left
 /// genuinely blank; a week that has happened with a real recorded quantity of zero shows an
 /// explicit "0" on a red fill — see WriteQtyCell's own comment for why those are kept
@@ -80,6 +82,20 @@ internal static class SharedMarkCatalogueWorkbookBuilder
 
         var brokerLabelStyle = wb.CreateCellStyle();
         ApplyGridBorders(brokerLabelStyle);
+
+        // A genuine Orthodox/CTC pair (SharedMarkCatalogueService.PairOrthodoxAndCtc) gets
+        // one shared factory-name header, then each side's own bold, green-filled "ORTHODOX"/
+        // "CTC" label row before its broker rows — matching the original hand-built PDF's own
+        // sub-block styling for exactly these factories (confirmed live: Danawala, Brombil,
+        // Alagalla, Liverpool).
+        var productionLabelStyle = wb.CreateCellStyle();
+        var productionLabelFont = wb.CreateFont();
+        productionLabelFont.IsBold = true;
+        productionLabelFont.IsItalic = true;
+        productionLabelStyle.SetFont(productionLabelFont);
+        productionLabelStyle.FillForegroundColor = IndexedColors.LightGreen.Index;
+        productionLabelStyle.FillPattern = FillPattern.SolidForeground;
+        ApplyGridBorders(productionLabelStyle);
 
         var qtyStyle = wb.CreateCellStyle();
         qtyStyle.DataFormat = wb.CreateDataFormat().GetFormat("#,##0");
@@ -167,15 +183,36 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         // EstateName) per explicit instruction — e.g. "BF..." codes sort ahead of "MF..."/
         // "SS..." ones — via CodeSortKey's numeric sort, not a plain string compare (which
         // would put "MF10" ahead of "MF2"). SharedMarkCatalogueService.BuildRows already
-        // returns rows in this order, so this just re-asserts it rather than trusting
-        // caller order silently.
+        // returns rows in this order (which also keeps a paired Orthodox/CTC row adjacent to
+        // its sibling, immediately after it), so this just re-asserts it rather than
+        // trusting caller order silently.
+        var orderedRows = rows.OrderBy(x => SharedMarkCatalogueService.CodeSortKey(x.Code)).ThenBy(x => x.EstateName, StringComparer.OrdinalIgnoreCase).ToList();
+
         var r = 3;
-        foreach (var row in rows.OrderBy(x => SharedMarkCatalogueService.CodeSortKey(x.Code)).ThenBy(x => x.EstateName, StringComparer.OrdinalIgnoreCase))
+        SharedMarkCatalogueRow? previous = null;
+        foreach (var row in orderedRows)
         {
-            var nameRow = ws.CreateRow(r++);
-            var nameCell = nameRow.CreateCell(labelCol);
-            nameCell.SetCellValue(row.EstateName);
-            nameCell.CellStyle = estateNameStyle;
+            // A paired CTC row immediately following its own Orthodox sibling shares that
+            // sibling's factory-name header instead of getting a second one of its own —
+            // matching the original's one-factory-header, two-labeled-sub-blocks layout.
+            var continuesPair = row.ProductionLabel == "Ctc" && previous?.ProductionLabel == "Orthodox" &&
+                string.Equals(previous.FactoryDisplayName, row.FactoryDisplayName, StringComparison.OrdinalIgnoreCase);
+            if (!continuesPair)
+            {
+                var nameRow = ws.CreateRow(r++);
+                var nameCell = nameRow.CreateCell(labelCol);
+                nameCell.SetCellValue(row.FactoryDisplayName ?? row.EstateName);
+                nameCell.CellStyle = estateNameStyle;
+            }
+            previous = row;
+
+            if (row.ProductionLabel is { } label)
+            {
+                var labelRow = ws.CreateRow(r++);
+                var labelCell = labelRow.CreateCell(labelCol);
+                labelCell.SetCellValue(label.ToUpperInvariant());
+                labelCell.CellStyle = productionLabelStyle;
+            }
 
             var brokers = row.SaleQtyByBrokerAndSaleNo.Keys
                 .Union(row.MonthQtyByBroker.Keys, StringComparer.OrdinalIgnoreCase)

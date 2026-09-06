@@ -94,7 +94,7 @@ const REPORT_TILES: NavItem[] = [
   },
   {
     href: "/reports/market-bulletin",
-    label: "Weekly Market Bulletin",
+    label: "Weekly Market Grade Classification/Quotation",
     section: "Reports",
     status: "live",
     description: "Select Best/Best/Below Best/Poor price-tier ranges per grade, this sale vs last, replicating the printed market bulletin.",

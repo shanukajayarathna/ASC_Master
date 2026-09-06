@@ -20,11 +20,18 @@ public class SharedMarkCatalogueServiceTests
             markCodeIndex ?? new Dictionary<string, (string Name, string Elevation)>();
     }
 
+    // Factory is derived from the given code with the trailing letter stripped, matching how
+    // real /data/sales rows carry it separately from Trade Mark (e.g. Lot("MF1188A", ...)
+    // gets Factory "MF1188", the same way "BF0020"/"BF0020A" both genuinely carry Factory
+    // "BF0020" in real data) — used only by PairOrthodoxAndCtc's physical-factory matching.
+    // Mark keeps the letter, unchanged: GroupKey (BuildRows' own primary grouping) reads
+    // Mark, not Factory — see this class's own doc comment.
     private static Lot Lot(string code, string sellingMark, string broker, decimal netWeight,
-        bool isReprint = false, string elevation = "L", int saleNo = 36) => new()
+        bool isReprint = false, string elevation = "L", int saleNo = 36, string? factoryName = null) => new()
     {
-        Factory = code,
-        Mark = code, // the grouping/lookup key BuildRows actually reads — see GroupKey
+        Factory = SharedMarkCatalogueService.NormalizeMarkCode(code),
+        Mark = code,
+        FactoryName = factoryName,
         SellingMark = sellingMark,
         Broker = broker,
         NetWeight = netWeight,
@@ -52,32 +59,72 @@ public class SharedMarkCatalogueServiceTests
     }
 
     [Fact]
-    public void SharedMarkCode_NeverMerges_WhenTrailingLetterDistinguishesRealMarks()
+    public void SharedFactoryCode_MergesSubMarks_WhenTrailingLetterIsTheOnlyDifference()
     {
-        // Confirmed against real Sale 36/2026 data: "GREEN MOUNT" is MF1188, "GREEN MOUNT
-        // SUPER" is MF1188A — genuinely different marks, distinguished only by the trailing
-        // letter. GroupKey (NormalizeMarkCode) deliberately keeps that letter rather than
-        // stripping it. A base-factory-number merge (stripping the letter, treating every
-        // sub-mark of a factory as one row) was tried per explicit instruction — confirmed
-        // live to be genuinely correct for some pairs (Watadeniya/BF0020 + Ransirini/BF0020A
-        // really are the same factory) — but checking a real hand-built reference for Sale
-        // 37/2026 turned up THREE different correct behaviors for three different
-        // same-base-number families in that one dataset: full merge (Watadeniya/Ransirini),
-        // separately-labeled Orthodox/CTC sub-blocks never summed (Danawala, Brombil), and
-        // one sibling shown alone while the other doesn't appear at all, merged or separate
-        // (Liverpool/Liverpool Super) — with no signal in the code, the name, or the grade
-        // that reliably predicts which applies. Per explicit instruction this is shelved
-        // until there's a reliable per-factory mapping, so back to never merging: MF1188 and
-        // MF1188A stay separate rows, no matter how similar their names look.
+        // Per explicit instruction, confirmed by auditing a hand-built reference for Sale
+        // 37/2026 against /data/sales: same factory code number means the same factory, and
+        // every non-CTC sub-mark under it merges into one row — including genuinely
+        // different-NAMED products that just happen to share a factory (confirmed live:
+        // Boscombe/MF0594 and the differently-named "Kinkini"/MF0594A share one Factory; the
+        // reference's own "Boscombe" line matches our Boscombe+Kinkini combined total
+        // exactly, week by week and Year-to-date — see
+        // SameFactorySiblingWithDifferentName_StillMerges_UnlessCtcFlavored). "GREEN MOUNT"
+        // (MF1188) and "GREEN MOUNT SUPER" (MF1188A) are the same kind of case: neither name
+        // is CTC-flavored, so they merge into one row, labeled by whichever Factory Name/
+        // Selling Mark was seen first.
         var rows = Build(
             Lot("MF1188", "GREEN MOUNT", "ASC", 880),
             Lot("MF1188A", "GREEN MOUNT SUPER", "ASC", 940),
             Lot("MF1188", "GREEN MOUNT", "BC", 1000),
             Lot("MF1188A", "GREEN MOUNT SUPER", "BC", 1200));
 
-        Assert.Equal(2, rows.Count);
-        Assert.Equal(880, SaleQty(rows.Single(r => r.EstateName == "Green Mount"), "ASC"));
-        Assert.Equal(940, SaleQty(rows.Single(r => r.EstateName == "Green Mount Super"), "ASC"));
+        var row = Assert.Single(rows);
+        Assert.Equal("Green Mount", row.EstateName); // first-seen Selling Mark — no Factory Name on file here
+        Assert.Equal("MF1188", row.Code);
+        Assert.Equal(1820, SaleQty(row, "ASC"));
+        Assert.Equal(2200, SaleQty(row, "BC"));
+        Assert.Null(row.ProductionLabel);
+    }
+
+    [Fact]
+    public void EstateName_PrefersFactoryName_OverFirstSeenSellingMark()
+    {
+        // Confirmed live: /data/sales' General Report carries a real "Factory Name" column
+        // (e.g. "WATADENIYA TEA FACORY") distinct from Selling Mark. A row's display name
+        // should show the real Factory Name once any of its own lots carries one, even when
+        // an earlier lot for that same code had none — first-seen-wins for a *fallback*, but
+        // a real Factory Name always wins once seen.
+        var rows = Build(
+            Lot("BF0020", "WATADENIYA", "ASC", 500), // no Factory Name on this lot
+            Lot("BF0020", "WATADENIYA", "MC", 300, factoryName: "WATADENIYA TEA FACORY"),
+            Lot("BF0020", "WATADENIYA", "ASC", 400));
+
+        var row = Assert.Single(rows);
+        Assert.Equal("Watadeniya Tea Facory", row.EstateName);
+        Assert.Equal(900, SaleQty(row, "ASC"));
+    }
+
+    [Fact]
+    public void SameFactorySiblingWithDifferentName_StillMerges_UnlessCtcFlavored()
+    {
+        // Confirmed live against Sale 37/2026: Boscombe (MF0594) and "Kinkini" (MF0594A)
+        // share one Factory code AND one Factory Name ("BOSCOMBE TEA FACTORY") in the real
+        // /data/sales file despite being two distinct, differently-named products — and the
+        // hand-built reference's own "Boscombe" line turns out to be exactly their combined
+        // total (confirmed by matching its ASC figures week-by-week and Year-to-date). Per
+        // explicit instruction this merges into one row like any other same-factory pair,
+        // since neither side is CTC-flavored.
+        var rows = Build(
+            Lot("MF0594", "BOSCOMBE", "ASC", 1910, factoryName: "BOSCOMBE TEA FACTORY"),
+            Lot("MF0594", "BOSCOMBE", "BC", 3910, factoryName: "BOSCOMBE TEA FACTORY"),
+            Lot("MF0594A", "KINKINI", "ASC", 320, factoryName: "BOSCOMBE TEA FACTORY"),
+            Lot("MF0594A", "KINKINI", "BC", 350, factoryName: "BOSCOMBE TEA FACTORY"));
+
+        var row = Assert.Single(rows);
+        Assert.Equal("Boscombe Tea Factory", row.EstateName);
+        Assert.Null(row.ProductionLabel);
+        Assert.Equal(2230, SaleQty(row, "ASC"));
+        Assert.Equal(4260, SaleQty(row, "BC"));
     }
 
     [Fact]
@@ -105,15 +152,16 @@ public class SharedMarkCatalogueServiceTests
     }
 
     [Fact]
-    public void CtcSellingMark_IsItsOwnRow_LikeAnyOtherDistinctMark()
+    public void DualProductionFactory_SplitsIntoSeparateOrthodoxAndCtcRows()
     {
-        // Confirmed against real Sale 36/2026 data: Brombil's Orthodox and CTC lines carry
-        // different codes (MF1465 vs MF1465C) even though they're the same physical estate —
-        // the CTC suffix lands on the code, not just the name, so they stay separate rows
-        // without any special-casing for "Ctc" in the name. A real hand-built reference for
-        // Sale 37/2026 confirms this: Orthodox and CTC lines render as separately labeled
-        // sub-blocks, never summed together — merging them into one flat row (tried and
-        // reverted — see this class's own doc comment) would have been wrong.
+        // Confirmed against real Sale 36/2026 data and per explicit instruction: a factory
+        // that genuinely runs both Orthodox and CTC (Brombil's Orthodox line is MF1465,
+        // "DANAWALA"/"DANAWALA CTC" is the same real-data pattern under Factory "MF1375")
+        // shows as two separate rows — matching the original hand-built manual PDF's own
+        // Orthodox/CTC sub-blocks — not folded into one combined total the way a factory
+        // whose sub-marks are all the same production type does (see
+        // SharedFactoryCode_MergesSubMarks_WhenTrailingLetterIsTheOnlyDifference). The CTC
+        // side is identified from the Selling Mark's own "CTC" wording, not the code.
         var rows = Build(
             Lot("MF1465", "BROMBIL", "ASC", 5596, elevation: "L"),
             Lot("MF1465", "BROMBIL", "CT", 500, elevation: "L"),
@@ -121,8 +169,34 @@ public class SharedMarkCatalogueServiceTests
             Lot("MF1465C", "BROMBIL CTC", "CT", 300, elevation: "L"));
 
         Assert.Equal(2, rows.Count);
-        Assert.Equal(5596, SaleQty(rows.Single(r => r.EstateName == "Brombil"), "ASC"));
-        Assert.Equal(9600, SaleQty(rows.Single(r => r.EstateName == "Brombil Ctc"), "ASC"));
+        var orthodox = rows.Single(r => r.EstateName == "Brombil");
+        var ctc = rows.Single(r => r.EstateName == "Brombil Ctc");
+        Assert.Equal(5596, SaleQty(orthodox, "ASC"));
+        Assert.Equal(500, SaleQty(orthodox, "CT"));
+        Assert.Equal(9600, SaleQty(ctc, "ASC"));
+        Assert.Equal(300, SaleQty(ctc, "CT"));
+        Assert.Equal("Low Grown", orthodox.ElevationBucket);
+        Assert.Equal("Low Grown", ctc.ElevationBucket);
+        Assert.Equal("Orthodox", orthodox.ProductionLabel);
+        Assert.Equal("Ctc", ctc.ProductionLabel);
+        Assert.Equal("Brombil", orthodox.FactoryDisplayName);
+        Assert.Equal("Brombil", ctc.FactoryDisplayName);
+    }
+
+    [Fact]
+    public void CtcOnlySubMark_DoesNotSplit_WhenFactoryHasNoOrthodoxSide()
+    {
+        // A factory whose Selling Mark always happens to say "Ctc" but never has any
+        // non-CTC sibling isn't "a factory with these 2 productions" — nothing to split
+        // against, so it renders as one plain row like any single-production factory,
+        // exactly as before this feature.
+        var rows = Build(
+            Lot("MF7777", "SOLITARY CTC", "ASC", 700),
+            Lot("MF7777", "SOLITARY CTC", "JK", 600));
+
+        var row = Assert.Single(rows);
+        Assert.Equal("Solitary Ctc", row.EstateName);
+        Assert.Equal(700, SaleQty(row, "ASC"));
     }
 
     [Fact]
@@ -315,7 +389,7 @@ public class SharedMarkCatalogueServiceTests
         var historicalCatalogue = new Catalogue { Id = Guid.NewGuid(), Year = 2026, ImportedAt = new DateTime(2026, 9, 9) };
         var markCodeIndex = new Dictionary<string, (string Name, string Elevation)>
         {
-            ["MF1528A"] = ("Misa Tea", "L"),
+            ["MF1528|ORTHODOX"] = ("Misa Tea", "L"), // SubGroupKey: factory code (trailing letter stripped) + production side
         };
         var source = new FakeCatalogueSource(historicalCatalogue, [], markCodeIndex);
         var service = new SharedMarkCatalogueService(source);
@@ -332,6 +406,50 @@ public class SharedMarkCatalogueServiceTests
         var row = Assert.Single(result.Rows);
         Assert.Equal("Misa Tea", row.EstateName);
         Assert.Equal("Low Grown", row.ElevationBucket);
+        Assert.Empty(result.UnmatchedMarks);
+    }
+
+    [Fact]
+    public async Task AggregateFromUpload_DualProductionFactory_CanonicalizesEachSideFromItsOwnHistory_NotTheOtherSides()
+    {
+        // Regression for a real bug found while building the Orthodox/CTC split: a raw
+        // pre-sale upload carries no elevation, so both its Orthodox and CTC lots get their
+        // Elevation/Selling Mark resolved from history by factory code. Danawala's real
+        // Factory Name is the plain "DANAWALA" for BOTH its Orthodox and CTC lots (confirmed
+        // live) — a plain factory-level lookup can't tell the two sides apart, so it could
+        // hand the CTC lot the Orthodox side's name (or vice versa), erasing the "Ctc"
+        // wording BuildRows' own split relies on and silently turning two rows back into
+        // one. The fix looks up each side against its OWN historical entry (SubGroupKey), so
+        // canonicalizing never crosses from one production type to the other.
+        var historicalCatalogue = new Catalogue { Id = Guid.NewGuid(), Year = 2026, ImportedAt = new DateTime(2026, 9, 9) };
+        var historicalLots = new List<Lot>
+        {
+            Lot("MF1375", "DANAWALA", "ASC", 400, saleNo: 34, factoryName: "DANAWALA"),
+            Lot("MF1375B", "DANAWALA CTC", "ASC", 300, saleNo: 34, factoryName: "DANAWALA"),
+        };
+        var source = new FakeCatalogueSource(historicalCatalogue, historicalLots);
+        var service = new SharedMarkCatalogueService(source);
+
+        // Raw upload files carry no elevation at all — both lots start blank, exactly like a
+        // real pre-sale broker file.
+        var uploaded = new List<Lot>
+        {
+            Lot("MF1375", "DANAWALA", "ASC", 4000, saleNo: 36),
+            Lot("MF1375", "DANAWALA", "BC", 16100, saleNo: 36),
+            Lot("MF1375B", "DANAWALA CTC", "ASC", 3780, saleNo: 36),
+            Lot("MF1375B", "DANAWALA CTC", "BC", 18000, saleNo: 36),
+        };
+        foreach (var lot in uploaded) lot.Elevation = null;
+
+        var result = await service.AggregateFromUploadAsync(2026, 36, new DateTime(2026, 9, 16), uploaded, CancellationToken.None);
+
+        Assert.Equal(2, result.Rows.Count);
+        var orthodox = result.Rows.Single(r => r.EstateName == "Danawala");
+        var ctc = result.Rows.Single(r => r.EstateName == "Danawala Ctc");
+        Assert.Equal(4000, SaleQty(orthodox, "ASC"));
+        Assert.Equal(3780, SaleQty(ctc, "ASC"));
+        Assert.Equal("Orthodox", orthodox.ProductionLabel);
+        Assert.Equal("Ctc", ctc.ProductionLabel);
         Assert.Empty(result.UnmatchedMarks);
     }
 

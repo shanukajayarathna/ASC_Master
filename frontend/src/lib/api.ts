@@ -32,6 +32,7 @@ import type {
   FilteredAnalytics,
   FilteredLots,
   MarketBulletin,
+  MonthlyComparison,
   MarketInsight,
   MarketPulseCategory,
   MarketPulseFilters,
@@ -70,6 +71,7 @@ import type {
   ScheduledReportJob,
   ScheduledReportOutput,
   SharedMarkCatalogueGenerateResponse,
+  SharedMarkCatalogueSaleInfo,
   StagedCbac,
   TopBottomLot,
   UnmappedMasterDataValue,
@@ -534,6 +536,11 @@ export const api = {
     request<AuctionReport>(`/api/v1/auction-reports/${catalogueId}/${reportKey}`),
 
   getMarketBulletin: (catalogueId: string) => request<MarketBulletin>(`/api/v1/market-bulletin/${catalogueId}`),
+
+  // Month-over-month quantity/average-price comparison for the bulletin's 4th page — 204 (no
+  // body) when the catalogue's SourceName doesn't match "Sale N - YYYY", which request() already
+  // resolves to undefined.
+  getMarketBulletinMonthly: (catalogueId: string) => request<MonthlyComparison | undefined>(`/api/v1/market-bulletin/${catalogueId}/monthly`),
 
   // Combined Report from an uploaded workbook instead of an imported Catalogue — mirrors the
   // original standalone tool's own single-dropzone flow for a sale that isn't in the system yet.
@@ -1094,6 +1101,58 @@ export const api = {
       const text = await res.text().catch(() => "");
       throw new Error(text || "Couldn't generate this report from the uploaded files");
     }
+    return res.json();
+  },
+
+  /** A single zip containing all 8 broker files, the usual way they're shared around —
+   *  each entry's broker is identified from its own content on the backend, not its
+   *  filename (filenames vary unpredictably between sales), so there's nothing to name or
+   *  order the files by on this end. */
+  generateSharedMarkCatalogueSummaryFromZip: async (
+    zipFile: File,
+    saleYear: number,
+    saleNo: number,
+    saleDate: string,
+  ): Promise<SharedMarkCatalogueGenerateResponse> => {
+    const form = new FormData();
+    form.append("saleYear", String(saleYear));
+    form.append("saleNo", String(saleNo));
+    form.append("saleDate", saleDate);
+    form.append("zipFile", zipFile);
+    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-zip`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Couldn't generate this report from the uploaded zip");
+    }
+    return res.json();
+  },
+
+  /** Best-effort sale year/number/date read straight out of whichever broker files are
+   *  already on hand — pass a zip, or whatever subset of the 8 individual files the user
+   *  has picked so far (as few as one). Most of the 8 already carry this in their own data,
+   *  so there's no need to type it in by hand. Never errors on missing/ambiguous info —
+   *  returns whatever it could find (including all nulls), plus a plain-English warning for
+   *  any field the files actually disagree on. This is only ever a starting guess for the
+   *  form fields, never a requirement — the caller decides whether/how to use it. */
+  detectSharedMarkCatalogueSaleInfo: async (
+    filesOrZip: { zipFile: File } | { files: Record<string, File | undefined> },
+  ): Promise<SharedMarkCatalogueSaleInfo> => {
+    const form = new FormData();
+    if ("zipFile" in filesOrZip) {
+      form.append("zipFile", filesOrZip.zipFile);
+    } else {
+      for (const [broker, file] of Object.entries(filesOrZip.files)) if (file) form.append(`file_${broker}`, file);
+    }
+    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/detect-sale-info`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) return { saleYear: null, saleNo: null, saleDate: null, warnings: [] };
     return res.json();
   },
 

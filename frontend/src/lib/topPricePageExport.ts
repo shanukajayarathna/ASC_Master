@@ -14,10 +14,15 @@
    region cards.
 
    The on-screen bulletin itself is TopPriceBulletin.tsx (a real DOM
-   component, not built here) — this file supplies the layout (
-   planTppBulletinAutoFit) it renders from, and exportTopPricePagePdf
-   screenshots that rendered DOM into the PDF (html2canvas), rather than
-   redrawing it a second time as vector PDF.
+   component, not built here) — this file supplies the layout
+   (planTppBulletinAutoFit) it renders from. PDF export is a real
+   headless-Chromium print of that same component (see
+   print/top-price-page/page.tsx and api/reports/top-price-page-pdf/
+   route.ts), not built here — a prior html2canvas-screenshot approach
+   lived in this file but was removed after it turned out to genuinely
+   corrupt dense report rows in the exported PDF (see
+   api/reports/market-bulletin-pdf/route.ts's doc comment for the same
+   underlying rendering-engine issue, found first on a different report).
 
    Scope note: the original's "Top Price Page" is normally built inside
    an interactive WYSIWYG editor (asc-studio.js's mountStudio) that lets
@@ -35,7 +40,6 @@
 
 import type { AuctionReport, CombinedReport, RankedLotRow } from "@/types/api";
 import ExcelJS from "exceljs";
-import { jsPDF } from "jspdf";
 
 // ---- REGION GROUPING — port of asc-analytics.js's regionForItem/topPricePage ---------------
 
@@ -774,10 +778,10 @@ export interface TppPage {
 }
 
 /** Which entries land on which page, in which column — the one place page/column placement is
- *  decided; the Excel exporter builds straight off this. budget/maxCols default to the Excel
- *  page's own CSS-px-derived numbers; the PDF exporter passes its own real mm-based metrics
- *  instead (see exportTopPricePagePdf), so both formats still agree on WHICH cards share a page
- *  even though PDF's own heights are exact rather than estimated. */
+ *  decided; the Excel exporter builds straight off this, and planTppBulletinAutoFit (the
+ *  on-screen bulletin's own layout, also what PDF export renders unmodified) passes its own
+ *  real mm-based metrics instead, so both formats still agree on WHICH cards share a page
+ *  even though the bulletin's own heights are exact rather than estimated. */
 export function planRegionPageLayout(entries: TppRegionEntry[], budget = TPP_REGION_PAGE_BUDGET, maxCols = TPP_REGION_COLUMNS): TppPage[] {
   const pageEntries: TppRegionEntry[][] = [];
   let remaining = entries;
@@ -1217,100 +1221,4 @@ export async function exportTopPricePageExcel(combined: CombinedReport, referenc
   a.download = `top-price-page-sale-${meta.auctionNumber || "draft"}-${dateStamp()}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-// ---- PDF EXPORT ------------------------------------------------------------------------------
-// Matches the original tool's own approach exactly: the bulletin is a real on-screen DOM
-// component (TopPriceBulletin.tsx, driven by planTppBulletinAutoFit + the banded layout above),
-// and exportTopPricePagePdf screenshots each already-rendered page (html2canvas) into the PDF —
-// see that function's own doc comment. No vector-drawing left here at all; colors/fonts for the
-// bulletin itself live in TopPriceBulletin.module.css, matching the original's actual on-screen
-// theme (asc-components.css §K2 / asc-tokens.css's default "asia-siyaka" theme) — not the Excel
-// exporter's own separately-hardcoded TPP_XL_* palette below, which was already independently
-// styled in the original (Excel's Reference Data panels use navy; the bulletin uses forest
-// green, both intentional).
-
-/** Screenshots each already-rendered `.page` DOM node (TopPriceBulletin.tsx) into a JPEG and
- *  stitches those into a multi-page PDF — exactly the original report-studio.js tool's own
- *  exportPDF(): every page's PDF size comes from that page's OWN captured pixel dimensions
- *  (converted 1 CSS px = 72/96 pt, dividing back out the 2x oversampling), not a fixed A4
- *  constant, so the export always matches whatever actually rendered instead of assuming a
- *  physical size the banded layout only ever *targets*. JPEG (not PNG) at high quality for the
- *  same reason the original adopted it: a 2x PNG of this dense a bulletin ran 60MB+ in testing;
- *  a 0.95-quality JPEG is visually indistinguishable at print/viewing scale and an order of
- *  magnitude smaller. There is no separate Reference Data page here — the original's own
- *  exportPDF only ever captures the ranked-region bulletin pages themselves (Excel is the only
- *  format with a Reference Data sheet — see writeReferenceSheet). */
-export async function exportTopPricePagePdf(pageElements: HTMLElement[], meta: TppMeta): Promise<void> {
-  if (pageElements.length === 0) throw new Error("No bulletin pages to export — generate the report first.");
-
-  const { default: html2canvas } = await import("html2canvas");
-  // 3x, not the original tool's 2x — this bulletin's own type runs smaller (compact density's
-  // 7-8px rows) than what the original ever had to capture, and text at that size visibly
-  // softened under html2canvas at 2x (reported as "not clear as the preview"). 3x costs a
-  // larger JPEG but is still an order of magnitude under the PNG size that pushed the original
-  // to JPEG in the first place.
-  const CAPTURE_SCALE = 3;
-  const JPEG_QUALITY = 0.95;
-
-  // Web fonts (Fraunces/IBM Plex Mono, layout.tsx) must have actually finished loading before
-  // capture — html2canvas paints whatever font is resolved at that exact instant, and a capture
-  // that beats the font swap silently falls back to the browser's generic serif/monospace,
-  // which is a second, independent reason exported text looked different from the preview
-  // (the preview had strictly more time to finish loading them before anyone looked at it).
-  await document.fonts.ready;
-
-  // One frame so freshly laid-out content (e.g. a page whose density/catalogue just changed,
-  // or a page scrolled into view for the first time) has actually painted before capture —
-  // the original tool's own exportPDF() does the same wait for the same reason. Skipping this
-  // is what produces html2canvas's "canvas element with a width or height of 0" error: it
-  // measures an element mid-layout, before the browser has given it real dimensions.
-  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 60)));
-
-  let doc: jsPDF | null = null;
-  for (const [pageIndex, el] of pageElements.entries()) {
-    // Diagnostic-only: log (never throw on) any descendant whose own rendered box is 0 in
-    // either dimension, since that's exactly what makes html2canvas's internal gradient/clip
-    // canvases end up 0-sized too ("canvas element with a width or height of 0" — the error
-    // this is here to actually pin down instead of guessing again). Left in permanently; it's
-    // silent unless something really is 0-sized, in which case this is the fastest way to find
-    // out which element and why.
-    const rect = el.getBoundingClientRect();
-    const zeroSized: string[] = [];
-    el.querySelectorAll("*").forEach((node) => {
-      const r = node.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) {
-        zeroSized.push(`<${node.tagName.toLowerCase()} class="${(node as HTMLElement).className}"> ${r.width}x${r.height} text="${(node.textContent ?? "").slice(0, 30)}"`);
-      }
-    });
-    console.info(
-      `[exportTopPricePagePdf] page ${pageIndex + 1}/${pageElements.length}: ${rect.width}x${rect.height}` +
-        (zeroSized.length ? `, ${zeroSized.length} zero-sized descendant(s):\n  ${zeroSized.slice(0, 20).join("\n  ")}` : ", no zero-sized descendants")
-    );
-
-    let canvas: HTMLCanvasElement;
-    try {
-      // foreignObjectRendering:true (delegating paint to an inline SVG <foreignObject> instead
-      // of html2canvas's own JS re-implementation of layout/text) was tried here to fix the
-      // Selling Mark column's glyph-clipping below — it made it worse, producing a fully blank
-      // captured page instead, so it's deliberately NOT used. Left off; see .mark's own CSS
-      // fix in TopPriceBulletin.module.css for how the actual clipping got fixed instead.
-      canvas = await html2canvas(el, { scale: CAPTURE_SCALE, backgroundColor: "#FCFBF8", useCORS: true });
-    } catch (err) {
-      console.error(`[exportTopPricePagePdf] html2canvas threw on page ${pageIndex + 1}/${pageElements.length} (rect ${rect.width}x${rect.height}):`, err);
-      throw err;
-    }
-    const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-    const wPt = (canvas.width / CAPTURE_SCALE) * (72 / 96);
-    const hPt = (canvas.height / CAPTURE_SCALE) * (72 / 96);
-    const orientation = wPt > hPt ? "landscape" : "portrait";
-    if (!doc) {
-      doc = new jsPDF({ unit: "pt", format: [wPt, hPt], orientation });
-    } else {
-      doc.addPage([wPt, hPt], orientation);
-    }
-    doc.addImage(dataUrl, "JPEG", 0, 0, wPt, hPt);
-  }
-
-  doc!.save(`top-price-page-sale-${meta.auctionNumber || "draft"}-${dateStamp()}.pdf`);
 }

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Asc.Api.Modules.ScheduledReports;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -86,6 +87,131 @@ public class SharedMarkCatalogueController(
         }
 
         return await BuildResponseAsync(result, ct);
+    }
+
+    /// <summary>Same idea as generate-from-upload, but for a single zip file containing all
+    /// 8 broker files instead of 8 separate form fields — the usual way these get shared
+    /// around in practice. Each entry's broker is identified from its own content
+    /// (BrokerCatalogueUploadParser.DetectBroker), not its filename: filenames vary
+    /// unpredictably between sales (confirmed live: ASC's own file was
+    /// "AScat362026xls.xls" for Sale 36 but "cat372026xls.xls" for Sale 37, with no "ASC"
+    /// in the name at all), so a zip member's name can't be trusted to say which broker it
+    /// is.</summary>
+    [HttpPost("generate-from-zip")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<GenerateResponseDto>> GenerateFromZip(
+        [FromForm] int saleYear, [FromForm] int saleNo, [FromForm] DateTime saleDate, IFormFile zipFile, CancellationToken ct)
+    {
+        if (saleYear <= 0 || saleNo <= 0) return BadRequest("Sale year and sale number are both required.");
+        if (zipFile is null || zipFile.Length == 0) return BadRequest("A zip file is required.");
+
+        var (rowsByBroker, unidentified, duplicates) = await ExtractZipEntriesAsync(zipFile, ct);
+
+        if (unidentified.Count > 0)
+            return BadRequest($"Couldn't identify the broker for: {string.Join(", ", unidentified)}. Check these are the right files.");
+        if (duplicates.Count > 0)
+            return BadRequest($"More than one file in the zip matched the same broker: {string.Join(", ", duplicates)}.");
+        var missingFromZip = BrokerCode.All.Where(code => !rowsByBroker.ContainsKey(code)).ToList();
+        if (missingFromZip.Count > 0)
+            return BadRequest($"All 8 broker files are required. Missing from the zip: {string.Join(", ", missingFromZip)}.");
+
+        var allLots = new List<Models.Lot>();
+        foreach (var code in BrokerCode.All)
+        {
+            var lots = BrokerCatalogueUploadParser.Parse(code, importer, rowsByBroker[code], saleNo);
+            if (lots.Count == 0) return BadRequest($"Couldn't read any lots from the {code} file — check it's the right file/format.");
+            allLots.AddRange(lots);
+        }
+
+        GenerationResult result;
+        try
+        {
+            result = await generator.GenerateFromUploadAsync(saleYear, saleNo, saleDate, allLots, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        return await BuildResponseAsync(result, ct);
+    }
+
+    public record DetectSaleInfoResponseDto(int? SaleYear, int? SaleNo, string? SaleDate, List<string> Warnings);
+
+    /// <summary>Best-effort sale year/number/date read straight out of whichever broker
+    /// files are already on hand — as few as one (a live guess while the user is still
+    /// picking files individually) or all 8 in a zip. Most of the 8 files already carry
+    /// this in their own data (see BrokerCatalogueUploadParser.TryDetectSaleInfo for which
+    /// ones and how), so there's no reason to make the user type it in by hand when it's
+    /// already sitting in the upload. Never required to succeed and never the final word —
+    /// the caller's own form fields stay the source of truth for generation; this only ever
+    /// supplies a starting guess, returning whatever partial answer it can (including all
+    /// nulls) rather than an error when a field can't be determined.</summary>
+    [HttpPost("detect-sale-info")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<DetectSaleInfoResponseDto>> DetectSaleInfo(CancellationToken ct)
+    {
+        Dictionary<string, List<List<string>>> rowsByBroker;
+
+        var zipFile = Request.Form.Files.GetFile("zipFile");
+        if (zipFile is { Length: > 0 })
+        {
+            (rowsByBroker, _, _) = await ExtractZipEntriesAsync(zipFile, ct);
+        }
+        else
+        {
+            rowsByBroker = new Dictionary<string, List<List<string>>>();
+            foreach (var code in BrokerCode.All)
+            {
+                var file = Request.Form.Files.GetFile($"file_{code}");
+                if (file is null) continue;
+                await using var stream = file.OpenReadStream();
+                rowsByBroker[code] = importer.ParseExcel(stream);
+            }
+        }
+
+        var (year, saleNo, date, warnings) = BrokerCatalogueUploadParser.DetectSaleInfo(rowsByBroker, importer);
+        return Ok(new DetectSaleInfoResponseDto(year, saleNo, date?.ToString("yyyy-MM-dd"), warnings));
+    }
+
+    /// <summary>Shared by generate-from-zip and detect-sale-info: walks every entry in the
+    /// zip, skipping directories and anything that isn't a spreadsheet (folder entries,
+    /// __MACOSX resource-fork junk, .DS_Store — all routine zip-of-a-folder noise), and
+    /// identifies each one's broker from its own content (BrokerCatalogueUploadParser.
+    /// DetectBroker), not its filename — filenames are inconsistent across sales (confirmed
+    /// live: ASC's own file was "AScat362026xls.xls" for Sale 36 but "cat372026xls.xls" for
+    /// Sale 37, with no "ASC" in the name at all).</summary>
+    private async Task<(Dictionary<string, List<List<string>>> RowsByBroker, List<string> Unidentified, List<string> Duplicates)> ExtractZipEntriesAsync(
+        IFormFile zipFile, CancellationToken ct)
+    {
+        var rowsByBroker = new Dictionary<string, List<List<string>>>();
+        var unidentified = new List<string>();
+        var duplicates = new List<string>();
+
+        await using var zipStream = zipFile.OpenReadStream();
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+        foreach (var entry in archive.Entries)
+        {
+            if (string.IsNullOrEmpty(entry.Name)) continue;
+            var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
+            if (ext != ".xls" && ext != ".xlsx") continue;
+
+            await using var entryStream = entry.Open();
+            using var buffered = new MemoryStream();
+            await entryStream.CopyToAsync(buffered, ct);
+            buffered.Position = 0;
+
+            var rows = importer.ParseExcel(buffered);
+            var brokerCode = BrokerCatalogueUploadParser.DetectBroker(rows);
+            if (brokerCode is null)
+            {
+                unidentified.Add(entry.Name);
+                continue;
+            }
+            if (!rowsByBroker.TryAdd(brokerCode, rows))
+                duplicates.Add($"{brokerCode} (from \"{entry.Name}\")");
+        }
+        return (rowsByBroker, unidentified, duplicates);
     }
 
     [HttpGet("outputs")]

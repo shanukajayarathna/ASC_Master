@@ -56,6 +56,12 @@ public class TopPriceEngine
 
     public static bool IsTopPriceGrade(Lot lot) => !NonTopPriceGrades.Contains(NormalizeKey(lot.Grade));
 
+    /// <summary>True when a lot's Broker column identifies Asia Siyaka itself (OurBroker, "ASC")
+    /// rather than one of the other brokers whose lots share the same imported catalogue —
+    /// normalized the same way as every other broker comparison here (ComputeTopPriceRows'
+    /// ascKey) so spelling/case variants in the raw column still match.</summary>
+    public static bool IsOurBroker(Lot lot) => NormalizeKey(lot.Broker) == NormalizeKey(OurBroker);
+
     public static bool IsOffGradesOrDustCategory(Lot lot)
     {
         var c = NormalizeKey(lot.Category);

@@ -23,13 +23,35 @@ public class MongoContext
 {
     public IMongoDatabase Database { get; }
 
-    public MongoContext(IConfiguration config)
+    public MongoContext(IConfiguration config, ILogger<MongoContext> logger)
     {
         var connectionString = config.GetConnectionString("Mongo") ?? "mongodb://localhost:27017";
         var databaseName = config["MongoDatabaseName"] ?? "asc_tea";
         var client = new MongoClient(connectionString);
         Database = client.GetDatabase(databaseName);
 
+        // A cluster over its storage quota (Atlas free tier: 512MB) rejects EVERY write,
+        // including createIndexes on an index that already exists — so this whole block, which
+        // used to run unguarded, took the entire app down at startup the moment the cluster hit
+        // that ceiling (confirmed 2026-09-05: "you are over your space quota, using 515 MB of
+        // 512 MB. Writes are blocked on your cluster."). Indexes only ever need creating once;
+        // re-running this block every boot is a safety net for a fresh database, not something
+        // that has to succeed for the app to function against data that already has them. Log
+        // and continue instead — the app runs in degraded mode (an index that's missing because
+        // it never got created yet may make a query slower) rather than refusing to start at
+        // all over what is usually a no-op.
+        try
+        {
+            CreateIndexes();
+        }
+        catch (MongoException ex)
+        {
+            logger.LogWarning(ex, "Skipping Mongo index creation at startup — cluster rejected the write (e.g. over storage quota). The app will continue without confirming indexes exist.");
+        }
+    }
+
+    private void CreateIndexes()
+    {
         // Catalogue data is file-backed (SaleFileStore); the database keeps only small
         // user-entered state. Valuations are fetched per catalogue on every merge, so
         // keep that path indexed. CreateMany is idempotent.

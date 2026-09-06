@@ -31,7 +31,11 @@ const BROKER_SLOTS: { code: string; label: string }[] = [
   { code: "CT", label: "CTB" },
 ];
 
+type UploadMode = "zip" | "individual";
+
 export default function SharedMarkCatalogueSummaryPage() {
+  const [uploadMode, setUploadMode] = useState<UploadMode>("zip");
+  const [zipFile, setZipFile] = useState<File | undefined>(undefined);
   const [files, setFiles] = useState<Record<string, File | undefined>>({});
   const [saleYear, setSaleYear] = useState(new Date().getFullYear());
   const [saleNo, setSaleNo] = useState("");
@@ -43,8 +47,11 @@ export default function SharedMarkCatalogueSummaryPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [convertingPdfId, setConvertingPdfId] = useState<string | null>(null);
   const [unmatchedMarks, setUnmatchedMarks] = useState<string[]>([]);
+  const [detectingSaleInfo, setDetectingSaleInfo] = useState(false);
+  const [saleInfoWarnings, setSaleInfoWarnings] = useState<string[]>([]);
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = () => {
     api.listSharedMarkCatalogueSummaryOutputs().then(setOutputs).catch(() => setOutputs([]));
@@ -53,23 +60,54 @@ export default function SharedMarkCatalogueSummaryPage() {
     refresh();
   }, []);
 
+  // Most of the 8 broker files already carry their own sale year/number/date, so as soon as
+  // there's something to read (a zip, or even just the first individual file picked), ask the
+  // backend for its best guess and pre-fill the form fields — they stay fully editable, this is
+  // only ever a starting point, never a lock. Never blocks or errors: a failed/empty detection
+  // just leaves the fields as they were.
+  const detectAndFillSaleInfo = async (opts: { zipFile: File } | { files: Record<string, File | undefined> }) => {
+    setDetectingSaleInfo(true);
+    try {
+      const detected = await api.detectSharedMarkCatalogueSaleInfo(opts);
+      if (detected.saleYear) setSaleYear(detected.saleYear);
+      if (detected.saleNo) setSaleNo(String(detected.saleNo));
+      if (detected.saleDate) setSaleDate(detected.saleDate);
+      setSaleInfoWarnings(detected.warnings);
+    } catch {
+      // best-effort only — leave whatever's already in the fields
+    } finally {
+      setDetectingSaleInfo(false);
+    }
+  };
+
   const allFilesChosen = BROKER_SLOTS.every((s) => files[s.code]);
+  // Named individually (not just true/false) so the button can say exactly what's still
+  // needed — a plain disabled button gave no clue why, and its disabled state renders pale
+  // enough (MUI default) that it read as "there's no button at all" rather than "not yet".
+  const missingForGenerate: string[] = [];
+  if (!saleNo.trim()) missingForGenerate.push("Sale No");
+  if (!saleDate) missingForGenerate.push("Sale Date");
+  if (uploadMode === "zip" ? !zipFile : !allFilesChosen) missingForGenerate.push(uploadMode === "zip" ? "the zip file" : "all 8 files");
+  const canGenerate = missingForGenerate.length === 0;
 
   const generateFromUpload = async () => {
     const saleNoNum = parseInt(saleNo, 10);
-    if (!saleYear || !saleNoNum || !saleDate || !allFilesChosen) return;
+    if (!saleYear || !saleNoNum || !saleDate) return;
+    if (uploadMode === "zip" && !zipFile) return;
+    if (uploadMode === "individual" && !allFilesChosen) return;
+
     setGenerating(true);
     setError(null);
     setUnmatchedMarks([]);
     try {
-      const { unmatchedMarks: unmatched } = await api.generateSharedMarkCatalogueSummaryFromUpload(
-        files as Record<string, File>,
-        saleYear,
-        saleNoNum,
-        saleDate,
-      );
+      const { unmatchedMarks: unmatched } =
+        uploadMode === "zip"
+          ? await api.generateSharedMarkCatalogueSummaryFromZip(zipFile!, saleYear, saleNoNum, saleDate)
+          : await api.generateSharedMarkCatalogueSummaryFromUpload(files as Record<string, File>, saleYear, saleNoNum, saleDate);
       setUnmatchedMarks(unmatched);
+      setZipFile(undefined);
       setFiles({});
+      setSaleInfoWarnings([]);
       refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't generate this report from the uploaded files");
@@ -138,8 +176,8 @@ export default function SharedMarkCatalogueSummaryPage() {
         <h3 className="font-display text-[14px] font-semibold text-text-strong m-0 mb-1">Generate from broker files</h3>
         <p className="text-[12px] text-text-muted m-0 mb-3">
           This report can&apos;t wait for a sale to close — these are pre-sale catalogues, shared by every broker before the
-          auction happens. Upload all 8 to generate it now. All 8 are required: the report needs both ASC&apos;s own figures
-          and every other broker&apos;s to know which estates are actually shared.
+          auction happens. All 8 brokers&apos; files are required: the report needs both ASC&apos;s own figures and every
+          other broker&apos;s to know which estates are actually shared.
         </p>
 
         <div className="flex items-end gap-2 flex-wrap mb-3">
@@ -161,51 +199,126 @@ export default function SharedMarkCatalogueSummaryPage() {
             slotProps={{ inputLabel: { shrink: true } }}
             sx={{ width: 160 }}
           />
+          {detectingSaleInfo && (
+            <span className="flex items-center gap-1.5 text-[12px] text-text-muted">
+              <CircularProgress size={12} />
+              Reading sale details from the file…
+            </span>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-          {BROKER_SLOTS.map((slot) => {
-            const chosen = files[slot.code];
-            return (
-              <div key={slot.code}>
-                <input
-                  ref={(el) => {
-                    fileInputRefs.current[slot.code] = el;
-                  }}
-                  type="file"
-                  accept=".xls,.xlsx"
-                  hidden
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    setFiles((prev) => ({ ...prev, [slot.code]: f }));
-                  }}
-                />
-                <Button
-                  fullWidth
-                  size="small"
-                  variant={chosen ? "outlined" : "text"}
-                  color={chosen ? "success" : "inherit"}
-                  startIcon={chosen ? <CheckCircleOutlinedIcon fontSize="small" /> : <UploadFileOutlinedIcon fontSize="small" />}
-                  onClick={() => fileInputRefs.current[slot.code]?.click()}
-                  sx={{ justifyContent: "flex-start", textTransform: "none" }}
-                  title={chosen?.name}
-                >
-                  <span className="truncate">{chosen ? slot.label : slot.label}</span>
-                </Button>
-              </div>
-            );
-          })}
+        {saleInfoWarnings.length > 0 && (
+          <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-info bg-info-light text-[12px] text-info">
+            {saleInfoWarnings.join(" ")}
+          </div>
+        )}
+
+        <div className="flex gap-1 mb-3">
+          <Button
+            size="small"
+            variant={uploadMode === "zip" ? "contained" : "outlined"}
+            onClick={() => setUploadMode("zip")}
+            sx={{ textTransform: "none" }}
+          >
+            Upload one zip
+          </Button>
+          <Button
+            size="small"
+            variant={uploadMode === "individual" ? "contained" : "outlined"}
+            onClick={() => setUploadMode("individual")}
+            sx={{ textTransform: "none" }}
+          >
+            Upload 8 files individually
+          </Button>
         </div>
 
-        <Button
-          size="small"
-          variant="contained"
-          startIcon={generating ? <CircularProgress size={14} color="inherit" /> : <PlayArrowOutlinedIcon fontSize="small" />}
-          onClick={generateFromUpload}
-          disabled={generating || !allFilesChosen || !saleNo.trim() || !saleDate}
-        >
-          {generating ? "Generating…" : "Generate report"}
-        </Button>
+        {uploadMode === "zip" ? (
+          <div className="mb-3">
+            <p className="text-[12px] text-text-muted m-0 mb-2">
+              A zip containing all 8 broker files — each one&apos;s broker is detected automatically from its own contents, so
+              the files inside can be named anything and in any order.
+            </p>
+            <input
+              ref={zipInputRef}
+              type="file"
+              accept=".zip"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                setZipFile(f);
+                if (f) detectAndFillSaleInfo({ zipFile: f });
+              }}
+            />
+            <Button
+              size="small"
+              variant={zipFile ? "outlined" : "text"}
+              color={zipFile ? "success" : "inherit"}
+              startIcon={zipFile ? <CheckCircleOutlinedIcon fontSize="small" /> : <UploadFileOutlinedIcon fontSize="small" />}
+              onClick={() => zipInputRef.current?.click()}
+              sx={{ textTransform: "none" }}
+              title={zipFile?.name}
+            >
+              {zipFile ? zipFile.name : "Choose zip file"}
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+            {BROKER_SLOTS.map((slot) => {
+              const chosen = files[slot.code];
+              return (
+                <div key={slot.code}>
+                  <input
+                    ref={(el) => {
+                      fileInputRefs.current[slot.code] = el;
+                    }}
+                    type="file"
+                    accept=".xls,.xlsx"
+                    hidden
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      setFiles((prev) => {
+                        const next = { ...prev, [slot.code]: f };
+                        if (f) detectAndFillSaleInfo({ files: next });
+                        return next;
+                      });
+                    }}
+                  />
+                  <Button
+                    fullWidth
+                    size="small"
+                    variant={chosen ? "outlined" : "text"}
+                    color={chosen ? "success" : "inherit"}
+                    startIcon={chosen ? <CheckCircleOutlinedIcon fontSize="small" /> : <UploadFileOutlinedIcon fontSize="small" />}
+                    onClick={() => fileInputRefs.current[slot.code]?.click()}
+                    sx={{ justifyContent: "flex-start", textTransform: "none" }}
+                    title={chosen?.name}
+                  >
+                    <span className="truncate">{chosen ? slot.label : slot.label}</span>
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Tooltip title={!generating && missingForGenerate.length > 0 ? `Still need: ${missingForGenerate.join(", ")}` : ""}>
+            <span>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={generating ? <CircularProgress size={14} color="inherit" /> : <PlayArrowOutlinedIcon fontSize="small" />}
+                onClick={generateFromUpload}
+                disabled={generating || !canGenerate}
+              >
+                {generating ? "Generating…" : "Generate report"}
+              </Button>
+            </span>
+          </Tooltip>
+          {!generating && missingForGenerate.length > 0 && (
+            <span className="text-[12px] text-text-muted">Still need: {missingForGenerate.join(", ")}</span>
+          )}
+        </div>
       </div>
 
       <div className="border border-border rounded-[var(--radius-lg)] p-4" style={{ background: "var(--surface)" }}>

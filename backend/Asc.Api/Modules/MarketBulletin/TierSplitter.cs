@@ -21,28 +21,27 @@ public static class TierSplitter
 
     public static readonly PriceRange Empty = new(null, null, 0);
 
-    public static PriceRange[] ComputeFourTiers(IReadOnlyList<Lot> lots)
+    public static PriceRange[] ComputeFourTiers(IReadOnlyList<Lot> lots) =>
+        SliceFourTiers(lots).Select(RangeOf).ToArray();
+
+    /// <summary>The same 25/55/85 percentile cuts as ComputeFourTiers, but returning each
+    /// tier's actual LOTS rather than just their price range — for a caller that needs more
+    /// than min/max, e.g. total quantity or a quantity-weighted average price per tier (see
+    /// MarketBulletinMonthlyEngine). Kept as the one place this cut logic lives so both
+    /// consumers can never quietly drift out of sync on where a tier boundary falls.</summary>
+    public static List<Lot>[] SliceFourTiers(IReadOnlyList<Lot> lots)
     {
         var sorted = lots
             .Where(l => l.PurchasedPrice.HasValue)
             .OrderByDescending(l => l.PurchasedPrice!.Value)
-            .Select(l => l.PurchasedPrice!.Value)
             .ToList();
 
         var n = sorted.Count;
-        if (n == 0) return [Empty, Empty, Empty, Empty];
-
         var cut1 = CutIndex(n, 0.25);
         var cut2 = CutIndex(n, 0.55);
         var cut3 = CutIndex(n, 0.85);
 
-        return
-        [
-            RangeOf(sorted[..cut1]),
-            RangeOf(sorted[cut1..cut2]),
-            RangeOf(sorted[cut2..cut3]),
-            RangeOf(sorted[cut3..]),
-        ];
+        return [sorted[..cut1], sorted[cut1..cut2], sorted[cut2..cut3], sorted[cut3..]];
     }
 
     /// <summary>Combines a subset of the four computed tiers back into one range — min of
@@ -61,6 +60,8 @@ public static class TierSplitter
     private static int CutIndex(int n, double fraction) =>
         Math.Clamp((int)Math.Round(n * fraction, MidpointRounding.AwayFromZero), 0, n);
 
-    private static PriceRange RangeOf(List<decimal> prices) =>
-        prices.Count == 0 ? Empty : new PriceRange(prices.Min(), prices.Max(), prices.Count);
+    private static PriceRange RangeOf(List<Lot> tierLots) =>
+        tierLots.Count == 0
+            ? Empty
+            : new PriceRange(tierLots.Min(l => l.PurchasedPrice!.Value), tierLots.Max(l => l.PurchasedPrice!.Value), tierLots.Count);
 }

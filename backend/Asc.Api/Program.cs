@@ -452,8 +452,13 @@ app.MapHealthChecks("/health");
 // in place while it's still untouched (UpdatedBy == "system-seed", i.e. no real Admin has
 // edited it yet) — covers the CMS schema evolving during development without ever
 // overwriting a real Admin's edits, which always carry a different UpdatedBy.
-using (var seedScope = app.Services.CreateScope())
+// Same "a cluster over its storage quota rejects every write" hazard as MongoContext's own
+// index creation (see that constructor's own comment) — this seed is a nice-to-have (an empty
+// landing page falls back to whatever the CMS panel shows for "no content yet"), not something
+// that should take the entire app down at startup over a quota-exceeded cluster.
+try
 {
+    using var seedScope = app.Services.CreateScope();
     var seedDb = seedScope.ServiceProvider.GetRequiredService<MongoContext>();
     // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
     var existing = await seedDb.LandingPageContent.Find(FilterDefinition<LandingPageContent>.Empty).FirstOrDefaultAsync();
@@ -467,6 +472,10 @@ using (var seedScope = app.Services.CreateScope())
         refreshed.Id = existing.Id;
         await seedDb.LandingPageContent.ReplaceOneAsync(c => c.Id == existing.Id, refreshed);
     }
+}
+catch (MongoException ex)
+{
+    app.Logger.LogWarning(ex, "Skipping landing-page-content seed at startup — cluster rejected the write (e.g. over storage quota).");
 }
 
 app.Run();
