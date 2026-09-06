@@ -3,16 +3,18 @@
 import AdminDashboard from "./AdminDashboard";
 import AiInsightsPanel, { type Insight } from "@/components/home/AiInsightsPanel";
 import AttentionList, { type AttentionEntry } from "@/components/home/AttentionList";
+import FuturisticKpiRow from "@/components/dashboard/FuturisticKpiRow";
+import Footer from "@/components/shell/Footer";
 import MarketPulseTicker from "@/components/home/MarketPulseTicker";
 import ModuleTile from "@/components/home/ModuleTile";
 import RecentActivityList, { type ActivityEntry } from "@/components/home/RecentActivityList";
 import Sparkline from "@/components/home/Sparkline";
+import TiltCard from "@/components/ui/TiltCard";
 import { NAV_ITEMS } from "@/components/shell/nav";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, timeAgo } from "@/lib/format";
-import { fetchColomboWeather, type WeatherNow } from "@/lib/weather";
 import type { CatalogueSummary, Conversation, DashboardStats, SavedReport } from "@/types/api";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
@@ -21,16 +23,12 @@ import CalendarTodayOutlinedIcon from "@mui/icons-material/CalendarTodayOutlined
 import CenterFocusStrongOutlinedIcon from "@mui/icons-material/CenterFocusStrongOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ChatBubbleOutlineOutlinedIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import EventAvailableOutlinedIcon from "@mui/icons-material/EventAvailableOutlined";
 import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import ThunderstormOutlinedIcon from "@mui/icons-material/ThunderstormOutlined";
 import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
-import WbCloudyOutlinedIcon from "@mui/icons-material/WbCloudyOutlined";
-import WbSunnyOutlinedIcon from "@mui/icons-material/WbSunnyOutlined";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Skeleton from "@mui/material/Skeleton";
@@ -58,14 +56,6 @@ function greeting(): string {
   if (h < 18) return "Good afternoon";
   return "Good evening";
 }
-
-const WEATHER_ICON: Record<WeatherNow["icon"], typeof WbSunnyOutlinedIcon> = {
-  sun: WbSunnyOutlinedIcon,
-  "cloud-sun": WbCloudyOutlinedIcon,
-  cloud: CloudOutlinedIcon,
-  rain: WbCloudyOutlinedIcon,
-  storm: ThunderstormOutlinedIcon,
-};
 
 /** Routes to the Admin's operations-control-center dashboard (AdminDashboard) or the
  *  regular launchpad below, based on role — the only thing this file decides; everything
@@ -103,7 +93,6 @@ function UserDashboard() {
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [weather, setWeather] = useState<WeatherNow | null>(null);
 
   const [previousStats, setPreviousStats] = useState<DashboardStats | null>(null);
   const [previousSaleName, setPreviousSaleName] = useState<string | null>(null);
@@ -162,13 +151,11 @@ function UserDashboard() {
   };
 
   // Real, existing data for the recent/pinned surfaces — best-effort, a failed fetch here
-  // just leaves that one panel empty rather than breaking the page. Weather is likewise
-  // best-effort: fetchColomboWeather resolves null on any failure.
+  // just leaves that one panel empty rather than breaking the page.
   useEffect(() => {
     api.listCatalogues().then(setCatalogues).catch(() => {});
     api.listSavedReports().then(setSavedReports).catch(() => {});
     api.listConversations().then(setConversations).catch(() => {});
-    fetchColomboWeather().then(setWeather);
   }, []);
 
   // Enrichment: the previous sale's stats (for the Avg Valuation delta), AI Insights
@@ -377,8 +364,6 @@ function UserDashboard() {
     .slice(0, 6)
     .map((x) => x.entry);
 
-  const WeatherIcon = weather ? WEATHER_ICON[weather.icon] : null;
-
   return (
     <div>
       <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
@@ -392,38 +377,25 @@ function UserDashboard() {
               : "Here's what's happening with your tea auctions today."}
           </p>
         </div>
-        {/* One bordered strip for both date and weather (not two separate cards) — neither
-            fact is a card's worth of content on its own. */}
+        {/* Just the date now — weather moved to its own card in FuturisticKpiRow below,
+            so showing it here too would be the same fact twice on one page. */}
         <div
-          className="flex items-stretch rounded-[var(--radius-lg)] border border-border overflow-hidden"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-[var(--radius-lg)] border border-border"
           style={{ background: "var(--surface)" }}
         >
-          <div className="flex items-center gap-2 px-3.5 py-2">
-            <CalendarTodayOutlinedIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
-            <div className="leading-tight">
-              <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
-                {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
-              </div>
-              <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                Colombo, Sri Lanka
-              </div>
+          <CalendarTodayOutlinedIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
+          <div className="leading-tight">
+            <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
+              {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+            </div>
+            <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+              Colombo, Sri Lanka
             </div>
           </div>
-          {weather && WeatherIcon && (
-            <div className="flex items-center gap-2 px-3.5 py-2 border-l border-border">
-              <WeatherIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
-              <div className="leading-tight">
-                <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
-                  {Math.round(weather.tempC)}°C
-                </div>
-                <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                  {weather.label}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      <FuturisticKpiRow />
 
       <div className="mb-6">
         <MarketPulseTicker variant="dashboard" />
@@ -600,13 +572,14 @@ function UserDashboard() {
         </div>
         <div ref={tileGridRef} className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
           {(showAllTiles ? moduleTiles : moduleTiles.slice(0, collapsedTileCount)).map((item, i) => (
-            <ModuleTile
-              key={item.href}
-              item={item}
-              pinned={pinnedHrefs.includes(item.href)}
-              onTogglePin={() => togglePin(item.href)}
-              priority={i < 4}
-            />
+            <TiltCard key={item.href} maxTiltDeg={4}>
+              <ModuleTile
+                item={item}
+                pinned={pinnedHrefs.includes(item.href)}
+                onTogglePin={() => togglePin(item.href)}
+                priority={i < 4}
+              />
+            </TiltCard>
           ))}
         </div>
         {moduleTiles.length > collapsedTileCount && (
@@ -670,6 +643,11 @@ function UserDashboard() {
         <AiInsightsPanel insights={insights} loading={insightsLoading} />
         <AttentionList entries={attention} loading={attentionLoading} />
       </div>
+
+      {/* Footer lives on the Dashboard only, not site-wide (it was in Shell before) — this
+          is the one page people land on and leave from, so it's the natural home for a
+          "find anything" nav strip without every other page carrying it too. */}
+      <Footer />
     </div>
   );
 }

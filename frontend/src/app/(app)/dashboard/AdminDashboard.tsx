@@ -2,6 +2,7 @@
 
 import MarketPulseTicker from "@/components/home/MarketPulseTicker";
 import RecentActivityList, { type ActivityEntry } from "@/components/home/RecentActivityList";
+import Footer from "@/components/shell/Footer";
 import { NAV_ITEMS } from "@/components/shell/nav";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
@@ -271,6 +272,10 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
           })}
         </div>
       </div>
+
+      {/* Footer lives on the Dashboard only, not site-wide — same reasoning as the regular
+          UserDashboard variant (see its own comment). */}
+      <Footer />
     </div>
   );
 }

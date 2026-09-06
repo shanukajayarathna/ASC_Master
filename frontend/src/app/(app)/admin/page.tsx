@@ -5,6 +5,7 @@ import TeaLoader from "@/components/shared/TeaLoader";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api, ApiError } from "@/lib/api";
+import { DOCUMENT_CATEGORIES, DOCUMENT_CATEGORY_LABELS } from "@/lib/documentCategories";
 import { ROLE_LABELS, ROLES, roleLabel } from "@/lib/roles";
 import type {
   AccessRequest,
@@ -16,6 +17,9 @@ import type {
   LandingPageContent,
   LandingPlatformStat,
   LandingTestimonial,
+  LearningContentCategory,
+  LearningContentItem,
+  KnowledgeDocument,
   MarkBrokerEra,
   MarkRecord,
   MarketPulseCategory,
@@ -49,13 +53,16 @@ import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import LanguageOutlinedIcon from "@mui/icons-material/LanguageOutlined";
 import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
 import PersonAddOutlinedIcon from "@mui/icons-material/PersonAddOutlined";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
+import SyncOutlinedIcon from "@mui/icons-material/SyncOutlined";
 import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
+import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -78,6 +85,8 @@ const ADMIN_SECTIONS = [
   { id: "dataimport", label: "Data Import", icon: <CloudUploadOutlinedIcon fontSize="small" />, accent: 7 as const },
   { id: "msl", label: "MSL Archive", icon: <Inventory2OutlinedIcon fontSize="small" />, accent: 2 as const },
   { id: "newssources", label: "News Sources", icon: <NewspaperOutlinedIcon fontSize="small" />, accent: 1 as const },
+  { id: "knowledgedocs", label: "Knowledge Documents", icon: <MenuBookOutlinedIcon fontSize="small" />, accent: 6 as const },
+  { id: "learningcontent", label: "Learning Content", icon: <MenuBookOutlinedIcon fontSize="small" />, accent: 2 as const },
   { id: "landing", label: "Landing Page", icon: <LanguageOutlinedIcon fontSize="small" />, accent: 6 as const },
   { id: "accessrequests", label: "Access Requests", icon: <HowToRegOutlinedIcon fontSize="small" />, accent: 3 as const },
   { id: "users", label: "Users", icon: <GroupOutlinedIcon fontSize="small" />, accent: 5 as const },
@@ -1225,6 +1234,537 @@ function NewsSourcesSection() {
         <DialogContent>
           <p className="text-[13px] m-0">
             This stops <span className="font-semibold">{deleteTarget?.name}</span> from being polled. Items already pulled from it stay in the feed.
+          </p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button color="error" variant="contained" onClick={doDelete} disabled={deleting}>
+            {deleting ? "Removing…" : "Remove"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </AdminSectionCard>
+  );
+}
+
+/** The document-library page's own "meta label" style, reused as a small badge —
+ *  categories are distinguished by their text, not color. Relocated verbatim from the old
+ *  standalone Knowledge Base page (see this section's own doc comment below). */
+function DocumentCategoryBadge({ category }: { category: string }) {
+  return (
+    <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted border border-border rounded px-1.5 py-0.5">
+      {DOCUMENT_CATEGORY_LABELS[category as keyof typeof DOCUMENT_CATEGORY_LABELS] ?? category}
+    </span>
+  );
+}
+
+function formatDocSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Document upload/manage/sync — the Knowledge Base page's original data-input surface,
+ *  relocated here unchanged (same DocumentsController endpoints, same ManageKnowledgeBase
+ *  gating) now that /knowledge itself is a guided-learning hub rather than a data-input
+ *  page. Search stays on the Knowledge Base page (List/Search are [Authorize]-only, for
+ *  every user, not admin-gated) — only the admin-only parts (upload/delete/sync platform
+ *  docs) moved. */
+function KnowledgeDocumentsSection() {
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadCategory, setUploadCategory] = useState<string>("Internal");
+  const [uploadEffectiveDate, setUploadEffectiveDate] = useState("");
+  const [uploadExpiryDate, setUploadExpiryDate] = useState("");
+  const [uploadSupersedes, setUploadSupersedes] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
+
+  const refresh = () => {
+    setLoading(true);
+    api
+      .listDocuments()
+      .then(setDocuments)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load documents"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refresh();
+  }, []);
+
+  const resetUploadForm = () => {
+    setUploadFile(null);
+    setUploadCategory("Internal");
+    setUploadEffectiveDate("");
+    setUploadExpiryDate("");
+    setUploadSupersedes("");
+    setUploadError(null);
+  };
+
+  const submitUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      await api.uploadDocument(
+        uploadFile,
+        uploadCategory,
+        uploadEffectiveDate || undefined,
+        uploadExpiryDate || undefined,
+        uploadSupersedes || undefined
+      );
+      setUploadOpen(false);
+      resetUploadForm();
+      refresh();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const syncPlatformDocs = async () => {
+    setSyncing(true);
+    setSyncNotice(null);
+    setError(null);
+    try {
+      const r = await api.syncPlatformDocs();
+      const failed = r.failed.length > 0 ? ` ${r.failed.length} failed: ${r.failed.join("; ")}` : "";
+      setSyncNotice(
+        `Platform docs synced — ${r.added} added, ${r.updated} updated, ${r.unchanged} already up to date.${failed}`
+      );
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Platform docs sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await api.deleteDocument(id);
+      setDocuments((docs) => docs.filter((d) => d.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <AdminSectionCard
+      id="knowledgedocs"
+      icon={<MenuBookOutlinedIcon fontSize="small" />}
+      accent={6}
+      title="Knowledge Documents"
+      subtitle="Circulars, SOPs and policies embedded for search — by every user on the Knowledge Base page, and by the AI Assistant's own knowledge lookup."
+      actions={
+        <>
+          <Tooltip title="Bring the platform's own documentation (every module guide) into the knowledge base so the AI Assistant can answer questions about how ASC Hub works. Safe to re-run — only changed docs are re-processed.">
+            <span>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={syncing ? <CircularProgress size={14} /> : <SyncOutlinedIcon fontSize="small" />}
+                onClick={syncPlatformDocs}
+                disabled={syncing}
+                aria-busy={syncing}
+                sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.5)" }}
+              >
+                {syncing ? "Syncing…" : "Sync platform docs"}
+              </Button>
+            </span>
+          </Tooltip>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<CloudUploadOutlinedIcon fontSize="small" />}
+            onClick={() => setUploadOpen(true)}
+            sx={{ background: "rgba(255,255,255,0.2)" }}
+          >
+            Upload
+          </Button>
+        </>
+      }
+    >
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
+      {syncNotice && (
+        <div className="mb-3 p-2.5 rounded border border-border text-[13px]" style={{ background: "var(--surface-sunken)" }}>
+          {syncNotice}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <TeaLoader size={40} />
+        </div>
+      ) : documents.length === 0 ? (
+        <p className="text-[13px] text-text-muted m-0">No documents uploaded yet.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {documents.map((d) => {
+            const supersededByName = d.supersededByDocumentId
+              ? documents.find((other) => other.id === d.supersededByDocumentId)?.fileName
+              : null;
+            return (
+              <div key={d.id} className="flex items-center gap-3 border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] text-text-strong truncate">{d.fileName}</span>
+                    <DocumentCategoryBadge category={d.category} />
+                  </div>
+                  <div className="text-[11px] text-text-muted font-mono">
+                    {formatDocSize(d.sizeBytes)} · {new Date(d.uploadedAt).toLocaleString()}
+                    {d.effectiveDate && ` · effective ${new Date(d.effectiveDate).toLocaleDateString()}`}
+                    {d.expiryDate && ` · expires ${new Date(d.expiryDate).toLocaleDateString()}`}
+                  </div>
+                  {supersededByName && (
+                    <div className="text-[11px] text-text-muted italic mt-0.5">Superseded by {supersededByName}</div>
+                  )}
+                </div>
+                <Tooltip title="Delete">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleDelete(d.id)}
+                      disabled={deletingId === d.id}
+                      aria-busy={deletingId === d.id}
+                      aria-label={`Delete ${d.fileName}`}
+                    >
+                      {deletingId === d.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={uploadOpen} onClose={() => (uploading ? null : setUploadOpen(false))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>Upload Document</DialogTitle>
+        <form onSubmit={submitUpload}>
+          <DialogContent>
+            {uploadError && (
+              <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{uploadError}</div>
+            )}
+            <div className="flex flex-col gap-3">
+              <div>
+                <Button variant="outlined" size="small" fullWidth onClick={() => docFileInputRef.current?.click()}>
+                  {uploadFile ? uploadFile.name : "Choose File"}
+                </Button>
+                <input
+                  ref={docFileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.pptx,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+
+              <Select size="small" value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)} fullWidth>
+                {DOCUMENT_CATEGORIES.map((c) => (
+                  <MenuItem key={c} value={c}>
+                    {DOCUMENT_CATEGORY_LABELS[c]}
+                  </MenuItem>
+                ))}
+              </Select>
+
+              <TextField
+                label="Effective date"
+                type="date"
+                size="small"
+                value={uploadEffectiveDate}
+                onChange={(e) => setUploadEffectiveDate(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                helperText="Optional — when this document's guidance starts applying."
+                fullWidth
+              />
+              <TextField
+                label="Expiry date"
+                type="date"
+                size="small"
+                value={uploadExpiryDate}
+                onChange={(e) => setUploadExpiryDate(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                helperText="Optional — when it stops applying."
+                fullWidth
+              />
+
+              <Select
+                size="small"
+                value={uploadSupersedes}
+                onChange={(e) => setUploadSupersedes(e.target.value)}
+                displayEmpty
+                fullWidth
+              >
+                <MenuItem value="">This is a new document</MenuItem>
+                {documents.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    Supersedes: {d.fileName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </div>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setUploadOpen(false)} disabled={uploading}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={uploading || !uploadFile} aria-busy={uploading}>
+              {uploading ? "Uploading…" : "Upload"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+    </AdminSectionCard>
+  );
+}
+
+const LEARNING_CATEGORIES: { value: LearningContentCategory; label: string }[] = [
+  { value: "ModuleGuidance", label: "Module Guidance" },
+  { value: "TeaEducation", label: "Tea Education" },
+  { value: "Article", label: "Article" },
+];
+
+type LearningFormState = {
+  category: LearningContentCategory; title: string; tagline: string; body: string;
+  imageUrl: string; videoUrl: string; order: number; isPublished: boolean;
+};
+const EMPTY_LEARNING_FORM: LearningFormState = {
+  category: "ModuleGuidance", title: "", tagline: "", body: "", imageUrl: "", videoUrl: "", order: 0, isPublished: true,
+};
+
+/** Knowledge Base "Learn" carousel content — module guidance, tea education, articles.
+ *  Same list/add/edit/delete/toggle-published shape as News Sources above; VideoUrl left
+ *  blank in the form means "no video yet" (renders as a coming-soon panel on the page),
+ *  not an error. */
+function LearningContentSection() {
+  const [items, setItems] = useState<LearningContentItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<LearningFormState>(EMPTY_LEARNING_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<LearningContentItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const refresh = () => {
+    api
+      .getLearningContentForAdmin()
+      .then(setItems)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't load learning content"));
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const openAdd = () => {
+    setEditingId(null);
+    setForm(EMPTY_LEARNING_FORM);
+    setFormOpen(true);
+  };
+  const openEdit = (i: LearningContentItem) => {
+    setEditingId(i.id);
+    setForm({
+      category: i.category, title: i.title, tagline: i.tagline, body: i.body,
+      imageUrl: i.imageUrl, videoUrl: i.videoUrl ?? "", order: i.order, isPublished: i.isPublished,
+    });
+    setFormOpen(true);
+  };
+
+  const save = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId) {
+        await api.updateLearningContent(editingId, form);
+      } else {
+        await api.addLearningContent(form);
+      }
+      setFormOpen(false);
+      refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't save this item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const togglePublished = async (i: LearningContentItem) => {
+    setItems((list) => (list ?? []).map((x) => (x.id === i.id ? { ...x, isPublished: !i.isPublished } : x)));
+    try {
+      await api.updateLearningContent(i.id, { isPublished: !i.isPublished });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't update this item");
+      refresh();
+    }
+  };
+
+  const doDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteLearningContent(deleteTarget.id);
+      setItems((list) => (list ?? []).filter((i) => i.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't remove this item");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <AdminSectionCard
+      id="learningcontent"
+      icon={<MenuBookOutlinedIcon fontSize="small" />}
+      accent={2}
+      title="Learning Content"
+      subtitle="Module guidance, tea education and articles shown in the Knowledge Base's Learn carousel. Leave Video URL blank to show a 'walkthrough coming soon' placeholder."
+      actions={
+        <Button size="small" variant="contained" startIcon={<AddOutlinedIcon fontSize="small" />} onClick={openAdd} sx={{ background: "rgba(255,255,255,0.2)" }}>
+          Add Item
+        </Button>
+      }
+    >
+      {error && <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{error}</div>}
+
+      {items === null ? (
+        <div className="flex justify-center py-8">
+          <TeaLoader size={40} />
+        </div>
+      ) : items.length === 0 ? (
+        <p className="text-[13px] text-text-muted m-0">No learning content yet — add an item to populate the Knowledge Base.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Title</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Category</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Video</th>
+                <th className="text-left px-2 py-2 font-medium text-text-muted">Published</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => (
+                <tr key={i.id} className="border-b border-border last:border-0">
+                  <td className="px-2 py-2">{i.title}</td>
+                  <td className="px-2 py-2 text-text-muted">{LEARNING_CATEGORIES.find((c) => c.value === i.category)?.label ?? i.category}</td>
+                  <td className="px-2 py-2 text-[12px]">
+                    {i.videoUrl ? <span style={{ color: "var(--sage-dark)" }}>Set</span> : <span className="text-text-muted">Coming soon</span>}
+                  </td>
+                  <td className="px-2 py-2">
+                    <Switch size="small" checked={i.isPublished} onChange={() => togglePublished(i)} />
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-1 justify-end">
+                      <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => openEdit(i)}>
+                          <EditOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton size="small" onClick={() => setDeleteTarget(i)}>
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Dialog open={formOpen} onClose={() => setFormOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? "Edit Item" : "Add Item"}</DialogTitle>
+        <DialogContent>
+          <div className="flex flex-col gap-3 pt-1">
+            <Select
+              size="small"
+              value={form.category}
+              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as LearningContentCategory }))}
+            >
+              {LEARNING_CATEGORIES.map((c) => (
+                <MenuItem key={c.value} value={c.value}>
+                  {c.label}
+                </MenuItem>
+              ))}
+            </Select>
+            <TextField label="Title" size="small" fullWidth value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+            <TextField label="Tagline" size="small" fullWidth value={form.tagline} onChange={(e) => setForm((f) => ({ ...f, tagline: e.target.value }))} />
+            <TextField
+              label="Body"
+              size="small"
+              fullWidth
+              multiline
+              minRows={3}
+              value={form.body}
+              onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+            />
+            <TextField
+              label="Image URL"
+              size="small"
+              fullWidth
+              placeholder="/tea/intro/... or https://..."
+              value={form.imageUrl}
+              onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
+            />
+            <TextField
+              label="Video URL"
+              size="small"
+              fullWidth
+              placeholder="Leave blank for 'coming soon'"
+              value={form.videoUrl}
+              onChange={(e) => setForm((f) => ({ ...f, videoUrl: e.target.value }))}
+            />
+            <TextField
+              label="Order"
+              type="number"
+              size="small"
+              value={form.order}
+              onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) || 0 }))}
+            />
+            <FormControlLabel
+              control={<Checkbox checked={form.isPublished} onChange={(e) => setForm((f) => ({ ...f, isPublished: e.target.checked }))} />}
+              label="Published"
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFormOpen(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={save} disabled={saving || !form.title.trim()}>
+            {saving ? "Saving…" : editingId ? "Save Changes" : "Add Item"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Remove this item?</DialogTitle>
+        <DialogContent>
+          <p className="text-[13px] m-0">
+            <span className="font-semibold">{deleteTarget?.title}</span> will no longer appear in the Knowledge Base.
           </p>
         </DialogContent>
         <DialogActions>
@@ -3164,6 +3704,8 @@ const SECTION_COMPONENTS: Record<string, React.ComponentType> = {
   dataimport: DataImportSection,
   msl: MslDataSection,
   newssources: NewsSourcesSection,
+  knowledgedocs: KnowledgeDocumentsSection,
+  learningcontent: LearningContentSection,
   landing: LandingPageSection,
   accessrequests: AccessRequestsSection,
   users: UsersSection,

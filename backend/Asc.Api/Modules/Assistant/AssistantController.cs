@@ -4,6 +4,7 @@ using Asc.Api.Modules.Agents;
 using Asc.Api.Modules.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MongoDB.Driver;
 
 namespace Asc.Api.Modules.Assistant;
@@ -19,10 +20,17 @@ namespace Asc.Api.Modules.Assistant;
 [Authorize]
 public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService) : ControllerBase
 {
+    // A real chat turn is a sentence or two; this just keeps one request from being an
+    // unbounded token-cost bomb (or exceeding a provider's own input limit ungracefully) —
+    // well above anything a genuine question needs, so it never affects real usage.
+    private const int MaxMessageLength = 8000;
+
     [HttpPost("chat")]
+    [EnableRateLimiting("assistantChat")]
     public async Task<ActionResult<ChatResponseDto>> Chat(ChatRequestDto dto, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.Message)) return BadRequest("Message is required.");
+        if (dto.Message.Length > MaxMessageLength) return BadRequest($"Message is too long (max {MaxMessageLength} characters).");
 
         var userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid) ? uid : Guid.Empty;
 
@@ -80,9 +88,11 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
     /// Stateless: nothing here touches conversation persistence.</summary>
     [HttpPost("compare")]
     [Authorize(Policy = Policies.UseAdminAiTools)]
+    [EnableRateLimiting("assistantChat")]
     public async Task<ActionResult<List<CompareResultDto>>> Compare(CompareRequestDto dto, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.Message)) return BadRequest("Message is required.");
+        if (dto.Message.Length > MaxMessageLength) return BadRequest($"Message is too long (max {MaxMessageLength} characters).");
 
         var statuses = gateway.GetStatuses();
         var keys = dto.Providers?.Count > 0

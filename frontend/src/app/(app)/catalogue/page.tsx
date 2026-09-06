@@ -7,6 +7,7 @@ import LotViewDialog from "@/components/catalogue/LotViewDialog";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
 import ExportShareMenu from "@/components/catalogue/ExportShareMenu";
 import PageHeader from "@/components/shared/PageHeader";
+import { SkeletonRows } from "@/components/shared/SkeletonBlock";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
@@ -925,9 +926,13 @@ export default function CataloguePage() {
       )}
 
       {/* Keep the current grid on screen while a newer selection loads — only the true cold
-          start (no lots yet) shows the full loading state, so switching sales never blanks. */}
+          start (no lots yet) shows the full loading state, so switching sales never blanks.
+          A grid-shaped skeleton reads as "the table is about to appear here" far better than
+          a bare loading line — same SkeletonRows primitive other pages already reach for
+          (components/shared/SkeletonBlock.tsx), just with enough rows to fill the grid's own
+          64vh height so nothing reflows when the real grid mounts underneath it. */}
       {loadingLots && lots.length === 0 ? (
-        <p className="text-text-muted text-sm">Loading lots…</p>
+        <SkeletonRows rows={12} />
       ) : headers.length > 0 ? (
         <div className={loadingLots || filtering ? "opacity-60 transition-opacity pointer-events-none" : "transition-opacity"}>
           <CatalogueGrid

@@ -76,6 +76,20 @@ export default function CatalogueGrid({
     [lots]
   );
 
+  // Without a stable row id, AG Grid falls back to matching rows by array index across
+  // `rowData` updates — every filter/sale-reload swaps in a new array, so index-based
+  // matching treats every row as "changed" and re-evaluates the whole grid instead of
+  // diffing by identity. Lot ids are already stable and unique, so this costs nothing and
+  // lets AG Grid's own row-model do the cheap thing (keep scroll position/selection stable,
+  // only re-render rows whose data actually changed).
+  const getRowId = useMemo(() => (params: { data: { __lot: Lot } }) => params.data.__lot.id, []);
+
+  // A fresh object literal here would change identity on every CatalogueGrid render (typing
+  // in the search box re-renders the whole page), and AG Grid treats a new `defaultColDef`
+  // reference as "the column configuration changed" — reprocessing every column even though
+  // nothing in it actually did. Memoized once since these three flags never change.
+  const defaultColDef = useMemo<ColDef>(() => ({ sortable: true, filter: true, resizable: true }), []);
+
   const columnDefs = useMemo<ColDef[]>(() => {
     const cols: ColDef[] = [];
 
@@ -206,6 +220,7 @@ export default function CatalogueGrid({
         ref={gridRef}
         theme={ascGridTheme}
         rowData={rowData}
+        getRowId={getRowId}
         columnDefs={columnDefs}
         rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
         onSelectionChanged={handleSelectionChanged}
@@ -214,7 +229,7 @@ export default function CatalogueGrid({
         onGridSizeChanged={fitColumns}
         animateRows={false}
         tooltipShowDelay={300}
-        defaultColDef={{ sortable: true, filter: true, resizable: true }}
+        defaultColDef={defaultColDef}
       />
     </div>
   );

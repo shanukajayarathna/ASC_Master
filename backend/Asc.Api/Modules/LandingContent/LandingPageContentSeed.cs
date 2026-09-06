@@ -15,8 +15,8 @@ public static class LandingPageContentSeed
     {
         Hero = new HeroContent
         {
-            Headline = "Where Ceylon Tea Meets Intelligence",
-            Subhead = "AI-powered valuation, document, and market intelligence for the Colombo tea auction — built for brokers, estates, and buyers who move fast.",
+            Headline = "ASIS: The Intelligence Hub for Asia Siyaka's Tea Auction",
+            Subhead = "One AI-powered layer over cataloguing, valuation, market intelligence and reporting — replacing a manual, paper-and-spreadsheet workflow with a fast, connected one.",
             CtaPrimaryLabel = "Sign In",
             CtaSecondaryLabel = "See how it works",
         },

@@ -1,6 +1,7 @@
 "use client";
 
 import type { LandingHero } from "@/types/api";
+import HeroImageCarousel from "@/components/landing/HeroImageCarousel";
 import PublicTicker from "@/components/landing/PublicTicker";
 import Reveal from "@/components/landing/motion/Reveal";
 import Button from "@mui/material/Button";
@@ -10,11 +11,11 @@ import { useRef } from "react";
 
 /**
  * The landing page's opening section — a standard two-column marketing hero (headline/CTA
- * left, a real photograph right) on a full-width band, not confined to a dashboard-scaled
- * bordered card. Same tokens as the rest of the app (`--liquor` CTA, `font-display` Fraunces
- * headline, `--surface`/`--tea-rule`), just given landing-page proportions and breathing room.
- * The photo is the same licensed Wikimedia Commons estate shot already vetted for the login
- * page's TeaCinematic intro (public/tea/intro/ATTRIBUTION.md).
+ * left, a rotating photograph right via HeroImageCarousel) on a full-width band, not confined
+ * to a dashboard-scaled bordered card. Same tokens as the rest of the app (`--liquor` CTA,
+ * `font-display` Fraunces headline, `--surface`/`--tea-rule`), just given landing-page
+ * proportions and breathing room. The scroll-parallax `y` transform below wraps the whole
+ * carousel (not any single photo) so it keeps working across every rotation.
  */
 export default function Hero({ hero }: { hero: LandingHero }) {
   const bandRef = useRef<HTMLDivElement>(null);
@@ -38,6 +39,19 @@ export default function Hero({ hero }: { hero: LandingHero }) {
           aria-hidden="true"
           style={{ background: "radial-gradient(120% 100% at 100% 0%, var(--liquor-light) 0%, transparent 55%)" }}
         />
+        {/* Subtle drifting gradient glow — the "futuristic" motion touch the brief calls for,
+            kept faint and slow (14s, opacity capped at 0.35) so it reads as ambient depth
+            rather than a distraction behind the headline. Skipped entirely under reduced
+            motion; the static radial gradient above already carries the same warmth. */}
+        {!reduceMotion && (
+          <motion.div
+            className="absolute -top-1/3 -right-1/4 w-[60vw] h-[60vw] rounded-full pointer-events-none"
+            aria-hidden="true"
+            style={{ background: "radial-gradient(circle, var(--brand-gold-soft) 0%, transparent 70%)", filter: "blur(60px)" }}
+            animate={{ opacity: [0.15, 0.35, 0.15], scale: [1, 1.08, 1] }}
+            transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
+          />
+        )}
         <div className="relative w-full max-w-7xl mx-auto px-4 sm:px-6 pt-14 pb-16 sm:pt-20 sm:pb-24 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center">
           <Reveal>
             <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-4" style={{ color: "var(--liquor)" }}>
@@ -64,16 +78,11 @@ export default function Hero({ hero }: { hero: LandingHero }) {
 
           <div className="relative aspect-[4/3] rounded-[var(--radius-xl)] overflow-hidden" style={{ boxShadow: "var(--shadow-lg)" }}>
             <motion.div
-              className="absolute inset-0 bg-cover bg-center"
-              style={{
-                backgroundImage: "url(/tea/intro/estate-mist-hatton.webp)",
-                top: -36,
-                bottom: -36,
-                y: reduceMotion ? 0 : y,
-              }}
-              role="img"
-              aria-label="Misty tea estate in the Central Highlands of Sri Lanka"
-            />
+              className="absolute inset-0"
+              style={{ top: -36, bottom: -36, y: reduceMotion ? 0 : y }}
+            >
+              <HeroImageCarousel className="absolute inset-0" />
+            </motion.div>
             <div
               className="absolute inset-0"
               aria-hidden="true"

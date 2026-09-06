@@ -3,6 +3,7 @@
 import FloatingAnalyticsChat from "@/components/analytics/FloatingAnalyticsChat";
 import BarChart from "@/components/analytics/BarChart";
 import FilterPanel from "@/components/analytics/FilterPanel";
+import MarketAccuracyAnalysis from "@/components/analytics/MarketAccuracyAnalysis";
 import MarketAnalytics from "@/components/analytics/MarketAnalytics";
 import ReportsLauncher from "@/components/analytics/ReportsLauncher";
 import KpiSection from "@/components/dashboard/KpiSection";
@@ -301,14 +302,16 @@ function ValuationAnalysis() {
 /* =====================================================================
    ANALYSIS — tabbed: Post Auction / Pre Auction (MSL archive, replaces
    the external Power BI portal's two report sets) + the original
-   Valuations view. Year + sale selectors default to the latest
-   (ongoing) sale; the Analytics Agent chatbot is docked beside the
-   market views.
+   Valuations view + Market Accuracy (formerly the standalone "Market
+   Intelligence" tile, folded in per Phase 9's IA consolidation — see
+   MarketAccuracyAnalysis.tsx). Year + sale selectors default to the
+   latest (ongoing) sale; the Analytics Agent chatbot is docked beside
+   the market views.
    ===================================================================== */
 
 export default function AnalysisPage() {
   const [filterOptions, setFilterOptions] = useState<MslFilterOptions | null>(null);
-  const [mode, setMode] = useState<"post" | "pre" | "valuations">("post");
+  const [mode, setMode] = useState<"post" | "pre" | "valuations" | "market">("post");
   const [filter, setFilter] = useState<MslAnalyticsFilter>({});
   const [salesError, setSalesError] = useState<string | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -365,7 +368,7 @@ export default function AnalysisPage() {
     <div>
       <PageHeader
         title="Analysis"
-        subtitle="Pre- and post-auction market analytics from the full MSL archive, plus the valued catalogue's statistics."
+        subtitle="Pre- and post-auction market analytics from the full MSL archive, the valued catalogue's statistics, and valuation-vs-actual accuracy."
       />
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -373,11 +376,14 @@ export default function AnalysisPage() {
           <ToggleButton value="post" sx={{ fontSize: 12.5, px: 1.5 }}>Post Auction</ToggleButton>
           <ToggleButton value="pre" sx={{ fontSize: 12.5, px: 1.5 }}>Pre Auction</ToggleButton>
           <ToggleButton value="valuations" sx={{ fontSize: 12.5, px: 1.5 }}>Valuations</ToggleButton>
+          <ToggleButton value="market" sx={{ fontSize: 12.5, px: 1.5 }}>Market Accuracy</ToggleButton>
         </ToggleButtonGroup>
       </div>
 
       {mode === "valuations" ? (
         <div key="valuations" className="fade-in-soft"><ValuationAnalysis /></div>
+      ) : mode === "market" ? (
+        <div key="market" className="fade-in-soft"><MarketAccuracyAnalysis /></div>
       ) : salesError ? (
         <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">
           {salesError} — has the MSL archive been imported?

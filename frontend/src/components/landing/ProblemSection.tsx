@@ -11,6 +11,11 @@ import Reveal from "@/components/landing/motion/Reveal";
  * Commons asset pool the login page's TeaCinematic already vetted (see
  * public/tea/intro/ATTRIBUTION.md) — a factory/processing scene, matching the "manual craft"
  * framing of the copy — rather than sourcing a new image for a single band.
+ *
+ * Copy names the fragmentation explicitly (paper/Excel, siloed broker records, delayed
+ * reporting) and the shift being made (manual → digitalized/automated end-to-end), rather
+ * than only gesturing at "it's slow" — this is the one narrative beat the rest of the landing
+ * page (capabilities grid, process strip, company history) doesn't otherwise carry on its own.
  */
 export default function ProblemSection() {
   return (
@@ -27,11 +32,16 @@ export default function ProblemSection() {
           <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-3" style={{ color: "rgba(255,255,255,0.8)" }}>
             The Problem
           </p>
-          <h2 className="font-display font-normal text-[19px] sm:text-[22px] leading-snug m-0" style={{ color: "#fff" }}>
+          <h2 className="font-display font-normal text-[19px] sm:text-[22px] leading-snug m-0 mb-3" style={{ color: "#fff" }}>
             Every sale week, catalogues get re-keyed by hand, valuations get built from memory
-            and last season&rsquo;s notebook, and reports get assembled overnight. Auction
-            intelligence is still a manual craft — this platform exists to make it an instant one.
+            and last season&rsquo;s notebook, and reports get assembled overnight — each broker
+            desk, estate and factory keeping its own version in its own spreadsheet.
           </h2>
+          <p className="text-[13.5px] sm:text-[14px] leading-relaxed m-0" style={{ color: "rgba(255,255,255,0.78)" }}>
+            Auction intelligence is still a manual, fragmented craft. ASIS digitalizes and
+            automates that process end-to-end — one connected workflow in place of a slow one
+            spread across paper, Excel and memory.
+          </p>
         </Reveal>
       </div>
     </section>

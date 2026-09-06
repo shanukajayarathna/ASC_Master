@@ -85,7 +85,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Knowledge Base",
     section: "Intelligence",
     status: "live",
-    description: "Upload circulars, SOPs and policies — searchable by every user.",
+    description: "Module walkthroughs, tea education, help and document search — a guided learning hub.",
     icon: MenuBookOutlinedIcon,
     gradient: 7,
     image: "https://images.unsplash.com/photo-1603058817990-2b9a9abbce86",
@@ -95,7 +95,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: "AI Assistant",
     section: "Intelligence",
     status: "live",
-    description: "Ask about lots, valuations and documents — grounded in this sale's data.",
+    description: "Four specialist agents, plus Market Pulse and Mark Intelligence — one workspace.",
     icon: AutoAwesomeOutlinedIcon,
     gradient: 5,
     image: "https://images.unsplash.com/photo-1644088379091-d574269d422f",
@@ -105,7 +105,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Analytical Reports (PowerBI 2.0)",
     section: "Intelligence",
     status: "live",
-    description: "Distribution, breakdowns and data-quality checks for the active sale.",
+    description: "Distribution, breakdowns, data-quality checks and valuation accuracy for the active sale.",
     icon: InsightsOutlinedIcon,
     gradient: 3,
     image: "https://images.unsplash.com/photo-1666875753105-c63a6f3bdc86",
@@ -129,6 +129,10 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CompareArrowsOutlinedIcon,
     gradient: 4,
     image: "https://images.unsplash.com/photo-1758519288905-38b7b00c1023",
+    // Off the primary dashboard grid — folded into the Reports hub as its "Broker
+    // Comparison Reports" sub-category (Phase 9). Still fully reachable directly, from
+    // the command palette, and from the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/mark-intelligence",
@@ -141,6 +145,10 @@ export const NAV_ITEMS: NavItem[] = [
     // No `image` — matching the Admin Panel tile's own convention (see its comment): every
     // other tile's Unsplash photo was individually verified before being wired in, and this
     // one hasn't been, so it stays the plain gradient + icon treatment rather than guessing.
+    // Off the primary dashboard grid — folded into AI Assistant as an agent-adjacent
+    // insights panel (Phase 8). Still fully reachable directly, from the command palette,
+    // and from the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/market",
@@ -151,6 +159,10 @@ export const NAV_ITEMS: NavItem[] = [
     icon: PublicOutlinedIcon,
     gradient: 1,
     image: "https://images.unsplash.com/photo-1524661135-423995f22d0b",
+    // Off the primary dashboard grid — folded into Analytical Reports (Analysis) as its
+    // "Market Accuracy" tab (Phase 9). Still fully reachable directly, from the command
+    // palette, and from the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/performance",
@@ -160,6 +172,10 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Cross-sale grade valuation streaks and buyer purchase-volume trends.",
     icon: TrendingUpOutlinedIcon,
     gradient: 2,
+    // Off the primary dashboard grid — folded into the Reports hub as its "Performance"
+    // sub-category (Phase 9). Still fully reachable directly, from the command palette,
+    // and from the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/market-pulse",
@@ -169,6 +185,10 @@ export const NAV_ITEMS: NavItem[] = [
     description: "AI-scored tea, shipping and trade news that could move the next auction.",
     icon: NewspaperOutlinedIcon,
     gradient: 6,
+    // Off the primary dashboard grid — folded into AI Assistant as one of its rows
+    // (Phase 8). Still fully reachable directly, from the command palette, and from
+    // the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/saved-reports",
@@ -179,6 +199,10 @@ export const NAV_ITEMS: NavItem[] = [
     icon: BookmarkBorderOutlinedIcon,
     gradient: 6,
     image: "https://images.unsplash.com/photo-1562240020-ce31ccb0fa7d",
+    // Off the primary dashboard grid — folded into the Reports hub as its "Saved Reports"
+    // sub-category (Phase 9). Still fully reachable directly, from the command palette,
+    // and from the footer nav.
+    hiddenFromGrid: true,
   },
   {
     href: "/saved-filters",
@@ -252,6 +276,10 @@ export const NAV_ITEMS: NavItem[] = [
     icon: SupportAgentOutlinedIcon,
     gradient: 3,
     image: "https://images.unsplash.com/photo-1553775282-20af80779df7",
+    // Off the primary dashboard grid — its content is now also folded into the Knowledge
+    // Base learning hub (see knowledge/page.tsx's own Help section). Still fully reachable
+    // directly, from the command palette, and from the footer nav.
+    hiddenFromGrid: true,
   },
 ];
 

@@ -3,141 +3,107 @@
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
-import { DOCUMENT_CATEGORIES, DOCUMENT_CATEGORY_LABELS } from "@/lib/documentCategories";
-import type { DocumentSearchResult, KnowledgeDocument } from "@/types/api";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
+import { DOCUMENT_CATEGORY_LABELS } from "@/lib/documentCategories";
+import { HELP_FAQS } from "@/lib/helpFaqs";
+import type { DocumentSearchResult, LearningContentCategory, LearningContentItem } from "@/types/api";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutlineOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import SyncOutlinedIcon from "@mui/icons-material/SyncOutlined";
-import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
+import SpaOutlinedIcon from "@mui/icons-material/SpaOutlined";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
+import Grow from "@mui/material/Grow";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
-import { useEffect, useRef, useState } from "react";
+import CloseIcon from "@mui/icons-material/Close";
+import { forwardRef, useEffect, useMemo, useState, type ReactElement, type Ref } from "react";
+import type { TransitionProps } from "@mui/material/transitions";
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+const CATEGORY_TABS: { value: LearningContentCategory | "all"; label: string; icon: typeof AutoAwesomeOutlinedIcon }[] = [
+  { value: "all", label: "All", icon: AutoAwesomeOutlinedIcon },
+  { value: "ModuleGuidance", label: "Module Guidance", icon: AutoAwesomeOutlinedIcon },
+  { value: "TeaEducation", label: "Tea Education", icon: SpaOutlinedIcon },
+  { value: "Article", label: "Articles", icon: DescriptionOutlinedIcon },
+];
 
-/** The page's established "meta label" style (see the "Documents"/"No matches" headers
- *  below) reused as a small badge — categories are distinguished by their text, not color,
- *  so this stays neutral rather than inventing a semantic color per category. */
-function CategoryBadge({ category }: { category: string }) {
+const CATEGORY_LABEL: Record<LearningContentCategory, string> = {
+  ModuleGuidance: "Module Guidance",
+  TeaEducation: "Tea Education",
+  Article: "Article",
+};
+
+// A visible, scale-up-from-the-button entrance for the "Read More" dialog — the brief's own
+// "comes a window animatively" — rather than MUI's default plain fade.
+const GrowTransition = forwardRef(function GrowTransition(
+  props: TransitionProps & { children: ReactElement },
+  ref: Ref<unknown>
+) {
+  return <Grow ref={ref} {...props} />;
+});
+
+/**
+ * One "Learn" row — a plain bordered card matching this app's own established list-row
+ * style (same shape as the Help/Search-results cards below), not a photo-poster tile:
+ * description + a "Read More" button on the left, the short title centered in the middle,
+ * and a real image on the right (a play badge overlays it when a video exists — the video
+ * itself only plays once opened, in the Read More dialog).
+ */
+function LearningRow({ item, onReadMore }: { item: LearningContentItem; onReadMore: () => void }) {
   return (
-    <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted border border-border rounded px-1.5 py-0.5">
-      {DOCUMENT_CATEGORY_LABELS[category as keyof typeof DOCUMENT_CATEGORY_LABELS] ?? category}
-    </span>
+    <div className="flex items-stretch gap-4 border border-border rounded-[var(--radius-lg)] bg-surface p-4 min-h-[132px]">
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+        <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted">{CATEGORY_LABEL[item.category]}</span>
+        <h3 className="font-display text-[15px] font-semibold m-0 text-text-strong sm:hidden">{item.title}</h3>
+        <p className="text-[13px] text-text-muted leading-relaxed m-0 line-clamp-3">{item.tagline}</p>
+        <div>
+          <Button size="small" variant="outlined" onClick={onReadMore} sx={{ mt: 0.5 }}>
+            Read More
+          </Button>
+        </div>
+      </div>
+
+      <div className="w-[200px] shrink-0 hidden sm:flex items-center justify-center text-center px-3 border-l border-r border-border">
+        <h3 className="font-display text-[16px] font-semibold m-0 text-text-strong leading-snug">{item.title}</h3>
+      </div>
+
+      <div className="w-[140px] shrink-0 relative rounded-[var(--radius-md)] overflow-hidden">
+        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${item.imageUrl})` }} />
+        {item.videoUrl && (
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(10,12,8,0.35)" }}>
+            <PlayCircleOutlineIcon sx={{ fontSize: 30, color: "#fff" }} />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 export default function KnowledgeBasePage() {
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // Document whose delete is in flight — its button locks so a double-click can't fire twice.
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  // Platform-docs sync: embeds every changed docs/*.md server-side, so it can take a minute.
-  const [syncing, setSyncing] = useState(false);
-  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [items, setItems] = useState<LearningContentItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<LearningContentCategory | "all">("all");
+  const [openItem, setOpenItem] = useState<LearningContentItem | null>(null);
 
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<DocumentSearchResult[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadCategory, setUploadCategory] = useState<string>("Internal");
-  const [uploadEffectiveDate, setUploadEffectiveDate] = useState("");
-  const [uploadExpiryDate, setUploadExpiryDate] = useState("");
-  const [uploadSupersedes, setUploadSupersedes] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const refresh = () => {
-    setLoading(true);
-    api
-      .listDocuments()
-      .then(setDocuments)
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't load documents"))
-      .finally(() => setLoading(false));
-  };
-
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    refresh();
+    api
+      .getLearningContent()
+      .then(setItems)
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "Couldn't load learning content"));
   }, []);
 
-  const resetUploadForm = () => {
-    setUploadFile(null);
-    setUploadCategory("Internal");
-    setUploadEffectiveDate("");
-    setUploadExpiryDate("");
-    setUploadSupersedes("");
-    setUploadError(null);
-  };
-
-  const submitUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uploadFile) return;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      await api.uploadDocument(
-        uploadFile,
-        uploadCategory,
-        uploadEffectiveDate || undefined,
-        uploadExpiryDate || undefined,
-        uploadSupersedes || undefined
-      );
-      setUploadOpen(false);
-      resetUploadForm();
-      refresh();
-    } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const syncPlatformDocs = async () => {
-    setSyncing(true);
-    setSyncNotice(null);
-    setError(null);
-    try {
-      const r = await api.syncPlatformDocs();
-      const failed = r.failed.length > 0 ? ` ${r.failed.length} failed: ${r.failed.join("; ")}` : "";
-      setSyncNotice(
-        `Platform docs synced — ${r.added} added, ${r.updated} updated, ${r.unchanged} already up to date.${failed}`
-      );
-      refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Platform docs sync failed");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-    try {
-      await api.deleteDocument(id);
-      setDocuments((docs) => docs.filter((d) => d.id !== id));
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  const filtered = useMemo(() => {
+    if (!items) return [];
+    return activeCategory === "all" ? items : items.filter((i) => i.category === activeCategory);
+  }, [items, activeCategory]);
 
   const runSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,18 +123,91 @@ export default function KnowledgeBasePage() {
     <div>
       <PageHeader
         title="Knowledge Base"
-        subtitle="Upload PDFs, Word, PowerPoint and Excel documents — circulars, SOPs, policies — and search across them."
+        subtitle="Learn the platform and the trade — module walkthroughs, tea education, quick answers, and document search, all in one place."
       />
 
-      {error && (
-        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{error}</div>
+      {/* ---- Learn: category tabs + a plain scannable list of content rows ---- */}
+      <div className="mb-4 flex gap-2 flex-wrap">
+        {CATEGORY_TABS.map((t) => (
+          <Button
+            key={t.value}
+            size="small"
+            variant={activeCategory === t.value ? "contained" : "outlined"}
+            startIcon={<t.icon fontSize="small" />}
+            onClick={() => setActiveCategory(t.value)}
+          >
+            {t.label}
+          </Button>
+        ))}
+      </div>
+
+      {loadError && (
+        <div className="mb-4 p-3.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-sm text-danger">{loadError}</div>
       )}
 
-      <form onSubmit={runSearch} className="mb-6 flex gap-2.5">
+      {items === null ? (
+        <div className="flex justify-center py-10">
+          <TeaLoader size={44} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-10 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)] mb-8">
+          <p className="m-0">No content in this category yet.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 mb-8">
+          {filtered.map((item) => (
+            <LearningRow key={item.id} item={item} onReadMore={() => setOpenItem(item)} />
+          ))}
+        </div>
+      )}
+
+      <Dialog open={openItem !== null} onClose={() => setOpenItem(null)} maxWidth="sm" fullWidth slots={{ transition: GrowTransition }}>
+        {openItem && (
+          <>
+            <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              {openItem.title}
+              <IconButton size="small" onClick={() => setOpenItem(null)} sx={{ ml: "auto" }}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent>
+              {openItem.videoUrl ? (
+                <video src={openItem.videoUrl} controls className="w-full rounded-[var(--radius-lg)] mb-3" style={{ maxHeight: 300 }} />
+              ) : (
+                <div
+                  className="flex flex-col items-center justify-center gap-2 py-8 mb-3 rounded-[var(--radius-lg)] border border-dashed border-border text-center"
+                  style={{ background: "var(--surface-sunken)" }}
+                >
+                  <PlayCircleOutlineIcon sx={{ fontSize: 32, color: "var(--text-muted)" }} />
+                  <p className="text-[13px] text-text-muted m-0">Video walkthrough coming soon</p>
+                </div>
+              )}
+              <p className="text-[13.5px] leading-relaxed text-text m-0 whitespace-pre-wrap">{openItem.body}</p>
+            </DialogContent>
+          </>
+        )}
+      </Dialog>
+
+      {/* ---- Help: folded in from the standalone Help page (same content, lib/helpFaqs.ts) ---- */}
+      <h2 className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-2.5">Help</h2>
+      <div className="grid gap-3 mb-8" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+        {HELP_FAQS.map((f) => (
+          <div key={f.q} className="border border-border rounded-[var(--radius-lg)] bg-surface p-4">
+            <h3 className="font-display text-[14px] text-text-strong mb-1.5">{f.q}</h3>
+            <p className="text-[12.5px] text-text-muted leading-relaxed m-0">{f.a}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ---- Search documents: read-only, every signed-in user (upload/manage moved to
+           Admin Panel's Knowledge Documents section — this page is a learning hub now,
+           not a data-input surface) ---- */}
+      <h2 className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-2.5">Search Documents</h2>
+      <form onSubmit={runSearch} className="mb-4 flex gap-2.5">
         <TextField
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search the knowledge base…"
+          placeholder="Search circulars, SOPs and policies…"
           size="small"
           fullWidth
           slotProps={{
@@ -191,16 +230,18 @@ export default function KnowledgeBasePage() {
       )}
 
       {results && (
-        <div className="mb-8">
-          <h2 className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-2.5">
+        <div>
+          <h3 className="font-mono text-[10px] tracking-widest uppercase text-text-muted mb-2.5">
             {results.length === 0 ? "No matches" : `${results.length} result${results.length === 1 ? "" : "s"}`}
-          </h2>
+          </h3>
           <div className="flex flex-col gap-2.5">
             {results.map((r, i) => (
               <div key={i} className="border border-border rounded-[var(--radius-lg)] bg-surface p-3.5">
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[11px] font-mono text-text-muted">{r.documentFileName}</span>
-                  <CategoryBadge category={r.category} />
+                  <span className="font-mono text-[10px] tracking-widest uppercase text-text-muted border border-border rounded px-1.5 py-0.5">
+                    {DOCUMENT_CATEGORY_LABELS[r.category as keyof typeof DOCUMENT_CATEGORY_LABELS] ?? r.category}
+                  </span>
                 </div>
                 <p className="text-[13px] text-text m-0 leading-relaxed whitespace-pre-wrap">{r.chunkText}</p>
               </div>
@@ -208,174 +249,6 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
       )}
-
-      <div className="flex items-center justify-between gap-2 flex-wrap mb-2.5">
-        <h2 className="font-mono text-[10px] tracking-widest uppercase text-text-muted m-0">Documents</h2>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Tooltip title="Bring the platform's own documentation (every module guide) into the knowledge base so the AI Assistant can answer questions about how ASC Hub works. Safe to re-run — only changed docs are re-processed.">
-            <span>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={syncing ? <CircularProgress size={14} /> : <SyncOutlinedIcon fontSize="small" />}
-                onClick={syncPlatformDocs}
-                disabled={syncing}
-                aria-busy={syncing}
-              >
-                {syncing ? "Syncing…" : "Sync platform docs"}
-              </Button>
-            </span>
-          </Tooltip>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<UploadFileOutlinedIcon fontSize="small" />}
-            onClick={() => setUploadOpen(true)}
-          >
-            Upload
-          </Button>
-        </div>
-      </div>
-
-      {syncNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
-          {syncNotice}
-          <button
-            type="button"
-            onClick={() => setSyncNotice(null)}
-            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
-            style={{ color: "var(--sage-dark)" }}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="flex justify-center py-10">
-          <TeaLoader size={44} />
-        </div>
-      ) : documents.length === 0 ? (
-        <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)]">
-          <p className="m-0">No documents uploaded yet.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {documents.map((d) => {
-            const supersededByName = d.supersededByDocumentId
-              ? documents.find((other) => other.id === d.supersededByDocumentId)?.fileName
-              : null;
-            return (
-              <div key={d.id} className="flex items-center gap-3 border border-border rounded-[var(--radius-lg)] bg-surface px-3.5 py-2.5">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] text-text-strong truncate">{d.fileName}</span>
-                    <CategoryBadge category={d.category} />
-                  </div>
-                  <div className="text-[11px] text-text-muted font-mono">
-                    {formatSize(d.sizeBytes)} · {new Date(d.uploadedAt).toLocaleString()}
-                    {d.effectiveDate && ` · effective ${new Date(d.effectiveDate).toLocaleDateString()}`}
-                    {d.expiryDate && ` · expires ${new Date(d.expiryDate).toLocaleDateString()}`}
-                  </div>
-                  {supersededByName && (
-                    <div className="text-[11px] text-text-muted italic mt-0.5">Superseded by {supersededByName}</div>
-                  )}
-                </div>
-                <Tooltip title="Delete">
-                  <span>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDelete(d.id)}
-                      disabled={deletingId === d.id}
-                      aria-busy={deletingId === d.id}
-                      aria-label={`Delete ${d.fileName}`}
-                    >
-                      {deletingId === d.id ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <Dialog open={uploadOpen} onClose={() => (uploading ? null : setUploadOpen(false))} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ pb: 0.5 }}>Upload Document</DialogTitle>
-        <form onSubmit={submitUpload}>
-          <DialogContent>
-            {uploadError && (
-              <div className="mb-3 p-2.5 rounded-[var(--radius-lg)] border border-danger bg-danger-light text-[13px] text-danger">{uploadError}</div>
-            )}
-            <div className="flex flex-col gap-3">
-              <div>
-                <Button variant="outlined" size="small" fullWidth onClick={() => fileInputRef.current?.click()}>
-                  {uploadFile ? uploadFile.name : "Choose File"}
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.pptx,.xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                />
-              </div>
-
-              <Select size="small" value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)} fullWidth>
-                {DOCUMENT_CATEGORIES.map((c) => (
-                  <MenuItem key={c} value={c}>
-                    {DOCUMENT_CATEGORY_LABELS[c]}
-                  </MenuItem>
-                ))}
-              </Select>
-
-              <TextField
-                label="Effective date"
-                type="date"
-                size="small"
-                value={uploadEffectiveDate}
-                onChange={(e) => setUploadEffectiveDate(e.target.value)}
-                slotProps={{ inputLabel: { shrink: true } }}
-                helperText="Optional — when this document's guidance starts applying."
-                fullWidth
-              />
-              <TextField
-                label="Expiry date"
-                type="date"
-                size="small"
-                value={uploadExpiryDate}
-                onChange={(e) => setUploadExpiryDate(e.target.value)}
-                slotProps={{ inputLabel: { shrink: true } }}
-                helperText="Optional — when it stops applying."
-                fullWidth
-              />
-
-              <Select
-                size="small"
-                value={uploadSupersedes}
-                onChange={(e) => setUploadSupersedes(e.target.value)}
-                displayEmpty
-                fullWidth
-              >
-                <MenuItem value="">This is a new document</MenuItem>
-                {documents.map((d) => (
-                  <MenuItem key={d.id} value={d.id}>
-                    Supersedes: {d.fileName}
-                  </MenuItem>
-                ))}
-              </Select>
-            </div>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setUploadOpen(false)} disabled={uploading}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="contained" disabled={uploading || !uploadFile} aria-busy={uploading}>
-              {uploading ? "Uploading…" : "Upload"}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
     </div>
   );
 }

@@ -977,6 +977,25 @@ export interface MarketPulseSource {
   lastFetchNewItems: number;
 }
 
+// ---- Knowledge Base "Learn" carousel (admin-managed, mirrors MarketPulseSource) ---------
+
+export type LearningContentCategory = "ModuleGuidance" | "TeaEducation" | "Article";
+
+export interface LearningContentItem {
+  id: string;
+  category: LearningContentCategory;
+  title: string;
+  tagline: string;
+  body: string;
+  imageUrl: string;
+  /** Null = no video asset exists yet ("walkthrough coming soon"), not an error. */
+  videoUrl: string | null;
+  order: number;
+  isPublished: boolean;
+  addedBy: string | null;
+  addedAt: string;
+}
+
 export interface MarketPulseIngestionSummary {
   sourcesChecked: number;
   sourcesFailed: number;

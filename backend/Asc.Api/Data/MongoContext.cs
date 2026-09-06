@@ -7,6 +7,7 @@ using Asc.Api.Modules.Auth;
 using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.LandingContent;
+using Asc.Api.Modules.LearningContent;
 using Asc.Api.Modules.MarketPulse;
 using Asc.Api.Modules.MarkIntelligence;
 using Asc.Api.Modules.MasterData;
@@ -279,6 +280,10 @@ public class MongoContext
 
     /// <summary>Single-document CMS content for the public marketing landing page (/home).</summary>
     public IMongoCollection<LandingPageContent> LandingPageContent => Database.GetCollection<LandingPageContent>("landingPageContent");
+
+    /// <summary>Knowledge Base "Learn" carousel tiles — module guidance, tea education,
+    /// articles — admin-managed the same way Market Pulse's sources are.</summary>
+    public IMongoCollection<LearningContentItem> LearningContentItems => Database.GetCollection<LearningContentItem>("learningContentItems");
 
     /// <summary>"Request Access" submissions from the public landing page, reviewed by an
     /// Admin in the Admin Panel — this app is admin-provisioned only, no self-service signup.</summary>

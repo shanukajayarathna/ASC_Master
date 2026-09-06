@@ -246,6 +246,13 @@ export default function ValuationFocus({
     () => sharingsFor(sharingIndex, lot).filter((l) => l.broker !== OUR_BROKER),
     [sharingIndex, lot]
   );
+  // Just the distinct broker names, for the always-visible pill row under the Sharings
+  // indicator — "who else is offering this mark" is a glance, not a click; the full
+  // per-lot comparison/pricing panel below is still its own deliberate action.
+  const sharingBrokerNames = useMemo(
+    () => Array.from(new Set(sharings.map((l) => l.broker).filter((b): b is string => !!b))),
+    [sharings]
+  );
   // How this same mark + grade fared last sale — every broker's, since there's no "anchor
   // lot" to exclude across sales the way there is for this-sale peers above.
   const previousSaleSharings = useMemo(
@@ -1052,6 +1059,27 @@ export default function ValuationFocus({
                 )}
               </span>
             </div>
+            {/* Always-visible broker-name pills, directly under the Sharings indicator — no
+                click needed to see WHO else is offering this mark; the Sharings button above
+                still gates the fuller per-lot comparison/pricing panel, which is a genuine
+                deliberate action, not just a name lookup. */}
+            {sharingBrokerNames.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-1.5 px-4 py-1.5 border-t border-border"
+                style={{ background: "var(--surface-sunken)" }}
+              >
+                <span className="text-[11px] font-semibold text-text-muted whitespace-nowrap">Also shared by</span>
+                {sharingBrokerNames.map((broker) => (
+                  <span
+                    key={broker}
+                    className="px-2 py-0.5 rounded-full text-[11.5px] font-semibold whitespace-nowrap"
+                    style={{ background: "var(--brass-dim)", color: "var(--text-strong)" }}
+                  >
+                    {broker}
+                  </span>
+                ))}
+              </div>
+            )}
             <div
               className="grid gap-x-4 gap-y-1 px-4 py-1.5 border-t border-border"
               style={{ gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))" }}

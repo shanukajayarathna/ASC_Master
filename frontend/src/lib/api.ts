@@ -28,6 +28,8 @@ import type {
   ImportStatus,
   KnowledgeDocument,
   LandingPageContent,
+  LearningContentCategory,
+  LearningContentItem,
   Lot,
   FilteredAnalytics,
   FilteredLots,
@@ -908,12 +910,15 @@ export const api = {
       body: JSON.stringify({ filter, page, pageSize, search: search || null }),
     }),
 
-  /** Chat routed to a specific agent (e.g. "analytics" for the Analysis page's dock).
-   *  `provider` should be a configured provider key — see getProviderStatuses(). */
-  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string) =>
+  /** Chat routed to a specific agent (e.g. "analytics" for the Analysis page's dock,
+   *  or the /assistant landing view's own agent rows). `provider` should be a
+   *  configured provider key — see getProviderStatuses(). `catalogueId` is the
+   *  Topbar's active sale — AuctionAgent reads it to know what "the current sale"
+   *  means without a tool round-trip, same reasoning as sendChatMessage's own. */
+  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string) =>
     request<ChatResponse>("/api/v1/assistant/chat", {
       method: "POST",
-      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null }),
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null }),
     }),
 
   // ---- MSL archive ----
@@ -1019,6 +1024,26 @@ export const api = {
 
   /** Public, unauthenticated — the /home landing page's ticker strip. */
   getPublicMarketPulseTicker: () => request<PublicMarketPulseItem[]>("/api/v1/market-pulse/public-ticker"),
+
+  // ---- Knowledge Base "Learn" carousel content (mirrors Market Pulse sources above) ------
+
+  /** Published items only — what the Knowledge Base page itself renders. */
+  getLearningContent: () => request<LearningContentItem[]>("/api/v1/learning-content"),
+
+  /** Admin editor's own load — unfiltered, drafts included. */
+  getLearningContentForAdmin: () => request<LearningContentItem[]>("/api/v1/learning-content/admin"),
+
+  addLearningContent: (item: {
+    category: LearningContentCategory; title: string; tagline: string; body: string;
+    imageUrl: string; videoUrl?: string | null; order?: number; isPublished?: boolean;
+  }) => request<LearningContentItem>("/api/v1/learning-content", { method: "POST", body: JSON.stringify(item) }),
+
+  updateLearningContent: (id: string, patch: {
+    category?: LearningContentCategory; title?: string; tagline?: string; body?: string;
+    imageUrl?: string; videoUrl?: string | null; order?: number; isPublished?: boolean;
+  }) => request<LearningContentItem>(`/api/v1/learning-content/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+
+  deleteLearningContent: (id: string) => request<void>(`/api/v1/learning-content/${id}`, { method: "DELETE" }),
 
   // ---- Landing Page CMS (public /home page + Admin Panel "Landing Page" section) -----
   getLandingContent: () => request<LandingPageContent>("/api/v1/landing-content"),

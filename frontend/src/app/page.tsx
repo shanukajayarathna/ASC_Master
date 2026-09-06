@@ -7,6 +7,7 @@ import LoggedOutNotice from "@/components/auth/LoggedOutNotice";
 import LandingNav from "@/components/landing/LandingNav";
 import Hero from "@/components/landing/Hero";
 import ProblemSection from "@/components/landing/ProblemSection";
+import ConnectiveLayer from "@/components/landing/ConnectiveLayer";
 import FiveIntelligences from "@/components/landing/FiveIntelligences";
 import HeritageSection from "@/components/landing/HeritageSection";
 import AboutSection from "@/components/landing/AboutSection";
@@ -82,6 +83,7 @@ export default function LandingPage() {
       )}
       <Hero hero={content.hero} />
       <ProblemSection />
+      <ConnectiveLayer />
       <FiveIntelligences items={content.fiveIntelligences} />
       <HeritageSection heritage={content.heritage} />
       <AboutSection stats={content.companyStats} />

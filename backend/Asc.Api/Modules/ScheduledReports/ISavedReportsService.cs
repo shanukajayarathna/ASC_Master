@@ -27,6 +27,11 @@ public interface ISavedReportsService
     Task<List<SavedReport>> ListByTypeAsync(string type, int limit, CancellationToken ct = default);
 
     Task<SavedReport?> GetAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Most-recent-first across every report Type — same data ReportsController's own
+    /// "saved" listing (Admin Panel's Saved Reports view) shows every signed-in user, now also
+    /// reachable as an agent tool (see ReportsToolExecutor) without a second Mongo access path.</summary>
+    Task<List<SavedReport>> ListAllAsync(int limit, CancellationToken ct = default);
 }
 
 public class SavedReportsService(MongoContext db) : ISavedReportsService
@@ -45,4 +50,7 @@ public class SavedReportsService(MongoContext db) : ISavedReportsService
 
     public async Task<SavedReport?> GetAsync(Guid id, CancellationToken ct = default) =>
         await db.SavedReports.Find(r => r.Id == id).FirstOrDefaultAsync(ct);
+
+    public Task<List<SavedReport>> ListAllAsync(int limit, CancellationToken ct = default) =>
+        db.SavedReports.Find(FilterDefinition<SavedReport>.Empty).SortByDescending(r => r.CreatedAt).Limit(limit).ToListAsync(ct);
 }

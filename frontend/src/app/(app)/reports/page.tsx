@@ -14,12 +14,22 @@ import SummarizeOutlinedIcon from "@mui/icons-material/SummarizeOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
 import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
+import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
+import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
+import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 
 // Sub-destinations of Reports, not top-level modules — a local tile array rather than
 // NAV_ITEMS/nav.ts (which is the global launchpad). No `image` on the not-yet-built tiles:
 // ModuleTile's Unsplash-photo convention requires each URL individually verified before
 // wiring in (see nav.ts's own comment), and the gradient+icon fallback already reads fine.
-const REPORT_TILES: NavItem[] = [
+//
+// Phase 9 (IA consolidation): Broker Comparison, Performance and Saved Reports were each
+// their own top-level Intelligence/Library tile — all three are reporting destinations at
+// heart, so they're folded in here as their own sub-categories (real routes unchanged,
+// still directly reachable, from the command palette, and from the footer nav — see each
+// one's `hiddenFromGrid` note in nav.ts). "Modern Reports" groups everything built directly
+// for this platform, as distinct from those three pre-existing standalone reports.
+const MODERN_REPORT_TILES: NavItem[] = [
   {
     href: "/reports/summary",
     label: "Executive & Summary Reports",
@@ -121,15 +131,90 @@ const REPORT_TILES: NavItem[] = [
   },
 ];
 
+// Same tile shape, icon and gradient as each page's own nav.ts entry — this is a second
+// entry point to the exact same route, not a rebuild.
+const BROKER_COMPARISON_TILES: NavItem[] = [
+  {
+    href: "/broker",
+    label: "Broker Comparison",
+    section: "Reports",
+    status: "live",
+    description: "Rankings, market share and average valuation across brokers.",
+    icon: CompareArrowsOutlinedIcon,
+    gradient: 4,
+    image: "https://images.unsplash.com/photo-1758519288905-38b7b00c1023",
+  },
+];
+
+const PERFORMANCE_TILES: NavItem[] = [
+  {
+    href: "/performance",
+    label: "Performance",
+    section: "Reports",
+    status: "live",
+    description: "Cross-sale grade valuation streaks and buyer purchase-volume trends.",
+    icon: TrendingUpOutlinedIcon,
+    gradient: 2,
+  },
+];
+
+const SAVED_REPORTS_TILES: NavItem[] = [
+  {
+    href: "/saved-reports",
+    label: "Saved Reports",
+    section: "Reports",
+    status: "live",
+    description: "Every report you've saved, ready to reopen.",
+    icon: BookmarkBorderOutlinedIcon,
+    gradient: 6,
+    image: "https://images.unsplash.com/photo-1562240020-ce31ccb0fa7d",
+  },
+];
+
+/** One labeled sub-category grid — same heading style every other page in this app uses
+ *  for a section ("Group Breakdown", "Insights", ...), so the Reports hub's four
+ *  sub-categories read as one consistent page, not four different ones stitched together. */
+function ReportGroup({ title, subtitle, tiles, priority }: { title: string; subtitle: string; tiles: NavItem[]; priority?: boolean }) {
+  return (
+    <section className="mb-8">
+      <div className="flex items-baseline gap-2.5 mb-3">
+        <h4 className="font-display text-[15px] font-semibold text-text-strong m-0">{title}</h4>
+        <span className="text-[12px] text-text-muted">{subtitle}</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {tiles.map((item, i) => (
+          <ModuleTile key={item.href} item={item} priority={priority && i < 4} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function ReportsLaunchpadPage() {
   return (
     <div>
       <PageHeader title="Reports" subtitle="Executive summaries, cross-broker rankings, and everything else built from sale data." />
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-        {REPORT_TILES.map((item, i) => (
-          <ModuleTile key={item.href} item={item} priority={i < 4} />
-        ))}
-      </div>
+      <ReportGroup
+        title="Modern Reports"
+        subtitle="Built directly for this platform, ready to export"
+        tiles={MODERN_REPORT_TILES}
+        priority
+      />
+      <ReportGroup
+        title="Broker Comparison Reports"
+        subtitle="Rankings, market share and average valuation"
+        tiles={BROKER_COMPARISON_TILES}
+      />
+      <ReportGroup
+        title="Performance"
+        subtitle="Cross-sale grade and buyer trends"
+        tiles={PERFORMANCE_TILES}
+      />
+      <ReportGroup
+        title="Saved Reports"
+        subtitle="Every report you've saved, ready to reopen"
+        tiles={SAVED_REPORTS_TILES}
+      />
     </div>
   );
 }

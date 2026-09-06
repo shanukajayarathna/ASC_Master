@@ -12,6 +12,7 @@ using Asc.Api.Modules.Deadlines;
 using Asc.Api.Modules.Documents;
 using Asc.Api.Modules.Knowledge;
 using Asc.Api.Modules.LandingContent;
+using Asc.Api.Modules.LearningContent;
 using Asc.Api.Modules.MarketPulse;
 using Asc.Api.Modules.MasterData;
 using Asc.Api.Modules.Msl;
@@ -158,13 +159,17 @@ builder.Services.AddSingleton<IAiUsageLogger, AiUsageLogger>();
 // Agent Platform — User Request → AgentRouter → IAgentRegistry → Selected Agent →
 // KnowledgeService → LLM → Agent Response (see Modules/Agents/README.md). Scoped throughout,
 // matching AiGateway's own lifetime: a scoped service can never be safely captured by a
-// singleton. Two agents registered today — general (GeneralAgent) and auction (AuctionAgent),
-// the first business-specific one; a third is just another IAgent registration —
-// AgentRegistry/AgentRouter and every caller pick it up automatically.
+// singleton. Four agents registered today — general (GeneralAgent), auction (AuctionAgent),
+// analytics (AnalyticsAgent), and reports (ReportsAgent); each new one is just another IAgent
+// registration — AgentRegistry/AgentRouter and every caller pick it up automatically.
 builder.Services.AddScoped<IAgent, GeneralAgent>();
 builder.Services.AddScoped<IAgent, AuctionAgent>();
 builder.Services.AddSingleton<AnalyticsToolExecutor>();
 builder.Services.AddScoped<IAgent, AnalyticsAgent>();
+// ReportsAgent's tool set — reused AssistantToolExecutor lookups plus ISavedReportsService
+// access (list/fetch already-generated reports); see Modules/Agents/ReportsToolExecutor.cs.
+builder.Services.AddSingleton<ReportsToolExecutor>();
+builder.Services.AddScoped<IAgent, ReportsAgent>();
 builder.Services.AddScoped<IAgentRegistry, AgentRegistry>();
 builder.Services.AddScoped<AgentRouter>();
 
@@ -365,6 +370,11 @@ builder.Services.AddHealthChecks();
 // brute-forced against /api/v1/auth/login — there's no account lockout, so this is the
 // only thing standing between an attacker and unlimited guesses.
 const string LoginRateLimitPolicy = "login";
+// Every AI Assistant chat turn costs a real LLM call (tokens, and for /compare, one call
+// PER configured provider) — without a limit, any authenticated user could loop it for
+// unbounded provider spend. Partitioned by user id (not IP) since the caller is always
+// authenticated by this point; the limit is generous enough for real back-and-forth chat.
+const string AssistantChatRateLimitPolicy = "assistantChat";
 builder.Services.AddRateLimiter(opts =>
 {
     opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -374,6 +384,16 @@ builder.Services.AddRateLimiter(opts =>
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+    opts.AddPolicy(AssistantChatRateLimitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
@@ -476,6 +496,24 @@ try
 catch (MongoException ex)
 {
     app.Logger.LogWarning(ex, "Skipping landing-page-content seed at startup — cluster rejected the write (e.g. over storage quota).");
+}
+
+// Same first-run seed pattern as landing-page content just above, for the Knowledge Base
+// "Learn" carousel — only inserts if the collection is completely empty, so it never
+// overwrites anything an Admin has since added/edited through the CMS panel.
+try
+{
+    using var learningSeedScope = app.Services.CreateScope();
+    var learningSeedDb = learningSeedScope.ServiceProvider.GetRequiredService<MongoContext>();
+    var learningCount = await learningSeedDb.LearningContentItems.CountDocumentsAsync(FilterDefinition<LearningContentItem>.Empty);
+    if (learningCount == 0)
+    {
+        await learningSeedDb.LearningContentItems.InsertManyAsync(LearningContentSeed.Default());
+    }
+}
+catch (MongoException ex)
+{
+    app.Logger.LogWarning(ex, "Skipping learning-content seed at startup — cluster rejected the write (e.g. over storage quota).");
 }
 
 app.Run();
