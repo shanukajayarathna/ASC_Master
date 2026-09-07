@@ -58,7 +58,7 @@ function safeStem(rawFilename: string): string {
  *  isn't a shared long-lived soffice process for exactly that reason. */
 function convertToPdf(xlsxPath: string, outDir: string, profileDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(sofficePath(), [
+    const child = spawn(/* turbopackIgnore: true */ sofficePath(), [
       `-env:UserInstallation=file:///${profileDir.replace(/\\/g, "/")}`,
       "--headless",
       "--norestore",
