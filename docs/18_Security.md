@@ -34,6 +34,17 @@ Audit logging for Admin actions (role changes, API key/webhook management — se
 ## Implementation notes
 `ApiKeyAuthenticationHandler` and the JWT scheme are both configured in the API's startup/`Program.cs` — confirm exact policy names there before adding a new `[Authorize(Policy = ...)]` attribute.
 
+## Tracked follow-up
+
+The 2026-09-07 pre-deployment audit recorded an architectural item: controllers should stop
+injecting `MongoContext` directly and use service/repository seams for query and write boundaries.
+This is intentionally tracked rather than refactored during the pre-deployment pass. The scope
+covers `CataloguesController`, `DashboardController`, `ExportController`, `LotsController`,
+`AnalyticsController`, `AuthController`, `DocumentsController`, `LearningContentController`,
+`MarketPulseController`, `MarkIntelligenceController`, and `MasterDataController`. Any refactor
+must preserve route contracts, collection names, auth policy behavior, and the additive-only
+migration convention.
+
 ## Open questions
 - No documented policy on JWT expiry/refresh — verify against `AuthController` before relying on any assumption here.
 
