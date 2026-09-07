@@ -3,6 +3,7 @@
 # DEPLOYMENT.md for the full list of required environment variables.
 services:
   backend:
+    image: ${BACKEND_IMAGE:-asc-master-backend:local}
     build:
       context: ./backend
       dockerfile: Asc.Api/Dockerfile
@@ -31,6 +32,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: ${FRONTEND_IMAGE:-asc-master-frontend:local}
     build:
       context: ./frontend
       args:
