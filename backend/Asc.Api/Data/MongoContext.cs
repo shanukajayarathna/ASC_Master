@@ -41,6 +41,8 @@ public class MongoContext
         // and continue instead — the app runs in degraded mode (an index that's missing because
         // it never got created yet may make a query slower) rather than refusing to start at
         // all over what is usually a no-op.
+        if (config["Database:UseLegacyStartupIndexes"] != "true") return;
+
         try
         {
             CreateIndexes();
@@ -50,6 +52,8 @@ public class MongoContext
             logger.LogWarning(ex, "Skipping Mongo index creation at startup — cluster rejected the write (e.g. over storage quota). The app will continue without confirming indexes exist.");
         }
     }
+
+    internal void CreateIndexesForMigration() => CreateIndexes();
 
     private void CreateIndexes()
     {

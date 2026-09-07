@@ -23,6 +23,7 @@ using Asc.Api.Modules.Reports;
 using Asc.Api.Modules.ScheduledReports;
 using Asc.Api.Modules.Webhooks;
 using Asc.Api.Modules.Workflow;
+using Asc.Api.Migrations;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -68,6 +69,10 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<MongoContext>();
+builder.Services.AddSingleton<IMigrationHistoryStore>(sp =>
+    new MongoMigrationHistoryStore(sp.GetRequiredService<MongoContext>().Database));
+builder.Services.AddSingleton<IDatabaseMigration, Migration001CurrentIndexes>();
+builder.Services.AddSingleton<MigrationRunner>();
 builder.Services.AddSingleton<CatalogueImportService>();
 // Catalogue data is served straight from the weekly-sale Excel files (data/sales) via
 // this seam — swap the implementation to move catalogues into a database (e.g. Azure).
@@ -433,6 +438,15 @@ builder.Services.AddResponseCompression(opts =>
 var app = builder.Build();
 
 app.UseResponseCompression();
+
+try
+{
+    await app.Services.GetRequiredService<MigrationRunner>().RunAsync();
+}
+catch (MongoException ex)
+{
+    app.Logger.LogWarning(ex, "Skipping database migrations at startup. The app will continue in degraded mode until the migration can be applied.");
+}
 
 // Master data resolution has to be synchronous (it runs inside LINQ grouping selectors), so
 // the alias table is loaded into memory once here rather than queried per lookup — see
