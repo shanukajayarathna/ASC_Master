@@ -360,12 +360,16 @@ function tierPrice(tiers: MonthlySaleSlot["tiers"], tier: (typeof TIER_ORDER)[nu
   return tiers?.find((t) => t.tier === tier)?.averagePrice ?? null;
 }
 
+function tierQty(tiers: MonthlySaleSlot["tiers"], tier: (typeof TIER_ORDER)[number]): number | null {
+  return tiers?.find((t) => t.tier === tier)?.quantityKg ?? null;
+}
+
 function formatKg(n: number): string {
-  return `${Math.round(n).toLocaleString()} Kg`;
+  return Math.round(n).toLocaleString();
 }
 
 function formatPrice(n: number): string {
-  return `Rs ${Math.round(n).toLocaleString()}`;
+  return Math.round(n).toLocaleString();
 }
 
 const PIE_CX = 50;
@@ -407,53 +411,60 @@ function pieSlices(values: number[]): { tier: (typeof TIER_ORDER)[number]; d?: s
 }
 
 /** One sale's combined chart: a pie whose wedges are each tier's share of the sale's total kg,
- *  plus a small legend beside it listing each tier's actual average price — one card per ordinal
- *  sale slot, within whichever row (Last Month / This Month) it belongs to. Two separate pies
- *  (quantity share AND price share) were tried first; dropped once real sale data showed the
- *  price-share pie stays visually identical week to week regardless of real price movement (see
- *  tierQuantities' own doc comment) — a single pie plus the real Rs/kg numbers actually shows
- *  both what changed in mix and what changed in price. `slot` is undefined either when that
- *  ordinal position doesn't exist for this side (e.g. last month only had 4 sales, this month has
- *  a 5th) or when this month hasn't reached that sale yet as of the sale currently being viewed
- *  (MarketBulletinMonthlyEngine's own "as of this sale" cutoff) — both render as a hollow circle
- *  with dashed price rows, per the user's own sketch showing not-yet-happened weeks as empty
- *  outlines, rather than a gap that could read as a layout bug. */
+ *  plus a compact table underneath listing each tier's actual quantity AND average price as real
+ *  numbers — one card per ordinal sale slot, within whichever row (Last Month / This Month) it
+ *  belongs to. The table sits BELOW the pie (spanning its width) rather than beside it, so a
+ *  card's footprint stays close to the pie's own diameter — beside-the-pie was tried first, but
+ *  doubling every card's width left only 3 fitting per row instead of 4-5, which is what "fit to
+ *  the page" is actually asking for. Two separate pies (quantity share AND price share) were
+ *  tried even earlier; dropped once real sale data showed the price-share pie stays visually
+ *  identical week to week regardless of real price movement (see tierQuantities' own doc
+ *  comment) — the wedges carry quantity, the table carries both real numbers per tier. `slot` is
+ *  undefined either when that ordinal position doesn't exist for this side (e.g. last month only
+ *  had 4 sales, this month has a 5th) or when this month hasn't reached that sale yet as of the
+ *  sale currently being viewed (MarketBulletinMonthlyEngine's own "as of this sale" cutoff) —
+ *  both render as a hollow circle with dashed table rows, per the user's own sketch showing
+ *  not-yet-happened weeks as empty outlines, rather than a gap that could read as a layout bug. */
 function PieSlot({ slot }: { slot?: MonthlySaleSlot }) {
   const slices = pieSlices(tierQuantities(slot?.tiers ?? null));
-  const totalKg = slot?.tiers?.reduce((sum, t) => sum + (t.quantityKg ?? 0), 0) ?? 0;
   return (
     <div className={styles.donutCard}>
-      <div className={styles.pieCardBody}>
-        <svg viewBox={`0 0 ${PIE_CX * 2} ${PIE_CY * 2}`} className={styles.donutSvg} aria-hidden="true">
-          {slices ? (
-            slices.map((s) =>
-              s.fullCircle ? (
-                <circle key={s.tier} cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
-              ) : (
-                <path key={s.tier} d={s.d} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
-              ),
-            )
-          ) : (
-            <circle cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill="none" stroke="#c9c4b0" strokeWidth={2} />
-          )}
-        </svg>
-        <div className={styles.pieLegendList}>
-          {TIER_ORDER.map((tier) => {
-            const price = tierPrice(slot?.tiers ?? null, tier);
-            return (
-              <div key={tier} className={styles.pieLegendRow}>
-                <span className={styles.pieLegendSwatch} style={{ background: TIER_COLORS[tier] }} aria-hidden="true" />
-                <span className={styles.pieLegendTier}>{TIER_SHORT[tier]}</span>
-                <span className={styles.pieLegendPrice}>{price !== null ? formatPrice(price) : "—"}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <svg viewBox={`0 0 ${PIE_CX * 2} ${PIE_CY * 2}`} className={styles.donutSvg} aria-hidden="true">
+        {slices ? (
+          slices.map((s) =>
+            s.fullCircle ? (
+              <circle key={s.tier} cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
+            ) : (
+              <path key={s.tier} d={s.d} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
+            ),
+          )
+        ) : (
+          <circle cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill="none" stroke="#c9c4b0" strokeWidth={2} />
+        )}
+      </svg>
       <div className={slices ? styles.donutLabelThis : styles.donutLabelPending} title={slot?.sourceName ?? undefined}>
         {slot?.sourceName ?? "Not yet"}
       </div>
-      {slices && <div className={styles.pieTotalKg}>{formatKg(totalKg)} total</div>}
+      <div className={styles.pieLegendTable}>
+        <div className={styles.pieLegendHeadRow}>
+          <span />
+          <span />
+          <span className={styles.pieLegendHeadCell}>Kg</span>
+          <span className={styles.pieLegendHeadCell}>Rs/Kg</span>
+        </div>
+        {TIER_ORDER.map((tier) => {
+          const qty = tierQty(slot?.tiers ?? null, tier);
+          const price = tierPrice(slot?.tiers ?? null, tier);
+          return (
+            <div key={tier} className={styles.pieLegendRow}>
+              <span className={styles.pieLegendSwatch} style={{ background: TIER_COLORS[tier] }} aria-hidden="true" />
+              <span className={styles.pieLegendTier}>{TIER_SHORT[tier]}</span>
+              <span className={styles.pieLegendQty}>{qty !== null ? formatKg(qty) : "—"}</span>
+              <span className={styles.pieLegendPrice}>{price !== null ? formatPrice(price) : "—"}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -487,9 +498,9 @@ function MonthlySaleRow({ heading, monthLabel, slots, slotCount }: { heading: st
 function MonthlyComparisonSection({ comparison }: { comparison: MonthlyComparison }) {
   const slotCount = Math.max(comparison.thisMonth.length, comparison.lastMonth.length);
   return (
-    <div className={styles.section} data-mb-flow="compact">
+    <div className={styles.section} data-mb-flow="grow">
       <div className={styles.sectionHead}>
-        Monthly Sale Comparison — Asia Siyaka <span className={styles.monthlyUnit}>wedge = Kg share · label = Rs/Kg</span>
+        Asia Siyaka — Own Sold Lots <span className={styles.monthlyUnit}>wedge = Kg share per tier</span>
       </div>
       <div className={styles.monthlyBody}>
         <div className={styles.monthlyLegend}>
@@ -508,9 +519,22 @@ function MonthlyComparisonSection({ comparison }: { comparison: MonthlyCompariso
 }
 
 /** Masthead/footer are identical across every page (grade tables AND the monthly-pie page
- *  alike) except the page number itself — pulled out once both pages 1-3's own PAGE_GROUPS.map
- *  and page 4 need to render them, rather than a fourth copy-pasted inline block. */
-function Masthead({ bulletin, saleNo, prevSaleNo }: { bulletin: MarketBulletin; saleNo: string; prevSaleNo: string | null }) {
+ *  alike) except the page number itself and, on page 4, the subtitle — pulled out once both
+ *  pages 1-3's own PAGE_GROUPS.map and page 4 need to render them, rather than a fourth
+ *  copy-pasted inline block. `subtitle` defaults to pages 1-3's own title since page 4 is the
+ *  only caller that overrides it: page 4 isn't a classification/quotation table at all, so
+ *  keeping that subtitle there read as wrong once the reader actually looked at the page. */
+function Masthead({
+  bulletin,
+  saleNo,
+  prevSaleNo,
+  subtitle = "Weekly Market Grade Classification/Quotation",
+}: {
+  bulletin: MarketBulletin;
+  saleNo: string;
+  prevSaleNo: string | null;
+  subtitle?: string;
+}) {
   return (
     <div className={styles.masthead}>
       <dl className={styles.mastheadMeta}>
@@ -521,7 +545,7 @@ function Masthead({ bulletin, saleNo, prevSaleNo }: { bulletin: MarketBulletin; 
       </dl>
       <div>
         <div className={styles.mastheadTitle}>Asia Siyaka Commodities PLC</div>
-        <span className={styles.mastheadSub}>Weekly Market Grade Classification/Quotation</span>
+        <span className={styles.mastheadSub}>{subtitle}</span>
       </div>
       <div className={styles.mastheadRight}>
         <div>Sale No. {saleNo}</div>
@@ -556,7 +580,7 @@ export interface MarketBulletinBulletinProps {
   onReady?: () => void;
 }
 
-export default function MarketBulletinBulletin({ bulletin, monthly, onReady }: MarketBulletinBulletinProps) {
+function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBulletinBulletinProps) {
   const byTitle = new Map(bulletin.sections.map((s) => [s.title, s]));
   const saleNo = extractSaleNumber(bulletin.sourceName);
   const prevSaleNo = bulletin.previousSourceName ? extractSaleNumber(bulletin.previousSourceName) : null;
@@ -565,16 +589,6 @@ export default function MarketBulletinBulletin({ bulletin, monthly, onReady }: M
   const rootRef = useRef<HTMLDivElement>(null);
   const [rung, setRung] = useState(0);
   const [settled, setSettled] = useState(false);
-
-  // Reset whenever a new sale's data comes in, OR when monthly goes from not-yet-loaded to
-  // loaded — monthly fetches independently of the sale-specific bulletin and typically resolves
-  // AFTER the first render, so a fit that already settled before page 4 existed would never
-  // re-check itself against its added height without this.
-  useLayoutEffect(() => {
-    setRung(0);
-    setSettled(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulletin, monthly]);
 
   // Runs synchronously after each render, before the browser paints — measuring here (rather
   // than in a plain useEffect) is what keeps a downgrade from ROOMY invisible: React commits the
@@ -617,15 +631,20 @@ export default function MarketBulletinBulletin({ bulletin, monthly, onReady }: M
       })}
 
       {/* Page 4 — month-over-month sale comparison, a deliberately different concept from pages
-          1-3's per-grade tables: a market-wide (not per-grade-family) snapshot, two rows of pie
-          charts — Last Month's sales above, This Month's below, one combined pie per ordinal sale
-          position (wedges = quantity share, label list = real average price per tier). Rendered
-          only once monthly data has actually loaded — see MarketBulletinBulletinProps' own doc
-          comment on why this degrades to "just 3 pages" rather than a broken 4th page when it
-          hasn't (or the sale's own name doesn't parse into a month at all). */}
+          1-3's per-grade tables: Asia Siyaka's own book (not a market-wide snapshot — see
+          MarketBulletinMonthlyEngine's own doc comment), two rows of pie charts — Last Month's
+          sales above, This Month's below, one combined pie per ordinal sale position (wedges =
+          quantity share, table underneath = real Kg and Rs/kg per tier). Its own masthead
+          subtitle (not "...Classification/Quotation" — this page shows neither) and a
+          full-height section (data-mb-flow="grow", same mechanism multi-row grade tables use) so
+          the one section fills the page edge to edge rather than floating centered with empty
+          bands above and below it. Rendered only once monthly data has actually loaded — see
+          MarketBulletinBulletinProps' own doc comment on why this degrades to "just 3 pages"
+          rather than a broken 4th page when it hasn't (or the sale's own name doesn't parse into
+          a month at all). */}
       {monthly && (
         <div className={styles.page} data-mb-page="true">
-          <Masthead bulletin={bulletin} saleNo={saleNo} prevSaleNo={prevSaleNo} />
+          <Masthead bulletin={bulletin} saleNo={saleNo} prevSaleNo={prevSaleNo} subtitle="Monthly Sale Comparison" />
           <div className={styles.sections}>
             <MonthlyComparisonSection comparison={monthly} />
           </div>
@@ -634,4 +653,12 @@ export default function MarketBulletinBulletin({ bulletin, monthly, onReady }: M
       )}
     </div>
   );
+}
+
+export default function MarketBulletinBulletin(props: MarketBulletinBulletinProps) {
+  // A new monthly payload changes the number of pages. Remounting the solver gives it a clean
+  // density state without synchronously resetting state from an effect after the old layout has
+  // already rendered.
+  const inputKey = `${props.bulletin.sourceName}:${props.monthly ? "monthly" : "pending"}`;
+  return <MarketBulletinBulletinContent key={inputKey} {...props} />;
 }

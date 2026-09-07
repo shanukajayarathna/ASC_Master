@@ -479,13 +479,11 @@ function ActivityAlertsView({ onOpenMark, onError }: { onOpenMark: (markId: stri
   const [changes, setChanges] = useState<MarkActivityChange[] | null>(null);
 
   useEffect(() => {
-    setChanges(null);
     api
       .listActivityChanges({ window: "6mo", kind: kind === "All" ? undefined : kind })
       .then(setChanges)
       .catch((e) => onError(e instanceof ApiError ? e.message : "Couldn't load activity alerts"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind]);
+  }, [kind, onError]);
 
   return (
     <div>

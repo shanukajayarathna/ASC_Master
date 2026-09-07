@@ -1077,7 +1077,6 @@ export function computeDefaultLowHeaderText(saleDate: string | null, saleNumber:
 // reprint status. Brokers with no volume in a table (e.g. a broker sitting out that category
 // entirely) are simply left out, exactly as the real archives do.
 const CT_EXESTATE_QTY_COL = 3; // column C, read off the broker's Total row
-const CT_WITHOUT_PCT_COL = 23; // column W — "Without Re-Prints %"
 const CT_FRESH_QTY_COL = 26; // column Z — this year's Fresh Qty
 
 export interface MarketShareBrokerRow {

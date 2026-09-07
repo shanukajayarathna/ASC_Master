@@ -15,7 +15,7 @@ import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const TIER_NAMES = ["Select Best", "Best", "Below Best", "Poor"] as const;
 const STATUS_COLORS: Record<string, string> = { sold: "#1E7145", outsold: "#C2690F", unsold: "#A62F23" };
@@ -55,6 +55,10 @@ export default function CategoryAnalysisPage() {
   const [outputs, setOutputs] = useState<ScheduledReportOutput[] | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  const refreshOutputs = useCallback(() => {
+    api.listCategoryAnalysisOutputs().then(setOutputs).catch(() => setOutputs([]));
+  }, []);
+
   useEffect(() => {
     api.listCategoryOptions().then((opts) => {
       setCategories(opts);
@@ -66,11 +70,7 @@ export default function CategoryAnalysisPage() {
       setSelectedIds(list.slice(0, 4).map((c) => c.id));
     }).catch(() => setCatalogues([]));
     refreshOutputs();
-  }, []);
-
-  const refreshOutputs = () => {
-    api.listCategoryAnalysisOutputs().then(setOutputs).catch(() => setOutputs([]));
-  };
+  }, [refreshOutputs]);
 
   const toggleSale = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));

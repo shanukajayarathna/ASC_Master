@@ -32,7 +32,7 @@ export function useForceLogoutOnPublicPage(): boolean {
     checked.current = true; // only the first resolved state is ever judged
     if (user) {
       logout();
-      setJustLoggedOut(true);
+      queueMicrotask(() => setJustLoggedOut(true));
     }
   }, [loading, user, logout]);
 

@@ -3,6 +3,7 @@
 import AuthShell from "@/components/auth/AuthShell";
 import { ApiError, api } from "@/lib/api";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
+import Link from "next/link";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import { useState } from "react";
@@ -40,9 +41,9 @@ export default function RequestAccessPage() {
           <p className="text-[13px] text-text-muted m-0">
             An administrator will review your request and reach out with access details.
           </p>
-          <a href="/" className="inline-block mt-6 text-[13px]" style={{ color: "var(--liquor)" }}>
+          <Link href="/" className="inline-block mt-6 text-[13px]" style={{ color: "var(--liquor)" }}>
             ← Back to the homepage
-          </a>
+          </Link>
         </div>
       ) : (
         <form
