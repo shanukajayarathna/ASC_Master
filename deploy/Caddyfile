@@ -24,6 +24,10 @@ header {
 	X-Content-Type-Options "nosniff"
 	X-Frame-Options "DENY"
 	Referrer-Policy "strict-origin-when-cross-origin"
+	# Conservative first-pass policy: app code/assets stay same-origin, while the existing
+	# weather, currency, image, and AI integrations remain reachable. Tighten after staging.
+	Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://images.unsplash.com; connect-src 'self' https://open.er-api.com https://api.open-meteo.com https://api.openai.com https://api.groq.com https://generativelanguage.googleapis.com; worker-src 'self' blob:; media-src 'self' blob:; manifest-src 'self'"
+	Permissions-Policy "camera=(self), microphone=(self), geolocation=(), accelerometer=(), gyroscope=(), magnetometer=()"
 }
 
 handle /api/* {
