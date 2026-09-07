@@ -3,7 +3,10 @@ import ReportsLaunchpadPage from "@/app/(app)/reports/page";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/image", () => ({
-  default: ({ fill: _fill, ...props }: React.ComponentProps<"img"> & { fill?: boolean }) => <img {...props} />,
+  default: ({ fill, alt = "", ...props }: React.ComponentProps<"img"> & { fill?: boolean }) => {
+    void fill;
+    return <img {...props} alt={alt} />;
+  },
 }));
 
 describe("Reports hub", () => {
