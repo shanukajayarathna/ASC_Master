@@ -21,6 +21,7 @@
          digital-signature support NPOI ships but this app's read-only cell-value parsing never
          touches) up from 8.0.2, which carries 8 High-severity advisories, to a patched release
          on the same 9.x line as the rest of this project's Microsoft.* packages. -->
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.221" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.19" />
     <PackageReference Include="Cronos" Version="0.10.0" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
