@@ -4,7 +4,7 @@ import TopPriceBulletin from "@/components/reports/TopPriceBulletin";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { buildTppMeta, planTppBulletinAutoFit, type TppBulletinPage, type TppDensity, type TppMeta } from "@/lib/topPricePageExport";
-import type { CombinedReport } from "@/types/api";
+import type { CatalogueDetail, CombinedReport } from "@/types/api";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
@@ -36,6 +36,8 @@ function TopPricePagePrintContent() {
   const catalogueId = params.get("catalogueId");
 
   const [combined, setCombined] = useState<CombinedReport | null>(null);
+  const [catalogue, setCatalogue] = useState<CatalogueDetail | null>(null);
+  const [catalogueLoaded, setCatalogueLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,16 +46,29 @@ function TopPricePagePrintContent() {
       .getCombinedReport(catalogueId)
       .then(setCombined)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
+    // Best-effort: the real sale date(s) (saleDateStart/saleDateEnd) live on the catalogue, not
+    // the combined report (CombinedReportDto's own GeneratedAt is when this report was BUILT,
+    // not the actual sale date — meta.saleDate used to fall back to `combined.sourceName`, e.g.
+    // literally showing "Sale 35 - 2026" as a stand-in for a date). `catalogueLoaded` still flips
+    // to true on failure so a catalogue-fetch error doesn't block the export forever —
+    // buildTppMeta's own fallback (sourceName) covers that rare case.
+    api
+      .getCatalogue(catalogueId)
+      .then(setCatalogue)
+      .finally(() => setCatalogueLoaded(true));
   }, [authLoading, catalogueId]);
 
   const layout: { pages: TppBulletinPage[]; density: TppDensity } | null = useMemo(
     () => (combined ? planTppBulletinAutoFit(combined) : null),
     [combined]
   );
-  const meta: TppMeta | null = useMemo(() => (combined ? buildTppMeta(combined) : null), [combined]);
+  const meta: TppMeta | null = useMemo(
+    () => (combined ? buildTppMeta(combined, undefined, catalogue?.saleDateStart, catalogue?.saleDateEnd) : null),
+    [combined, catalogue]
+  );
 
   if (error) return <div data-error={error} />;
-  if (!combined || !layout || !meta) return <div data-ready="false" />;
+  if (!combined || !layout || !meta || !catalogueLoaded) return <div data-ready="false" />;
 
   return (
     <div className="print-root" data-ready="true">

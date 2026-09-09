@@ -148,9 +148,35 @@ export function buildAutoCategories(combined: CombinedReport): TppAutoCategory[]
     });
     return {
       title: region,
-      grades: groups.map((g) => ({ grade: g.grade, block: g.block, rows: [...g.rows].sort((a, b) => b.price - a.price) })),
+      grades: groups.map((g) => ({ grade: g.grade, block: g.block, rows: dedupeSameMarkPrice([...g.rows].sort((a, b) => b.price - a.price)) })),
     };
   });
+}
+
+/** Drops a row that repeats the exact same Selling Mark AND price as one already kept earlier in
+ *  this grade group — same mark, same price is a redundant line on the printed page (it tells the
+ *  reader nothing a single line hasn't already), not a second real ranking entry. Keeps whichever
+ *  occurrence is `isOurs` when the duplicates disagree on that — an ASC-highlighted row must never
+ *  be the one silently dropped just because a plain duplicate of the same mark/price happened to
+ *  sort ahead of it (rows only sort by price, so two rows tied on mark+price keep whatever relative
+ *  order the report data itself gave them, which has nothing to do with which one is ASC's). Falls
+ *  back to the first occurrence when neither (or both) duplicate is `isOurs`, since then they're
+ *  interchangeable. Applies identically to the Excel export and the HTML bulletin, since both read
+ *  from this same `TppGradeGroup.rows` array. */
+function dedupeSameMarkPrice(rows: RankedLotRow[]): RankedLotRow[] {
+  const kept = new Map<string, RankedLotRow>();
+  const order: string[] = [];
+  for (const r of rows) {
+    const key = `${r.sellingMark} ${r.price}`;
+    const existing = kept.get(key);
+    if (!existing) {
+      kept.set(key, r);
+      order.push(key);
+    } else if (r.isOurs && !existing.isOurs) {
+      kept.set(key, r);
+    }
+  }
+  return order.map((key) => kept.get(key)!);
 }
 
 // ---- MASONRY PAGE LAYOUT — port of asc-studio.js's estimateTppAutoCardHeight/
@@ -384,27 +410,37 @@ const TPP_DENSITY_MAX: { css: TppDensity["css"] } = {
   },
 };
 
+/** Raised ~15% above this file's original densest-still-legible tuning (rowFontSize 6.5→7.5,
+ *  gradeFontSize 6.5→7.5, priceFontSize 7→8, and every other row-related field moved with them —
+ *  basis widths included, so the wider glyphs still fit their column rather than crowding it)
+ *  once TPP_DENSITY_ULTRA_MIN (below) gave the auto-fit solver an escape valve: previously this
+ *  WAS the absolute floor, so raising it risked sales that needed every bit of it no longer
+ *  fitting `TPP_MAX_PAGES` at all. Now a sale that can't fit two pages at this bigger floor simply
+ *  drops into the ultra-dense tier instead (still shrinking text, never truncating a name, never
+ *  exceeding the page target) — so raising this floor is safe on both fronts. Masthead/footer
+ *  sizes deliberately unchanged: the ask behind this bump was specifically the ranked-row lines
+ *  reading too small, not the masthead. */
 const TPP_DENSITY_MIN: { css: TppDensity["css"] } = {
   css: {
-    headPadV: 3,
-    headPadH: 6,
-    headFontSize: 7,
-    blockPadV: 1,
-    blockPadH: 5,
-    blockMarginTop: 3,
-    blockFontSize: 6,
-    rowGap: 3,
-    rowPadV: 1,
-    rowPadH: 5,
-    rowFontSize: 6.5,
-    rowLineHeight: 1.2,
-    gradeStartMarginTop: 2,
-    gradeBasis: 28,
-    gradeFontSize: 6.5,
-    atBasis: 6,
-    priceBasis: 38,
-    priceFontSize: 7,
-    oursPadLeft: 4,
+    headPadV: 3.5,
+    headPadH: 7,
+    headFontSize: 8,
+    blockPadV: 1.2,
+    blockPadH: 6,
+    blockMarginTop: 3.5,
+    blockFontSize: 7,
+    rowGap: 3.5,
+    rowPadV: 1.3,
+    rowPadH: 6,
+    rowFontSize: 7.5,
+    rowLineHeight: 1.25,
+    gradeStartMarginTop: 2.3,
+    gradeBasis: 32,
+    gradeFontSize: 7.5,
+    atBasis: 7,
+    priceBasis: 44,
+    priceFontSize: 8,
+    oursPadLeft: 4.5,
     mastheadPadV: 6,
     mastheadPadH: 14,
     mastheadMetaFontSize: 9.5,
@@ -415,7 +451,54 @@ const TPP_DENSITY_MIN: { css: TppDensity["css"] } = {
     footerMarginTop: 1,
     footerPadTop: 5,
     footerCaptionFontSize: 8,
-    gridGap: 6,
+    gridGap: 7,
+  },
+};
+
+/** A second, still-lower floor BELOW `TPP_DENSITY_MIN` — reached only when a sale still needs
+ *  more than `TPP_MAX_PAGES` even at `TPP_DENSITY_MIN` (planTppBulletinAutoFit's own `t` scan
+ *  extends into negative `t` for exactly this case, see that function's own comment). Never
+ *  truncates a Selling Mark name to buy the extra room (allMarkNamesFitIn is still enforced down
+ *  here) — this is the OTHER way to buy room instead: roughly 13-15% smaller than
+ *  `TPP_DENSITY_MIN` on every row-critical field, tight enough to matter for page count but not
+ *  the kind of jump that makes text unreadable outright (verified by rendering and reading a real
+ *  screenshot at this exact tier before shipping it, same as every other density number in this
+ *  file). `rowLineHeight` deliberately does NOT shrink with everything else: dropping it below
+ *  ~1.1 starts letting adjacent rows' ascenders/descenders visually overlap, which is a real
+ *  legibility break in a way a smaller font size alone isn't — so it only nudges down slightly
+ *  (1.2 → 1.15) while every font-size/padding/gap number shrinks with the rest. */
+const TPP_DENSITY_ULTRA_MIN: { css: TppDensity["css"] } = {
+  css: {
+    headPadV: 2,
+    headPadH: 5,
+    headFontSize: 6,
+    blockPadV: 0.7,
+    blockPadH: 4,
+    blockMarginTop: 2,
+    blockFontSize: 5.2,
+    rowGap: 2,
+    rowPadV: 0.6,
+    rowPadH: 4,
+    rowFontSize: 5.6,
+    rowLineHeight: 1.15,
+    gradeStartMarginTop: 1.5,
+    gradeBasis: 24,
+    gradeFontSize: 5.6,
+    atBasis: 5,
+    priceBasis: 33,
+    priceFontSize: 6,
+    oursPadLeft: 3,
+    mastheadPadV: 5,
+    mastheadPadH: 12,
+    mastheadMetaFontSize: 8.5,
+    mastheadTitleFontSize: 13,
+    mastheadSubFontSize: 7.5,
+    mastheadRightFontSize: 8.5,
+    mastheadPageFontSize: 6.5,
+    footerMarginTop: 1,
+    footerPadTop: 4,
+    footerCaptionFontSize: 7,
+    gridGap: 5,
   },
 };
 
@@ -440,6 +523,37 @@ const TPP_PAGE_CONTENT_WIDTH = 1085;
 const TPP_PAGE_HEIGHT_PX = (210 * 96) / 25.4;
 const TPP_PAGE_PAD_PX = 16;
 const TPP_PAGE_ROW_GAP_PX = 14;
+
+/** Per-INTERNAL-COLUMN safety margin added by estimateTppAutoCardHeight to every non-empty card's
+ *  estimated height (margin = this * effectiveCols), to close a real, repeatedly-measured gap
+ *  between the estimate and what the browser actually renders. The estimate approximates a
+ *  section's reflowed height by dividing its row total evenly across spanCols; the browser's own
+ *  `column-count` balancing (Card, TopPriceBulletin.tsx) doesn't land on that same even split —
+ *  `.row`'s `break-inside: avoid-column` keeps a row from splitting, so a column that can't quite
+ *  fit its next row leaves a gap and pushes it down, and that slack accumulates once PER COLUMN
+ *  the card reflows into, not once per card. `.card`'s print rule is `break-inside: avoid`, so a
+ *  card that runs past what's left of the current physical page doesn't clip — it gets pushed onto
+ *  a fresh physical page whole — which is what an underestimate here turns into an unwanted extra
+ *  PDF page.
+ *
+ *  Two flat (non-scaling) margins were tried first and both failed in opposite directions: a flat
+ *  18px/PAGE margin was far too small (doesn't scale with card count at all). A flat 32px/CARD
+ *  margin fixed the overflow but then overshot badly on ordinary 4-column cards (measured real
+ *  drift there is only ~15-24px, not 32) — inflating every typical card's estimate enough that the
+ *  auto-fit solver started deferring cards that would have fit onto a THIRD logical page for no
+ *  real reason, which is what actually produced the large visible gaps between sections users saw
+ *  (a page with fewer cards than it could actually hold still fills `.sections`' full height via
+ *  `justify-content: space-between`, so the unused room shows up as big gaps, not blank page space).
+ *
+ *  Measured directly (Playwright, real DOM rects + computed `column-count`) across 3 real dense
+ *  sales (38-2024, 48-2024, 35-2026): real drift correlates with a card's own resolved column count
+ *  far better than with a flat per-card number — roughly 4-6px per internal column across every
+ *  card measured (range ~3.7-6.1px/column, some noise from grade-group count too). This constant is
+ *  set a couple of px above that observed range for headroom against sales not yet measured,
+ *  without repeating the 32px/card overshoot: e.g. an ordinary 4-column card gets ~28px (close to
+ *  its ~15-25px real drift), while a heavily-reflowed 7-column card gets ~49px (matching its
+ *  measured ~30px drift with real headroom to spare). */
+const TPP_CARD_COLUMN_SAFETY_PX = 7;
 
 /** Fixed height (in px) of an empty region card's "No ranked lots…" placeholder line —
  *  TopPriceBulletin.module.css's `.empty` rule is intentionally NOT density-scaled (an empty
@@ -508,6 +622,14 @@ const TPP_GRADE_CHAR_WIDTH_RATIO = 0.6;
  *  never one glyph short of what actually renders. */
 const TPP_GRADE_WIDTH_PAD = 4;
 
+/** `"Cont. ".length` — a section that reflows into more than one internal column can split a
+ *  grade group across that break, in which case TopPriceBulletin.tsx's Row shows a "Cont. <grade>"
+ *  label on the continuation's own first row instead of a blank cell (Card's column-break
+ *  detection). planTppFullWidthLayout below folds this into that section's OWN grade-column width
+ *  budget whenever it can reflow, so the label always renders on one line — never wrapped or
+ *  overflowing into `.mark` next to it. */
+const TPP_GRADE_CONT_PREFIX_CHARS = "Cont. ".length;
+
 /** `.grade`'s column width for one resolved font size, for ONE region — the density's own lerped
  *  default UNLESS THIS region's own longest actual grade code (TppRegionEntry.maxGradeChars) needs
  *  more room than that to render in full, in which case the column widens to fit it exactly.
@@ -568,22 +690,32 @@ function maxColsForMarkFloor(css: TppDensity["css"], gradeBasisPx: number, requi
   return 1;
 }
 
-/** Builds the exact density for one continuous `t` (1 = TPP_DENSITY_MAX, 0 = TPP_DENSITY_MIN) —
- *  every `css` number moves together on the same fraction. `name` is a cosmetic three-way label
- *  purely for the page's own status line; nothing branches on it. `css.gradeBasis` here is always
- *  the plain lerped default — per-region widening (a region whose own longest grade code needs
- *  more room) happens downstream, per-section, in planTppFullWidthLayout via gradeBasisFor; see
- *  that function's own comment for why it's deliberately not folded in here. */
+/** Builds the exact density for one continuous `t` (1 = TPP_DENSITY_MAX, 0 = TPP_DENSITY_MIN,
+ *  NEGATIVE down to -1 = TPP_DENSITY_ULTRA_MIN) — every `css` number moves together on the same
+ *  fraction within whichever half of the range `t` falls into. The negative half only ever gets
+ *  reached by planTppBulletinAutoFit's own scan, and only for a sale that still needs more than
+ *  `TPP_MAX_PAGES` at ordinary `t=0` — see that function's own comment for why (shrinking text
+ *  further there, rather than ever truncating a Selling Mark name, per this app's own policy on
+ *  the trade-off). `name` is a cosmetic label purely for the page's own status line; nothing
+ *  branches on it. `css.gradeBasis` here is always the plain lerped default — per-region widening
+ *  (a region whose own longest grade code needs more room) happens downstream, per-section, in
+ *  planTppFullWidthLayout via gradeBasisFor; see that function's own comment for why it's
+ *  deliberately not folded in here. */
 function tppDensityAt(t: number): TppDensity {
-  const clamped = Math.max(0, Math.min(1, t));
+  const clamped = Math.max(-1, Math.min(1, t));
   const css = Object.fromEntries(
     Object.keys(TPP_DENSITY_MAX.css).map((key) => {
       const k = key as keyof TppDensity["css"];
-      return [k, lerp(TPP_DENSITY_MIN.css[k], TPP_DENSITY_MAX.css[k], clamped)];
+      return [
+        k,
+        clamped >= 0
+          ? lerp(TPP_DENSITY_MIN.css[k], TPP_DENSITY_MAX.css[k], clamped)
+          : lerp(TPP_DENSITY_ULTRA_MIN.css[k], TPP_DENSITY_MIN.css[k], clamped + 1),
+      ];
     })
   ) as TppDensity["css"];
   return {
-    name: clamped >= 0.66 ? "spacious" : clamped >= 0.33 ? "balanced" : "dense",
+    name: clamped >= 0.66 ? "spacious" : clamped >= 0.33 ? "balanced" : clamped >= 0 ? "dense" : "ultra-dense",
     t: clamped,
     head: realHeadHeight(css),
     empty: TPP_EMPTY_HEIGHT,
@@ -613,7 +745,17 @@ const TPP_FIT_STEPS = 40;
  *  were in play) — the only question per region is how many of ITS OWN internal columns to
  *  reflow into, sized to its own row count so a sparse region (Premium Flowery) renders compact
  *  and a dense one (Low Grown) spreads wide, rather than every region sharing one fixed count. */
-function estimateTppAutoCardHeight(cat: TppAutoCategory, spanCols: number, density: TppDensity): number {
+/** The raw (unmargined) height estimate — no `TPP_CARD_COLUMN_SAFETY_PX` term. Used wherever
+ *  something needs to reason about how ADDING columns changes a card's height (spanColsForRegion's
+ *  own escalation loop below): the margin scales with `effectiveCols` too, so if it were included
+ *  here, asking for one more column to shrink the raw `ceil(innerHeight/effectiveCols)` term would
+ *  simultaneously grow the margin term, fighting the very escalation trying to make the card fit —
+ *  confirmed as a real bug: it silently pinned every real sale's auto-fit to the absolute densest
+ *  setting regardless of how much real slack existed on the page (a card is never allowed to
+ *  believe more columns help once the margin outweighs the raw savings). estimateTppAutoCardHeight
+ *  below (WITH the margin) is what actually decides page breaks — that's the right place for the
+ *  safety margin, since it's a real page-fit decision, not a column-count optimization. */
+function estimateTppAutoCardHeightRaw(cat: TppAutoCategory, spanCols: number, density: TppDensity): number {
   const { head: HEAD, empty: EMPTY, row: ROW, block: BLOCK, gradeGap: GRADE_GAP } = density;
   const rowCount = cat.grades.reduce((n, g) => n + g.rows.length, 0);
   if (!rowCount) return HEAD + EMPTY;
@@ -628,6 +770,17 @@ function estimateTppAutoCardHeight(cat: TppAutoCategory, spanCols: number, densi
   // renders at roughly one row's real height, not a quarter of one.
   const effectiveCols = Math.max(1, Math.min(spanCols, rowCount));
   return HEAD + Math.ceil(innerHeight / effectiveCols);
+}
+
+/** The estimate actually used to decide page breaks (planTppFullWidthLayout) and entry heights —
+ *  raw height plus the per-column safety margin (see TPP_CARD_COLUMN_SAFETY_PX's own comment).
+ *  Deliberately NOT used inside spanColsForRegion's column-escalation loop — see
+ *  estimateTppAutoCardHeightRaw's own comment for why that would be self-defeating. */
+function estimateTppAutoCardHeight(cat: TppAutoCategory, spanCols: number, density: TppDensity): number {
+  const rowCount = cat.grades.reduce((n, g) => n + g.rows.length, 0);
+  if (!rowCount) return estimateTppAutoCardHeightRaw(cat, spanCols, density);
+  const effectiveCols = Math.max(1, Math.min(spanCols, rowCount));
+  return estimateTppAutoCardHeightRaw(cat, spanCols, density) + TPP_CARD_COLUMN_SAFETY_PX * effectiveCols;
 }
 
 /** Target rows per internal column, and the hard floor/cap on how many a single section will ever
@@ -672,7 +825,7 @@ function spanColsForRegion(cat: TppAutoCategory, density: TppDensity, gradeBasis
   let cols = Math.min(rowsTarget, widthCap);
   cols = Math.max(cols, Math.min(TPP_MIN_SPAN_COLS, widthCap));
   const ceiling = Math.min(TPP_MAX_SPAN_COLS, widthCap);
-  while (cols < ceiling && estimateTppAutoCardHeight(cat, cols, density) > density.pageBudget) cols++;
+  while (cols < ceiling && estimateTppAutoCardHeightRaw(cat, cols, density) > density.pageBudget) cols++;
   return cols;
 }
 
@@ -691,32 +844,101 @@ export interface TppBulletinPage {
 }
 
 /** The bulletin's own page layout — every region stacks as its own full-width section in reading
- *  order (buildRegionEntries), never split into page-wide side-by-side card columns: a page is
- *  simply as many whole sections, in order, as fit within one page's budget, spilling remaining
- *  sections onto the next page. This is deliberately a plain greedy flow, not a bin-packer —
- *  there's nothing to balance across independent columns anymore, since each section already
- *  balances its OWN internal columns to its OWN row count (spanColsForRegion). */
+ *  order (buildRegionEntries), never split into page-wide side-by-side card columns. Resolves each
+ *  entry's own section (spanCols/gradeBasisPx/markMaxChars/height) exactly once, up front, since
+ *  page ASSIGNMENT (below) needs to look at every entry's height before deciding where any one
+ *  page ends. */
+function resolveTppSections(
+  entries: TppRegionEntry[],
+  density: TppDensity
+): { section: TppSection; height: number }[] {
+  return entries.map((entry) => {
+    let gradeBasisPx = gradeBasisFor(density.css.gradeBasis, density.css.gradeFontSize, entry.maxGradeChars);
+    const spanCols = spanColsForRegion(entry.category, density, gradeBasisPx, entry);
+    if (spanCols > 1) {
+      gradeBasisPx = gradeBasisFor(density.css.gradeBasis, density.css.gradeFontSize, entry.maxGradeChars + TPP_GRADE_CONT_PREFIX_CHARS);
+    }
+    const height = estimateTppAutoCardHeight(entry.category, spanCols, density);
+    return {
+      section: { entry, spanCols, markMaxChars: tppMarkMaxCharsForCols(spanCols, density.css, gradeBasisPx), gradeBasisPx },
+      height,
+    };
+  });
+}
+
+/** How many pages a plain greedy max-fill (pack every section that still fits, in order, before
+ *  spilling to the next page) would need — the fewest physical pages this content can possibly
+ *  occupy at this density. Used only as the TARGET page count for the balanced split below, never
+ *  as the split itself: max-fill packs early pages right up to the budget and leaves whatever's
+ *  left for the last page, which is exactly what produced a mostly-empty last page on a real sale
+ *  (11 regions greedy-split 6+5 when a more even 6+5-by-height, or even split, leaves far less
+ *  blank space on the lighter page). */
+function greedyPageCount(resolved: { height: number }[], budget: number, gap: number): number {
+  let used = 0;
+  let pages = 1;
+  for (const { height } of resolved) {
+    if (used > 0 && height + gap > budget - used) {
+      pages++;
+      used = 0;
+    }
+    used += height + gap;
+  }
+  return pages;
+}
+
+/** Splits `resolved` into exactly `pageCount` pages, balancing each page's total height as evenly
+ *  as the running total allows instead of packing every page to the budget ceiling before
+ *  spilling the remainder — a plain greedy max-fill was tried first and reliably left the LAST
+ *  page far lighter than the others (11 real regions greedy-split 6+5 heaviest-first, but the
+ *  two pages' real content differed by up to 2x), which either showed up as a large empty strip
+ *  below the last card (once `.sections`' `justify-content: space-between` was removed in favor of
+ *  a fixed gap — see that CSS rule's own comment) or as visibly uneven gaps between sections
+ *  across pages (while space-between was still in use). Recomputes its target share of the
+ *  REMAINING height fresh before starting each page (classic balanced-partition greedy): this
+ *  keeps every page close to `remainingHeight / pagesLeft`, so a heavier-than-average region early
+ *  on doesn't skew every later page's target the way a single fixed target (total/pageCount)
+ *  computed once up front would. The very last page always takes everything left with no target
+ *  check (only the hard budget check still applies) — by construction (`pageCount` came from
+ *  `greedyPageCount`, the minimum feasible), whatever remains once `pagesLeft` reaches 1 is
+ *  guaranteed to already fit in one page's budget. */
+function splitIntoBalancedPages(
+  resolved: { section: TppSection; height: number }[],
+  pageCount: number,
+  budget: number,
+  gap: number
+): TppSection[][] {
+  const pages: TppSection[][] = [];
+  let idx = 0;
+  let remainingHeight = resolved.reduce((sum, r) => sum + r.height + gap, 0);
+  let pagesLeft = pageCount;
+
+  while (pagesLeft > 0 && idx < resolved.length) {
+    const target = remainingHeight / pagesLeft;
+    const page: TppSection[] = [];
+    let used = 0;
+    while (idx < resolved.length) {
+      const r = resolved[idx];
+      const wouldExceedBudget = page.length > 0 && r.height + gap > budget - used;
+      const reachedTarget = page.length > 0 && pagesLeft > 1 && used >= target;
+      if (wouldExceedBudget || reachedTarget) break;
+      page.push(r.section);
+      used += r.height + gap;
+      idx++;
+    }
+    pages.push(page);
+    remainingHeight -= used;
+    pagesLeft--;
+  }
+  return pages;
+}
+
 function planTppFullWidthLayout(entries: TppRegionEntry[], density: TppDensity): TppBulletinPage[] {
   const budget = density.pageBudget;
   const gap = density.gap;
-  const pages: TppBulletinPage[] = [];
-  let page: { usedHeight: number; sections: TppSection[] } = { usedHeight: 0, sections: [] };
-
-  const closePage = () => {
-    if (page.sections.length) pages.push(page);
-    page = { usedHeight: 0, sections: [] };
-  };
-
-  entries.forEach((entry) => {
-    const gradeBasisPx = gradeBasisFor(density.css.gradeBasis, density.css.gradeFontSize, entry.maxGradeChars);
-    const spanCols = spanColsForRegion(entry.category, density, gradeBasisPx, entry);
-    const height = estimateTppAutoCardHeight(entry.category, spanCols, density);
-    if (page.sections.length && height + gap > budget - page.usedHeight) closePage();
-    page.sections.push({ entry, spanCols, markMaxChars: tppMarkMaxCharsForCols(spanCols, density.css, gradeBasisPx), gradeBasisPx });
-    page.usedHeight += height + gap;
-  });
-  closePage();
-  return pages;
+  const resolved = resolveTppSections(entries, density);
+  const pageCount = greedyPageCount(resolved, budget, gap);
+  const pages = splitIntoBalancedPages(resolved, pageCount, budget, gap);
+  return pages.filter((sections) => sections.length > 0).map((sections) => ({ sections }));
 }
 
 function layoutAt(combined: CombinedReport, t: number): { pages: TppBulletinPage[]; density: TppDensity } {
@@ -741,9 +963,9 @@ function allMarkNamesFitIn(pages: TppBulletinPage[]): boolean {
 }
 
 /** Two-pass fit: first finds the FEWEST pages this sale's data can possibly land in (evaluated at
- *  the densest end, `t=0`, capped at TPP_MAX_PAGES) — a sale that genuinely fits on one page
- *  should never be handed a spacious-but-half-empty second page just because the most legible
- *  density happened to satisfy "<= TPP_MAX_PAGES" on its own. Then scans `t` from 1 (most
+ *  the densest ORDINARY end, `t=0`, capped at TPP_MAX_PAGES) — a sale that genuinely fits on one
+ *  page should never be handed a spacious-but-half-empty second page just because the most
+ *  legible density happened to satisfy "<= TPP_MAX_PAGES" on its own. Then scans `t` from 1 (most
  *  spacious) down to 0 for the LARGEST — i.e. most legible — `t` that still achieves that SAME
  *  minimum page count AND lets every region's longest Selling Mark name render in full
  *  (allMarkNamesFitIn) — a page that is used gets used well (close to fully filled, and with
@@ -751,18 +973,37 @@ function allMarkNamesFitIn(pages: TppBulletinPage[]): boolean {
  *  page ceiling. That second condition is usually not a trade-off against page count:
  *  `.grade`/`.at`/`.price`'s own fixed overhead shrinks FASTER than the mark font size does as `t`
  *  drops, AND spanColsForRegion's own width ceiling (widthCap) independently widens as fonts
- *  shrink, so a denser layout is usually both shorter AND more legible per column at once. A sale
- *  so large — or with names so long — it still doesn't clear both bars even at the densest end
- *  falls back to that densest result outright, rendering however many pages it genuinely needs
- *  rather than losing or hiding rows. */
-export function planTppBulletinAutoFit(combined: CombinedReport): { pages: TppBulletinPage[]; density: TppDensity } {
-  const densest = layoutAt(combined, 0);
-  if (densest.pages.length > TPP_MAX_PAGES) return densest;
-  const targetPages = densest.pages.length;
+ *  shrink, so a denser layout is usually both shorter AND more legible per column at once.
+ *
+ *  A sale that STILL needs more than `TPP_MAX_PAGES` at ordinary `t=0` extends the search into
+ *  the negative, "ultra-dense" half of the range (TPP_DENSITY_ULTRA_MIN, tppDensityAt) instead of
+ *  giving up at `TPP_MAX_PAGES + 1` — this app's own policy is to shrink text further rather than
+ *  ever truncate a Selling Mark name to buy the room (allMarkNamesFitIn is still enforced all the
+ *  way down), so the fallback for "doesn't fit even at t=0" is "try t<0", not "accept more pages."
+ *  Only a sale that doesn't clear `TPP_MAX_PAGES` even at the absolute ultra-dense floor (t=-1)
+ *  falls back to that ultra-dense result outright — genuinely exceptional, and still rendering
+ *  however many pages it needs rather than losing or hiding rows. */
+const TPP_FIT_STEP = 1 / TPP_FIT_STEPS;
 
-  let result = densest;
-  for (let step = 0; step <= TPP_FIT_STEPS; step++) {
-    const t = 1 - step / TPP_FIT_STEPS;
+export function planTppBulletinAutoFit(combined: CombinedReport): { pages: TppBulletinPage[]; density: TppDensity } {
+  // Phase 1: find the fewest pages this sale's data can possibly land in — starting at the
+  // ordinary densest end (t=0) and, only if that still needs more than TPP_MAX_PAGES, continuing
+  // into the negative "ultra-dense" half of the range instead of accepting the overflow (see this
+  // function's own header comment for why: shrink further, never truncate a name).
+  let flooredT = 0;
+  let floored = layoutAt(combined, 0);
+  while (floored.pages.length > TPP_MAX_PAGES && flooredT > -1) {
+    flooredT = Math.max(-1, flooredT - TPP_FIT_STEP);
+    floored = layoutAt(combined, flooredT);
+  }
+  if (floored.pages.length > TPP_MAX_PAGES) return floored; // exceptional: doesn't fit even at t=-1
+  const targetPages = floored.pages.length;
+
+  // Phase 2: scan from t=1 (most spacious) down to `flooredT` for the LARGEST — i.e. most
+  // legible — t that still achieves that same minimum page count AND lets every region's
+  // longest Selling Mark name render in full.
+  let result = floored;
+  for (let t = 1; t >= flooredT; t -= TPP_FIT_STEP) {
     const candidate = layoutAt(combined, t);
     if (candidate.pages.length <= targetPages && allMarkNamesFitIn(candidate.pages)) {
       result = candidate;
@@ -1186,15 +1427,47 @@ function extractSaleNumber(sourceName: string): string {
   return m ? m[1] : sourceName;
 }
 
-/** No standalone sale-date field exists yet (that's a manually-entered field in the original,
- *  via the editor) — sourceName carries the sale's identity ("Sale 30 - 2026") for both the
- *  number and, in place of a bare date, the masthead's own display text. Shared by both exports
- *  so their mastheads always agree. */
-export function buildTppMeta(combined: CombinedReport, referenceReport?: AuctionReport): TppMeta {
+const TPP_DATE_FORMAT: Intl.DateTimeFormatOptions = { day: "2-digit", month: "long", year: "numeric" };
+
+/** True Ceylon tea auctions often run across two calendar days — `saleDateStart`/`saleDateEnd`
+ *  (Catalogue.SaleDateStart/SaleDateEnd on the backend, the real per-lot min/max of the sale
+ *  file's own "Selling End Time" column) capture that when it happens. Same calendar day for
+ *  both → one plain date. Different day, same month/year → "08-09 September 2026" (day range,
+ *  one month/year). Different month or year → both ends spelled out in full ("30 August 2026 -
+ *  02 September 2026"), since a bare day range would be ambiguous across a month/year boundary. */
+function formatSaleDateRange(start: Date, end: Date): string {
+  const sameDay = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth() && start.getDate() === end.getDate();
+  if (sameDay) return start.toLocaleDateString("en-GB", TPP_DATE_FORMAT);
+  const sameMonthYear = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
+  if (sameMonthYear) {
+    const startDay = start.toLocaleDateString("en-GB", { day: "2-digit" });
+    return `${startDay}-${end.toLocaleDateString("en-GB", TPP_DATE_FORMAT)}`;
+  }
+  return `${start.toLocaleDateString("en-GB", TPP_DATE_FORMAT)} - ${end.toLocaleDateString("en-GB", TPP_DATE_FORMAT)}`;
+}
+
+/** `CombinedReport` itself carries no real calendar date (`generatedAt` is when this report was
+ *  BUILT — i.e. now, at request time — not the actual sale date), so this used to fall back to
+ *  showing `sourceName` ("Sale 30 - 2026") in the masthead's own "Sale Date" field — the sale's
+ *  own identity standing in for a date it was never actually given. The real date already exists
+ *  elsewhere: Catalogue.SaleDateStart/SaleDateEnd (the sale file's own "Selling End Time" column,
+ *  min/max across every lot — see that field's own doc comment on the backend), passed in by both
+ *  callers (print/top-price-page and the on-screen reports page) from the catalogue they already
+ *  have on hand. Formats as a range when the two genuinely differ (formatSaleDateRange) rather
+ *  than always picking just one end. Falls back to `sourceName` only when no real date is
+ *  available at all (e.g. the Excel export path, which doesn't have a catalogue fetch in the
+ *  loop, or a sale file whose "Selling End Time" column couldn't be parsed). */
+export function buildTppMeta(
+  combined: CombinedReport,
+  referenceReport?: AuctionReport,
+  saleDateStart?: string | null,
+  saleDateEnd?: string | null
+): TppMeta {
+  const formattedDate = saleDateStart ? formatSaleDateRange(new Date(saleDateStart), new Date(saleDateEnd || saleDateStart)) : null;
   return {
     broker: "Asia Siyaka Commodities PLC",
     auctionNumber: extractSaleNumber((referenceReport ?? combined.reports[0])?.sourceName ?? combined.sourceName),
-    saleDate: combined.sourceName,
+    saleDate: formattedDate ?? combined.sourceName,
   };
 }
 

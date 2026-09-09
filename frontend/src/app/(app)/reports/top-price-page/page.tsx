@@ -52,7 +52,11 @@ export default function TopPricePagePage() {
     () => (combined ? planTppBulletinAutoFit(combined) : null),
     [combined]
   );
-  const meta: TppMeta | null = useMemo(() => (combined ? buildTppMeta(combined) : null), [combined]);
+  const activeCatalogue = useMemo(() => catalogues.find((c) => c.id === activeCatalogueId) ?? null, [catalogues, activeCatalogueId]);
+  const meta: TppMeta | null = useMemo(
+    () => (combined ? buildTppMeta(combined, undefined, activeCatalogue?.saleDateStart, activeCatalogue?.saleDateEnd) : null),
+    [combined, activeCatalogue]
+  );
   const totalRows = useMemo(() => {
     if (!layout) return 0;
     const rowsOf = (entry: TppRegionEntry) => entry.category.grades.reduce((j, g) => j + g.rows.length, 0);

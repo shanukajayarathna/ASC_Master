@@ -2,7 +2,16 @@ using Asc.Api.Models;
 
 namespace Asc.Api.DTOs;
 
-public record CatalogueSummaryDto(Guid Id, string SourceName, int RowCount, int ColumnCount, DateTime ImportedAt, int Year);
+public record CatalogueSummaryDto(
+    Guid Id,
+    string SourceName,
+    int RowCount,
+    int ColumnCount,
+    DateTime ImportedAt,
+    int Year,
+    DateTime? SaleDateStart = null,
+    DateTime? SaleDateEnd = null
+);
 
 public record CatalogueDetailDto(
     Guid Id,
@@ -11,7 +20,9 @@ public record CatalogueDetailDto(
     Dictionary<string, ColumnMeta> ColumnMeta,
     int RowCount,
     DateTime ImportedAt,
-    int Year
+    int Year,
+    DateTime? SaleDateStart = null,
+    DateTime? SaleDateEnd = null
 );
 
 public record LotDto(

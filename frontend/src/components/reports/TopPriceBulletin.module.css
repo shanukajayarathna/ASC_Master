@@ -169,19 +169,46 @@
 
 /* --- body: a vertical stack of full-page-width region sections, one after another in reading
    order — `.sections` fills the page's full 1fr body row (a CSS grid item stretches to its row's
-   height by default — `.page` doesn't override that) and uses justify-content:space-between so
-   any leftover height becomes breathing room distributed BETWEEN sections rather than dead space
-   at the page's bottom edge. This works reliably here (an earlier attempt at the same idea one
-   level down, stretching cards within a side-by-side column, didn't: a column could hold just one
-   card, and space-between has nothing to distribute between a single item) because there are
-   always multiple real sections on a page (~11, or however many a page holds before the next one
-   spills to page 2) for the leftover space to spread across. */
+   height by default — `.page` doesn't override that). A fixed `gap` (not `justify-content:
+   space-between`) keeps the spacing between sections the SAME density-scaled amount on every
+   page — `justify-content: space-between` was tried first and stretched leftover room evenly
+   between cards, which reads fine on a page that's nearly full but visibly inflates the gaps on a
+   lighter page (fewer/smaller regions than another page in the same document, e.g. the last page
+   of a multi-page bulletin): the greedy page-fill (planTppFullWidthLayout, topPricePageExport.ts)
+   packs each page as full as the budget allows before spilling to the next, so a later page
+   routinely ends up with noticeably less real content, and dividing MORE leftover room across the
+   SAME number of gaps produced visibly bigger gaps there — inconsistent with the tighter page
+   right before it. A page with room to spare now leaves that room as plain space below the last
+   card (before the footer) instead, so every page's between-section rhythm matches regardless of
+   how full it happens to be. */
 .sections {
   grid-area: body;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   gap: var(--tpp-grid-gap);
+}
+
+/* A page with real leftover room below its last card (TopPriceBulletin.tsx only renders this when
+   that room clears TPP_FILLER_MIN_PX) gets this decorative tea-leaf motif instead of plain dead
+   space — flex:1 on a flex-column sibling of the cards absorbs exactly however much room is
+   actually left with no JS sizing needed (the SAME mechanic that makes a lighter page's blank
+   space show up at all: `.sections` always renders at its full grid-track height regardless of
+   how much of it the cards use). A vector SVG background-image, not a raster image or emoji glyph
+   — this renders through the real Chromium print path (pdfRender.ts) as crisp vector fill at any
+   scale, the same reasoning every other flat-fill/vector choice in this file already follows for
+   PDF-export fidelity. Low opacity (baked into the SVG's own stroke opacity, not a CSS `opacity`
+   on the element — a CSS opacity would also fade the surrounding blank space's edges in a way that
+   reads as a rendering glitch rather than a deliberate light watermark) keeps it a background
+   texture, never competing with the real ranked-price data above it. */
+.sectionsFiller {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'%3E%3Cg fill='none' stroke='%232f7d52' stroke-width='1.1'%3E%3Cpath d='M18 6c7 4 8 13 0 24c-8-11-7-20 0-24z' opacity='0.16'/%3E%3Cpath d='M18 8v20' opacity='0.12'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-position: center;
 }
 
 /* --- one region card: light-paper + dark-ink always, regardless of app theme, since this is
@@ -338,6 +365,29 @@
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+/* Only the grade's own first row (Row's gradeStart, TopPriceBulletin.tsx) actually carries the
+   grade text — every other row of the same grade renders a blank space here instead (see that
+   file's own comment) — so this rule only ever paints visible text on one row per grade, marking
+   it as the shared heading for the rows that follow. */
+.grade[data-grade-start="true"] {
+  font-weight: 700;
+  color: #1f7a4d;
+  text-decoration: underline;
+  text-decoration-color: #b68c2a;
+  text-underline-offset: 2px;
+}
+/* A mid-group "Cont. <grade>" label (Card's column-break detection in TopPriceBulletin.tsx) —
+   renders in-flow on one line: planTppFullWidthLayout (topPricePageExport.ts) folds this prefix's
+   width into --tpp-grade-basis itself whenever a section can reflow into multiple columns, so
+   this never needs to wrap (which would grow the row's own height and push a gap before the next
+   row) or overflow into .deal next to it. */
+.grade[data-cont="true"] {
+  font-weight: 700;
+  font-style: italic;
+  color: #1f7a4d;
+  text-decoration: none;
+  font-size: calc(var(--tpp-grade-font-size) * 0.85);
+}
 .at {
   flex: 0 0 var(--tpp-at-basis);
   min-width: 0;
@@ -369,14 +419,23 @@
    now a real Chromium print, same engine as window.print(), which never had this bug), so
    there's no longer a reason to keep the fill washed out. print-color-adjust:exact
    (globals.css's .report-print-area rule) still applies so this survives a print/PDF export. */
-.row[data-ours="true"] {
+/* Wraps mark → price only (not the leading .grade cell) — the highlight below is scoped to this
+   box so a highlighted lot never paints across its shared/blank grade cell, which would otherwise
+   read as the highlight covering the whole row. */
+.deal {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tpp-row-gap);
+  flex: 1;
+  min-width: 0;
+}
+.deal[data-ours="true"] {
   color: #1f7a4d;
   background: #f3cf6b;
   border-left: 3px solid #1f7a4d;
   padding-left: var(--tpp-ours-pad-left);
 }
-.row[data-ours="true"] .mark,
-.row[data-ours="true"] .grade {
+.deal[data-ours="true"] .mark {
   font-weight: 700;
 }
 

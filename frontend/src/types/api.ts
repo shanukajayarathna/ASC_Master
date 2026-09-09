@@ -310,6 +310,9 @@ export interface BulletinRow {
 export interface BulletinTable {
   gradeLabel: string;
   rows: BulletinRow[];
+  /** Set for Low Grown's Leafy/Semi Leafy/Tippy tables — null for a section whose tables are
+   *  one flat list (e.g. High and Medium, same grades/order as Low Grown but no sub-headers). */
+  groupLabel: string | null;
 }
 
 export interface BulletinSection {
@@ -614,6 +617,12 @@ export interface CatalogueSummary {
   columnCount: number;
   importedAt: string;
   year: number;
+  /** Real per-lot min/max of this sale's own "Selling End Time" column — a sale that genuinely
+   *  runs across two calendar days has different dates here; null when the column was missing or
+   *  unparseable for every row. Distinct from `importedAt`, which is a hand-maintained weekly
+   *  calendar estimate, not read from the file itself. */
+  saleDateStart?: string | null;
+  saleDateEnd?: string | null;
 }
 
 // ---- Category Analysis (Price & Classification — Sale x Broker) — see backend/Modules/CategoryReports ----
@@ -736,6 +745,9 @@ export interface CatalogueDetail {
   rowCount: number;
   importedAt: string;
   year: number;
+  /** See CatalogueSummary.saleDateStart's own comment. */
+  saleDateStart?: string | null;
+  saleDateEnd?: string | null;
 }
 
 export type ClassificationValue = "Unclassified" | "SelectBest" | "Best" | "BelowBest" | "Poor";

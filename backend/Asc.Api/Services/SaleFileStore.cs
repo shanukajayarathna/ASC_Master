@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -138,6 +139,8 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     {
         public int RowCount { get; set; }
         public List<string> Headers { get; set; } = new();
+        public DateTime? SaleDateStart { get; set; }
+        public DateTime? SaleDateEnd { get; set; }
     }
 
     private sealed class LoadedSale
@@ -230,6 +233,35 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         return null;
     }
 
+    /// <summary>"Selling End Time" as it actually appears in a raw sale file row, e.g.
+    /// "09/09/2026 08:31:19:346" — day/month/year, then time with a colon (not the usual dot)
+    /// before the milliseconds group.</summary>
+    private const string SellingEndTimeFormat = "dd/MM/yyyy HH:mm:ss:fff";
+
+    /// <summary>The real per-lot min/max of this sale's own "Selling End Time" column — a sale
+    /// that genuinely runs across two calendar days shows up here as two different dates, which
+    /// is what lets the Top Price Page (and anything else caring about the real sale date) show
+    /// an actual range instead of collapsing to one hand-maintained calendar date
+    /// (YearSaleDates/YearAnchors above, which this deliberately does NOT touch or replace —
+    /// see Catalogue.SaleDateStart's own doc comment). Returns (null, null) when the column is
+    /// missing or every row's value fails to parse — a sale file this old/malformed shouldn't
+    /// block import over a display-only date range.</summary>
+    private static (DateTime? Start, DateTime? End) SellingEndTimeRange(List<Dictionary<string, string>> rows)
+    {
+        DateTime? min = null;
+        DateTime? max = null;
+        foreach (var row in rows)
+        {
+            var raw = row.GetValueOrDefault("Selling End Time");
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            if (!DateTime.TryParseExact(raw.Trim(), SellingEndTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+                continue;
+            if (min is null || parsed < min) min = parsed;
+            if (max is null || parsed > max) max = parsed;
+        }
+        return (min, max);
+    }
+
     /// <summary>Colombo tea auctions run at most ~53 sales/year (weekly) — a safe upper
     /// bound to scan when enumerating a month's calendar.</summary>
     private const int MaxSaleNoPerYear = 53;
@@ -298,10 +330,15 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     // two Orthodox codes) after all, just splits out the CTC portion separately. v7
     // (current): back to base factory number with Orthodox/CTC sides indexed separately,
     // same shape as v5 — see SharedMarkCatalogueService's own doc comment for the full story.
-    // Each version's keys don't match the next's, so bumping the filename abandons the stale
-    // file and lets a fresh one build under the current key shape, the same "just re-parse
-    // once" pattern SaleCachePath uses.
-    private string MarkCodeIndexPath => Path.Combine(CacheDir, "mark-code-index-v7.json");
+    // v8 (current): same key shape as v7, but the ORTHODOX side's name selection now rejects
+    // a Factory Name that itself contains the word "CTC" (confirmed live: Brombil's real
+    // Factory Name is literally "BROMBIL ORTHODOX & CTC TEA FACTORY") — v7's persisted file
+    // has that poisoned name baked in for MF1465/MF1350, which silently mis-bucketed an
+    // entire broker-week of genuine Orthodox volume into the CTC row every time an upload
+    // canonicalized against it. Each version's keys don't match the next's, so bumping the
+    // filename abandons the stale file and lets a fresh one build under the current key
+    // shape, the same "just re-parse once" pattern SaleCachePath uses.
+    private string MarkCodeIndexPath => Path.Combine(CacheDir, "mark-code-index-v8.json");
 
     /// <summary>Builds/extends the index in memory + on disk, then returns it. Only
     /// catalogues not already folded in get parsed (via the normal GetLots path, so a
@@ -333,12 +370,22 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                         // lookup could hand a canonicalized upload lot the wrong side's name
                         // and silently flip which side it reads as later. On the CTC side,
                         // prefer Selling Mark over Factory Name for the same reason — the
-                        // Selling Mark is what actually carries the word "CTC" here.
+                        // Selling Mark is what actually carries the word "CTC" here. On the
+                        // ORTHODOX side, a Factory Name that itself contains the word "CTC"
+                        // (confirmed live: Brombil's real Factory Name is literally "BROMBIL
+                        // ORTHODOX & CTC TEA FACTORY") must be rejected too — applying it to
+                        // an Orthodox upload lot would come back to bite it: the canonicalized
+                        // name overwrites the lot's own Selling Mark, and a later pass
+                        // re-derives that lot's Orthodox/CTC split from ITS OWN (now-
+                        // overwritten) Selling Mark, so a genuinely-Orthodox lot would
+                        // silently get mis-bucketed into the CTC row instead (found live:
+                        // Sale 37/2026's entire Brombil week-37 catalogue landed in the CTC
+                        // row this way).
                         var isCtc = IsCtcSubMark(lot);
                         var code = $"{factoryCode}|{(isCtc ? "CTC" : "ORTHODOX")}";
                         var name = isCtc
                             ? lot.SellingMark
-                            : (!string.IsNullOrWhiteSpace(lot.FactoryName) ? lot.FactoryName : lot.SellingMark);
+                            : (!string.IsNullOrWhiteSpace(lot.FactoryName) && !CtcWordRegex.IsMatch(lot.FactoryName) ? lot.FactoryName : lot.SellingMark);
                         if (string.IsNullOrWhiteSpace(name)) continue;
                         if (!index.ContainsKey(code))
                             index[code] = (name.Trim(), lot.Elevation);
@@ -424,6 +471,8 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                 RowCount = meta?.RowCount ?? 0,
                 Headers = meta?.Headers ?? new List<string>(),
                 ImportedAt = SaleDateFor(file.Year, file.SaleNo, new DateTime(file.Sig.MTimeTicks, DateTimeKind.Utc)),
+                SaleDateStart = meta?.SaleDateStart,
+                SaleDateEnd = meta?.SaleDateEnd,
             });
         }
         // A file with no meta entry is either brand new or was replaced on disk (different
@@ -613,6 +662,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         var rows = parsed.Rows.Where(r => !string.IsNullOrWhiteSpace(r.GetValueOrDefault("Lot No"))).ToList();
 
         var importedAt = SaleDateFor(file.Year, file.SaleNo, new DateTime(file.Sig.MTimeTicks, DateTimeKind.Utc));
+        var (saleDateStart, saleDateEnd) = SellingEndTimeRange(rows);
         var catalogueId = CatalogueIdFor(file.Year, file.SaleNo);
         var catalogue = new Catalogue
         {
@@ -623,6 +673,8 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             RowCount = rows.Count,
             ColumnMeta = importer.BuildColumnMeta(parsed.Headers, rows),
             ImportedAt = importedAt,
+            SaleDateStart = saleDateStart,
+            SaleDateEnd = saleDateEnd,
         };
 
         var seenKeys = new Dictionary<string, int>();
@@ -745,14 +797,25 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         // so the first sale opened after a restart rewrote meta.json with only itself and
         // every other sale listed as 0 lots until re-opened.
         EnsureMetaLoaded();
-        _meta[(file.Year, file.SaleNo)] = (file.Sig, new SaleMeta { RowCount = catalogue.RowCount, Headers = catalogue.Headers });
+        _meta[(file.Year, file.SaleNo)] = (
+            file.Sig,
+            new SaleMeta { RowCount = catalogue.RowCount, Headers = catalogue.Headers, SaleDateStart = catalogue.SaleDateStart, SaleDateEnd = catalogue.SaleDateEnd }
+        );
         try
         {
             Directory.CreateDirectory(CacheDir);
             File.WriteAllText(MetaPath(), JsonSerializer.Serialize(
                 _meta.ToDictionary(
                     kv => $"{kv.Key.Year}:{kv.Key.SaleNo}",
-                    kv => new { kv.Value.Sig.Size, kv.Value.Sig.MTimeTicks, kv.Value.Meta.RowCount, kv.Value.Meta.Headers })));
+                    kv => new
+                    {
+                        kv.Value.Sig.Size,
+                        kv.Value.Sig.MTimeTicks,
+                        kv.Value.Meta.RowCount,
+                        kv.Value.Meta.Headers,
+                        kv.Value.Meta.SaleDateStart,
+                        kv.Value.Meta.SaleDateEnd,
+                    })));
         }
         catch
         {
@@ -780,7 +843,10 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                         ? (y, s)
                         : int.TryParse(key, out var legacySaleNo) ? (LegacyYear, legacySaleNo) : null;
                     if (parsed is { } k)
-                        _meta[k] = (new Signature(e.Size, e.MTimeTicks), new SaleMeta { RowCount = e.RowCount, Headers = e.Headers ?? new() });
+                        _meta[k] = (
+                            new Signature(e.Size, e.MTimeTicks),
+                            new SaleMeta { RowCount = e.RowCount, Headers = e.Headers ?? new(), SaleDateStart = e.SaleDateStart, SaleDateEnd = e.SaleDateEnd }
+                        );
                 }
             }
             catch
@@ -796,6 +862,8 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         public long MTimeTicks { get; set; }
         public int RowCount { get; set; }
         public List<string>? Headers { get; set; }
+        public DateTime? SaleDateStart { get; set; }
+        public DateTime? SaleDateEnd { get; set; }
     }
 
     // ---- gzip JSON cache -------------------------------------------------------------
@@ -805,10 +873,12 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     // every sale transparently re-parses once, on its next request — no manual cache-clearing
     // step needed. v2: added SellingMark/Status/PurchasedPrice/Buyer/BuyerName to Lot.
     // v3: added Factory/FactoryName to Lot. v5: cache keys became (year, saleNo) composite.
-    // v6: added IsReprint to Lot.
-    private const string CacheSchemaVersion = "v6";
+    // v6: added IsReprint to Lot. v7: added SaleDateStart/SaleDateEnd to Catalogue.
+    private const string CacheSchemaVersion = "v7";
 
-    private string MetaPath() => Path.Combine(CacheDir, "meta.json");
+    // v2: added SaleDateStart/SaleDateEnd to SaleMeta — versioned so an old meta.json (matching
+    // sig, but missing these fields) isn't mistaken for fresh and left un-rewarmed forever.
+    private string MetaPath() => Path.Combine(CacheDir, "meta-v2.json");
     private string SaleCachePath(int year, int saleNo) => Path.Combine(CacheDir, $"sale-{CacheSchemaVersion}-{year}-{saleNo}.json.gz");
     private string SlimCachePath(int year, int saleNo) => Path.Combine(CacheDir, $"valued-{CacheSchemaVersion}-{year}-{saleNo}.json.gz");
 

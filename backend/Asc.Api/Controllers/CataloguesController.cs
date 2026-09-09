@@ -30,7 +30,11 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     public ActionResult<List<CatalogueSummaryDto>> List()
     {
         var items = source.ListCatalogues();
-        return Ok(items.Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt, c.Year)).ToList());
+        return Ok(
+            items
+                .Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt, c.Year, c.SaleDateStart, c.SaleDateEnd))
+                .ToList()
+        );
     }
 
     [HttpGet("{id:guid}")]
@@ -39,7 +43,7 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
         var c = source.GetCatalogue(id);
         if (c is null) return NotFound();
         var columnMeta = importer.RefreshDefaultVisibility(c.ColumnMeta);
-        return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt, c.Year));
+        return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt, c.Year, c.SaleDateStart, c.SaleDateEnd));
     }
 
     [HttpDelete("{id:guid}")]
@@ -97,7 +101,19 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
             importedAt = catalogue.ImportedAt,
         }, ct);
 
-        return Ok(new CatalogueDetailDto(catalogue.Id, catalogue.SourceName, catalogue.Headers, catalogue.ColumnMeta, catalogue.RowCount, catalogue.ImportedAt, catalogue.Year));
+        return Ok(
+            new CatalogueDetailDto(
+                catalogue.Id,
+                catalogue.SourceName,
+                catalogue.Headers,
+                catalogue.ColumnMeta,
+                catalogue.RowCount,
+                catalogue.ImportedAt,
+                catalogue.Year,
+                catalogue.SaleDateStart,
+                catalogue.SaleDateEnd
+            )
+        );
     }
 
     /// <summary>

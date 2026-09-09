@@ -24,6 +24,16 @@ public class Catalogue
     public int RowCount { get; set; }
 
     public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>The real auction date(s), read directly from this sale's own "Selling End Time"
+    /// column (min/max across every lot) rather than assumed from a hand-maintained weekly
+    /// calendar (see SaleFileStore.SaleDateFor, which ImportedAt above still uses) — a sale that
+    /// genuinely runs across two calendar days (SaleDateEnd's date differs from SaleDateStart's)
+    /// should show as a range, not silently collapse to one. Null when the column is missing or
+    /// unparseable for every row in this file.</summary>
+    public DateTime? SaleDateStart { get; set; }
+
+    public DateTime? SaleDateEnd { get; set; }
 }
 
 public class ColumnMeta
