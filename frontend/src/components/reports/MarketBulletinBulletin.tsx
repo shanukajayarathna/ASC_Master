@@ -34,13 +34,13 @@ interface MbDensity {
 }
 
 /** Three fixed steps rather than a continuous solve (unlike Top Price Page's own
- *  planTppBulletinAutoFit): every table here has a FIXED row count by construction (a 4-tier
- *  table always has exactly 4 rows — see this file's own PAGE_GROUPS comment), so — unlike TPP's
- *  genuinely data-driven row counts — there's no need for TPP's per-region column-reflow math,
- *  just "does the fixed shape fit at this size." Tried largest (best legibility) to smallest
- *  first; the first one where every page's real rendered height fits its physical sheet wins.
- *  COZY is today's own hand-measured, known-to-fit-with-margin size (see PAGE_GROUPS's doc
- *  comment: H&M Orthodox+Off Grades+Dust together measured at 175.6mm of a 185.3mm budget) —
+ *  planTppBulletinAutoFit): every table here has a FIXED row count by construction per section
+ *  (4 rows for a flat tier table, 10 for High and Medium's elevation-banded grade tables, 12 for
+ *  Dust's — see this file's own PAGE_GROUPS comment), so — unlike TPP's genuinely data-driven
+ *  row counts — there's no need for TPP's per-region column-reflow math, just "does the fixed
+ *  shape fit at this size." Tried largest (best legibility) to smallest first; the first one
+ *  where every page's real rendered height fits its physical sheet wins. COZY is today's own
+ *  hand-measured, known-to-fit-with-margin size —
  *  ROOMY is a modest step up for a future sale with slightly less content than today's, and
  *  COMPACT is a real safety net for the opposite: more grade codes, longer numbers, or any other
  *  future data drift that pushes a page's fixed shape past what COZY can hold. */
@@ -167,29 +167,26 @@ function anyPageOverflows(root: HTMLElement): boolean {
  *  height rather than solving a layout from scratch, so any future data drift (a new grade code,
  *  a longer number) still always fits rather than relying on today's shape holding forever.
  *
- *  3 pages, not 2 — a deliberate trade-off for real, comfortably-readable text size rather than
- *  forcing 2 pages and shrinking type back down to fit. Grouped in the SAME order the printed
- *  bulletin itself uses — High Grown, Medium Grown & Unorthodox together; H&M Orthodox Black
- *  Tea, Off Grades & Dust together; Low Grown alone — rather than a balance-optimized grouping,
- *  even though that leaves page 1 with real leftover space under its own (lighter) content.
- *  Getting Dust onto the same page as H&M Orthodox and Off Grades (matching the original) doesn't
- *  fit at the previous, larger type size — those three alone need ~215mm against a page's
- *  ~184.5mm budget — so row height, table-head height and most font sizes were trimmed by
- *  roughly 15% specifically to make this grouping fit in 3 pages without spilling to a 4th.
- *  Every page's real leftover space (there's always some — the 7 sections don't split evenly
- *  into exactly 3 full sheets) is filled edge to edge by pure CSS, not JS, split two ways: a
- *  MULTI-row section (isMultiRowSection below — H&M Orthodox/Off Grades/Dust/Low Grown) claims
- *  its own fair share via `flex: 1 1 auto` and spreads it BETWEEN its own rows of tables
- *  (`.tableGrid`'s `align-content: space-evenly`); a single-row section (High Grown/Medium
- *  Grown/Unorthodox, always exactly one row of 2 cards) stays compact instead — stretching a
- *  lone row just centers it with a big dead band above and below, reading as unfinished rather
- *  than spacious — and leaves its share for `.sections`' own `justify-content: space-evenly` to
- *  spread as even margins/gaps around the compact cards. Both are exact by construction, and
- *  neither is measured or tuned to today's numbers specifically. */
+ *  Page grouping is fixed at exactly 3 pages, in the user's own stated section order (Low Grown,
+ *  Premium Flowery, Off Grade, Dust, High and Medium, Unorthodox, Ex-estate) — "without changing
+ *  the place" — rather than however many pages the content would naturally spread across. High
+ *  and Medium alone (15 grades × 10-row tables) is by far the biggest section the report has
+ *  ever carried, so fitting it onto page 3 relies on packing it at a narrow per-card width (see
+ *  SECTION_MIN_WIDTH) plus the density ladder's own COMPACT rung — verify visually after any
+ *  future data drift that adds rows/grades, since 3 pages is now a hard requirement, not just
+ *  whatever the auto-fit ladder happens to produce.
+ *  Every page's real leftover space is filled edge to edge by pure CSS, not JS, split two ways:
+ *  a MULTI-row section (isMultiRowSection below) claims its own fair share via `flex: 1 1 auto`
+ *  and spreads it BETWEEN its own rows of tables (`.tableGrid`'s `align-content: space-evenly`);
+ *  a single-row section stays compact instead — stretching a lone row just centers it with a big
+ *  dead band above and below, reading as unfinished rather than spacious — and leaves its share
+ *  for `.sections`' own `justify-content: space-evenly` to spread as even margins/gaps around the
+ *  compact cards. Both are exact by construction, and neither is measured or tuned to today's
+ *  numbers specifically. */
 const PAGE_GROUPS: { sections: string[] }[] = [
-  { sections: ["High Grown", "Medium Grown", "Unorthodox"] },
-  { sections: ["H&M Orthodox Black Tea", "Off Grades", "Dust"] },
-  { sections: ["Low Grown"] },
+  { sections: ["Low Grown", "Premium Flowery"] },
+  { sections: ["Off Grade", "Dust", "Unorthodox"] },
+  { sections: ["High and Medium", "Ex-estate"] },
 ];
 
 /** Minimum card width per section, used with `repeat(auto-fill, minmax(w, 1fr))` so the grid
@@ -199,16 +196,28 @@ const PAGE_GROUPS: { sections: string[] }[] = [
  *  oversized, out-of-place table whenever a section's table count didn't divide evenly (e.g.
  *  Low Grown's 13th table, BOPF, stretching across the full page width while every other card
  *  sat at a third of that). auto-fill instead leaves a normal trailing gap on a short last row,
- *  which reads as an ordinary card grid rather than a layout bug. Off Grades/Dust use a wider
- *  minimum so their Better/Other pair still lands two-per-row rather than tipping to three. */
+ *  which reads as an ordinary card grid rather than a layout bug.
+ *
+ *  Off Grade/Dust/Unorthodox are narrowed from their earlier 480px so page 2 can hold all four
+ *  of its sections on one physical sheet (see PAGE_GROUPS' own doc comment on why 3 pages is a
+ *  hard requirement) — verify visually if grade text ever needs to wrap. */
 const SECTION_MIN_WIDTH: Record<string, number> = {
-  "High Grown": 480,
-  "Medium Grown": 480,
-  Unorthodox: 480,
-  "H&M Orthodox Black Tea": 330,
-  "Off Grades": 480,
-  Dust: 480,
   "Low Grown": 330,
+  "Premium Flowery": 330,
+  // Widened from 250 (4 columns, 2 rows) to 350 (3 columns, 3 rows) once Premium Flowery moved
+  // to page 1 — page 2's 2-row layout left a single grow-flex section absorbing ALL of that
+  // page's now-larger leftover height as one big gap between its two rows; a 3rd row splits the
+  // same leftover into two smaller gaps instead of one large one.
+  "Off Grade": 350,
+  // Narrowed from 480 (2 columns, 2 rows for 3 tables) to fit all 3 in a single row.
+  Dust: 350,
+  // Same flat Select Best/Best/Below Best/Poor shape as Low Grown now (the Westerns/Uva/Nuwara
+  // Eliya/Udapussellawa/Medium split was dropped per the user's own instruction), so it gets the
+  // same narrow width — no longer needs the wider column the old 10-row-per-table shape did.
+  "High and Medium": 330,
+  // Narrowed from 480 (2 columns, 2 rows for 4 tables) to fit all 4 in a single row.
+  Unorthodox: 250,
+  "Ex-estate": 330,
 };
 
 /** Roughly how wide a page's content column is (297mm page minus its own left/right padding,
@@ -234,14 +243,19 @@ function isMultiRowSection(sectionTitle: string, tableCount: number): boolean {
 
 /** A row's label always tells you which merged tier(s) it is (see MarketBulletinEngine.cs's
  *  BuildRow calls): every "Best"/"Brighter" row merges Select Best + Best, every "Other"/
- *  "Poor"/"Others" row merges Below Best + Poor, and "Select Best" alone is the top 25%. Used
+ *  "Poor"/"Others" row merges Below Best + Poor, and "Select Best" alone is the top 20%. Used
  *  to give the two extremes a subtle accent so the eye can scan quality without reading every
- *  label — deliberately leaves the middle tiers and non-quality rows (Nuwara Eliya, and the
- *  High/Medium/Low elevation bands inside Off Grades/Dust's Better/Other tables) unaccented so
- *  the color stays meaningful rather than decorating every row. */
+ *  label — deliberately leaves the middle tiers and non-quality rows (Nuwara Eliya, and Dust's
+ *  "Below Best" rows within each elevation band) unaccented so the color stays meaningful
+ *  rather than decorating every row. */
 function tierAccent(label: string): "top" | "poor" | "neutral" {
-  if (label === "Select Best" || label.startsWith("Best") || label.startsWith("Brighter")) return "top";
-  if (label === "Poor" || label === "Others" || label.startsWith("Other")) return "poor";
+  // Dust's rows are elevation-prefixed ("Low Select Best", "High Poor") — strip a leading
+  // "Low "/"Medium "/"High " band prefix before checking, so those rows get the same accent
+  // as every other section's plain "Select Best"/"Poor" rows instead of falling through to
+  // "neutral" just because of the elevation label in front.
+  const core = /^(?:Low|Medium|High)\s(.+)$/.exec(label)?.[1] ?? label;
+  if (core === "Select Best" || core.startsWith("Best") || core.startsWith("Brighter")) return "top";
+  if (core === "Poor" || core === "Others" || core.startsWith("Other")) return "poor";
   return "neutral";
 }
 
@@ -273,9 +287,22 @@ function Delta({ row }: { row: BulletinRow }) {
   );
 }
 
-function RangeRow({ row, zebra }: { row: BulletinRow; zebra: boolean }) {
+/** Dust's rows are elevation-prefixed ("Low Select Best" … "High Poor", 12 rows per table) — this
+ *  pulls just that "Low"/"Medium"/"High" prefix so TableCard can tell where one elevation band
+ *  ends and the next begins. Every other section's plain labels ("Select Best", "Poor") have no
+ *  such prefix and return null, so they never trigger a band break. */
+function rowBand(label: string): string | null {
+  return /^(Low|Medium|High)\s/.exec(label)?.[1] ?? null;
+}
+
+function RangeRow({ row, zebra, bandBreak }: { row: BulletinRow; zebra: boolean; bandBreak?: boolean }) {
   return (
-    <div className={styles.row} data-zebra={zebra ? "true" : "false"} data-tier={tierAccent(row.label)}>
+    <div
+      className={styles.row}
+      data-zebra={zebra ? "true" : "false"}
+      data-tier={tierAccent(row.label)}
+      data-band-break={bandBreak ? "true" : undefined}
+    >
       <span className={styles.rowLabel} title={row.label}>
         {row.label}
       </span>
@@ -299,25 +326,57 @@ function TableCard({ table }: { table: BulletinTable }) {
         <span className={styles.colHeadSpacer}>&nbsp;</span>
         <span>Last Week</span>
       </div>
-      {table.rows.map((r, i) => (
-        <RangeRow key={i} row={r} zebra={i % 2 === 1} />
-      ))}
+      {table.rows.map((r, i) => {
+        const band = rowBand(r.label);
+        const bandBreak = i > 0 && band !== null && band !== rowBand(table.rows[i - 1].label);
+        return <RangeRow key={i} row={r} zebra={i % 2 === 1} bandBreak={bandBreak} />;
+      })}
     </div>
   );
+}
+
+/** Chunks a section's tables into consecutive runs sharing the same groupLabel — Low Grown's
+ *  Leafy/Semi Leafy/Tippy sub-groups are the only current user; a section whose tables all have
+ *  groupLabel null (every other section, including High and Medium) comes back as one group
+ *  covering every table, so it renders exactly like a flat section always has. Each group
+ *  becomes its own flex child (see .tableGroup in the CSS) so a sub-header sits tight against
+ *  its own cards instead of sharing in the section's evenly-spread leftover space. */
+function groupTables(tables: BulletinTable[]): { label: string | null; tables: BulletinTable[] }[] {
+  const groups: { label: string | null; tables: BulletinTable[] }[] = [];
+  tables.forEach((t) => {
+    const last = groups[groups.length - 1];
+    if (last && last.label === t.groupLabel) {
+      last.tables.push(t);
+    } else {
+      groups.push({ label: t.groupLabel, tables: [t] });
+    }
+  });
+  return groups;
 }
 
 function SectionCard({ section }: { section: BulletinSection }) {
   const minWidth = SECTION_MIN_WIDTH[section.title] ?? 480;
   const flow = isMultiRowSection(section.title, section.tables.length) ? "grow" : "compact";
+  const groups = groupTables(section.tables);
   return (
     <div className={styles.section} data-mb-flow={flow}>
       <div className={styles.sectionHead}>{section.title}</div>
       {section.tables.length === 0 ? (
         <div className={styles.sectionEmpty}>No matching lots for this section.</div>
       ) : (
-        <div className={styles.tableGrid} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))` }}>
-          {section.tables.map((t, i) => (
-            <TableCard key={i} table={t} />
+        <div className={styles.tableGrid} data-mb-multigroup={groups.length > 1 ? "true" : undefined}>
+          {groups.map((g, gi) => (
+            <div key={gi} className={styles.tableGroup}>
+              {g.label !== null && <div className={styles.tableGroupHeader}>{g.label}</div>}
+              <div
+                className={styles.tableGroupGrid}
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))` }}
+              >
+                {g.tables.map((t, ti) => (
+                  <TableCard key={ti} table={t} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -471,32 +530,34 @@ function PieSlot({ slot }: { slot?: MonthlySaleSlot }) {
 
 /** One month's row of pie slots — "Last Month"/"This Month" are two separate, clearly labeled
  *  groups (per the user's own sketch) rather than fused into one chart per ordinal position, so
- *  the two months read as two plain rows stacked vertically. `slotCount` is passed in (rather than
- *  derived from `slots.length`) so both rows always render the same number of columns even when
- *  one side has an extra slot (a 5-sale month compared against a 4-sale one) — the shorter row's
- *  missing columns fall through to PieSlot's own undefined-slot placeholder. */
-function MonthlySaleRow({ heading, monthLabel, slots, slotCount }: { heading: string; monthLabel: string; slots: MonthlySaleSlot[]; slotCount: number }) {
+ *  the two months read as two plain rows stacked vertically. Each row renders exactly its OWN
+ *  `slots.length` circles — a 4-sale month shows 4, a 5-sale month shows 5 — rather than padding
+ *  the shorter row to match the other side's count: a 4-sale month sitting next to a 5-sale one
+ *  doesn't need (and shouldn't show) a 5th empty placeholder circle just to line up column
+ *  counts, since the two rows aren't meant to align slot-for-slot visually, just to be read as
+ *  two independent calendars. */
+function MonthlySaleRow({ heading, monthLabel, slots }: { heading: string; monthLabel: string; slots: MonthlySaleSlot[] }) {
   return (
     <div className={styles.pieRowGroup}>
       <div className={styles.pieRowLabel}>
         {heading} <span className={styles.pieRowLabelSub}>{monthLabel}</span>
       </div>
       <div className={styles.donutRow}>
-        {Array.from({ length: slotCount }, (_, i) => (
-          <PieSlot key={i} slot={slots[i]} />
+        {slots.map((slot, i) => (
+          <PieSlot key={i} slot={slot} />
         ))}
       </div>
     </div>
   );
 }
 
-/** The whole month-over-month comparison — one section, 8 (or 10, in a 5-sale month) pie cards
- *  total rather than a separate quantity section and a separate price section duplicating every
- *  card. Reuses the exact .section/.sectionHead styling pages 1-3 use for their grade tables, so
- *  page 4 fits the same visual language and the same page-filling flex-grow/space-evenly
- *  mechanism (see .section's own CSS comment) without needing a parallel layout system. */
+/** The whole month-over-month comparison — one section, 8 (or up to 10, in a 5-sale month) pie
+ *  cards total rather than a separate quantity section and a separate price section duplicating
+ *  every card. Reuses the exact .section/.sectionHead styling pages 1-3 use for their grade
+ *  tables, so page 4 fits the same visual language and the same page-filling flex-grow/
+ *  space-evenly mechanism (see .section's own CSS comment) without needing a parallel layout
+ *  system. */
 function MonthlyComparisonSection({ comparison }: { comparison: MonthlyComparison }) {
-  const slotCount = Math.max(comparison.thisMonth.length, comparison.lastMonth.length);
   return (
     <div className={styles.section} data-mb-flow="grow">
       <div className={styles.sectionHead}>
@@ -511,8 +572,8 @@ function MonthlyComparisonSection({ comparison }: { comparison: MonthlyCompariso
             </span>
           ))}
         </div>
-        <MonthlySaleRow heading="Last Month" monthLabel={comparison.lastMonthLabel} slots={comparison.lastMonth} slotCount={slotCount} />
-        <MonthlySaleRow heading="This Month" monthLabel={comparison.thisMonthLabel} slots={comparison.thisMonth} slotCount={slotCount} />
+        <MonthlySaleRow heading="Last Month" monthLabel={comparison.lastMonthLabel} slots={comparison.lastMonth} />
+        <MonthlySaleRow heading="This Month" monthLabel={comparison.thisMonthLabel} slots={comparison.thisMonth} />
       </div>
     </div>
   );

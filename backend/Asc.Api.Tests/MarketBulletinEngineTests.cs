@@ -5,32 +5,33 @@ namespace Asc.Api.Tests;
 
 public class MarketBulletinEngineTests
 {
-    private static Lot Lot(decimal price, string grade = "BOP", string elevation = "WH", string? sellingMark = null, string status = "Sold") => new()
+    private static Lot Lot(decimal price, string grade = "BOP", string elevation = "WH", string? sellingMark = null, string status = "Sold", string? category = null) => new()
     {
         Grade = grade,
         Elevation = elevation,
         SellingMark = sellingMark,
         PurchasedPrice = price,
         Status = status,
+        Category = category,
     };
 
     // ---- TierSplitter ------------------------------------------------------------------
 
     [Fact]
-    public void ComputeFourTiers_SplitsTwentyLotsInto_5_6_6_3()
+    public void ComputeFourTiers_SplitsTwentyLotsInto_4_7_6_3()
     {
-        // 20 lots, prices 20..1 descending once sorted. 25% of 20 = 5, next 30% = 6, next 30% = 6, last 15% = 3.
+        // 20 lots, prices 20..1 descending once sorted. 20% of 20 = 4, next 35% = 7, next 30% = 6, last 15% = 3.
         var lots = Enumerable.Range(1, 20).Select(i => Lot(i)).ToList();
         var tiers = TierSplitter.ComputeFourTiers(lots);
 
-        Assert.Equal(5, tiers[TierSplitter.SelectBest].LotCount);
-        Assert.Equal(6, tiers[TierSplitter.Best].LotCount);
+        Assert.Equal(4, tiers[TierSplitter.SelectBest].LotCount);
+        Assert.Equal(7, tiers[TierSplitter.Best].LotCount);
         Assert.Equal(6, tiers[TierSplitter.BelowBest].LotCount);
         Assert.Equal(3, tiers[TierSplitter.Poor].LotCount);
 
-        // Select Best is the highest-priced 5 lots: 20 down to 16.
+        // Select Best is the highest-priced 4 lots: 20 down to 17.
         Assert.Equal(20m, tiers[TierSplitter.SelectBest].Max);
-        Assert.Equal(16m, tiers[TierSplitter.SelectBest].Min);
+        Assert.Equal(17m, tiers[TierSplitter.SelectBest].Min);
         // Poor is the lowest-priced 3 lots: 3 down to 1.
         Assert.Equal(3m, tiers[TierSplitter.Poor].Max);
         Assert.Equal(1m, tiers[TierSplitter.Poor].Min);
@@ -78,89 +79,197 @@ public class MarketBulletinEngineTests
         Assert.Null(merged.Min);
     }
 
-    // ---- MarketBulletinEngine: High Grown Westerns/Uva/NE/UP composition ----------------
+    // ---- MarketBulletinEngine: new category-based section structure ---------------------
 
     [Fact]
-    public void HighGrown_SplitsWesternsUvaNeUp_AndAppliesEachRowTemplate()
+    public void LowGrown_IsOneSection_WithLeafySemiLeafyTippyAsGroupLabels()
     {
+        // 5 OP1 lots rather than 1 — at the 20% Select Best cut, a 1-lot group rounds DOWN to
+        // an empty Select Best tier (round(1*0.20)=0); 5 lots keeps it non-empty (round(5*0.20)=1).
         var thisWeek = new List<Lot>
         {
-            // Westerns (WH, not NE/UP marks) — 4 lots, 3-row template: top 2 = Best, next 1 = Below Best, last 1 = Other.
-            Lot(400, elevation: "WH", sellingMark: "SOMEWESTERN1"),
-            Lot(300, elevation: "WH", sellingMark: "SOMEWESTERN2"),
-            Lot(200, elevation: "WH", sellingMark: "SOMEWESTERN3"),
-            Lot(100, elevation: "WH", sellingMark: "SOMEWESTERN4"),
-            // Uva (UH) — 2 lots, 2-row template.
-            Lot(150, elevation: "UH", sellingMark: "SOMEUVA1"),
-            Lot(50, elevation: "UH", sellingMark: "SOMEUVA2"),
-            // Nuwara Eliya mark — untiered single row.
-            Lot(90, elevation: "UH", sellingMark: "KENMARE"),
-            // Udapussellawa mark — 2-row template.
-            Lot(80, elevation: "UH", sellingMark: "DELMAR"),
-            Lot(60, elevation: "UH", sellingMark: "DELMAR"),
+            Lot(500, grade: "OP1", elevation: "L"),
+            Lot(400, grade: "OP1", elevation: "L"),
+            Lot(300, grade: "OP1", elevation: "L"),
+            Lot(200, grade: "OP1", elevation: "L"),
+            Lot(100, grade: "OP1", elevation: "L"),
+            Lot(90, grade: "OP", elevation: "L"),
+            Lot(80, grade: "OPA", elevation: "L"),
+            Lot(70, grade: "BOP1", elevation: "L"),
+            // Same grade at a non-Low elevation must NOT leak into Low Grown.
+            Lot(999, grade: "OP1", elevation: "WH"),
         };
 
         var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
-        var highGrown = dto.Sections.Single(s => s.Title == "High Grown");
-        var bopTable = highGrown.Tables.Single(t => t.GradeLabel == "BOP");
 
-        var westerns = bopTable.Rows.Single(r => r.Label == "Best Westerns");
-        Assert.Equal(400m, westerns.ThisWeek.Max);
+        // ONE section, not three — "Low Grown — Leafy" as a separate top-level section was the
+        // first attempt; the user wants a single "Low Grown" section with Leafy/Semi Leafy/Tippy
+        // as sub-group labels on the tables themselves instead.
+        var lowGrown = dto.Sections.Single(s => s.Title == "Low Grown");
+        Assert.DoesNotContain(dto.Sections, s => s.Title.Contains("Leafy", StringComparison.Ordinal));
 
-        var belowBestWesterns = bopTable.Rows.Single(r => r.Label == "Below Best Westerns");
-        Assert.Equal(1, belowBestWesterns.ThisWeek.LotCount);
+        var op1Table = lowGrown.Tables.Single(t => t.GradeLabel == "OP1");
+        Assert.Equal("Leafy", op1Table.GroupLabel);
+        var bop1Table = lowGrown.Tables.Single(t => t.GradeLabel == "BOP1");
+        Assert.Equal("Semi Leafy", bop1Table.GroupLabel);
 
-        var otherWesterns = bopTable.Rows.Single(r => r.Label == "Other Westerns");
-        Assert.Equal(1, otherWesterns.ThisWeek.LotCount);
-        Assert.Equal(100m, otherWesterns.ThisWeek.Max);
+        // Order matches the user's stated order (OP1, OP, OPA first), not alphabetical.
+        Assert.Equal("OP1", lowGrown.Tables[0].GradeLabel);
+        Assert.Equal("OP", lowGrown.Tables[1].GradeLabel);
+        Assert.Equal("OPA", lowGrown.Tables[2].GradeLabel);
 
-        var ne = bopTable.Rows.Single(r => r.Label == "Nuwara Eliya");
-        Assert.Equal(1, ne.ThisWeek.LotCount);
-        Assert.Equal(90m, ne.ThisWeek.Min);
-        Assert.Equal(90m, ne.ThisWeek.Max);
-
-        var upBetter = bopTable.Rows.Single(r => r.Label == "Brighter Udapussellawa");
-        var upOther = bopTable.Rows.Single(r => r.Label == "Other Udapussellawa");
-        Assert.Equal(2, upBetter.ThisWeek.LotCount + upOther.ThisWeek.LotCount);
+        var selectBest = op1Table.Rows.Single(r => r.Label == "Select Best");
+        Assert.Equal(1, selectBest.ThisWeek.LotCount);
+        Assert.Equal(500m, selectBest.ThisWeek.Max); // the WH lot (999) must not appear here
     }
 
     [Fact]
-    public void OffGrades_SplitsByElevationBand_BetterAndOtherAsSeparateTables()
+    public void HighAndMedium_FlatFourRowPerGrade_NoMarkOrWesternsUvaSplit_IncludesHighAndMediumExcludesLow()
+    {
+        // 5 lots rather than 1 — see LowGrown test's own comment on why (a 1-lot group rounds
+        // its Select Best tier to empty at the 20% cut). Mixed WH/UH/WM/UM elevations and a
+        // Nuwara Eliya selling mark are deliberately thrown in together — none of that should
+        // matter anymore, only whether the elevation is High or Medium at all.
+        var thisWeek = new List<Lot>
+        {
+            Lot(500, grade: "OP1", elevation: "WH"),
+            Lot(400, grade: "OP1", elevation: "UH", sellingMark: "KENMARE"), // Nuwara Eliya mark — no longer its own row
+            Lot(300, grade: "OP1", elevation: "WM"),
+            Lot(200, grade: "OP1", elevation: "UM"),
+            Lot(100, grade: "OP1", elevation: "WH"),
+            // Low elevation must NOT leak into High and Medium.
+            Lot(999, grade: "OP1", elevation: "L"),
+        };
+
+        var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
+        var highAndMedium = dto.Sections.Single(s => s.Title == "High and Medium");
+        var op1Table = highAndMedium.Tables.Single(t => t.GradeLabel == "OP1");
+
+        // Flat list, no Leafy/Semi Leafy/Tippy sub-headers here — unlike Low Grown.
+        Assert.Null(op1Table.GroupLabel);
+
+        // Only the classic 4 rows — no Westerns/Uva/Nuwara Eliya/Udapussellawa/Medium split.
+        Assert.Equal(["Select Best", "Best", "Below Best", "Poor"], op1Table.Rows.Select(r => r.Label));
+
+        var selectBest = op1Table.Rows.Single(r => r.Label == "Select Best");
+        Assert.Equal(1, selectBest.ThisWeek.LotCount);
+        Assert.Equal(500m, selectBest.ThisWeek.Max); // the L lot (999) must not appear here
+
+        Assert.Equal(5, op1Table.Rows.Sum(r => r.ThisWeek.LotCount)); // all 5 High/Medium lots accounted for
+    }
+
+    [Fact]
+    public void OffGrade_FlatFourRowPerGrade_NoElevationRestriction_IncludesBop1A()
     {
         var thisWeek = new List<Lot>
         {
             Lot(500, grade: "FGS1", elevation: "WH"),
-            Lot(100, grade: "FGS1", elevation: "WH"),
-            Lot(300, grade: "FGS1", elevation: "L"),
+            Lot(100, grade: "FGS1", elevation: "L"),
+            Lot(200, grade: "BOP1A", elevation: "WH"),
         };
 
         var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
-        var offGrades = dto.Sections.Single(s => s.Title == "Off Grades");
+        var offGrade = dto.Sections.Single(s => s.Title == "Off Grade");
 
-        var better = offGrades.Tables.Single(t => t.GradeLabel == "Better FGS1/FGS");
-        var other = offGrades.Tables.Single(t => t.GradeLabel == "Other FGS1/FGS");
+        var fgs1Table = offGrade.Tables.Single(t => t.GradeLabel == "FGS1");
+        Assert.Equal(2, fgs1Table.Rows.Sum(r => r.ThisWeek.LotCount)); // both elevations pooled, flat 4-row
 
-        var betterHigh = better.Rows.Single(r => r.Label == "High");
-        var otherHigh = other.Rows.Single(r => r.Label == "High");
-        Assert.Equal(1, betterHigh.ThisWeek.LotCount); // 500 is Select Best+Best of the 2-lot WH group
-        Assert.Equal(1, otherHigh.ThisWeek.LotCount); // 100 is Below Best+Poor
+        // BOP1A is its own raw Category in real data but the user wants it folded in here.
+        Assert.Contains(offGrade.Tables, t => t.GradeLabel == "BOP1A");
+    }
 
-        var betterLow = better.Rows.Single(r => r.Label == "Low");
-        Assert.Equal(1, betterLow.ThisWeek.LotCount);
-        Assert.Equal(300m, betterLow.ThisWeek.Max);
+    [Fact]
+    public void Dust_TwelveRowsPerGrade_LowMediumHighElevationBands()
+    {
+        // 5 lots per elevation band rather than 1 — see LowGrown test's own comment on why
+        // (a 1-lot group rounds its Select Best tier to empty at the 20% cut).
+        static List<Lot> Band(string elevation, decimal top) =>
+            Enumerable.Range(0, 5).Select(i => Lot(top - i * 5, grade: "PD", elevation: elevation)).ToList();
+
+        var thisWeek = new List<Lot>();
+        thisWeek.AddRange(Band("L", 100));
+        thisWeek.AddRange(Band("WM", 200));
+        thisWeek.AddRange(Band("WH", 300));
+
+        var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
+        var dust = dto.Sections.Single(s => s.Title == "Dust");
+        var pdTable = dust.Tables.Single(t => t.GradeLabel == "PD");
+
+        Assert.Equal(12, pdTable.Rows.Count);
+        Assert.Equal(["Low", "Medium", "High"], pdTable.Rows.Select(r => r.Label.Split(' ')[0]).Distinct());
+
+        var lowSelectBest = pdTable.Rows.Single(r => r.Label == "Low Select Best");
+        Assert.Equal(100m, lowSelectBest.ThisWeek.Max);
+        var highSelectBest = pdTable.Rows.Single(r => r.Label == "High Select Best");
+        Assert.Equal(300m, highSelectBest.ThisWeek.Max);
+    }
+
+    [Fact]
+    public void Unorthodox_UsesExpandedFourGradeList()
+    {
+        var thisWeek = new List<Lot>
+        {
+            Lot(100, grade: "BP1", elevation: "L"),
+            Lot(100, grade: "BPS", elevation: "L"),
+            Lot(100, grade: "OF", elevation: "L"),
+            Lot(100, grade: "PF1", elevation: "L"),
+        };
+
+        var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
+        var unorthodox = dto.Sections.Single(s => s.Title == "Unorthodox");
+
+        Assert.Equal(["BP1", "BPS", "OF", "PF1"], unorthodox.Tables.Select(t => t.GradeLabel));
+    }
+
+    [Fact]
+    public void ExEstate_GroupsByRawCategory_Alphabetical_ExcludesUnorthodoxGrades()
+    {
+        var thisWeek = new List<Lot>
+        {
+            Lot(100, grade: "PEK", elevation: "WH", category: "Ex-estate"),
+            Lot(200, grade: "BOP", elevation: "WH", category: "Ex-estate"),
+            // BP1 is tagged Ex-estate in real data too, but must be excluded here (it's Unorthodox's).
+            Lot(300, grade: "BP1", elevation: "WH", category: "Ex-estate"),
+            // A different category must not leak in.
+            Lot(400, grade: "FBOP", elevation: "WH", category: "High and Medium"),
+        };
+
+        var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
+        var exEstate = dto.Sections.Single(s => s.Title == "Ex-estate");
+
+        // Alphabetical, and BP1/FBOP excluded (BP1 -> Unorthodox's, FBOP -> not Ex-estate category).
+        Assert.Equal(["BOP", "PEK"], exEstate.Tables.Select(t => t.GradeLabel));
     }
 
     [Fact]
     public void LastWeekComparison_PairsRowsBySection_TableAndLabel()
     {
-        var thisWeek = new List<Lot> { Lot(200, grade: "BOP1", elevation: "WH"), Lot(100, grade: "BOP1", elevation: "WH") };
-        var lastWeek = new List<Lot> { Lot(150, grade: "BOP1", elevation: "WH"), Lot(50, grade: "BOP1", elevation: "WH") };
+        // 5 lots a side rather than 2 — at the 20% Select Best cut, a 2-lot group rounds DOWN to
+        // an empty Select Best tier (round(2*0.20)=0), which isn't what this test is about; 5
+        // lots keeps Select Best non-empty (round(5*0.20)=1) so the assertions below actually
+        // exercise the this-week/last-week pairing this test targets, not a rounding edge case.
+        var thisWeek = new List<Lot>
+        {
+            Lot(200, grade: "FGS1", elevation: "WH"),
+            Lot(160, grade: "FGS1", elevation: "WH"),
+            Lot(140, grade: "FGS1", elevation: "WH"),
+            Lot(120, grade: "FGS1", elevation: "WH"),
+            Lot(100, grade: "FGS1", elevation: "WH"),
+        };
+        var lastWeek = new List<Lot>
+        {
+            Lot(150, grade: "FGS1", elevation: "WH"),
+            Lot(110, grade: "FGS1", elevation: "WH"),
+            Lot(90, grade: "FGS1", elevation: "WH"),
+            Lot(70, grade: "FGS1", elevation: "WH"),
+            Lot(50, grade: "FGS1", elevation: "WH"),
+        };
 
         var dto = MarketBulletinEngine.Build(thisWeek, lastWeek, "This Sale", "Last Sale");
         Assert.Equal("Last Sale", dto.PreviousSourceName);
 
-        var hm = dto.Sections.Single(s => s.Title == "H&M Orthodox Black Tea");
-        var table = hm.Tables.Single(t => t.GradeLabel == "BOP1/OP1");
+        var offGrade = dto.Sections.Single(s => s.Title == "Off Grade");
+        var table = offGrade.Tables.Single(t => t.GradeLabel == "FGS1");
         var selectBest = table.Rows.Single(r => r.Label == "Select Best");
 
         Assert.Equal(200m, selectBest.ThisWeek.Max);

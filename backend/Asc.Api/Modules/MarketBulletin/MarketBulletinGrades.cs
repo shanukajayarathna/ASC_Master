@@ -1,65 +1,45 @@
 namespace Asc.Api.Modules.MarketBulletin;
 
 /// <summary>
-/// Grade groupings for the Weekly Market Bulletin report, matching the printed bulletin's
-/// own tables. Some grades are pooled together into one family (e.g. BOP1 and OP1 are
-/// tiered as a single "BOP1/OP1" pool) rather than reported separately.
+/// Grade groupings for the Weekly Market Bulletin report. These lists were built from the
+/// real `Category` column that every broker's sale file already carries (verified directly
+/// against `data/sales/2026/33.xlsx`, all 8 brokers, 11,335 lots) — Leafy/Semi Leafy/Tippy/
+/// Premium Flowery/Off Grade/Dust/High and Medium/Ex-estate/BOP1A are the tea trade's own
+/// classification, not an invented grouping. Two deliberate overrides of that raw data (both
+/// confirmed with the user): BOP1A's own category is folded into Off Grade here, and the
+/// CTC-ish grades that otherwise leak into "High and Medium"/"Ex-estate" (BP1, BPS, OF, PF1)
+/// are pulled out into Unorthodox so they're shown exactly once, not duplicated.
+///
+/// Membership is still decided by exact Grade string + Elevation code (LotsForFamily +
+/// IsHighElevation/IsMediumElevation/IsLowElevation in MarketBulletinEngine), NOT by reading
+/// Lot.Category live — the raw Category column does not cleanly separate by elevation (a
+/// "High and Medium"-tagged lot can carry elevation "L" in real data), so trusting it directly
+/// would blur Low Grown into High and Medium. Ex-estate is the one exception: it has no
+/// elevation restriction to worry about and the user wants "whatever's really there,
+/// alphabetically" rather than a fixed list, so that one section reads Lot.Category directly
+/// (see MarketBulletinEngine.BuildExEstate).
 /// </summary>
 public static class MarketBulletinGrades
 {
-    public sealed record GradeFamily(string Label, string[] Grades);
+    // ---- Low Grown's three leaf-style subsections (elevation "L" only) -----------------
+    // Order within each list is the user's own specified order, not alphabetical.
 
-    public static readonly GradeFamily[] HighMediumGrown =
-    [
-        new("BOP", ["BOP"]),
-        new("BOPF", ["BOPF"]),
-    ];
+    public static readonly string[] LeafyGrades = ["OP1", "OP", "OPA"];
+    public static readonly string[] SemiLeafyGrades = ["BOP1", "PEK", "PEK1"];
+    public static readonly string[] TippyGrades = ["BOP", "BOPSp", "BOPF", "BOPFSp", "BOPA", "FBOP", "FBOP1", "FBOPF", "FBOPF1"];
 
-    public static readonly GradeFamily[] Unorthodox =
-    [
-        new("BP1", ["BP1"]),
-        new("PF1", ["PF1"]),
-    ];
+    // High and Medium reuses these same three lists/order, just scoped to WH/UH/WM/UM
+    // elevation instead of L (see BuildHighAndMedium) — it's genuinely the same 15 grades,
+    // just at a different elevation band, confirmed by the real Category data.
 
-    public static readonly GradeFamily[] HmOrthodoxBlackTea =
-    [
-        new("BOP1/OP1", ["BOP1", "OP1"]),
-        new("FBOP/FBOP1", ["FBOP", "FBOP1"]),
-        new("OP/OPA", ["OP", "OPA"]),
-        new("FBOPF1", ["FBOPF1"]),
-        new("PEKOE/PEKOE1", ["PEK", "PEK1"]),
-        new("BOP/BOPSP", ["BOP", "BOPSP"]),
-    ];
+    public static readonly string[] PremiumFloweryGrades = ["FBOPFSp", "FBOPFExSp", "FBOPFExSp1"];
 
-    public static readonly GradeFamily[] OffGrades =
-    [
-        new("FGS1/FGS", ["FGS1", "FGS"]),
-        new("BOP1A/BM", ["BOP1A", "BM"]),
-        new("BP", ["BP"]),
-    ];
+    public static readonly string[] OffGradeGrades = ["BM", "BP", "BT", "FGS", "FGS1", "PF", "BOP1A"];
 
-    // Confirmed against real Sale 51/2024 data (8,411 lots): every Category="Dust" lot uses
-    // exactly one of these three grade codes — DUST/DUST1 Orthodox, PD CTC (matches
-    // MslClassification's CTC set). There is no distinct "Secondary" dust grade code anywhere
-    // in that sale, so a Secondary table is deliberately not modeled — it would always render
-    // "NA" and that's not worth a permanently-empty section in a printed bulletin.
-    public static readonly string[] PrimaryOrthodoxDustGrades = ["DUST1", "DUST"];
-    public static readonly string[] PrimaryCtcDustGrades = ["PD"];
+    public static readonly string[] DustGrades = ["PD", "DUST1", "DUST"];
 
-    public static readonly GradeFamily[] LowGrown =
-    [
-        new("FBOP1", ["FBOP1"]),
-        new("FBOP", ["FBOP"]),
-        new("FBOPF1", ["FBOPF1"]),
-        new("FBOPF", ["FBOPF"]),
-        new("FBOPFEXSP/SP", ["FBOPFEXSP", "SP"]),
-        new("BOP1", ["BOP1"]),
-        new("OP1", ["OP1"]),
-        new("OP", ["OP"]),
-        new("OPA", ["OPA"]),
-        new("PEK", ["PEK"]),
-        new("PEK1", ["PEK1"]),
-        new("BOP", ["BOP"]),
-        new("BOPF", ["BOPF"]),
-    ];
+    /// <summary>The CTC-ish grades real data tags under "High and Medium" or "Ex-estate"
+    /// alongside genuinely Orthodox grades — pulled out into their own section instead, and
+    /// excluded from High and Medium/Ex-estate's own lot pools so nothing is shown twice.</summary>
+    public static readonly string[] UnorthodoxGrades = ["BP1", "BPS", "OF", "PF1"];
 }

@@ -195,21 +195,72 @@
   font-style: italic;
 }
 
-/* One grade-family table per grid cell — column count is set inline per section (see
-   SECTION_COLUMNS in the .tsx) so every section's own row of cards fills its full width edge to
-   edge, rather than auto-fill's uneven trailing gap on a small section. `flex: 1` makes this
-   grid absorb its own section's share of the page's leftover height (from .section's own
-   flex-grow above); `align-content: space-evenly` then spreads that extra height evenly around
-   and between its own rows of table cards — for a section with only one row (every High Grown/
-   Medium Grown/Unorthodox table), that's just an even top/bottom margin; for a many-row section
-   (Low Grown's 5 rows), the extra height splits into 6 even gaps rather than pooling as one big
-   gap in one place. */
+/* Outer wrapper for a section's tables, now a flex COLUMN of "groups" (see tableGroupItems in
+   the .tsx) rather than one flat CSS grid. A section with no sub-headers (every section but Low
+   Grown) still renders as exactly one group, so it behaves identically to the old flat grid.
+   `flex: 1` absorbs the section's own share of the page's leftover height; `justify-content:
+   space-evenly` spreads that extra height BETWEEN groups (e.g. Low Grown's Leafy/Semi Leafy/
+   Tippy) rather than between every internal grid row — that used to give a subheader's own row
+   the same big evenly-spread gap as any other row, reading as a large dead band under "Leafy"
+   before its cards even started. Space still fills the whole page; it now pools between whole
+   groups instead of prying every sub-header away from its own content. */
 .tableGrid {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  align-content: space-evenly;
-  gap: var(--mb-tgrid-gap, 3px);
+  justify-content: space-evenly;
+  gap: var(--mb-tgroup-gap, 6px);
   padding: var(--mb-tgrid-pad, 3px);
+}
+
+/* Every section but Low Grown has exactly one group (no [data-mb-multigroup], set in the .tsx
+   only when there's more than one) — with a single flex child, .tableGrid's own space-evenly
+   above still puts an even, wasted margin ABOVE AND BELOW that one group instead of using it for
+   content, which read as a dead band floating under the section header before any table
+   appeared. For that single-group case the group itself grows to fill the whole section instead,
+   so its own internal grid (.tableGroupGrid, below) is the one distributing the leftover height,
+   between its own rows only — no space left over for .tableGrid to waste as outer margins. */
+.tableGrid:not([data-mb-multigroup]) {
+  justify-content: flex-start;
+}
+.tableGrid:not([data-mb-multigroup]) > .tableGroup {
+  flex: 1 1 auto;
+}
+
+/* One group's own header (if any, see .tableGroupHeader below) plus its own grid of table
+   cards — kept as a single flex child so the outer .tableGrid's space-evenly only ever inserts
+   space ABOVE/BELOW a whole group, never wedged between its header and its own cards. */
+.tableGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The actual per-group grid of table cards — column count set inline per section (see
+   SECTION_MIN_WIDTH in the .tsx). `flex: 1` lets it fill its own .tableGroup's full height when
+   that group is the sole one growing to fill the section (see .tableGrid:not([data-mb-multigroup])
+   above); has no effect when .tableGroup itself isn't growing (Low Grown's multi-group case),
+   where the grid stays its own natural content height, tight under its own sub-header. */
+.tableGroupGrid {
+  display: grid;
+  align-content: space-between;
+  gap: var(--mb-tgrid-gap, 3px);
+  flex: 1;
+}
+
+/* Sits directly above its own group's grid with a small fixed gap (no longer a CSS-grid row of
+   its own sharing in the section's evenly-spread leftover space) — Low Grown's Leafy/Semi Leafy/
+   Tippy sub-headers, the only current user (see tableGroupItems in the .tsx). Deliberately
+   plainer than .sectionHead (no background fill) so it reads as "grouping within this section"
+   rather than a second section header. */
+.tableGroupHeader {
+  padding: 4px 2px 1px;
+  margin-bottom: 2px;
+  font-size: var(--mb-colhead-fs, 8px);
+  font-weight: 700;
+  color: #124734;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid #d9b44a;
 }
 
 .table {
@@ -292,6 +343,13 @@
 .row[data-zebra="true"] {
   background: #f7f5ee;
 }
+/* Dust's only current user (see rowBand in the .tsx) — a small gap right where one elevation
+   band's four rows end and the next begins ("Low Poor" -> "Medium Select Best", "Medium Poor" ->
+   "High Select Best"), so the three 4-row bands read as distinct groups instead of one
+   undifferentiated run of 12 rows. */
+.row[data-band-break="true"] {
+  margin-top: 3px;
+}
 /* Subtle accent on the two quality extremes only (see tierAccent's own comment in the .tsx) —
    a gold rail for the best-quality rows, a rust rail for the worst, so the eye can scan a
    table's quality shape without reading every label. Left deliberately unaccented for the
@@ -322,6 +380,7 @@
   min-width: 0;
   line-height: var(--mb-row-h, 14px);
   white-space: nowrap;
+  font-weight: 600;
   color: #3a4a44;
 }
 .rowVal {
@@ -338,6 +397,7 @@
   color: #124734;
 }
 .rowValLast {
+  font-weight: 700;
   color: #97998c;
 }
 /* A small colored pill rather than a bare arrow — the delta is the one genuinely "what
@@ -370,11 +430,16 @@
   text-transform: none;
   letter-spacing: 0.03em;
 }
+/* `justify-content: space-evenly` (rather than `center`) is what makes the section fill its
+   `data-mb-flow="grow"` height edge to edge instead of floating centered with dead bands above
+   and below — same "extra space splits into N+1 even gaps" mechanism as .tableGrid's own
+   align-content for pages 1-3's multi-row sections, just applied to this section's own three
+   children (the tier legend, the Last Month row, the This Month row) instead of table rows. */
 .monthlyBody {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-evenly;
   gap: 10px;
   padding: 8px 10px;
 }
@@ -427,7 +492,7 @@
 .donutRow {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: space-evenly;
   align-items: flex-start;
   gap: var(--mb-donut-gap);
 }
@@ -435,13 +500,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   flex: 0 0 auto;
-}
-.pieCardBody {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .donutSvg {
   width: var(--mb-donut-size);
@@ -449,16 +509,48 @@
   display: block;
   flex: 0 0 auto;
 }
-.pieLegendList {
+.donutLabelThis {
+  max-width: var(--mb-donut-size);
+  text-align: center;
+  line-height: 1.25;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #124734;
+}
+.donutLabelPending {
+  max-width: var(--mb-donut-size);
+  text-align: center;
+  line-height: 1.25;
+  font-size: 9.5px;
+  font-weight: 500;
+  font-style: italic;
+  color: #97998c;
+}
+.pieLegendTable {
+  width: var(--mb-donut-size);
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1.5px;
+}
+.pieLegendHeadRow {
+  display: grid;
+  grid-template-columns: 8px auto 1fr 1fr;
+  gap: 4px;
+  font-size: 6.5px;
+  font-weight: 700;
+  color: #97998c;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.pieLegendHeadCell {
+  text-align: right;
 }
 .pieLegendRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: 8px auto 1fr 1fr;
   align-items: center;
   gap: 4px;
-  font-size: 8.5px;
+  font-size: 8px;
   white-space: nowrap;
 }
 .pieLegendSwatch {
@@ -471,33 +563,18 @@
 .pieLegendTier {
   font-weight: 600;
   color: #6b7a72;
-  min-width: 34px;
+}
+.pieLegendQty {
+  font-weight: 600;
+  color: #3a3226;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .pieLegendPrice {
   font-weight: 700;
-  color: #3a3226;
-}
-.donutLabelThis {
-  max-width: calc(var(--mb-donut-size) * 1.8);
-  text-align: center;
-  line-height: 1.3;
-  font-size: 9.5px;
-  font-weight: 700;
   color: #124734;
-}
-.donutLabelPending {
-  max-width: calc(var(--mb-donut-size) * 1.8);
-  text-align: center;
-  line-height: 1.3;
-  font-size: 9.5px;
-  font-weight: 500;
-  font-style: italic;
-  color: #97998c;
-}
-.pieTotalKg {
-  font-size: 8px;
-  font-weight: 500;
-  color: #97998c;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 @media print {

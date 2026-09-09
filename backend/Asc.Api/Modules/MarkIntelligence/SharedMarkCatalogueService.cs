@@ -131,7 +131,8 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             return lots.Select(lot => (Lot: lot, IsThisMonth: isThisMonth));
         });
 
-        var rows = BuildRows(taggedLots);
+        var recentlySharedFactoryCodes = FindRecentlySharedFactoryCodes(saleDate, targetId);
+        var rows = BuildRows(taggedLots, recentlySharedFactoryCodes);
         return Task.FromResult(new SharedMarkCatalogueResult(year, saleNo, saleDate, monthCalendar, rows, []));
     }
 
@@ -216,7 +217,8 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .Concat(uploadedLots.Select(lot => (Lot: lot, IsThisMonth: true)))
             .ToList();
 
-        var rows = BuildRows(taggedLots);
+        var recentlySharedFactoryCodes = FindRecentlySharedFactoryCodes(saleDate, targetId);
+        var rows = BuildRows(taggedLots, recentlySharedFactoryCodes);
 
         // A mark is genuinely unmatched only if NOTHING feeding this report — uploaded or
         // historical, any broker — carries a non-blank elevation under its exact display
@@ -307,6 +309,58 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     private static bool IsCtcSubMark(Lot lot) =>
         !string.IsNullOrWhiteSpace(lot.SellingMark) && CtcWordRegex.IsMatch(lot.SellingMark);
 
+    /// <summary>Factory codes (GroupKey) that were shared with ASC in at least one closed
+    /// sale within the 3 months before saleDate — an upcoming sale's own report is generated
+    /// from the freshly uploaded broker files for that exact sale (see
+    /// AggregateFromUploadAsync's own doc comment), whose real ASC volume for a given mark
+    /// can genuinely be zero this particular week even though the mark is still a going
+    /// concern ASC regularly shares with another broker. Per explicit instruction: checked
+    /// per individual closed sale, not summed across the window — ASC and another broker
+    /// both appearing in the SAME sale is what counts, even if that's the only sale in the
+    /// last 3 months where it happened. This is a fallback signal alongside (not instead of)
+    /// BuildRows' own current-month check — see IsSharedRowCandidate — so a mark that is
+    /// genuinely, freshly shared this exact month still qualifies even with no lookback
+    /// history at all (e.g. a brand new mark).</summary>
+    private HashSet<string> FindRecentlySharedFactoryCodes(DateTime saleDate, Guid excludeCatalogueId)
+    {
+        var lookbackStart = saleDate.AddMonths(-3);
+        var lookbackSales = catalogues.ListCatalogues()
+            .Where(c => c.Id != excludeCatalogueId && c.ImportedAt.Date >= lookbackStart.Date && c.ImportedAt.Date < saleDate.Date)
+            .Select(c => (c.Id, Lots: (IReadOnlyList<Lot>)(catalogues.GetLots(c.Id) ?? [])));
+        return FindRecentlySharedFactoryCodes(lookbackSales);
+    }
+
+    /// <summary>Pure core of the above — one HashSet build per closed sale in the window
+    /// (never across sales), then folded into a single result set. Split out for direct unit
+    /// testing without an ICatalogueSource.</summary>
+    internal static HashSet<string> FindRecentlySharedFactoryCodes(
+        IEnumerable<(Guid Id, IReadOnlyList<Lot> Lots)> lookbackSales)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, lots) in lookbackSales)
+        {
+            var brokersByCode = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var lot in lots)
+            {
+                if (lot.IsReprint) continue;
+                if (string.IsNullOrWhiteSpace(lot.SellingMark)) continue;
+                if (lot.NetWeight is not { } qty || qty <= 0) continue;
+                var key = GroupKey(lot);
+                if (key is null) continue;
+                var broker = string.IsNullOrWhiteSpace(lot.Broker) ? "(unknown)" : lot.Broker.Trim().ToUpperInvariant();
+                if (!brokersByCode.TryGetValue(key, out var set))
+                    brokersByCode[key] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                set.Add(broker);
+            }
+            foreach (var (code, brokers) in brokersByCode)
+            {
+                if (brokers.Contains(AscBrokerCode) && brokers.Any(b => !string.Equals(b, AscBrokerCode, StringComparison.OrdinalIgnoreCase)))
+                    result.Add(code);
+            }
+        }
+        return result;
+    }
+
     private static void Accumulate(
         HashSet<string> brokers, Dictionary<string, decimal> month, Dictionary<string, decimal> year,
         Dictionary<string, Dictionary<int, decimal>> saleQtyByBroker, string broker, decimal qty, bool isThisMonth, string? saleNoRaw)
@@ -338,8 +392,10 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     /// explicit instruction, matching the original hand-built manual report's own Orthodox/
     /// CTC sub-blocks for these factories.</summary>
     public static IReadOnlyList<SharedMarkCatalogueRow> BuildRows(
-        IEnumerable<(Lot Lot, bool IsThisMonth)> taggedLots)
+        IEnumerable<(Lot Lot, bool IsThisMonth)> taggedLots,
+        IReadOnlySet<string>? recentlySharedFactoryCodes = null)
     {
+        recentlySharedFactoryCodes ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var groups = new Dictionary<string, GroupAccumulator>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (lot, isThisMonth) in taggedLots)
@@ -462,11 +518,31 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             // dangling estate-header row with nothing under it — no broker has any entry in
             // MonthQtyByBroker to write, since none of its lots fell in this month (found
             // live: "Win Hills" rendered as an empty row with zero data beneath it). A
-            // report titled for one month should only list marks actually shared that month.
+            // report titled for one month should only list marks actually shared that month
+            // — OR, per explicit instruction, a factory recentlySharedFactoryCodes already
+            // confirmed was ASC-shared within the last 3 closed sales' months: a report
+            // generated ahead of the target sale's own close (AggregateFromUploadAsync) can
+            // genuinely see zero ASC volume for a mark that's still an active, going-concern
+            // shared mark, and dropping it silently would be a regression, not a correction.
             // The same filter, applied uniformly after the Orthodox/CTC split, is also what
-            // quietly drops whichever split side had no volume this particular month — no
-            // extra logic needed for that beyond reusing this existing rule.
-            .Where(c => c.MonthQtyByBroker.ContainsKey(AscBrokerCode) && c.MonthQtyByBroker.Keys.Any(b => b != AscBrokerCode))
+            // quietly drops whichever split side had no volume this particular month AND
+            // wasn't itself in the lookback set — checked at the whole-factory Code level
+            // (shared by both split rows) per explicit instruction, so a genuinely
+            // dual-production factory recently shared on either side keeps BOTH its Orthodox
+            // and CTC rows once one side qualifies, even a side ASC has literally never
+            // bought (confirmed live: Batuwangala's Orthodox is ASC-shared; its CTC sibling,
+            // "Indigahahena Ctc", never has any ASC lot at all).
+            .Where(c => IsSharedRowCandidate(c, recentlySharedFactoryCodes))
+            .Select(c =>
+            {
+                // Zero-fill ASC when a row only qualified via the lookback (not real current
+                // data) — see WriteQtyCell in SharedMarkCatalogueWorkbookBuilder, which reads
+                // this key's mere presence (not its value) to decide whether to draw ASC's
+                // broker row at all.
+                if (recentlySharedFactoryCodes.Contains(c.Code) && !c.MonthQtyByBroker.ContainsKey(AscBrokerCode))
+                    c.MonthQtyByBroker[AscBrokerCode] = 0m;
+                return c;
+            })
             .Select(c => new SharedMarkCatalogueRow(
                 EstateName: System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(c.EstateName.ToLowerInvariant()),
                 Code: c.Code,
@@ -491,6 +567,15 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .ThenBy(r => r.EstateName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>A row qualifies for the report if it has real current-month ASC + another
+    /// broker volume (the original rule), OR its whole-factory Code was recently shared with
+    /// ASC per the 3-month lookback (see FindRecentlySharedFactoryCodes) — an "or", not a
+    /// replacement, so a mark freshly shared this exact month with no prior history (nothing
+    /// yet to look back on) still qualifies on its own.</summary>
+    private static bool IsSharedRowCandidate(RowCandidate c, IReadOnlySet<string> recentlySharedFactoryCodes) =>
+        (c.MonthQtyByBroker.ContainsKey(AscBrokerCode) && c.MonthQtyByBroker.Keys.Any(b => !string.Equals(b, AscBrokerCode, StringComparison.OrdinalIgnoreCase)))
+        || recentlySharedFactoryCodes.Contains(c.Code);
 
     private sealed record RowCandidate(
         string EstateName, string Code, string? Elevation,
@@ -685,11 +770,25 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     /// Danawala's Factory Name is the plain "DANAWALA" for BOTH its Orthodox and CTC lots —
     /// picking it here would hand a CTC lot a name with no CTC wording left in it). An
     /// Orthodox sub-key keeps preferring Factory Name exactly as BuildRows' own EstateName
-    /// selection does — unaffected, still the single-row-factory majority case.</summary>
-    private static string SelectCanonicalName(IGrouping<string, Lot> g) =>
-        (g.Key.EndsWith("|CTC", StringComparison.OrdinalIgnoreCase)
-            ? g.First().SellingMark
-            : g.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.FactoryName))?.FactoryName ?? g.First().SellingMark)!.Trim();
+    /// selection does — UNLESS that Factory Name itself contains the word "CTC" (confirmed
+    /// live: Brombil's real Factory Name is literally "BROMBIL ORTHODOX & CTC TEA FACTORY";
+    /// Batuwangala's is "BATUWANGALA - CTC"). Applying a CTC-worded name to an Orthodox
+    /// upload lot here would come back to bite it: ApplyMarkInfo overwrites the lot's own
+    /// Selling Mark with this canonicalized name, and BuildRows later re-derives that same
+    /// lot's Orthodox/CTC split from ITS OWN (now-overwritten) Selling Mark — so a
+    /// genuinely-Orthodox lot canonicalized to a CTC-worded Factory Name would silently get
+    /// mis-bucketed into the CTC row instead, taking a whole broker's week of real Orthodox
+    /// volume with it (found live: Sale 37/2026's Brombil week-37 catalogue for every
+    /// broker sharing it landed in the CTC row this way). Falling back to Selling Mark in
+    /// that one case keeps the Orthodox side's canonicalized name genuinely CTC-free.</summary>
+    private static string SelectCanonicalName(IGrouping<string, Lot> g)
+    {
+        if (g.Key.EndsWith("|CTC", StringComparison.OrdinalIgnoreCase))
+            return g.First().SellingMark!.Trim();
+        var factoryName = g.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.FactoryName))?.FactoryName;
+        var usable = !string.IsNullOrWhiteSpace(factoryName) && !CtcWordRegex.IsMatch(factoryName) ? factoryName : g.First().SellingMark;
+        return usable!.Trim();
+    }
 
     /// <summary>SaleFileStore.SalesInMonth estimates every week's date from a once-a-year
     /// anchor formula for years with no explicit date table yet (e.g. 2026) — close, but it

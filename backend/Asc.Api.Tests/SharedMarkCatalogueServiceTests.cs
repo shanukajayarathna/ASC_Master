@@ -454,6 +454,123 @@ public class SharedMarkCatalogueServiceTests
     }
 
     [Fact]
+    public async Task AggregateFromUpload_OrthodoxFactoryNameContainingCtcWord_DoesNotMisbucketTheWholeSide()
+    {
+        // Real Sale 37/2026 bug: Brombil's real Factory Name is literally "BROMBIL ORTHODOX
+        // & CTC TEA FACTORY" (confirmed live) — the factory's own registered name mentions
+        // both production types. An uploaded Orthodox lot (blank elevation, like every raw
+        // pre-sale file) gets canonicalized against history and, before the fix, picked up
+        // that Factory Name as its own Selling Mark; BuildRows then re-derives the lot's own
+        // Orthodox/CTC split from that (now-overwritten) Selling Mark, saw the word "CTC" in
+        // it, and silently filed an entire broker-week of genuine Orthodox volume into the
+        // CTC row instead. The fix rejects a CTC-worded Factory Name for the Orthodox side's
+        // canonicalized name, falling back to Selling Mark instead.
+        var historicalCatalogue = new Catalogue { Id = Guid.NewGuid(), Year = 2026, ImportedAt = new DateTime(2026, 9, 9) };
+        var historicalLots = new List<Lot>
+        {
+            Lot("MF1465", "BROMBIL", "ASC", 5000, saleNo: 34, factoryName: "BROMBIL ORTHODOX & CTC TEA FACTORY"),
+            Lot("MF1465C", "BROMBIL CTC", "ASC", 4000, saleNo: 34, factoryName: "BROMBIL ORTHODOX & CTC TEA FACTORY"),
+            Lot("MF1465C", "BROMBIL CTC", "CT", 3000, saleNo: 34, factoryName: "BROMBIL ORTHODOX & CTC TEA FACTORY"),
+        };
+        var source = new FakeCatalogueSource(historicalCatalogue, historicalLots);
+        var service = new SharedMarkCatalogueService(source);
+
+        var uploaded = new List<Lot>
+        {
+            Lot("MF1465", "BROMBIL", "ASC", 6180, saleNo: 36),
+            Lot("MF1465", "BROMBIL", "CT", 9910, saleNo: 36),
+            Lot("MF1465C", "BROMBIL CTC", "ASC", 9600, saleNo: 36),
+            Lot("MF1465C", "BROMBIL CTC", "CT", 19200, saleNo: 36),
+        };
+        foreach (var lot in uploaded) lot.Elevation = null;
+
+        var result = await service.AggregateFromUploadAsync(2026, 36, new DateTime(2026, 9, 16), uploaded, CancellationToken.None);
+
+        Assert.Equal(2, result.Rows.Count);
+        var orthodox = result.Rows.Single(r => r.ProductionLabel == "Orthodox");
+        var ctc = result.Rows.Single(r => r.ProductionLabel == "Ctc");
+        // The bug moved this exact ASC/CT volume from the Orthodox row into the Ctc row.
+        Assert.Equal(6180, SaleQty(orthodox, "ASC"));
+        Assert.Equal(9910, SaleQty(orthodox, "CT"));
+        Assert.Equal(9600, SaleQty(ctc, "ASC"));
+        Assert.Equal(19200, SaleQty(ctc, "CT"));
+    }
+
+    [Fact]
+    public void FindRecentlySharedFactoryCodes_RequiresAscAndAnotherBroker_InTheSameSale()
+    {
+        var sharedSale = new List<Lot>
+        {
+            Lot("MF1350", "BATUWANGALA", "ASC", 5000, saleNo: 34),
+            Lot("MF1350", "BATUWANGALA", "MPB", 4000, saleNo: 34),
+        };
+        var ascOnlySale = new List<Lot>
+        {
+            Lot("MF9999", "SOLO MARK", "ASC", 1000, saleNo: 34),
+        };
+        var otherBrokersOnlySale = new List<Lot>
+        {
+            Lot("MF7777", "NO ASC HERE", "CT", 1000, saleNo: 34),
+            Lot("MF7777", "NO ASC HERE", "FW", 900, saleNo: 34),
+        };
+
+        var codes = SharedMarkCatalogueService.FindRecentlySharedFactoryCodes(
+        [
+            (Guid.NewGuid(), sharedSale),
+            (Guid.NewGuid(), ascOnlySale),
+            (Guid.NewGuid(), otherBrokersOnlySale),
+        ]);
+
+        Assert.Contains("MF1350", codes);
+        Assert.DoesNotContain("MF9999", codes);
+        Assert.DoesNotContain("MF7777", codes);
+    }
+
+    [Fact]
+    public async Task AggregateFromUpload_RecentlySharedFactory_KeepsCtcSideEvenWithNoAscVolumeThisSale()
+    {
+        // Real Sale 37/2026 case: Batuwangala's Orthodox side (BATUWANGALA) is bought by ASC
+        // and MPB; its CTC sibling ("INDIGAHAHENA CTC") is only ever bought by CT and FW —
+        // ASC has never once touched it. A report generated ahead of the target sale's own
+        // close (from raw broker uploads, before /data/sales has this sale's file) must not
+        // silently drop that CTC row just because ASC's own upload happens to show zero for
+        // it this particular sale — the factory (MF1350) was confirmed ASC-shared via its
+        // Orthodox side in the closed sale 3 months' lookback, so per explicit instruction
+        // both sides stay in, with ASC zero-filled on the side it never buys.
+        var historicalCatalogue = new Catalogue { Id = Guid.NewGuid(), Year = 2026, ImportedAt = new DateTime(2026, 9, 9) };
+        var historicalLots = new List<Lot>
+        {
+            Lot("MF1350", "BATUWANGALA", "ASC", 5000, saleNo: 34, factoryName: "BATUWANGALA - CTC"),
+            Lot("MF1350", "BATUWANGALA", "MPB", 4000, saleNo: 34, factoryName: "BATUWANGALA - CTC"),
+            Lot("MF1350F", "INDIGAHAHENA CTC", "CT", 3000, saleNo: 34, factoryName: "BATUWANGALA - CTC"),
+            Lot("MF1350F", "INDIGAHAHENA CTC", "FW", 2000, saleNo: 34, factoryName: "BATUWANGALA - CTC"),
+        };
+        var source = new FakeCatalogueSource(historicalCatalogue, historicalLots);
+        var service = new SharedMarkCatalogueService(source);
+
+        var uploaded = new List<Lot>
+        {
+            Lot("MF1350", "BATUWANGALA", "ASC", 6000, saleNo: 36),
+            Lot("MF1350", "BATUWANGALA", "MPB", 5000, saleNo: 36),
+            Lot("MF1350F", "INDIGAHAHENA CTC", "CT", 4000, saleNo: 36),
+            Lot("MF1350F", "INDIGAHAHENA CTC", "FW", 3500, saleNo: 36),
+        };
+        foreach (var lot in uploaded) lot.Elevation = null;
+
+        var result = await service.AggregateFromUploadAsync(2026, 36, new DateTime(2026, 9, 16), uploaded, CancellationToken.None);
+
+        Assert.Equal(2, result.Rows.Count);
+        var orthodox = result.Rows.Single(r => r.ProductionLabel == "Orthodox");
+        var ctc = result.Rows.Single(r => r.ProductionLabel == "Ctc");
+        Assert.Equal(6000, SaleQty(orthodox, "ASC"));
+        Assert.Equal(5000, SaleQty(orthodox, "MPB"));
+        Assert.Equal(4000, SaleQty(ctc, "CT"));
+        Assert.Equal(3500, SaleQty(ctc, "FW"));
+        Assert.True(ctc.MonthQtyByBroker.ContainsKey("ASC"));
+        Assert.Equal(0, ctc.MonthQtyByBroker["ASC"]);
+    }
+
+    [Fact]
     public async Task AggregateFromUpload_ResolvedViaOneBrokersCode_IsNotFlaggedUnmatched()
     {
         // Real Sale 36/2026 case: "Alagalla" is catalogued by ASC and JK in the same upload,

@@ -6,7 +6,13 @@ public record PriceRangeDto(decimal? Min, decimal? Max, int LotCount);
 
 public record BulletinRowDto(string Label, PriceRangeDto ThisWeek, PriceRangeDto LastWeek);
 
-public record BulletinTableDto(string GradeLabel, List<BulletinRowDto> Rows);
+/// <summary>GroupLabel is null for a section whose tables are all one flat list (e.g. High and
+/// Medium — same 15 grades as Low Grown, same order, but shown as one continuous list with no
+/// sub-headers per the user's own instruction). When set (Low Grown's "Leafy"/"Semi Leafy"/
+/// "Tippy"), the frontend renders a sub-header whenever it changes from the previous table in
+/// the section, letting one section visually group its own tables without needing three
+/// separate top-level sections for what's really one category.</summary>
+public record BulletinTableDto(string GradeLabel, List<BulletinRowDto> Rows, string? GroupLabel = null);
 
 public record BulletinSectionDto(string Title, List<BulletinTableDto> Tables);
 

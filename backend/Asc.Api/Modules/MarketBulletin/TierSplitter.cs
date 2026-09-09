@@ -4,8 +4,8 @@ namespace Asc.Api.Modules.MarketBulletin;
 
 /// <summary>
 /// Splits a lot group into the four "Valuation Centre" price tiers used by the printed
-/// weekly market bulletin: sorted by price descending, top 25% of lots = Select Best,
-/// next 30% = Best, next 30% = Below Best, bottom 15% = Poor. This is a distinct,
+/// weekly market bulletin: sorted by price descending, top 20% of lots = Select Best,
+/// next 35% = Best, next 30% = Below Best, bottom 15% = Poor. This is a distinct,
 /// descending, lot-count-weighted split from the existing Classification/TierFor
 /// backfill in SaleFileStore.cs (20/25/30/25, ascending, used for per-lot Classification
 /// storage) — the two must not be confused or merged.
@@ -24,7 +24,7 @@ public static class TierSplitter
     public static PriceRange[] ComputeFourTiers(IReadOnlyList<Lot> lots) =>
         SliceFourTiers(lots).Select(RangeOf).ToArray();
 
-    /// <summary>The same 25/55/85 percentile cuts as ComputeFourTiers, but returning each
+    /// <summary>The same 20/55/85 percentile cuts as ComputeFourTiers, but returning each
     /// tier's actual LOTS rather than just their price range — for a caller that needs more
     /// than min/max, e.g. total quantity or a quantity-weighted average price per tier (see
     /// MarketBulletinMonthlyEngine). Kept as the one place this cut logic lives so both
@@ -37,7 +37,7 @@ public static class TierSplitter
             .ToList();
 
         var n = sorted.Count;
-        var cut1 = CutIndex(n, 0.25);
+        var cut1 = CutIndex(n, 0.20);
         var cut2 = CutIndex(n, 0.55);
         var cut3 = CutIndex(n, 0.85);
 

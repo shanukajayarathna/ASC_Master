@@ -112,10 +112,9 @@ function UserDashboard() {
   // The launchpad shows a first "page" of tiles so the activity/insights panels below
   // aren't pushed under the fold by the full grid; one click expands to everything.
   const [showAllTiles, setShowAllTiles] = useState(false);
-  // How many columns the auto-fill grid actually resolved to at the current viewport —
-  // read from the computed style so the collapsed view can always show exactly two FULL
-  // rows. A fixed cap (the previous 8) left a ragged, half-empty second row whenever the
-  // width fit 5 or 6 columns.
+  // How many columns the responsive grid (2/3/4 by breakpoint) actually resolved to at
+  // the current viewport — read from the computed style so the collapsed view can always
+  // show exactly two FULL rows rather than cutting off mid-row.
   const tileGridRef = useRef<HTMLDivElement | null>(null);
   const [tileCols, setTileCols] = useState(4);
   useEffect(() => {
@@ -570,9 +569,9 @@ function UserDashboard() {
             </span>
           )}
         </div>
-        <div ref={tileGridRef} className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+        <div ref={tileGridRef} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 items-stretch">
           {(showAllTiles ? moduleTiles : moduleTiles.slice(0, collapsedTileCount)).map((item, i) => (
-            <TiltCard key={item.href} maxTiltDeg={4}>
+            <TiltCard key={item.href} className="h-full" maxTiltDeg={4}>
               <ModuleTile
                 item={item}
                 pinned={pinnedHrefs.includes(item.href)}

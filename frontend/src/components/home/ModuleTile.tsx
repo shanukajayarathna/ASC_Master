@@ -50,7 +50,7 @@ export default function ModuleTile({ item, pinned, onTogglePin, priority }: Modu
   // out-stacks the sticky topbar (also z-20, earlier in the DOM) and its dark circle
   // bleeds through the header while the tile scrolls beneath it.
   return (
-    <div className="group relative isolate lift-on-hover rounded-[var(--radius-xl)]">
+    <div className="group relative isolate lift-on-hover rounded-[var(--radius-xl)] h-full">
       {onTogglePin && (
         <button
           type="button"
