@@ -24,7 +24,7 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 function timeAgo(iso: string): string {
   const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -228,6 +228,20 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
   const { catalogues, activeCatalogueId, selectCatalogue, refreshList } = useCatalogue();
   const isAdmin = user?.roles.includes("Admin") ?? false;
 
+  // Published as --topbar-height so sticky page headers (PageHeader) know exactly how far
+  // down to sit — the topbar's own height varies (it wraps to a second row on narrow
+  // viewports), so a hardcoded offset would either gap or overlap depending on screen size.
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      document.documentElement.style.setProperty("--topbar-height", `${entry.target.getBoundingClientRect().height}px`);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const activeCatalogue = catalogues.find((c) => c.id === activeCatalogueId) ?? null;
   // Every year that actually has a sale on file, newest first — drives the year step of the
   // picker below. Independent of which sale is active so browsing a different year never
@@ -246,6 +260,7 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
 
   return (
     <header
+      ref={headerRef}
       // Paddings live in .app-topbar (globals.css), not utilities — they fold in the
       // display-cutout safe-area insets for installed/standalone use on notched devices.
       className="app-topbar min-h-[68px] flex items-center gap-x-4 gap-y-2 flex-wrap border-b border-border bg-surface sticky top-0 z-20"

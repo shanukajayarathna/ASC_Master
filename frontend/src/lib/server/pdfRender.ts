@@ -26,7 +26,14 @@ export async function isAuthorized(request: Request): Promise<boolean> {
  *  render, and prints it — real vector text via Chromium's own print engine (Playwright's
  *  page.pdf()), not a raster screenshot. */
 export async function renderPrintRouteToPdf(requestUrl: string, printPath: string, searchParams: Record<string, string>, token: string): Promise<Buffer> {
-  const printUrl = new URL(printPath, requestUrl);
+  // requestUrl's host is whatever the caller's browser used to reach this Next.js server —
+  // "0.0.0.0" when the dev server is bound to all interfaces (next dev -H 0.0.0.0), or a LAN
+  // IP/Docker hostname in other setups. None of those are valid destinations for Playwright's
+  // own headless Chromium to connect back to (it runs on this same machine), so the loopback
+  // hop always targets localhost instead, keeping only the port the server is actually on.
+  const requestOrigin = new URL(requestUrl);
+  const localOrigin = `http://localhost:${requestOrigin.port || "80"}`;
+  const printUrl = new URL(printPath, localOrigin);
   for (const [k, v] of Object.entries(searchParams)) printUrl.searchParams.set(k, v);
 
   const browser = await chromium.launch({ headless: true });

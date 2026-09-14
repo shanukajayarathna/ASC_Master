@@ -2,10 +2,11 @@
 
 import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
+import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import type { WorksheetFacets, WorksheetRow } from "@/types/api";
+import type { WorksheetFacets, WorksheetImportResult, WorksheetRow } from "@/types/api";
 import {
   displayValuationForExport as displayValuation,
   exportWorksheetPdf,
@@ -217,6 +218,9 @@ export default function WorksheetPage() {
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // An import that came back with skipped rows, held here until the user explicitly accepts
+  // it via WarningsConfirmDialog — Cancel discards it entirely (the current sheet is untouched).
+  const [pendingImport, setPendingImport] = useState<WorksheetImportResult | null>(null);
 
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -321,23 +325,28 @@ export default function WorksheetPage() {
     }
   };
 
+  const commitImport = (result: WorksheetImportResult) => {
+    // Every load replaces the table outright — otherwise stale rows from a previous load
+    // linger mixed in with the new one and look like they never refreshed.
+    setRows(result.rows.map(toRow));
+    setEditingValuation({});
+    setRemovedRows([]);
+    setUndoRow(null);
+    setNotice(
+      result.skippedRows
+        ? `Loaded ${result.rows.length} row(s) from "${result.fileName}" (${result.skippedRows} incomplete row(s) skipped).`
+        : `Loaded ${result.rows.length} row(s) from "${result.fileName}".`
+    );
+  };
+
   const uploadFile = async (file: File) => {
     setUploading(true);
     setError(null);
     setNotice(null);
     try {
       const result = await api.importWorksheetFile(file);
-      // Every load replaces the table outright — otherwise stale rows from a previous load
-      // linger mixed in with the new one and look like they never refreshed.
-      setRows(result.rows.map(toRow));
-      setEditingValuation({});
-      setRemovedRows([]);
-      setUndoRow(null);
-      setNotice(
-        result.skippedRows
-          ? `Loaded ${result.rows.length} row(s) from "${result.fileName}" (${result.skippedRows} incomplete row(s) skipped).`
-          : `Loaded ${result.rows.length} row(s) from "${result.fileName}".`
-      );
+      if (result.skippedRows > 0) setPendingImport(result);
+      else commitImport(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
@@ -918,6 +927,24 @@ export default function WorksheetPage() {
           </Button>
         }
         anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      />
+
+      <WarningsConfirmDialog
+        open={pendingImport !== null}
+        title="Review before loading"
+        warnings={
+          pendingImport
+            ? [
+                `${pendingImport.skippedRows} of ${pendingImport.skippedRows + pendingImport.rows.length} row(s) in "${pendingImport.fileName}" are missing required fields and will be skipped.`,
+              ]
+            : []
+        }
+        confirmLabel={pendingImport ? `Load the other ${pendingImport.rows.length} row(s)` : "Load anyway"}
+        onCancel={() => setPendingImport(null)}
+        onConfirm={() => {
+          if (pendingImport) commitImport(pendingImport);
+          setPendingImport(null);
+        }}
       />
     </div>
   );

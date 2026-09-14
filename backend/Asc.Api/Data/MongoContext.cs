@@ -237,6 +237,41 @@ public class MongoContext
         [
             new CreateIndexModel<UnresolvedMarkSighting>(Builders<UnresolvedMarkSighting>.IndexKeys.Ascending(s => s.Resolved)),
         ]);
+
+        // FactoryMarkPerformanceMiningService upserts by this exact tuple every run (once per
+        // sale, re-run-safe) — a compound unique index both makes that lookup cheap and
+        // guarantees "one fact per (scope, factory/mark, sale)" even under concurrent runs.
+        FactoryMarkPerformanceFacts.Indexes.CreateMany(
+        [
+            new CreateIndexModel<FactoryMarkPerformanceFact>(
+                Builders<FactoryMarkPerformanceFact>.IndexKeys
+                    .Ascending(f => f.Scope).Ascending(f => f.FactoryId).Ascending(f => f.MarkId)
+                    .Ascending(f => f.SaleYear).Ascending(f => f.SaleNo),
+                new CreateIndexOptions { Unique = true }),
+        ]);
+        // FactoryMarkPerformanceService's read side (GetFactoryPerformance/GetMarkPerformance/
+        // GetForwardEstimate) queries by the human-readable code the API actually takes, not by
+        // internal Guid id — these serve that access pattern directly rather than forcing a
+        // Factory/Mark lookup first just to get an Id to query by.
+        FactoryMarkPerformanceFacts.Indexes.CreateMany(
+        [
+            new CreateIndexModel<FactoryMarkPerformanceFact>(
+                Builders<FactoryMarkPerformanceFact>.IndexKeys.Ascending(f => f.Scope).Ascending(f => f.FactoryCode).Ascending(f => f.SaleYear).Ascending(f => f.SaleNo)),
+            new CreateIndexModel<FactoryMarkPerformanceFact>(
+                Builders<FactoryMarkPerformanceFact>.IndexKeys.Ascending(f => f.Scope).Ascending(f => f.MarkCode).Ascending(f => f.SaleYear).Ascending(f => f.SaleNo)),
+        ]);
+
+        // SavePreSaleSnapshotAsync upserts by (MarkCode, SaleYear, SaleNo) every time someone
+        // re-generates the Shared Mark Catalogued Summary for the same upcoming sale — a
+        // compound unique index backs that upsert the same way the fact collection's does.
+        // GetForwardEstimate's own read (which marks have an upcoming snapshot at all) is
+        // covered by the same index's MarkCode prefix.
+        PreSaleCatalogueFacts.Indexes.CreateMany(
+        [
+            new CreateIndexModel<PreSaleCatalogueFact>(
+                Builders<PreSaleCatalogueFact>.IndexKeys.Ascending(f => f.MarkCode).Ascending(f => f.SaleYear).Ascending(f => f.SaleNo),
+                new CreateIndexOptions { Unique = true }),
+        ]);
     }
 
     /// <summary>User-entered valuations — the only per-lot state the database holds.</summary>
@@ -302,4 +337,10 @@ public class MongoContext
     public IMongoCollection<MarkBrokerPeriodFact> MarkBrokerPeriodFacts => Database.GetCollection<MarkBrokerPeriodFact>("markBrokerPeriodFacts");
     public IMongoCollection<MarkActivitySnapshot> MarkActivitySnapshots => Database.GetCollection<MarkActivitySnapshot>("markActivitySnapshots");
     public IMongoCollection<UnresolvedMarkSighting> UnresolvedMarkSightings => Database.GetCollection<UnresolvedMarkSighting>("unresolvedMarkSightings");
+
+    /// <summary>Pre-aggregated price/grade-mix performance per factory/mark per sale, and the
+    /// opportunistic pre-sale grade-mix snapshots the forward estimate reads — see
+    /// Modules/MarkIntelligence/FactoryMarkPerformanceModels.cs.</summary>
+    public IMongoCollection<FactoryMarkPerformanceFact> FactoryMarkPerformanceFacts => Database.GetCollection<FactoryMarkPerformanceFact>("factoryMarkPerformanceFacts");
+    public IMongoCollection<PreSaleCatalogueFact> PreSaleCatalogueFacts => Database.GetCollection<PreSaleCatalogueFact>("preSaleCatalogueFacts");
 }

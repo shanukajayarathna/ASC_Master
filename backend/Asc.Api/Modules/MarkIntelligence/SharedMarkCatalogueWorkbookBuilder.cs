@@ -40,7 +40,11 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         IReadOnlyList<SharedMarkCatalogueRow> rows, bool includeYearColumn)
     {
         var ws = wb.CreateSheet(bucketName == "Low Grown" ? "Low Grown" : "High & Medium Grown");
-        var weeks = result.MonthCalendar; // ascending (SaleNo, Date), including future/blank weeks
+        // result.MonthCalendar is ascending (SaleNo, Date); reversed here so the latest sale's
+        // column lands immediately after the label column instead of at the far end, right
+        // before Month/(Year) — data extraction/values are untouched, only the on-sheet column
+        // order changes.
+        var weeks = result.MonthCalendar.Reverse().ToList();
 
         var titleStyle = wb.CreateCellStyle();
         var titleFont = wb.CreateFont();

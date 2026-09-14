@@ -2,6 +2,7 @@
 
 import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
+import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
 import { api, ApiError } from "@/lib/api";
 import { dateStamp } from "@/lib/worksheetPdf";
 import {
@@ -350,6 +351,15 @@ export default function WeeklyFactReportsPage() {
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [job, setJob] = useState<WeeklyJobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A freshly computed result that came back with warnings, held here instead of being
+  // revealed immediately — the user has to explicitly click through WarningsConfirmDialog
+  // (Cancel discards it, nothing is ever shown as generated) or Continue (commits it exactly
+  // as a warning-free run would have been committed automatically).
+  const [pendingGate, setPendingGate] = useState<
+    | { kind: "job"; job: WeeklyJobResult; marketShare: MarketShareResult | null; warnings: string[] }
+    | { kind: "marketShare"; marketShare: MarketShareResult; warnings: string[] }
+    | null
+  >(null);
 
   // "Generate from database" — an alternative to uploading the WES file, for a sale that's
   // already been imported into the MSL archive; upload stays the fallback for anything not
@@ -491,7 +501,7 @@ export default function WeeklyFactReportsPage() {
         compareRowsByTable = compare.rowsByTable;
         previousSaleNumber = prevReport.saleNumber;
       }
-      setMarketShareResult({
+      const marketShare: MarketShareResult = {
         filename: result.filename,
         buffer: result.buffer,
         rowsByTable: result.rowsByTable,
@@ -500,7 +510,9 @@ export default function WeeklyFactReportsPage() {
         saleNumber,
         compareRowsByTable,
         previousSaleNumber,
-      });
+      };
+      if (warnings.length === 0) setMarketShareResult(marketShare);
+      else setPendingGate({ kind: "marketShare", marketShare, warnings });
     } catch (e) {
       setError(e instanceof Error ? `Failed to build the MARKET SHARE workbook: ${e.message}` : "Failed to build the MARKET SHARE workbook.");
     } finally {
@@ -531,21 +543,30 @@ export default function WeeklyFactReportsPage() {
         catalogueTotalsData?.arrayBuffer,
         previousCatalogueTotalsData?.arrayBuffer
       );
-      setJob(result);
       // Fold this run's MARKET SHARE output (if any) into the same state the standalone
       // button writes to, so there's only ever one Market Share card regardless of which path
       // produced it.
-      if (result.marketShareWorkbook?.buffer && result.marketShareWorkbook.filename) {
-        setMarketShareResult({
-          filename: result.marketShareWorkbook.filename,
-          buffer: result.marketShareWorkbook.buffer,
-          rowsByTable: result.marketShareRowsByTable,
-          warnings: result.marketShareWarnings,
-          ok: result.marketShareWorkbook.ok,
-          saleNumber: result.saleNumber,
-          compareRowsByTable: result.marketShareCompareRowsByTable,
-          previousSaleNumber: result.previousSaleNumber,
-        });
+      const marketShare: MarketShareResult | null =
+        result.marketShareWorkbook?.buffer && result.marketShareWorkbook.filename
+          ? {
+              filename: result.marketShareWorkbook.filename,
+              buffer: result.marketShareWorkbook.buffer,
+              rowsByTable: result.marketShareRowsByTable,
+              warnings: result.marketShareWarnings,
+              ok: result.marketShareWorkbook.ok,
+              saleNumber: result.saleNumber,
+              compareRowsByTable: result.marketShareCompareRowsByTable,
+              previousSaleNumber: result.previousSaleNumber,
+            }
+          : null;
+      const allWarnings = Array.from(
+        new Set([...result.warnings, ...result.outcomes.flatMap((o) => o.warnings), ...result.rankWarnings, ...result.lowWarnings, ...(marketShare?.warnings ?? [])])
+      );
+      if (allWarnings.length === 0) {
+        setJob(result);
+        if (marketShare) setMarketShareResult(marketShare);
+      } else {
+        setPendingGate({ kind: "job", job: result, marketShare, warnings: allWarnings });
       }
     } catch (e) {
       setError(e instanceof Error ? `Failed to process files: ${e.message}` : "Failed to process files.");
@@ -1124,6 +1145,24 @@ export default function WeeklyFactReportsPage() {
           CATALOGUED TOTALS file and click &quot;Generate Market Share&quot; above for that workbook alone.
         </div>
       )}
+
+      <WarningsConfirmDialog
+        open={pendingGate !== null}
+        title="Review before generating"
+        warnings={pendingGate?.warnings ?? []}
+        confirmLabel="Generate anyway"
+        onCancel={() => setPendingGate(null)}
+        onConfirm={() => {
+          if (!pendingGate) return;
+          if (pendingGate.kind === "job") {
+            setJob(pendingGate.job);
+            if (pendingGate.marketShare) setMarketShareResult(pendingGate.marketShare);
+          } else {
+            setMarketShareResult(pendingGate.marketShare);
+          }
+          setPendingGate(null);
+        }}
+      />
     </div>
   );
 }

@@ -2,10 +2,24 @@
 
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
+import KpiSection from "@/components/dashboard/KpiSection";
+import KpiTile from "@/components/dashboard/KpiTile";
+import BarChart from "@/components/analytics/BarChart";
 import { api, ApiError } from "@/lib/api";
 import { brokerColorVar, brokerName, brokerPaletteCss } from "@/lib/brokers";
-import type { AscActivityStatus, FactoryRecord, MarkActivityChange, MarkBrokerEra, MarkRecord, Plantation } from "@/types/api";
+import type {
+  AscActivityStatus,
+  FactoryMarkPerformanceSummary,
+  FactoryRecord,
+  ForwardEstimateSummary,
+  GradeCategory,
+  MarkActivityChange,
+  MarkBrokerEra,
+  MarkRecord,
+  Plantation,
+} from "@/types/api";
 import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
+import CloseOutlinedIcon from "@mui/icons-material/CloseOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import TextField from "@mui/material/TextField";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -17,7 +31,7 @@ type View =
   | { level: "marks"; plantation: Plantation; factory: FactoryRecord }
   | { level: "mark"; plantation: Plantation; factory: FactoryRecord; mark: MarkRecord };
 
-type Tab = "browse" | "alerts";
+type Tab = "browse" | "alerts" | "comparison";
 
 const ASC_STATUS_COLOR: Record<AscActivityStatus, string> = {
   Active: "var(--sage-dark)",
@@ -215,7 +229,7 @@ export default function MarkIntelligencePage() {
       />
 
       <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] mb-5 w-fit" style={{ background: "var(--surface-sunken)" }}>
-        {(["browse", "alerts"] as const).map((t) => (
+        {(["browse", "alerts", "comparison"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -223,7 +237,7 @@ export default function MarkIntelligencePage() {
             className="px-3.5 py-1.5 rounded-[calc(var(--radius-lg)-4px)] text-[13px] font-medium transition-colors"
             style={tab === t ? { background: "var(--surface)", color: "var(--text-strong)" } : { color: "var(--text-muted)" }}
           >
-            {t === "browse" ? "Browse" : "Activity Alerts"}
+            {t === "browse" ? "Browse" : t === "alerts" ? "Activity Alerts" : "Comparison"}
           </button>
         ))}
       </div>
@@ -232,6 +246,8 @@ export default function MarkIntelligencePage() {
 
       {tab === "alerts" ? (
         <ActivityAlertsView onOpenMark={openMarkById} onError={(msg) => setError(msg)} />
+      ) : tab === "comparison" ? (
+        <ComparisonView onError={(msg) => setError(msg)} />
       ) : (
       <>
       <TextField
@@ -543,6 +559,345 @@ function ActivityAlertsView({ onOpenMark, onError }: { onOpenMark: (markId: stri
             </button>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================================
+// Comparison — pre-aggregated factory/mark performance + the "Next Sales — Estimated
+// Value" forward estimate. Comparison is not a separate feature: it's the same summary
+// fetched for up to 4 selected codes and rendered side by side (see
+// FactoryMarkPerformanceService's own doc comment) — no diffing, no special comparison mode.
+// =====================================================================================
+
+const MAX_COMPARE = 4;
+
+const CATEGORY_COLOR: Record<GradeCategory, string> = {
+  Main: "var(--liquor)",
+  PremiumFlowery: "var(--sage-dark)",
+  Ctc: "var(--info)",
+  Off: "var(--warn)",
+  Dust: "var(--danger)",
+  Other: "var(--text-muted)",
+};
+
+const rsFmt = new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 });
+const kgFmt = new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 });
+
+type CompareScope = "factory" | "mark";
+type CodeOption = { code: string; label: string };
+
+/** Search-driven picker for up to MAX_COMPARE factory or mark codes — reuses the existing
+ *  mark search endpoint for marks, and the new factory-search endpoint (added alongside this
+ *  tab, since no flat factory search existed before) for factories. */
+function CodePicker({
+  scope,
+  selected,
+  onChange,
+}: {
+  scope: CompareScope;
+  selected: string[];
+  onChange: (codes: string[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<CodeOption[]>([]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSuggestions([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      const q = query.trim();
+      if (scope === "factory") {
+        api
+          .searchFactoriesForComparison(q)
+          .then((rows) => setSuggestions(rows.map((r) => ({ code: r.code, label: `${r.code} — ${r.name}` }))))
+          .catch(() => setSuggestions([]));
+      } else {
+        api
+          .searchMarkIntelligence(q)
+          .then((rows) => {
+            const seen = new Set<string>();
+            const opts: CodeOption[] = [];
+            for (const m of rows) {
+              if (seen.has(m.code)) continue;
+              seen.add(m.code);
+              opts.push({ code: m.code, label: `${m.code} — ${m.factoryName}` });
+            }
+            setSuggestions(opts);
+          })
+          .catch(() => setSuggestions([]));
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, scope]);
+
+  const atCap = selected.length >= MAX_COMPARE;
+
+  const add = (code: string) => {
+    if (atCap || selected.includes(code)) return;
+    onChange([...selected, code]);
+    setQuery("");
+    setSuggestions([]);
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="flex flex-wrap gap-1.5 mb-2.5">
+        {selected.map((code) => (
+          <span
+            key={code}
+            className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[12.5px] font-medium font-mono"
+            style={{ background: "var(--liquor-light)", color: "var(--liquor)" }}
+          >
+            {code}
+            <button type="button" onClick={() => onChange(selected.filter((c) => c !== code))} className="flex items-center hover:opacity-70">
+              <CloseOutlinedIcon sx={{ fontSize: 14 }} />
+            </button>
+          </span>
+        ))}
+        {selected.length === 0 && <span className="text-[13px] text-text-muted">No {scope === "factory" ? "factories" : "marks"} selected yet.</span>}
+      </div>
+
+      {atCap ? (
+        <p className="text-[12.5px] m-0" style={{ color: "var(--text-muted)" }}>
+          Comparing the maximum of {MAX_COMPARE} {scope === "factory" ? "factories" : "marks"}. Remove one to add another.
+        </p>
+      ) : (
+        <div className="relative max-w-md">
+          <TextField
+            fullWidth
+            size="small"
+            placeholder={`Search ${scope === "factory" ? "factory code or name" : "mark code or factory"}…`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchOutlinedIcon fontSize="small" /></InputAdornment> } }}
+          />
+          {suggestions.length > 0 && (
+            <div
+              className="absolute z-10 mt-1 w-full rounded-[var(--radius-lg)] border border-border shadow-lg max-h-60 overflow-y-auto"
+              style={{ background: "var(--surface)" }}
+            >
+              {suggestions.map((s) => (
+                <button
+                  key={s.code}
+                  type="button"
+                  onClick={() => add(s.code)}
+                  disabled={selected.includes(s.code)}
+                  className="block w-full text-left px-3 py-2 text-[13px] hover:bg-surface-sunken disabled:opacity-40"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Grade-mix rows sorted by weight descending, colored by category — one BarChart per card,
+ *  the app's one chart primitive. */
+function gradeMixRows(gradeMix: { grade: string; category: GradeCategory; weightKg: number; pctOfTotal: number; avgPriceRs: number }[]) {
+  return [...gradeMix]
+    .sort((a, b) => b.weightKg - a.weightKg)
+    .map((g) => ({
+      label: g.grade,
+      value: g.weightKg,
+      displayValue: `${g.pctOfTotal.toFixed(1)}% · Rs ${rsFmt.format(g.avgPriceRs)}`,
+      color: CATEGORY_COLOR[g.category],
+      detail: `${g.grade}: ${kgFmt.format(g.weightKg)} kg (${g.pctOfTotal.toFixed(1)}%) at an average of Rs ${rsFmt.format(g.avgPriceRs)}/kg`,
+    }));
+}
+
+const CATEGORY_LEGEND: { label: string; color: string }[] = [
+  { label: "Main", color: CATEGORY_COLOR.Main },
+  { label: "Premium Flowery", color: CATEGORY_COLOR.PremiumFlowery },
+  { label: "CTC", color: CATEGORY_COLOR.Ctc },
+  { label: "Off-grade", color: CATEGORY_COLOR.Off },
+  { label: "Dust", color: CATEGORY_COLOR.Dust },
+];
+
+function PerformanceCard({ summary }: { summary: FactoryMarkPerformanceSummary }) {
+  const code = summary.markCode ?? summary.factoryCode;
+  return (
+    <div className="p-4 rounded-[var(--radius-lg)] border border-border" style={{ background: "var(--surface)" }}>
+      <div className="flex items-baseline justify-between gap-2 mb-3">
+        <p className="font-mono text-[14px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>{code}</p>
+        <span className="text-[11.5px]" style={{ color: "var(--text-muted)" }}>
+          {summary.salesIncluded} sale{summary.salesIncluded === 1 ? "" : "s"} · S{summary.fromSaleNo}/{summary.fromYear}–S{summary.toSaleNo}/{summary.toYear}
+        </span>
+      </div>
+
+      {summary.salesIncluded === 0 ? (
+        <p className="text-[13px] text-text-muted py-6 text-center m-0">No mined sales for this code in this range yet.</p>
+      ) : (
+        <>
+          <KpiSection title="" compact>
+            <KpiTile label="Avg price (Rs/kg)" value={rsFmt.format(summary.avgPriceRs)} accent="liquor" />
+            <KpiTile label="Total proceeds (Rs)" value={rsFmt.format(summary.totalProceedsRs)} accent="sage" />
+            <KpiTile label="Total weight (kg)" value={kgFmt.format(summary.totalWeightKg)} accent="info" />
+          </KpiSection>
+
+          {summary.bestGrades.length > 0 && (
+            <p className="text-[12.5px] mb-3" style={{ color: "var(--text-muted)" }}>
+              Best-performing grade{summary.bestGrades.length > 1 ? "s" : ""}:{" "}
+              <span className="font-mono font-semibold" style={{ color: "var(--liquor)" }}>{summary.bestGrades.join(", ")}</span>
+            </p>
+          )}
+
+          <BarChart rows={gradeMixRows(summary.gradeMix)} legend={CATEGORY_LEGEND} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ForwardEstimateCard({ code, scope, estimate }: { code: string; scope: CompareScope; estimate: ForwardEstimateSummary | undefined }) {
+  return (
+    <div className="p-4 rounded-[var(--radius-lg)] border border-border" style={{ background: "var(--surface)" }}>
+      <div className="flex items-baseline justify-between gap-2 mb-3">
+        <p className="font-mono text-[14px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>{code}</p>
+        {estimate && estimate.upcomingSalesIncluded.length > 0 && (
+          <span className="text-[11.5px]" style={{ color: "var(--text-muted)" }}>
+            Sale{estimate.upcomingSalesIncluded.length === 1 ? "" : "s"} {estimate.upcomingSalesIncluded.map((s) => `${s.saleNo}/${s.saleYear}`).join(", ")}
+          </span>
+        )}
+      </div>
+
+      {!estimate || estimate.upcomingSalesIncluded.length === 0 ? (
+        <p className="text-[13px] text-text-muted py-6 text-center m-0">
+          No pre-sale catalogue data uploaded yet for an upcoming sale of this {scope === "factory" ? "factory" : "mark"}.
+        </p>
+      ) : (
+        <>
+          <KpiSection title="" compact>
+            <KpiTile label="Est. avg price (Rs/kg)" value={rsFmt.format(estimate.estimatedAvgPriceRs)} accent="liquor" />
+            <KpiTile label="Est. total proceeds (Rs)" value={rsFmt.format(estimate.estimatedTotalProceedsRs)} accent="sage" />
+            <KpiTile label="Est. total weight (kg)" value={kgFmt.format(estimate.estimatedTotalWeightKg)} accent="info" />
+          </KpiSection>
+
+          <BarChart
+            rows={[...estimate.gradeBreakdown]
+              .sort((a, b) => b.estimatedValueRs - a.estimatedValueRs)
+              .map((g) => ({
+                label: g.grade,
+                value: g.estimatedValueRs,
+                displayValue: g.hasTrailingPriceData ? `${g.contributionPct.toFixed(1)}% of value` : "insufficient data",
+                detail: g.hasTrailingPriceData
+                  ? `${g.grade}: ${kgFmt.format(g.estimatedWeightKg)} kg at a trailing avg of Rs ${rsFmt.format(g.trailingAvgPriceRs)}/kg${g.usedFactoryWideFallback ? " (factory-wide average, no recent history for this grade)" : ""} — ${g.contributionPct.toFixed(1)}% of estimated value`
+                  : `${g.grade}: ${kgFmt.format(g.estimatedWeightKg)} kg — no trailing price history available for this grade`,
+              }))}
+            accentColor="var(--liquor)"
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ComparisonView({ onError }: { onError: (message: string) => void }) {
+  const [scope, setScope] = useState<CompareScope>("factory");
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const thisYear = new Date().getFullYear();
+  const [fromYear, setFromYear] = useState(thisYear);
+  const [fromSaleNo, setFromSaleNo] = useState(1);
+  const [toYear, setToYear] = useState(thisYear);
+  const [toSaleNo, setToSaleNo] = useState(53);
+
+  const [summaries, setSummaries] = useState<FactoryMarkPerformanceSummary[] | null>(null);
+  const [estimates, setEstimates] = useState<Record<string, ForwardEstimateSummary>>({});
+  const [loading, setLoading] = useState(false);
+
+  const changeScope = (s: CompareScope) => {
+    setScope(s);
+    setSelected([]);
+    setSummaries(null);
+    setEstimates({});
+  };
+
+  useEffect(() => {
+    if (selected.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSummaries(null);
+      setEstimates({});
+      return;
+    }
+    setLoading(true);
+    const range = { fromYear, fromSaleNo, toYear, toSaleNo };
+    api
+      .compareFactoryOrMarkPerformance(selected, scope === "factory", range)
+      .then(setSummaries)
+      .catch((e) => onError(e instanceof ApiError ? e.message : "Couldn't load performance"))
+      .finally(() => setLoading(false));
+
+    Promise.all(
+      selected.map((code) =>
+        api
+          .getForwardEstimate(code, scope === "factory")
+          .then((r) => [code, r] as const)
+          .catch(() => null),
+      ),
+    ).then((pairs) => setEstimates(Object.fromEntries(pairs.filter((p): p is readonly [string, ForwardEstimateSummary] => p !== null))));
+  }, [selected, scope, fromYear, fromSaleNo, toYear, toSaleNo, onError]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] mb-4 w-fit" style={{ background: "var(--surface-sunken)" }}>
+        {(["factory", "mark"] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => changeScope(s)}
+            className="px-3 py-1 rounded-[calc(var(--radius-lg)-4px)] text-[12.5px] font-medium transition-colors"
+            style={scope === s ? { background: "var(--surface)", color: "var(--text-strong)" } : { color: "var(--text-muted)" }}
+          >
+            {s === "factory" ? "Factories" : "Marks"}
+          </button>
+        ))}
+      </div>
+
+      <CodePicker scope={scope} selected={selected} onChange={setSelected} />
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          <span className="text-[12px] uppercase tracking-wide font-semibold" style={{ color: "var(--text-muted)" }}>Period</span>
+          <TextField size="small" type="number" label="From year" value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))} sx={{ width: 110 }} />
+          <TextField size="small" type="number" label="From sale" value={fromSaleNo} onChange={(e) => setFromSaleNo(Number(e.target.value))} sx={{ width: 100 }} />
+          <span className="text-[13px] text-text-muted">to</span>
+          <TextField size="small" type="number" label="To year" value={toYear} onChange={(e) => setToYear(Number(e.target.value))} sx={{ width: 110 }} />
+          <TextField size="small" type="number" label="To sale" value={toSaleNo} onChange={(e) => setToSaleNo(Number(e.target.value))} sx={{ width: 100 }} />
+        </div>
+      )}
+
+      {selected.length === 0 ? (
+        <p className="text-[13px] text-text-muted text-center py-10">
+          Search and add up to {MAX_COMPARE} {scope === "factory" ? "factories" : "marks"} above to see their performance.
+        </p>
+      ) : loading && summaries === null ? (
+        <div className="flex justify-center py-10">
+          <TeaLoader size={36} />
+        </div>
+      ) : (
+        <>
+          <h4 className="font-display text-[15px] font-semibold m-0 mb-3" style={{ color: "var(--text-strong)" }}>Historical Performance</h4>
+          <div className="grid gap-3 mb-8" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))` }}>
+            {summaries?.map((s) => <PerformanceCard key={s.markCode ?? s.factoryCode} summary={s} />)}
+          </div>
+
+          <h4 className="font-display text-[15px] font-semibold m-0 mb-1" style={{ color: "var(--text-strong)" }}>Next Sales — Estimated Value</h4>
+          <p className="text-[12.5px] mb-3" style={{ color: "var(--text-muted)" }}>
+            Arithmetic over already-known upcoming grade mix and trailing historical prices — not a forecast.
+          </p>
+          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))` }}>
+            {selected.map((code) => <ForwardEstimateCard key={code} code={code} scope={scope} estimate={estimates[code]} />)}
+          </div>
+        </>
       )}
     </div>
   );

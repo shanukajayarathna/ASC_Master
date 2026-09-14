@@ -23,6 +23,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Lets the dev server's JS/HMR bundles load when reached over LAN (e.g. testing on a
+  // phone at the host machine's IP) instead of being blocked as a cross-origin dev request.
+  allowedDevOrigins: ["192.168.40.19"],
   // Launchpad module tiles (frontend/src/components/shell/nav.ts) reference specific,
   // verified Unsplash CDN photos for their artwork. next/image needs the remote host
   // allow-listed; Unsplash's own image-resizing query params (w/q/fm/fit) are used

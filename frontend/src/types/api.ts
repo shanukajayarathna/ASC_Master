@@ -100,6 +100,72 @@ export interface MarkRecord {
   firstSeenWithAsc: string | null;
 }
 
+/** Category groups TopPriceEngine's canonical grade lists — Main/PremiumFlowery are eligible
+ *  for "best grade," Ctc/Off/Dust never are, Other is anything not in any canonical list. */
+export type GradeCategory = "Main" | "PremiumFlowery" | "Ctc" | "Off" | "Dust" | "Other";
+
+export interface GradeMixEntry {
+  grade: string;
+  category: GradeCategory;
+  weightKg: number;
+  pctOfTotal: number;
+  avgPriceRs: number;
+}
+
+/** One factory's or mark's pre-aggregated historical performance over a requested
+ *  sale-number range — see backend FactoryMarkPerformanceService.GetFactoryPerformance/
+ *  GetMarkPerformance. Never computed live; SalesIncluded is how many mined sales fed it. */
+export interface FactoryMarkPerformanceSummary {
+  scope: "Factory" | "Mark";
+  factoryCode: string;
+  markCode: string | null;
+  fromYear: number;
+  fromSaleNo: number;
+  toYear: number;
+  toSaleNo: number;
+  totalProceedsRs: number;
+  totalWeightKg: number;
+  avgPriceRs: number;
+  gradeMix: GradeMixEntry[];
+  bestGrades: string[];
+  salesIncluded: number;
+}
+
+export interface ForwardEstimateSale {
+  saleYear: number;
+  saleNo: number;
+}
+
+export interface ForwardEstimateGrade {
+  grade: string;
+  estimatedWeightKg: number;
+  trailingAvgPriceRs: number;
+  estimatedValueRs: number;
+  contributionPct: number;
+  usedFactoryWideFallback: boolean;
+  hasTrailingPriceData: boolean;
+}
+
+/** Arithmetic over already-known upcoming grade mix (whichever of the next few sales have an
+ *  uploaded pre-sale catalogue, 0-3) and trailing historical prices — not a forecasting model. */
+/** One factory-search hit — backs the Comparison tab's factory picker (marks reuse the
+ *  existing searchMarkIntelligence). */
+export interface FactorySearchResult {
+  code: string;
+  name: string;
+}
+
+export interface ForwardEstimateSummary {
+  scope: "Factory" | "Mark";
+  factoryCode: string;
+  markCode: string | null;
+  upcomingSalesIncluded: ForwardEstimateSale[];
+  estimatedTotalProceedsRs: number;
+  estimatedTotalWeightKg: number;
+  estimatedAvgPriceRs: number;
+  gradeBreakdown: ForwardEstimateGrade[];
+}
+
 /** One durable record of a mark's ASC-activity evaluation from a single 3-month/6-month
  *  trigger run — see docs/29_Mark_Intelligence.md. */
 export interface MarkActivitySnapshot {

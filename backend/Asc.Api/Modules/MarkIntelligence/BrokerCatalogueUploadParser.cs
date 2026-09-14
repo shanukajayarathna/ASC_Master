@@ -47,6 +47,12 @@ public static class BrokerCode
 /// wildly-wrong column count is the only signal (rows with too few columns are simply
 /// skipped).
 /// </summary>
+/// <summary>One broker's parse outcome: the lots that came out cleanly, plus how many data
+/// rows were dropped along the way (too few columns, or a blank MF code/selling mark/nett
+/// weight — see BuildLot) — surfaced to the user as a warning before generation persists
+/// anything, instead of silently vanishing as before.</summary>
+public readonly record struct BrokerParseResult(List<Lot> Lots, int SkippedRows);
+
 public static class BrokerCatalogueUploadParser
 {
     private const decimal ReprintToleranceKg = 0.5m;
@@ -96,104 +102,112 @@ public static class BrokerCatalogueUploadParser
     /// row 1 for all of them.</summary>
     private const int FirstDataRow = 1;
 
-    public static List<Lot> ParseAeb(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseAeb(List<List<string>> rows, int saleNo)
     {
         // Broker,Year,SaleNo,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,ChestWt,NettWt,GrossWt,Category,Stores,PackCode
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 11) continue;
+            if (row.Count < 11) { skipped++; continue; }
             var lot = BuildLot(BrokerCode.Aeb, saleNo, row[4], row[5], row[7], row[8], row[9], row[10]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
-    public static List<Lot> ParseBc(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseBc(List<List<string>> rows, int saleNo)
     {
         // Broker,Year,SaleNo,LotNo,MFCode,SellingMark,(blank),InvoiceNo,Grade,Chests,ChestWt,NettWt,GrossWt,Category,StoreDesc
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) continue;
+            if (row.Count < 12) { skipped++; continue; }
             var lot = BuildLot(BrokerCode.Bc, saleNo, row[4], row[5], row[8], row[9], row[10], row[11]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
-    public static List<Lot> ParseJk(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseJk(List<List<string>> rows, int saleNo)
     {
         // LotNo,MFCode,SellingMark,(blank),InvoiceNo,(code),Grade,Chests,ChestWt,(flag),(0),NettWt,...
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) continue;
+            if (row.Count < 12) { skipped++; continue; }
             var lot = BuildLot(BrokerCode.Jk, saleNo, row[1], row[2], row[6], row[7], row[8], row[11]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
-    public static List<Lot> ParseLcbl(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseLcbl(List<List<string>> rows, int saleNo)
     {
         // LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,(flag),ChestWt,(code),(0),NettWt,Category
         // Interleaved section-divider rows (e.g. a lone "EX-ESTATE"/"Wt/Chs" in column 0 with
-        // everything else blank) are not lots — skip any row whose LotNo isn't numeric.
+        // everything else blank) are not lots and not a skip either — only a row that looks
+        // like real data (numeric LotNo, wide enough) but still fails BuildLot counts.
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
             if (row.Count < 11 || !int.TryParse(row[0].Trim(), out _)) continue;
             var lot = BuildLot(BrokerCode.Lcbl, saleNo, row[1], row[2], row[4], row[5], row[7], row[10]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
-    public static List<Lot> ParseMb(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseMb(List<List<string>> rows, int saleNo)
     {
         // Broker,SaleNo,Date,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,(flag),ChestWt,NettWt,Category
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) continue;
+            if (row.Count < 12) { skipped++; continue; }
             var lot = BuildLot(BrokerCode.Mb, saleNo, row[4], row[5], row[7], row[8], row[10], row[11]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
-    public static List<Lot> ParseFw(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseFw(List<List<string>> rows, int saleNo)
     {
         // Broker,SaleNo,Date,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,(flag),ChestWt,NettWt,(flag),Category,(number)
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) continue;
+            if (row.Count < 12) { skipped++; continue; }
             var lot = BuildLot(BrokerCode.Fw, saleNo, row[4], row[5], row[7], row[8], row[10], row[11]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
-    public static List<Lot> ParseCtb(List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseCtb(List<List<string>> rows, int saleNo)
     {
         // BrokerSaleNoCombined,Date,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,(flag),ChestWt,(status),(0),NettWt,Warehouse,Category
         var lots = new List<Lot>();
+        var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 13) continue;
+            if (row.Count < 13) { skipped++; continue; }
             var lot = BuildLot(BrokerCode.Ctb, saleNo, row[3], row[4], row[6], row[7], row[9], row[12]);
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
     /// <summary>ASC's own file already carries proper headers matching CatalogueImportService's
@@ -202,10 +216,11 @@ public static class BrokerCatalogueUploadParser
     /// header-based extraction the rest of the app already uses for /data/sales files. Reprint
     /// is still inferred the same weight-mismatch way, since this raw file has no RP column either
     /// (only the app's own enriched /data/sales export does).</summary>
-    public static List<Lot> ParseAsc(CatalogueImportService importer, List<List<string>> rows, int saleNo)
+    public static BrokerParseResult ParseAsc(CatalogueImportService importer, List<List<string>> rows, int saleNo)
     {
         var parsed = ExtractTableViaHeaderRow(importer, rows);
         var lots = new List<Lot>();
+        var skipped = 0;
         foreach (var row in parsed)
         {
             var lot = BuildLot(
@@ -217,9 +232,9 @@ public static class BrokerCatalogueUploadParser
                 row.GetValueOrDefault("NoOfChests", ""),
                 row.GetValueOrDefault("WeightPerChest", ""),
                 row.GetValueOrDefault("NettWeight", ""));
-            if (lot is not null) lots.Add(lot);
+            if (lot is not null) lots.Add(lot); else skipped++;
         }
-        return lots;
+        return new BrokerParseResult(lots, skipped);
     }
 
     private static List<Dictionary<string, string>> ExtractTableViaHeaderRow(CatalogueImportService importer, List<List<string>> rows)
@@ -243,7 +258,7 @@ public static class BrokerCatalogueUploadParser
         return result;
     }
 
-    public static List<Lot> Parse(string brokerCode, CatalogueImportService importer, List<List<string>> rows, int saleNo) => brokerCode switch
+    public static BrokerParseResult Parse(string brokerCode, CatalogueImportService importer, List<List<string>> rows, int saleNo) => brokerCode switch
     {
         BrokerCode.Asc => ParseAsc(importer, rows, saleNo),
         BrokerCode.Aeb => ParseAeb(rows, saleNo),

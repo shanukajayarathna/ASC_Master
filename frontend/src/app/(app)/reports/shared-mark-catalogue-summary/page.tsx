@@ -2,6 +2,7 @@
 
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
+import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
 import { api } from "@/lib/api";
 import type { ScheduledReportOutput } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
@@ -49,6 +50,10 @@ export default function SharedMarkCatalogueSummaryPage() {
   const [unmatchedMarks, setUnmatchedMarks] = useState<string[]>([]);
   const [detectingSaleInfo, setDetectingSaleInfo] = useState(false);
   const [saleInfoWarnings, setSaleInfoWarnings] = useState<string[]>([]);
+  // Set once the pre-flight preview call comes back with row/broker-quality warnings — held
+  // here until the user explicitly accepts via WarningsConfirmDialog. Cancel leaves the chosen
+  // files in place and generates nothing; nothing is persisted until Confirm.
+  const [pendingGenerate, setPendingGenerate] = useState<{ warnings: string[] } | null>(null);
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const zipInputRef = useRef<HTMLInputElement | null>(null);
@@ -90,12 +95,8 @@ export default function SharedMarkCatalogueSummaryPage() {
   if (uploadMode === "zip" ? !zipFile : !allFilesChosen) missingForGenerate.push(uploadMode === "zip" ? "the zip file" : "all 8 files");
   const canGenerate = missingForGenerate.length === 0;
 
-  const generateFromUpload = async () => {
+  const runGenerate = async () => {
     const saleNoNum = parseInt(saleNo, 10);
-    if (!saleYear || !saleNoNum || !saleDate) return;
-    if (uploadMode === "zip" && !zipFile) return;
-    if (uploadMode === "individual" && !allFilesChosen) return;
-
     setGenerating(true);
     setError(null);
     setUnmatchedMarks([]);
@@ -113,6 +114,33 @@ export default function SharedMarkCatalogueSummaryPage() {
       setError(e instanceof Error ? e.message : "Couldn't generate this report from the uploaded files");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Pre-flight: parse every broker file the same way generation would, without persisting
+  // anything, so a "some rows look off — continue anyway?" checkpoint can happen before the
+  // real generate call (which parses AND saves in one step, with no undo).
+  const generateFromUpload = async () => {
+    const saleNoNum = parseInt(saleNo, 10);
+    if (!saleYear || !saleNoNum || !saleDate) return;
+    if (uploadMode === "zip" && !zipFile) return;
+    if (uploadMode === "individual" && !allFilesChosen) return;
+
+    setGenerating(true);
+    setError(null);
+    try {
+      const preview =
+        uploadMode === "zip"
+          ? await api.previewSharedMarkCatalogueSummaryFromZip(zipFile!, saleYear, saleNoNum)
+          : await api.previewSharedMarkCatalogueSummaryFromUpload(files as Record<string, File>, saleYear, saleNoNum);
+      if (preview.warnings.length === 0) await runGenerate();
+      else {
+        setGenerating(false);
+        setPendingGenerate({ warnings: preview.warnings });
+      }
+    } catch (e) {
+      setGenerating(false);
+      setError(e instanceof Error ? e.message : "Couldn't check the uploaded files");
     }
   };
 
@@ -360,6 +388,19 @@ export default function SharedMarkCatalogueSummaryPage() {
           </div>
         )}
       </div>
+
+      <WarningsConfirmDialog
+        open={pendingGenerate !== null}
+        title="Review before generating"
+        warnings={pendingGenerate?.warnings ?? []}
+        busy={generating}
+        confirmLabel="Generate anyway"
+        onCancel={() => setPendingGenerate(null)}
+        onConfirm={async () => {
+          setPendingGenerate(null);
+          await runGenerate();
+        }}
+      />
     </div>
   );
 }

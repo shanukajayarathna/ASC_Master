@@ -261,6 +261,15 @@ builder.Services.AddSingleton<IScheduledReportJob>(sp => new Asc.Api.Modules.Mar
 builder.Services.AddSingleton<IScheduledReportJob>(sp => new Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckJob(
     sp.GetRequiredService<Asc.Api.Modules.MarkIntelligence.MarkAscActivityCheckService>(),
     key: "mark-activity-6mo", displayName: "ASC Mark Activity — 6 Month Check", cron: "0 7 * * 1"));
+// Factory & Mark performance facts (see Modules/MarkIntelligence/FactoryMarkPerformanceMiningService)
+// — singleton, same reasoning as MarkAscActivityCheckService just above: it's used by a
+// singleton IScheduledReportJob, so it can't be Scoped like MarkIntelligenceMiningService is.
+builder.Services.AddSingleton<Asc.Api.Modules.MarkIntelligence.FactoryMarkPerformanceMiningService>();
+builder.Services.AddSingleton<Asc.Api.Modules.MarkIntelligence.FactoryMarkPerformanceReportJob>();
+builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<Asc.Api.Modules.MarkIntelligence.FactoryMarkPerformanceReportJob>());
+// Read side (FactoryMarkPerformanceController) plus the pre-sale-snapshot writer
+// SharedMarkCatalogueController calls into — see FactoryMarkPerformanceService's own doc comment.
+builder.Services.AddSingleton<Asc.Api.Modules.MarkIntelligence.FactoryMarkPerformanceService>();
 // "Sharing Mark Catalogued Summary" — manual-only (see Modules/MarkIntelligence/
 // SharedMarkCatalogueService.cs's own doc comment for why this isn't an
 // IScheduledReportJob: the source files are pre-sale broker catalogues for a sale that

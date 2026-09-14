@@ -51,6 +51,9 @@ import type {
   ActivitySummary,
   UnresolvedMarkSighting,
   Plantation,
+  FactoryMarkPerformanceSummary,
+  ForwardEstimateSummary,
+  FactorySearchResult,
   MslAnalyticsFilter,
   MslBatchUploadResult,
   MslFilterOptions,
@@ -327,6 +330,37 @@ export const api = {
   },
   getActivitySummary: () => request<ActivitySummary>("/api/v1/mark-intelligence/activity/summary"),
   listUnresolvedMarks: () => request<UnresolvedMarkSighting[]>("/api/v1/mark-intelligence/activity/unresolved-marks"),
+
+  // ---- mark intelligence: Factory & Mark performance (the "Comparison" tab) -----------
+
+  searchFactoriesForComparison: (q: string) =>
+    request<FactorySearchResult[]>(`/api/v1/mark-intelligence/factory-mark-performance/factories/search?q=${encodeURIComponent(q)}`),
+  getFactoryPerformance: (code: string, range: { fromYear: number; fromSaleNo: number; toYear: number; toSaleNo: number }) =>
+    request<FactoryMarkPerformanceSummary>(
+      `/api/v1/mark-intelligence/factory-mark-performance/factories/${encodeURIComponent(code)}?fromYear=${range.fromYear}&fromSaleNo=${range.fromSaleNo}&toYear=${range.toYear}&toSaleNo=${range.toSaleNo}`,
+    ),
+  getMarkPerformance: (code: string, range: { fromYear: number; fromSaleNo: number; toYear: number; toSaleNo: number }) =>
+    request<FactoryMarkPerformanceSummary>(
+      `/api/v1/mark-intelligence/factory-mark-performance/marks/${encodeURIComponent(code)}?fromYear=${range.fromYear}&fromSaleNo=${range.fromSaleNo}&toYear=${range.toYear}&toSaleNo=${range.toSaleNo}`,
+    ),
+  /** Just fetches N summaries side by side — see FactoryMarkPerformanceService's own doc
+   *  comment; comparison is not a separate feature/mode. */
+  compareFactoryOrMarkPerformance: (
+    codes: string[], isFactory: boolean, range: { fromYear: number; fromSaleNo: number; toYear: number; toSaleNo: number },
+  ) => {
+    const qs = new URLSearchParams();
+    codes.forEach((c) => qs.append("codes", c));
+    qs.set("isFactory", String(isFactory));
+    qs.set("fromYear", String(range.fromYear));
+    qs.set("fromSaleNo", String(range.fromSaleNo));
+    qs.set("toYear", String(range.toYear));
+    qs.set("toSaleNo", String(range.toSaleNo));
+    return request<FactoryMarkPerformanceSummary[]>(`/api/v1/mark-intelligence/factory-mark-performance/compare?${qs.toString()}`);
+  },
+  getForwardEstimate: (code: string, isFactory: boolean) =>
+    request<ForwardEstimateSummary>(
+      `/api/v1/mark-intelligence/factory-mark-performance/forward-estimate/${encodeURIComponent(code)}?isFactory=${isFactory}`,
+    ),
 
   // ---- audit log (who did what, for admin-mutating actions) --------------------------
 
@@ -1152,6 +1186,49 @@ export const api = {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(text || "Couldn't generate this report from the uploaded zip");
+    }
+    return res.json();
+  },
+
+  /** Dry-run for generateSharedMarkCatalogueSummaryFromUpload — parses every broker file the
+   *  same way generation would but never persists anything, so the caller can show a "N rows
+   *  will be skipped, continue anyway?" checkpoint before committing a report built from data
+   *  that looked off. */
+  previewSharedMarkCatalogueSummaryFromUpload: async (
+    files: Record<string, File>,
+    saleYear: number,
+    saleNo: number,
+  ): Promise<{ warnings: string[] }> => {
+    const form = new FormData();
+    form.append("saleYear", String(saleYear));
+    form.append("saleNo", String(saleNo));
+    for (const [broker, file] of Object.entries(files)) form.append(`file_${broker}`, file);
+    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-upload/preview`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Couldn't check the uploaded files");
+    }
+    return res.json();
+  },
+
+  /** Zip counterpart to previewSharedMarkCatalogueSummaryFromUpload. */
+  previewSharedMarkCatalogueSummaryFromZip: async (zipFile: File, saleYear: number, saleNo: number): Promise<{ warnings: string[] }> => {
+    const form = new FormData();
+    form.append("saleYear", String(saleYear));
+    form.append("saleNo", String(saleNo));
+    form.append("zipFile", zipFile);
+    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-zip/preview`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Couldn't check the uploaded zip");
     }
     return res.json();
   },

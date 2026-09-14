@@ -63,8 +63,9 @@ public record ValuedLotSlim(Guid LotId, string RowKey, string? Grade, Valuation 
 /// A 35MB market file takes ~25s to parse, so each parse is cached under data/.cache as
 /// gzipped JSON keyed by the file's size+mtime: full reloads take ~1–2s and survive
 /// restarts, and an edited/replaced file re-parses automatically. Recently used sales stay
-/// in memory (small LRU); a slim valued-lots extract per sale is kept separately so
-/// classification history never needs 29 full sales in memory.
+/// in memory (LRU sized to hold a full year's worth — see MaxLoadedSales); a slim
+/// valued-lots extract per sale is kept separately so classification history never needs
+/// 29 full sales in memory.
 ///
 /// All ids are deterministic (MD5 of sale number / row key, plus year for anything other
 /// than the legacy 2026 namespace — see the CatalogueIdFor/LotIdFor overloads below), so
@@ -119,7 +120,17 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         },
     };
 
-    private const int MaxLoadedSales = 4;
+    // Was 4 — far too small for a report that legitimately needs a whole year's worth of
+    // sales at once (Sharing Mark Catalogued Summary's MTD/YTD totals: ~37+ sales for a
+    // September target). At 4, that single report evicted almost everything it had just
+    // loaded before it even finished, so a second identical generation in the same session
+    // started nearly as cold as the first (confirmed live: 79s cold vs 72s "warm" for the
+    // same sale, back to back, in the same process) — the cache was never actually helping
+    // this report's own repeated-testing workflow. Sized to comfortably hold a full year of
+    // weekly sales (~50) plus headroom for a session that touches sales across a year
+    // boundary; each sale holds ~12k lots, so this trades a bounded amount of memory for
+    // every generation after the first one in a session actually being fast.
+    private const int MaxLoadedSales = 60;
 
     private readonly object _mapLock = new();
     private readonly Dictionary<(int Year, int SaleNo), object> _saleLocks = new();

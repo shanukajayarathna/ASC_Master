@@ -34,10 +34,11 @@ public class SharedMarkCatalogueWorkbookBuilderTests
         using var wb = new XSSFWorkbook(new MemoryStream(bytes));
         var ws = wb.GetSheetAt(0);
 
-        // Row 3 = estate name, row 4 = first (ASC) broker row. Col 1 = week 36, col 2 = week 37.
+        // Row 3 = estate name, row 4 = first (ASC) broker row. Week columns run latest-first,
+        // so col 1 = week 37 (the later sale), col 2 = week 36.
         var ascRow = ws.GetRow(4);
-        var week36Cell = ascRow.GetCell(1);
-        var week37Cell = ascRow.GetCell(2);
+        var week37Cell = ascRow.GetCell(1);
+        var week36Cell = ascRow.GetCell(2);
 
         Assert.Equal(0d, week36Cell.NumericCellValue);
         Assert.Equal(FillPattern.SolidForeground, week36Cell.CellStyle.FillPattern);

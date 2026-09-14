@@ -570,6 +570,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 10px;
+  padding: 0 24px;
+  text-align: center;
   animation: tea-cine-logo-in 0.7s ease both;
 }
 @keyframes tea-cine-logo-in {
@@ -648,7 +650,14 @@ body {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: rgba(247, 243, 232, 0.6);
+  max-width: min(90vw, 480px);
   animation: tea-cine-data-in 0.5s ease 0.45s both;
+}
+@media (max-width: 420px) {
+  .tea-cine-logo-points {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
 }
 
 /* "Tea becomes data" overlay on the grading scene — a small block of clean, staggered

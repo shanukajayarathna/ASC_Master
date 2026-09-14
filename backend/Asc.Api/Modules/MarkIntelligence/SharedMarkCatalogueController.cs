@@ -20,7 +20,8 @@ namespace Asc.Api.Modules.MarkIntelligence;
 public class SharedMarkCatalogueController(
     SharedMarkCatalogueGenerationService generator,
     ISavedReportsService savedReports,
-    CatalogueImportService importer) : ControllerBase
+    CatalogueImportService importer,
+    FactoryMarkPerformanceService performance) : ControllerBase
 {
     public record GenerateFromSalesDataRequestDto(int SaleYear, int SaleNo);
 
@@ -71,10 +72,17 @@ public class SharedMarkCatalogueController(
             var file = Request.Form.Files.GetFile($"file_{code}")!;
             await using var stream = file.OpenReadStream();
             var rows = importer.ParseExcel(stream);
-            var lots = BrokerCatalogueUploadParser.Parse(code, importer, rows, saleNo);
-            if (lots.Count == 0) return BadRequest($"Couldn't read any lots from the {code} file — check it's the right file/format.");
-            allLots.AddRange(lots);
+            var parsed = BrokerCatalogueUploadParser.Parse(code, importer, rows, saleNo);
+            if (parsed.Lots.Count == 0) return BadRequest($"Couldn't read any lots from the {code} file — check it's the right file/format.");
+            allLots.AddRange(parsed.Lots);
         }
+
+        // Additive side-effect for Mark Intelligence's Comparison tab forward estimate: these
+        // are exactly the raw pre-sale grade+weight facts that feature needs and has no other
+        // way to see (FactoryMarkPerformanceService.SavePreSaleSnapshotAsync's own doc
+        // comment). Captured regardless of whether report generation below succeeds, since the
+        // underlying catalogue data is real either way.
+        await performance.SavePreSaleSnapshotAsync(saleYear, saleNo, allLots, ct);
 
         GenerationResult result;
         try
@@ -87,6 +95,33 @@ public class SharedMarkCatalogueController(
         }
 
         return await BuildResponseAsync(result, ct);
+    }
+
+    public record ParsePreviewResponseDto(List<string> Warnings);
+
+    /// <summary>Dry-run for generate-from-upload: parses every broker file exactly as
+    /// generation would, but never calls GenerateFromUploadAsync — nothing is saved. Lets the
+    /// frontend show a "N rows will be skipped, continue anyway?" checkpoint before the real
+    /// call commits a report built from data that looked off.</summary>
+    [HttpPost("generate-from-upload/preview")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<ParsePreviewResponseDto>> PreviewFromUpload([FromForm] int saleYear, [FromForm] int saleNo, CancellationToken ct)
+    {
+        if (saleYear <= 0 || saleNo <= 0) return BadRequest("Sale year and sale number are both required.");
+
+        var missing = BrokerCode.All.Where(code => Request.Form.Files.GetFile($"file_{code}") is null).ToList();
+        if (missing.Count > 0)
+            return BadRequest($"All 8 broker files are required. Missing: {string.Join(", ", missing)}.");
+
+        var resultsByBroker = new Dictionary<string, BrokerParseResult>();
+        foreach (var code in BrokerCode.All)
+        {
+            var file = Request.Form.Files.GetFile($"file_{code}")!;
+            await using var stream = file.OpenReadStream();
+            var rows = importer.ParseExcel(stream);
+            resultsByBroker[code] = BrokerCatalogueUploadParser.Parse(code, importer, rows, saleNo);
+        }
+        return Ok(new ParsePreviewResponseDto(BuildParseWarnings(resultsByBroker)));
     }
 
     /// <summary>Same idea as generate-from-upload, but for a single zip file containing all
@@ -118,10 +153,17 @@ public class SharedMarkCatalogueController(
         var allLots = new List<Models.Lot>();
         foreach (var code in BrokerCode.All)
         {
-            var lots = BrokerCatalogueUploadParser.Parse(code, importer, rowsByBroker[code], saleNo);
-            if (lots.Count == 0) return BadRequest($"Couldn't read any lots from the {code} file — check it's the right file/format.");
-            allLots.AddRange(lots);
+            var parsed = BrokerCatalogueUploadParser.Parse(code, importer, rowsByBroker[code], saleNo);
+            if (parsed.Lots.Count == 0) return BadRequest($"Couldn't read any lots from the {code} file — check it's the right file/format.");
+            allLots.AddRange(parsed.Lots);
         }
+
+        // Additive side-effect for Mark Intelligence's Comparison tab forward estimate: these
+        // are exactly the raw pre-sale grade+weight facts that feature needs and has no other
+        // way to see (FactoryMarkPerformanceService.SavePreSaleSnapshotAsync's own doc
+        // comment). Captured regardless of whether report generation below succeeds, since the
+        // underlying catalogue data is real either way.
+        await performance.SavePreSaleSnapshotAsync(saleYear, saleNo, allLots, ct);
 
         GenerationResult result;
         try
@@ -134,6 +176,42 @@ public class SharedMarkCatalogueController(
         }
 
         return await BuildResponseAsync(result, ct);
+    }
+
+    /// <summary>Dry-run for generate-from-zip — see PreviewFromUpload's own doc comment; same
+    /// no-persist contract, just fed from a zip instead of 8 separate form fields.</summary>
+    [HttpPost("generate-from-zip/preview")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<ParsePreviewResponseDto>> PreviewFromZip(
+        [FromForm] int saleYear, [FromForm] int saleNo, IFormFile zipFile, CancellationToken ct)
+    {
+        if (saleYear <= 0 || saleNo <= 0) return BadRequest("Sale year and sale number are both required.");
+        if (zipFile is null || zipFile.Length == 0) return BadRequest("A zip file is required.");
+
+        var (rowsByBroker, unidentified, duplicates) = await ExtractZipEntriesAsync(zipFile, ct);
+
+        if (unidentified.Count > 0)
+            return BadRequest($"Couldn't identify the broker for: {string.Join(", ", unidentified)}. Check these are the right files.");
+        if (duplicates.Count > 0)
+            return BadRequest($"More than one file in the zip matched the same broker: {string.Join(", ", duplicates)}.");
+        var missingFromZip = BrokerCode.All.Where(code => !rowsByBroker.ContainsKey(code)).ToList();
+        if (missingFromZip.Count > 0)
+            return BadRequest($"All 8 broker files are required. Missing from the zip: {string.Join(", ", missingFromZip)}.");
+
+        var resultsByBroker = BrokerCode.All.ToDictionary(code => code, code => BrokerCatalogueUploadParser.Parse(code, importer, rowsByBroker[code], saleNo));
+        return Ok(new ParsePreviewResponseDto(BuildParseWarnings(resultsByBroker)));
+    }
+
+    private static List<string> BuildParseWarnings(IReadOnlyDictionary<string, BrokerParseResult> resultsByBroker)
+    {
+        var warnings = new List<string>();
+        foreach (var code in BrokerCode.All)
+        {
+            if (!resultsByBroker.TryGetValue(code, out var result)) continue;
+            if (result.Lots.Count == 0) warnings.Add($"{code}: no lots could be read — check it's the right file/format.");
+            else if (result.SkippedRows > 0) warnings.Add($"{code}: {result.SkippedRows} row(s) skipped (missing or invalid fields).");
+        }
+        return warnings;
     }
 
     public record DetectSaleInfoResponseDto(int? SaleYear, int? SaleNo, string? SaleDate, List<string> Warnings);
