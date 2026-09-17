@@ -6,8 +6,8 @@
   "scripts": {
     "predev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/free-dev-ports.ps1",
     "dev": "npm run db:start && concurrently -n API,WEB -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
-    "dev:backend": "cross-env DOTNET_gcServer=0 dotnet run --project backend/Asc.Api --urls http://0.0.0.0:5058",
-    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "cross-env DOTNET_gcServer=0 DOTNET_GCConserveMemory=9 dotnet run --project backend/Asc.Api --urls http://0.0.0.0:5058",
+    "dev:frontend": "cross-env NODE_OPTIONS=--max-old-space-size=1536 npm run dev --prefix frontend",
     "db:start": "powershell -NoProfile -ExecutionPolicy Bypass -File data/mongodb/start-mongodb.ps1"
   },
   "devDependencies": {

@@ -1,8 +1,7 @@
 namespace Asc.Api.Modules.Deadlines;
 
 /// <summary>
-/// The first *recurring* background job in this codebase — SaleMetaWarmer only ever runs
-/// once at startup, so this owns its own timer loop rather than copying that shape.
+/// The first *recurring* background job in this codebase, so it owns its own timer loop.
 /// DeadlineEngine is a singleton (same lifetime as everything else this touches:
 /// MongoContext, INotificationService), so no IServiceScopeFactory dance is needed.
 /// </summary>

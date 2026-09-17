@@ -17,6 +17,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The CTTA By-Laws reference's canonical copy lives in /docs; this ships it next to the
+         binaries so CttaBylawsService still finds it when ContentRootPath/../../docs doesn't
+         exist. Conditional because Docker's backend-only build context has no /docs. -->
+    <None Include="..\..\docs\ctta-bylaws-knowledge-base.md" Link="docs\ctta-bylaws-knowledge-base.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\..\docs\ctta-bylaws-knowledge-base.md')" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Pins NPOI's transitive System.Security.Cryptography.Xml (used internally for OOXML
          digital-signature support NPOI ships but this app's read-only cell-value parsing never
          touches) up from 8.0.2, which carries 8 High-severity advisories, to a patched release

@@ -579,19 +579,13 @@ body {
   to   { opacity: 1; transform: scale(1); }
 }
 
-/* Login page backdrop — the CC0 Nuwara Eliya terraces (public/tea/intro) with the blur
-   and darkening BAKED INTO the asset (public/tea/login-bg*.webp, 20 KB), never a runtime
-   CSS filter (the weak-GPU rule). Brand gradient stays underneath as the loading/failure
-   fallback. */
+/* Login page backdrop for the brief pre-auth-check "Preparing your workspace…" moment on
+   /login — the blurred Nuwara Eliya terrace photo (public/tea/login-bg*.webp) that used to sit
+   behind it didn't suit that split-second loading state, per the user's own instruction; the
+   brand gradient alone now covers it. The full "Ceylon Tea Journey" cinematic (TeaCinematic,
+   its own separate scene images) is untouched — this only ever styled this one loading div. */
 .login-bg {
-  background-image: url("/tea/login-bg.webp"), var(--brand-gradient);
-  background-size: cover;
-  background-position: center;
-}
-@media (max-width: 767px) {
-  .login-bg {
-    background-image: url("/tea/login-bg-sm.webp"), var(--brand-gradient);
-  }
+  background: var(--brand-gradient);
 }
 
 /* Cinematic captions — bottom-left kicker + display-serif line over each scene, the

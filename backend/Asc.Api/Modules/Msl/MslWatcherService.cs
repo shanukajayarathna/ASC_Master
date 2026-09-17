@@ -9,7 +9,7 @@ namespace Asc.Api.Modules.Msl;
 /// raises dozens of change events, so the watcher waits for the folder to go quiet for a
 /// few seconds and then runs one scan covering everything that arrived.
 /// </summary>
-public class MslWatcherService(MslImportService importer, MslRollupService rollups, MslReferenceService reference, MslEnrichmentService enrichment, Asc.Api.Data.MongoContext db, ILogger<MslWatcherService> logger) : BackgroundService
+public class MslWatcherService(MslImportService importer, MslRollupService rollups, MslEnrichmentService enrichment, Asc.Api.Data.MongoContext db, ILogger<MslWatcherService> logger) : BackgroundService
 {
     private static readonly TimeSpan Quiet = TimeSpan.FromSeconds(4);
     private FileSystemWatcher? _watcher;
@@ -34,9 +34,11 @@ public class MslWatcherService(MslImportService importer, MslRollupService rollu
                 .ToListAsync(stoppingToken);
             logger.LogInformation("MSL cache warmed: {Count} lots of {Year} paged in", warmed.Count, year);
 
-            // Build the factory→group reference now (parses every sale Excel once) so the
-            // first Analysis request doesn't pay ~50s for the lazy build.
-            _ = reference.ByFactory;
+            // The factory→group reference (MslReferenceService.ByFactory) is left to build
+            // lazily on first use rather than forced here — building it parses every sale
+            // Excel via SaleFileStore, which is exactly the multi-hundred-MB spike this
+            // startup sequence should avoid. The first Analysis request after a cold start
+            // pays that ~50s cost once instead.
 
             // Bags/packing enrichment from the sale Excels for any sale not yet enriched;
             // enriched data must invalidate the analytics caches.
@@ -80,8 +82,8 @@ public class MslWatcherService(MslImportService importer, MslRollupService rollu
         logger.LogInformation("MSL watcher active on {Root}", root);
 
         // Catch-up pass: files changed during the startup window (initial scan → warming →
-        // reference build → enrichment) happened before EnableRaisingEvents and were never
-        // seen. Queue one scan now — costs under a second when nothing actually changed.
+        // enrichment) happened before EnableRaisingEvents and were never seen. Queue one
+        // scan now — costs under a second when nothing actually changed.
         Interlocked.Exchange(ref _pendingSince, DateTime.UtcNow.Ticks - Quiet.Ticks);
 
         while (!stoppingToken.IsCancellationRequested)
