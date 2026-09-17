@@ -54,13 +54,21 @@ public static class MarketBulletinEngine
         return pool.Where(l => set.Contains(NormGrade(l.Grade))).ToList();
     }
 
-    private static PriceRangeDto ToDto(TierSplitter.PriceRange r) => new(r.Min, r.Max, r.LotCount);
+    private static PriceRangeDto ToDto(TierSplitter.PriceRange r, decimal totalQuantityKg) =>
+        new(r.Min, r.Max, r.LotCount, totalQuantityKg > 0 ? Math.Round(r.QuantityKg / totalQuantityKg * 100m, 1) : null);
+
+    /// <summary>Denominator for QuantityPct — the grade's whole priced, sold quantity for that
+    /// week, filtered the same way TierSplitter.SliceFourTiers filters before cutting into
+    /// tiers (PurchasedPrice must be set), so a tier's percentage share is always taken against
+    /// the same population it was cut from rather than a mismatched, unfiltered total.</summary>
+    private static decimal TotalQuantityKg(List<Lot> lots) =>
+        lots.Where(l => l.PurchasedPrice.HasValue).Sum(l => l.NetWeight ?? 0m);
 
     private static BulletinRowDto BuildRow(string label, List<Lot> thisWeek, List<Lot> lastWeek, int[] tierIndices)
     {
         var tw = TierSplitter.Merge(TierSplitter.ComputeFourTiers(thisWeek), tierIndices);
         var lw = TierSplitter.Merge(TierSplitter.ComputeFourTiers(lastWeek), tierIndices);
-        return new BulletinRowDto(label, ToDto(tw), ToDto(lw));
+        return new BulletinRowDto(label, ToDto(tw, TotalQuantityKg(thisWeek)), ToDto(lw, TotalQuantityKg(lastWeek)));
     }
 
     private static readonly int[] TopTwoTiers = [TierSplitter.SelectBest, TierSplitter.Best];

@@ -195,8 +195,8 @@ export interface TppRegionEntry {
   /** Longest actual Selling Mark name (characters) within THIS region alone — same per-region
    *  reasoning as maxGradeChars, and the actual fix for real long mark names truncating to an
    *  unreadable "ARUNA PASSA…"/"GOLDEN GARD…" a few characters in: spanColsForRegion sizes THIS
-   *  region's own internal column count (capped at TPP_MARK_LEGIBILITY_CAP) so its own longest
-   *  name renders in full wherever the page budget allows it, rather than truncating every region
+   *  region's own internal column count so its own longest name renders in full — never capped,
+   *  since even a single genuinely enormous outlier name must still show in full — rather than truncating every region
    *  down to one sale-wide guessed floor regardless of what its own names actually need. */
   maxMarkChars: number;
 }
@@ -659,32 +659,49 @@ function tppMarkMaxCharsForCols(cols: number, css: TppDensity["css"], gradeBasis
   return Math.max(4, Math.floor(available / (css.rowFontSize * TPP_MARK_CHAR_WIDTH_RATIO)));
 }
 
-/** Upper bound on how much column width a single region is ever allowed to demand for Selling
- *  Mark legibility — without this, one genuinely enormous outlier name (the raw MSL layout's own
- *  field is up to 30 characters, see [[msl-data-corpus]]) could force that one region down to a
- *  single absurdly-wide column regardless of how many rows it has. Real sale data measured while
- *  fixing this (Sale 33-2026, 259 ranked rows) tops out at 18-character names with a p90 of 16, so
- *  this comfortably covers the overwhelming majority of real names in full while still bounding
- *  the rare pathological case. */
-const TPP_MARK_LEGIBILITY_CAP = 26;
-
-/** THIS region's own real legibility target — its longest actual Selling Mark name
- *  (TppRegionEntry.maxMarkChars), capped at TPP_MARK_LEGIBILITY_CAP. Deliberately per-region, not
- *  a flat guessed constant: the earlier version of this mechanism used one fixed floor (12) for
- *  every region, which was too low to fit real 16-18 character names (exactly the "ARUNA PASSA…"/
- *  "GOLDEN GARD…" truncation this whole per-region sizing pass exists to fix) while ALSO being
- *  needlessly generous for a region whose own names are all short (wasting width that region's
- *  Selling Mark column never needed). */
-function markLegibilityTarget(entry: TppRegionEntry): number {
-  return Math.min(entry.maxMarkChars, TPP_MARK_LEGIBILITY_CAP);
+/** THIS region's own resolved `.grade` column width for a CANDIDATE `cols` — cols>1 widens it to
+ *  also fit the "Cont. " prefix (TPP_GRADE_CONT_PREFIX_CHARS) a multi-column reflow can show on a
+ *  split grade group's continuation row (Row, TopPriceBulletin.tsx), cols===1 never needs it since
+ *  a single-column section can't split a grade group at all. Both `maxColsForMarkFloor` (validating
+ *  whether a candidate `cols` leaves enough Selling Mark room) and `resolveTppSections` (computing
+ *  the FINAL width actually rendered) must call this same function for the same `cols` — they used
+ *  to diverge (maxColsForMarkFloor validated against the narrow, no-prefix width while the final
+ *  render used the wider prefix-inclusive one for any cols>1), which meant a region could pass its
+ *  own width-floor check and still end up with less real room than that check assumed, silently
+ *  truncating a long name (e.g. "NEW ARUNA PASSARA") despite markLegibilityTarget/allMarkNamesFitIn
+ *  otherwise appearing to guarantee it wouldn't. */
+function gradeBasisPxForCols(css: TppDensity["css"], gradeFontSize: number, maxGradeChars: number, cols: number): number {
+  const chars = cols > 1 ? maxGradeChars + TPP_GRADE_CONT_PREFIX_CHARS : maxGradeChars;
+  return gradeBasisFor(css.gradeBasis, gradeFontSize, chars);
 }
 
-/** The most internal columns a region can use while keeping every column's own markMaxChars at
- *  or above `requiredMarkChars` (markLegibilityTarget), for this section's own resolved
- *  `gradeBasisPx` — markMaxChars only shrinks as `cols` grows (each column gets a smaller share
- *  of the fixed page width), so this is a straightforward top-down scan rather than a search. */
-function maxColsForMarkFloor(css: TppDensity["css"], gradeBasisPx: number, requiredMarkChars: number): number {
+/** THIS region's own real legibility target — its longest actual Selling Mark name
+ *  (TppRegionEntry.maxMarkChars), UNCAPPED: every full name must render, no matter how long (the
+ *  raw MSL layout's own field goes up to 30 characters, see [[msl-data-corpus]], and nothing
+ *  shorter than the true longest name is an acceptable target — a cap here is exactly what let
+ *  outlier names silently truncate). Deliberately per-region, not a flat guessed constant: the
+ *  earlier version of this mechanism used one fixed floor (12) for every region, which was too low
+ *  to fit real 16-18 character names (exactly the "ARUNA PASSA…"/"GOLDEN GARD…" truncation this
+ *  whole per-region sizing pass exists to fix) while ALSO being needlessly generous for a region
+ *  whose own names are all short (wasting width that region's Selling Mark column never needed).
+ *  maxColsForMarkFloor still falls back to a single internal column for a region with a genuinely
+ *  enormous outlier name, which is always enough room — it never narrows further, so the name
+ *  still renders in full rather than truncating. */
+function markLegibilityTarget(entry: TppRegionEntry): number {
+  return entry.maxMarkChars;
+}
+
+/** The most internal columns a region can use while keeping every column's own markMaxChars at or
+ *  above `requiredMarkChars` (markLegibilityTarget) — markMaxChars only shrinks as `cols` grows
+ *  (each column gets a smaller share of the fixed page width), so this is a straightforward
+ *  top-down scan rather than a search. Resolves `.grade`'s width per candidate `cols` via
+ *  `gradeBasisPxForCols` (not a single fixed `gradeBasisPx`), so a candidate that only fits once
+ *  reflowed into more than one column is checked against the WIDER, prefix-inclusive grade column
+ *  it will actually render with — the same width `resolveTppSections` uses for that `cols`, so a
+ *  passing result here is never silently invalidated downstream. */
+function maxColsForMarkFloor(css: TppDensity["css"], gradeFontSize: number, maxGradeChars: number, requiredMarkChars: number): number {
   for (let cols = TPP_MAX_SPAN_COLS; cols >= 1; cols--) {
+    const gradeBasisPx = gradeBasisPxForCols(css, gradeFontSize, maxGradeChars, cols);
     if (tppMarkMaxCharsForCols(cols, css, gradeBasisPx) >= requiredMarkChars) return cols;
   }
   return 1;
@@ -804,8 +821,8 @@ const TPP_MAX_SPAN_COLS = 9;
  *  one page's budget (the same "a single region can be too tall for any one page" problem
  *  estimateTppAutoCardHeight's own comment describes — Low Grown/Uva Medium routinely need this
  *  last-resort escalation; an ordinary region never reaches the cap by row count alone).
- *  `gradeBasisPx` is this region's own resolved grade-column width (gradeBasisFor); `widthCap`
- *  (maxColsForMarkFloor, sized to THIS region's own markLegibilityTarget) is a genuine CEILING
+ *  `widthCap` (maxColsForMarkFloor, sized to THIS region's own markLegibilityTarget, resolving its
+ *  own per-`cols` grade-column width via gradeBasisPxForCols) is a genuine CEILING
  *  here, not just a floor-raiser — a region whose row count alone would call for more columns
  *  than its own longest Selling Mark name can survive gets held at `widthCap` instead, even if
  *  that means its card runs taller than the row-count target assumed (the real bug this whole
@@ -817,10 +834,13 @@ const TPP_MAX_SPAN_COLS = 9;
  *  spills it to the next page) rather than narrowing columns further to force a fit — see
  *  planTppBulletinAutoFit's own `t` scan for the other half of resolving that: a denser layout
  *  shrinks both row height AND widens `widthCap` at once. */
-function spanColsForRegion(cat: TppAutoCategory, density: TppDensity, gradeBasisPx: number, entry: TppRegionEntry): number {
+function spanColsForRegion(cat: TppAutoCategory, density: TppDensity, entry: TppRegionEntry): number {
   const rowCount = cat.grades.reduce((n, g) => n + g.rows.length, 0);
   if (!rowCount) return 1;
-  const widthCap = Math.max(1, maxColsForMarkFloor(density.css, gradeBasisPx, markLegibilityTarget(entry)));
+  const widthCap = Math.max(
+    1,
+    maxColsForMarkFloor(density.css, density.css.gradeFontSize, entry.maxGradeChars, markLegibilityTarget(entry))
+  );
   const rowsTarget = Math.min(TPP_MAX_SPAN_COLS, Math.ceil(rowCount / TPP_ROWS_PER_COL_TARGET));
   let cols = Math.min(rowsTarget, widthCap);
   cols = Math.max(cols, Math.min(TPP_MIN_SPAN_COLS, widthCap));
@@ -853,11 +873,8 @@ function resolveTppSections(
   density: TppDensity
 ): { section: TppSection; height: number }[] {
   return entries.map((entry) => {
-    let gradeBasisPx = gradeBasisFor(density.css.gradeBasis, density.css.gradeFontSize, entry.maxGradeChars);
-    const spanCols = spanColsForRegion(entry.category, density, gradeBasisPx, entry);
-    if (spanCols > 1) {
-      gradeBasisPx = gradeBasisFor(density.css.gradeBasis, density.css.gradeFontSize, entry.maxGradeChars + TPP_GRADE_CONT_PREFIX_CHARS);
-    }
+    const spanCols = spanColsForRegion(entry.category, density, entry);
+    const gradeBasisPx = gradeBasisPxForCols(density.css, density.css.gradeFontSize, entry.maxGradeChars, spanCols);
     const height = estimateTppAutoCardHeight(entry.category, spanCols, density);
     return {
       section: { entry, spanCols, markMaxChars: tppMarkMaxCharsForCols(spanCols, density.css, gradeBasisPx), gradeBasisPx },

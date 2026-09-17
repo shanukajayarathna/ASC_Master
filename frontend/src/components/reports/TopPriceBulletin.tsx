@@ -41,7 +41,8 @@ function Row({
           over its rows rather than being echoed on every line. `contLabel`'s "Cont. <grade>" text
           renders in-flow, on one line — planTppFullWidthLayout (topPricePageExport.ts) already
           widens this section's own grade column to fit it whenever the section can reflow into
-          more than one internal column, so it never wraps or grows this row's own height. */}
+          more than one internal column, so it never wraps or grows this row's own height. The
+          shared grade reads as one bold heading over its rows (no underline). */}
       <span className={styles.grade} data-grade-start={gradeStart ? "true" : "false"} data-cont={contLabel ? "true" : "false"}>
         {gradeStart ? row.grade : contLabel ?? " "}
       </span>

@@ -14,24 +14,25 @@ namespace Asc.Api.Modules.MarketBulletin;
 /// position (the 1st sale of this month against the 1st sale of last month, not by matching
 /// sale numbers, which reset per year and don't carry month alignment anyway).
 ///
-/// Per sale: the market's own price SPAN (every broker's sold lots that sale — the literal
-/// lowest sold price to the literal highest, no trimming) is split into four bands by taking
-/// 20/35/30/15 proportional SLICES OF THAT PRICE WIDTH, not a lot-count percentile — Select
-/// Best is the top 20% of the sale's own price range that week, Poor the bottom 15%, however
-/// many lots actually land in each. This is deliberately different from TierSplitter (what
-/// pages 1-3, and an earlier version of this page, use): a lot-count cut always forces ~15% of
-/// that sale's lots into Poor by construction, no matter what the market actually did, which
-/// meant Poor could never show a real quality swing. Confirmed with the user this price-width
-/// method, recalculated fresh per sale (not calibrated from a separate reference period), is the
-/// intended one for this page. A 5th-95th percentile trim was tried and reverted per the user's
-/// own senior: the literal min/max is what they want, even when a single lot sits at either
-/// extreme.
+/// Per sale: the market's own price bands are cut by CUMULATIVE QUANTITY (Kg), per the user's
+/// own instruction — every broker's sold lots that sale, sorted by price descending, walked
+/// accumulating traded weight until 15/45/85% of the market's total Kg is reached (a 15/30/40/15
+/// Select Best/Best/Below Best/Poor split — the same one TierSplitter uses for pages 1-3, both
+/// updated together from an earlier 20/35/30/15 split per the user's own instruction); Select
+/// Best's threshold is the price where the running total first crosses 15%, Best's at 45%, Below
+/// Best's at 85%, Poor's is simply the sale's lowest sold price. This replaced an earlier
+/// PRICE-WIDTH version (proportional slices of literal max-to-min price, no quantity involved in
+/// where a band started) — see ComputeQuantityWeightedThresholds' own doc comment for why. Both
+/// are still deliberately different from TierSplitter's lot-COUNT percentile mechanism (they
+/// share the same tier PROPORTIONS, just cut by quantity vs. by lot count): a count-based cut
+/// always forces exactly 15% of that sale's lots into Poor by construction regardless of what
+/// the market actually did.
 ///
 /// Asia Siyaka's own sold lots (TopPriceEngine.IsOurBroker) are then classified into whichever
 /// of that same sale's own price bands each lot's own price actually falls into, and reduced to
-/// two numbers per band: total quantity (kg) and a quantity-weighted average price of just ASC's
-/// own lots in that band — see MonthlyTierMetricsDto's own doc comment for why not a plain
-/// per-lot average.
+/// per-band totals: total quantity (kg) plus the literal min/max price among just ASC's own lots
+/// in that band, shown as a range rather than one averaged number — see MonthlyTierMetricsDto's
+/// own doc comment for why.
 /// </summary>
 public static class MarketBulletinMonthlyEngine
 {
@@ -142,7 +143,7 @@ public static class MarketBulletinMonthlyEngine
     internal static List<MonthlyTierMetricsDto> BuildTierMetricsForSale(IReadOnlyList<Lot> lots)
     {
         var marketSold = TopPriceEngine.ScopeToSold(lots).Sold;
-        var thresholds = ComputePriceWidthThresholds(marketSold);
+        var thresholds = ComputeQuantityWeightedThresholds(marketSold);
 
         var buckets = new List<Lot>[] { [], [], [], [] };
         foreach (var lot in marketSold.Where(TopPriceEngine.IsOurBroker))
@@ -151,28 +152,46 @@ public static class MarketBulletinMonthlyEngine
         return TierNames.Select((name, idx) => BuildTierMetrics(name, buckets[idx])).ToList();
     }
 
-    /// <summary>The four Valuation Centre price-band thresholds as proportional slices of the
-    /// market's own price WIDTH that sale — Select Best's threshold is 20% of the way down from
-    /// the top of that width, Best's is 55% down, Below Best's is 85% down (equivalently, 15% up
-    /// from the bottom), and Poor's own threshold is the bottom of it, so every priced lot
-    /// matches at least that last check. Deliberately NOT TierSplitter's lot-count percentile —
-    /// see this class's own doc comment for why a price-width slice is what actually lets Poor
-    /// grow or shrink with real market quality, unlike a count-based cut which always claims
-    /// ~15% of lots regardless of what sold.
-    ///
-    /// The "top" and "bottom" of that width are the literal highest and lowest sold price that
-    /// sale, even when only a single lot sits at either extreme — a 5th-95th percentile trim was
-    /// tried (to stop one freak lot from setting the ruler for the whole sale) and reverted once
-    /// the user's own senior confirmed the literal range is what they actually want.</summary>
-    private static decimal?[] ComputePriceWidthThresholds(List<Lot> lots)
+    /// <summary>The four Valuation Centre price-band thresholds, cut by cumulative QUANTITY (Kg)
+    /// across the whole market that sale, per the user's own instruction — replaces an earlier
+    /// price-WIDTH version of this method (proportional slices of literal max-to-min price, with
+    /// no quantity involved in deciding where a band starts). Every broker's sold lots that sale
+    /// are sorted by price descending, then walked accumulating NetWeight: Select Best's
+    /// threshold is the price of the lot at which cumulative quantity first reaches 15% of the
+    /// market's total traded Kg, Best's at 45% (15% + a 30%-wide Best band), Below Best's at 85%
+    /// (+ a 40%-wide Below Best band), and Poor's own threshold is simply the lowest sold price
+    /// (the remaining 15%), so every priced lot matches at least that last check — the same
+    /// 15/30/40/15 split TierSplitter uses for pages 1-3, updated together from the original
+    /// 20/35/30/15 per the user's own instruction so the two never drift apart. A price band can
+    /// be wide or narrow depending on how much quantity actually traded at those prices, not on
+    /// how far apart the literal min/max happen to sit — a sale with a handful of very cheap,
+    /// very small lots no longer drags Poor's band across most of the price axis the way a
+    /// price-width cut could.</summary>
+    private static decimal?[] ComputeQuantityWeightedThresholds(List<Lot> lots)
     {
-        var priced = lots.Where(l => l.PurchasedPrice.HasValue).Select(l => l.PurchasedPrice!.Value).ToList();
+        var priced = lots.Where(l => l.PurchasedPrice.HasValue)
+            .OrderByDescending(l => l.PurchasedPrice!.Value)
+            .ToList();
         if (priced.Count == 0) return [null, null, null, null];
-        var max = priced.Max();
-        var min = priced.Min();
-        var span = max - min;
-        if (span <= 0) return [max, max, max, min];
-        return [max - span * 0.20m, max - span * 0.55m, max - span * 0.85m, min];
+
+        var min = priced[^1].PurchasedPrice!.Value;
+        var totalQty = priced.Sum(l => l.NetWeight ?? 0m);
+        if (totalQty <= 0) return [min, min, min, min];
+
+        decimal cumulative = 0;
+        decimal? t15 = null, t45 = null, t85 = null;
+        foreach (var lot in priced)
+        {
+            cumulative += lot.NetWeight ?? 0m;
+            var cumulativeFraction = cumulative / totalQty;
+            if (t15 is null && cumulativeFraction >= 0.15m) t15 = lot.PurchasedPrice!.Value;
+            if (t45 is null && cumulativeFraction >= 0.45m) t45 = lot.PurchasedPrice!.Value;
+            if (t85 is null && cumulativeFraction >= 0.85m) t85 = lot.PurchasedPrice!.Value;
+        }
+        // Guards the same all-zero-quantity edge case as the totalQty<=0 return above, but for
+        // individual lots with null/zero weight scattered through an otherwise-fine sale —
+        // cumulativeFraction can then legitimately never cross a threshold before the loop ends.
+        return [t15 ?? min, t45 ?? min, t85 ?? min, min];
     }
 
     /// <summary>Select Best's threshold checked first, so a price sitting exactly on a shared
@@ -191,11 +210,11 @@ public static class MarketBulletinMonthlyEngine
 
     private static MonthlyTierMetricsDto BuildTierMetrics(string tierName, List<Lot> tierLots)
     {
-        if (tierLots.Count == 0) return new MonthlyTierMetricsDto(tierName, null, null, 0);
+        if (tierLots.Count == 0) return new MonthlyTierMetricsDto(tierName, null, null, null, 0);
         var qty = tierLots.Sum(l => l.NetWeight ?? 0m);
-        var value = tierLots.Sum(l => (l.NetWeight ?? 0m) * l.PurchasedPrice!.Value);
-        var avgPrice = qty > 0 ? value / qty : tierLots.Average(l => l.PurchasedPrice!.Value);
-        return new MonthlyTierMetricsDto(tierName, qty, Math.Round(avgPrice), tierLots.Count);
+        var minPrice = tierLots.Min(l => l.PurchasedPrice!.Value);
+        var maxPrice = tierLots.Max(l => l.PurchasedPrice!.Value);
+        return new MonthlyTierMetricsDto(tierName, qty, minPrice, maxPrice, tierLots.Count);
     }
 
     private static IReadOnlyList<(int SaleNo, DateTime Date)> AlignToKnownDate(

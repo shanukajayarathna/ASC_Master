@@ -29,6 +29,7 @@ public class MarketBulletinMonthlyEngineTests
         public IReadOnlyList<ValuedLotSlim> GetValuedSlim(Guid catalogueId) => [];
         public IReadOnlyList<(int SaleNo, DateTime Date)> SalesInMonth(int year, int month) => calendar.GetValueOrDefault((year, month), []);
         public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex() => new Dictionary<string, (string Name, string Elevation)>();
+        public IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates() => new Dictionary<string, DateTime>();
     }
 
     private static Catalogue Sale(int year, int saleNo) => new()
@@ -90,86 +91,97 @@ public class MarketBulletinMonthlyEngineTests
     }
 
     [Fact]
-    public void BuildTierMetricsForSale_UsesLiteralMinMax_EvenWithASingleOutlierLot()
+    public void BuildTierMetricsForSale_PoorThresholdIsLiteralMinimumPrice_EvenWithASingleOutlierLot()
     {
         // 20 "normal" lots evenly spaced 500..1830, plus one freak outlier at 5850 — mirrors
-        // real Sale 31-2026 data (9,224 lots, Rs 420-5,850). A 5th-95th percentile trim was
-        // tried here specifically to stop that one outlier from setting the ruler, but the
-        // user's own senior confirmed the literal range is what they want even when only a
-        // single lot sits at the extreme — so the outlier alone now sets Select Best's
-        // threshold (5850-0.20*(5850-500)=4780), and only that one lot clears it.
+        // real Sale 31-2026 data (9,224 lots, Rs 420-5,850). Whatever the cumulative-quantity
+        // cuts land on, Poor's own threshold is always simply the sale's lowest sold price (500
+        // here), so ASC's own lowest lot always still matches it, however extreme the top of the
+        // market gets.
         var normalLots = Enumerable.Range(0, 20).Select(i => Lot("ASC", 500 + i * 70, 10)).ToList();
         var lots = normalLots.Append(Lot("ASC", 5850, 10)).ToList();
 
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
 
+        // The single outlier is 1 of 21 equally-weighted lots (10kg each, 210kg total) — nowhere
+        // near the 15% cumulative share (31.5kg) needed to set Select Best's own threshold alone,
+        // unlike the old price-width cut where its raw price did. Cumulative quantity only
+        // crosses 31.5kg at the 4th lot by price (5850, 1830, 1760, 1690 = 40kg), so Select Best
+        // ends up with those top 4 lots, not just the one outlier.
         var selectBest = tiers.Single(t => t.Tier == "Select Best");
-        Assert.Equal(1, selectBest.LotCount);
-        Assert.Equal(5850m, selectBest.AveragePrice);
+        Assert.Equal(4, selectBest.LotCount);
     }
 
     [Fact]
-    public void BuildTierMetricsForSale_SplitsByPriceWidth_NotLotCount()
+    public void BuildTierMetricsForSale_CutsByCumulativeQuantity_NotLotCount()
     {
-        // Market spans 0..1000 (min=0, max=1000, span=1000): thresholds land at
-        // 1000-0.20*1000=800 (Select Best), 1000-0.55*1000=450 (Best), 1000-0.85*1000=150
-        // (Below Best), and 0 (Poor, the market's own minimum). A lot-count split on these same
-        // 6 lots would instead force exactly 1/2/2/1 lots into each tier regardless of price —
-        // this test proves the boundary is a price value, not a count.
+        // One heavy, cheap-ish lot (80 of 100 total kg) sits second-from-top by price, next to
+        // four much lighter lots. A lot-count cut of these 5 lots would put exactly the single
+        // top-priced lot (15% of 5) in Select Best; a cumulative-QUANTITY cut instead keeps
+        // accumulating past that top lot's own small 1kg share until the running total crosses
+        // 15%, which only happens once the 80kg lot is included too — proving the threshold
+        // tracks traded weight, not how many lots are being counted.
         var lots = new List<Lot>
         {
-            Lot("Forbes", 1000, 10),
-            Lot("Forbes", 900, 10), // both >=800 -> Select Best, even though that's 2 of 6 lots (33%), not 20%
-            Lot("ASC", 850, 10),
-            Lot("ASC", 100, 10), // 100 < 150 -> Poor, even though most of the market priced above it
-            Lot("Forbes", 50, 10),
-            Lot("Forbes", 0, 10),
+            Lot("ASC", 1000, 1),
+            Lot("ASC", 900, 80),
+            Lot("ASC", 800, 5),
+            Lot("ASC", 700, 5),
+            Lot("ASC", 600, 9),
         };
+        // Total kg = 100. Cumulative by price desc: 1000->1 (1%), 900->81 (81%, crosses both 15%
+        // and 45% at once), 800->86 (86%, crosses 85%), 700->91%, 600->100%. So thresholds:
+        // Select Best >= 900, Best >= 900 too (ties to the same lot — nothing separately clears
+        // Best's own band), Below Best >= 800, Poor (catch-all) = 600 (the sale's own minimum).
 
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
 
         var selectBest = tiers.Single(t => t.Tier == "Select Best");
-        Assert.Equal(1, selectBest.LotCount); // only ASC's 850 lot
-        Assert.Equal(850m, selectBest.AveragePrice);
+        Assert.Equal(2, selectBest.LotCount); // 1000 and 900 both clear the >=900 threshold
+        Assert.Equal(81m, selectBest.QuantityKg); // 1 + 80
+
+        Assert.Equal(0, tiers.Single(t => t.Tier == "Best").LotCount); // ties to Select Best's own threshold, nothing left to clear it separately
+
+        var belowBest = tiers.Single(t => t.Tier == "Below Best");
+        Assert.Equal(1, belowBest.LotCount); // 800 clears >=800 but not >=900
+        Assert.Equal(5m, belowBest.QuantityKg);
 
         var poor = tiers.Single(t => t.Tier == "Poor");
-        Assert.Equal(1, poor.LotCount); // only ASC's 100 lot
-        Assert.Equal(100m, poor.AveragePrice);
-
-        Assert.Equal(0, tiers.Single(t => t.Tier == "Best").LotCount);
-        Assert.Equal(0, tiers.Single(t => t.Tier == "Below Best").LotCount);
+        Assert.Equal(2, poor.LotCount); // 700 and 600 fall to the catch-all
+        Assert.Equal(14m, poor.QuantityKg); // 5 + 9
     }
 
     [Fact]
-    public void BuildTierMetricsForSale_LongTailOfCheapLots_PoorCanExceedFixedFifteenPercent()
+    public void BuildTierMetricsForSale_HeavyCheapLots_PullThresholdsDownByWeightNotCount()
     {
-        // A week where MOST of the market genuinely priced low: 8 of 10 lots are cheap (near the
-        // market minimum), only 2 are expensive. A lot-count split would still force exactly 15%
-        // (here, effectively 1-2 lots) into Poor; a price-width split lets Poor capture however
-        // much of the real spread is actually down there. Span = 1000-0=1000, so Poor's own
-        // threshold is 0 (the minimum) and Below Best's is 150 — everything at or below 150
-        // lands in Below Best or Poor, which here is most of ASC's cheap lots.
+        // Two expensive lots carry almost no weight (1kg each); eight cheaper lots carry most of
+        // the market's real quantity (20kg each). A plain lot-count cut of these 10 lots would
+        // put exactly the top 1-2 (15%) in Select Best regardless of weight — but here the two
+        // priciest lots are only 2 of 162 total kg (~1.2%), so cumulative quantity doesn't clear
+        // 15% until two of the "cheap-but-heavy" lots are included too, pulling Select Best's
+        // threshold well down the price axis from where a count-based cut would set it.
         var lots = new List<Lot>
         {
-            Lot("Forbes", 1000, 10),
-            Lot("Forbes", 950, 10),
-            Lot("ASC", 100, 10),
-            Lot("ASC", 90, 10),
-            Lot("ASC", 80, 10),
-            Lot("ASC", 70, 10),
-            Lot("ASC", 60, 10),
-            Lot("ASC", 50, 10),
-            Lot("ASC", 40, 10),
-            Lot("ASC", 0, 10),
+            Lot("ASC", 1000, 1),
+            Lot("ASC", 950, 1),
+            Lot("ASC", 100, 20),
+            Lot("ASC", 90, 20),
+            Lot("ASC", 80, 20),
+            Lot("ASC", 70, 20),
+            Lot("ASC", 60, 20),
+            Lot("ASC", 50, 20),
+            Lot("ASC", 40, 20),
+            Lot("ASC", 0, 20),
         };
 
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
 
-        // All 8 of ASC's lots (100 down to 0) sit at or below 150 -> Below Best or Poor.
-        var belowBestPlusPoor = tiers.Where(t => t.Tier is "Below Best" or "Poor").Sum(t => t.LotCount);
-        Assert.Equal(8, belowBestPlusPoor);
-        Assert.Equal(0, tiers.Single(t => t.Tier == "Select Best").LotCount);
-        Assert.Equal(0, tiers.Single(t => t.Tier == "Best").LotCount);
+        // A lot-count cut would only ever put the top 2 priced lots (1000, 950) in Select Best.
+        // The quantity cut instead reaches all the way down to 90 before the running total
+        // clears 15% of the market's 162kg (24.3kg needed; cumulative only gets there at
+        // 1+1+20+20=42kg, 25.9%, the total after that 4th lot) — 4 lots, not 2.
+        var selectBest = tiers.Single(t => t.Tier == "Select Best");
+        Assert.Equal(4, selectBest.LotCount);
     }
 
     [Fact]
@@ -192,8 +204,9 @@ public class MarketBulletinMonthlyEngineTests
     [Fact]
     public void BuildTierMetricsForSale_AllLotsSamePrice_LandInSelectBest()
     {
-        // Zero-width span (min == max) collapses every threshold to that same price, so every
-        // lot (price == max == every threshold) matches Select Best's own check first.
+        // Every lot priced identically means every cumulative-quantity threshold lands on that
+        // same price too, so every lot (price == every threshold) matches Select Best's own
+        // check first.
         var lots = new List<Lot> { Lot("ASC", 500, 10), Lot("Forbes", 500, 10) };
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
         Assert.Equal(1, tiers.Single(t => t.Tier == "Select Best").LotCount);

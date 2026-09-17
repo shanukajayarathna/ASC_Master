@@ -18,21 +18,23 @@ public class MarketBulletinEngineTests
     // ---- TierSplitter ------------------------------------------------------------------
 
     [Fact]
-    public void ComputeFourTiers_SplitsTwentyLotsInto_4_7_6_3()
+    public void ComputeFourTiers_SplitsTwentyLotsInto_3_6_8_3()
     {
-        // 20 lots, prices 20..1 descending once sorted. 20% of 20 = 4, next 35% = 7, next 30% = 6, last 15% = 3.
+        // 20 lots, prices 20..1 descending once sorted. 15% of 20 = 3, next 30% = 6, next 40% = 8, last 15% = 3.
         var lots = Enumerable.Range(1, 20).Select(i => Lot(i)).ToList();
         var tiers = TierSplitter.ComputeFourTiers(lots);
 
-        Assert.Equal(4, tiers[TierSplitter.SelectBest].LotCount);
-        Assert.Equal(7, tiers[TierSplitter.Best].LotCount);
-        Assert.Equal(6, tiers[TierSplitter.BelowBest].LotCount);
+        Assert.Equal(3, tiers[TierSplitter.SelectBest].LotCount);
+        Assert.Equal(6, tiers[TierSplitter.Best].LotCount);
+        Assert.Equal(8, tiers[TierSplitter.BelowBest].LotCount);
         Assert.Equal(3, tiers[TierSplitter.Poor].LotCount);
 
-        // Select Best is the highest-priced 4 lots: 20 down to 17.
+        // Select Best is the highest-priced 3 lots: 20 down to 18.
         Assert.Equal(20m, tiers[TierSplitter.SelectBest].Max);
-        Assert.Equal(17m, tiers[TierSplitter.SelectBest].Min);
-        // Poor is the lowest-priced 3 lots: 3 down to 1.
+        Assert.Equal(18m, tiers[TierSplitter.SelectBest].Min);
+        // Poor is the lowest-priced 3 lots: 3 down to 1 — unchanged from the old split, since the
+        // bottom 15% is the one proportion that didn't move (only Select Best 20->15% and Best
+        // 35->30% changed; Below Best absorbed the difference, growing 30->40%).
         Assert.Equal(3m, tiers[TierSplitter.Poor].Max);
         Assert.Equal(1m, tiers[TierSplitter.Poor].Min);
     }
@@ -60,9 +62,9 @@ public class MarketBulletinEngineTests
         var tiers = TierSplitter.ComputeFourTiers(lots);
 
         var better = TierSplitter.Merge(tiers, TierSplitter.SelectBest, TierSplitter.Best);
-        Assert.Equal(11, better.LotCount); // 5 + 6
+        Assert.Equal(9, better.LotCount); // 3 + 6
         Assert.Equal(20m, better.Max);
-        Assert.Equal(10m, better.Min); // Best tier's lowest price
+        Assert.Equal(12m, better.Min); // Best tier's lowest price
 
         var full = TierSplitter.Merge(tiers, TierSplitter.SelectBest, TierSplitter.Best, TierSplitter.BelowBest, TierSplitter.Poor);
         Assert.Equal(20, full.LotCount);
@@ -84,8 +86,8 @@ public class MarketBulletinEngineTests
     [Fact]
     public void LowGrown_IsOneSection_WithLeafySemiLeafyTippyAsGroupLabels()
     {
-        // 5 OP1 lots rather than 1 — at the 20% Select Best cut, a 1-lot group rounds DOWN to
-        // an empty Select Best tier (round(1*0.20)=0); 5 lots keeps it non-empty (round(5*0.20)=1).
+        // 5 OP1 lots rather than 1 — at the 15% Select Best cut, a 1-lot group rounds DOWN to
+        // an empty Select Best tier (round(1*0.15)=0); 5 lots keeps it non-empty (round(5*0.15)=1).
         var thisWeek = new List<Lot>
         {
             Lot(500, grade: "OP1", elevation: "L"),
@@ -127,7 +129,7 @@ public class MarketBulletinEngineTests
     public void HighAndMedium_FlatFourRowPerGrade_NoMarkOrWesternsUvaSplit_IncludesHighAndMediumExcludesLow()
     {
         // 5 lots rather than 1 — see LowGrown test's own comment on why (a 1-lot group rounds
-        // its Select Best tier to empty at the 20% cut). Mixed WH/UH/WM/UM elevations and a
+        // its Select Best tier to empty at the 15% cut). Mixed WH/UH/WM/UM elevations and a
         // Nuwara Eliya selling mark are deliberately thrown in together — none of that should
         // matter anymore, only whether the elevation is High or Medium at all.
         var thisWeek = new List<Lot>
@@ -182,7 +184,7 @@ public class MarketBulletinEngineTests
     public void Dust_TwelveRowsPerGrade_LowMediumHighElevationBands()
     {
         // 5 lots per elevation band rather than 1 — see LowGrown test's own comment on why
-        // (a 1-lot group rounds its Select Best tier to empty at the 20% cut).
+        // (a 1-lot group rounds its Select Best tier to empty at the 15% cut).
         static List<Lot> Band(string elevation, decimal top) =>
             Enumerable.Range(0, 5).Select(i => Lot(top - i * 5, grade: "PD", elevation: elevation)).ToList();
 
@@ -244,9 +246,9 @@ public class MarketBulletinEngineTests
     [Fact]
     public void LastWeekComparison_PairsRowsBySection_TableAndLabel()
     {
-        // 5 lots a side rather than 2 — at the 20% Select Best cut, a 2-lot group rounds DOWN to
-        // an empty Select Best tier (round(2*0.20)=0), which isn't what this test is about; 5
-        // lots keeps Select Best non-empty (round(5*0.20)=1) so the assertions below actually
+        // 5 lots a side rather than 2 — at the 15% Select Best cut, a 2-lot group rounds DOWN to
+        // an empty Select Best tier (round(2*0.15)=0), which isn't what this test is about; 5
+        // lots keeps Select Best non-empty (round(5*0.15)=1) so the assertions below actually
         // exercise the this-week/last-week pairing this test targets, not a rounding edge case.
         var thisWeek = new List<Lot>
         {

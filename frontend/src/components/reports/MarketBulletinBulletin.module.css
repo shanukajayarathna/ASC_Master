@@ -151,14 +151,16 @@
   gap: var(--mb-sections-gap, 5px);
 }
 
-/* Compact by default (flex: 0 0 auto — hugs its own content, header sitting directly above its
-   cards) so a section never looks like it's floating inside an oversized box. Only a section
-   whose own table cards genuinely wrap onto more than one row (isMultiRowSection in the .tsx —
-   H&M Orthodox/Off Grades/Dust/Low Grown, never High Grown/Medium Grown/Unorthodox, which are
-   always exactly one row of 2 cards) gets `flex: 1 1 auto` via [data-mb-flow="grow"], since a
-   multi-row grid has real rows to spread extra height BETWEEN (see .tableGrid's own
-   align-content below) — stretching a single-row section instead just centers that one row with
-   a big dead band above and below it, which reads as unfinished, not spacious. */
+/* Every grade-table section (pages 1-3) hugs its own content (flex: 0 0 auto) rather than
+   stretching to fill leftover page height internally — per the user's own instruction: with
+   cards now packing 4 per row, most sections only have 2-4 rows, and internally stretching a
+   section with that few rows (the old always-on flex:1/align-content:space-between approach)
+   put ALL the leftover page height into just 1-3 gaps, each one huge — a page 2/page 3 "spacing
+   inequality" next to sections with more, evenly-sized gaps. `.sections`'s own space-evenly
+   (above) now absorbs ALL leftover page height uniformly, between/around every section equally,
+   everywhere. [data-mb-flow="grow"] is kept only for page 4's MonthlyComparisonSection — the
+   sole section on its page, where stretching to fill it is still exactly right (no sibling
+   sections to create an "inequality" between). */
 .section {
   display: flex;
   flex-direction: column;
@@ -171,18 +173,17 @@
 .section[data-mb-flow="grow"] {
   flex: 1 1 auto;
 }
+/* Plain black text, no background fill, per the user's own instruction — the earlier solid
+   charcoal box read as too heavy/too much vertical weight for what's just a section label. */
 .sectionHead {
   flex: 0 0 auto;
   padding: var(--mb-sectionhead-pad-t, 3px) 10px var(--mb-sectionhead-pad-b, 4px);
-  background: #2f7d52;
-  color: #fff;
+  color: #000;
   font-size: var(--mb-sectionhead-fs, 13px);
   font-weight: 700;
   line-height: 1.3;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  border-top-left-radius: 2px;
-  border-top-right-radius: 2px;
 }
 .sectionEmpty {
   flex: 1;
@@ -195,90 +196,47 @@
   font-style: italic;
 }
 
-/* Outer wrapper for a section's tables, now a flex COLUMN of "groups" (see tableGroupItems in
-   the .tsx) rather than one flat CSS grid. A section with no sub-headers (every section but Low
-   Grown) still renders as exactly one group, so it behaves identically to the old flat grid.
-   `flex: 1` absorbs the section's own share of the page's leftover height; `justify-content:
-   space-evenly` spreads that extra height BETWEEN groups (e.g. Low Grown's Leafy/Semi Leafy/
-   Tippy) rather than between every internal grid row — that used to give a subheader's own row
-   the same big evenly-spread gap as any other row, reading as a large dead band under "Leafy"
-   before its cards even started. Space still fills the whole page; it now pools between whole
-   groups instead of prying every sub-header away from its own content. */
+/* One flat CSS grid per section — Low Grown's Leafy/Semi Leafy/Tippy sub-grouping (a separate
+   grid per group) was dropped per the user's own instruction: once its sub-headers were removed,
+   splitting the grid at those boundaries only produced broken partial rows (a group of, say, 3
+   tables stopping short of the row's real 4-column capacity with dead space to its right,
+   confirmed by measuring real rendered card rects — every group's grid independently computed
+   the SAME column count, just cut off wherever that group's own table list happened to end).
+   One grid lets auto-fill wrap every section's tables uniformly (4, 4, 4, 3 — never an
+   arbitrary, group-boundary-driven 3). No `flex: 1`/`align-content: space-between` stretch
+   here any more (per the user's own instruction — see .section's own comment on why): rows of
+   cards stay their own natural, tight height, and the page's leftover height is absorbed
+   entirely by `.sections`'s outer space-evenly instead. */
 .tableGrid {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  justify-content: space-evenly;
-  gap: var(--mb-tgroup-gap, 6px);
+  display: grid;
+  align-content: start;
+  /* Both row and column gap fixed at the same 10px per the user's own instruction (consistent
+     spacing in both directions, not just horizontally) rather than the old density-driven
+     row-gap — the auto-fit ladder (MB_DENSITY_LADDER/anyPageOverflows in the .tsx) still steps
+     other sizes down if this ever pushes a page past its physical height, so fixing this gap
+     costs nothing in practice. */
+  row-gap: 10px;
+  column-gap: 10px;
   padding: var(--mb-tgrid-pad, 3px);
 }
 
-/* Every section but Low Grown has exactly one group (no [data-mb-multigroup], set in the .tsx
-   only when there's more than one) — with a single flex child, .tableGrid's own space-evenly
-   above still puts an even, wasted margin ABOVE AND BELOW that one group instead of using it for
-   content, which read as a dead band floating under the section header before any table
-   appeared. For that single-group case the group itself grows to fill the whole section instead,
-   so its own internal grid (.tableGroupGrid, below) is the one distributing the leftover height,
-   between its own rows only — no space left over for .tableGrid to waste as outer margins. */
-.tableGrid:not([data-mb-multigroup]) {
-  justify-content: flex-start;
-}
-.tableGrid:not([data-mb-multigroup]) > .tableGroup {
-  flex: 1 1 auto;
-}
-
-/* One group's own header (if any, see .tableGroupHeader below) plus its own grid of table
-   cards — kept as a single flex child so the outer .tableGrid's space-evenly only ever inserts
-   space ABOVE/BELOW a whole group, never wedged between its header and its own cards. */
-.tableGroup {
-  display: flex;
-  flex-direction: column;
-}
-
-/* The actual per-group grid of table cards — column count set inline per section (see
-   SECTION_MIN_WIDTH in the .tsx). `flex: 1` lets it fill its own .tableGroup's full height when
-   that group is the sole one growing to fill the section (see .tableGrid:not([data-mb-multigroup])
-   above); has no effect when .tableGroup itself isn't growing (Low Grown's multi-group case),
-   where the grid stays its own natural content height, tight under its own sub-header. */
-.tableGroupGrid {
-  display: grid;
-  align-content: space-between;
-  gap: var(--mb-tgrid-gap, 3px);
-  flex: 1;
-}
-
-/* Sits directly above its own group's grid with a small fixed gap (no longer a CSS-grid row of
-   its own sharing in the section's evenly-spread leftover space) — Low Grown's Leafy/Semi Leafy/
-   Tippy sub-headers, the only current user (see tableGroupItems in the .tsx). Deliberately
-   plainer than .sectionHead (no background fill) so it reads as "grouping within this section"
-   rather than a second section header. */
-.tableGroupHeader {
-  padding: 4px 2px 1px;
-  margin-bottom: 2px;
-  font-size: var(--mb-colhead-fs, 8px);
-  font-weight: 700;
-  color: #124734;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  border-bottom: 1px solid #d9b44a;
-}
-
 .table {
-  border: 1px solid #e4e0d2;
   border-radius: 2px;
   background: #fff;
   break-inside: avoid;
 }
 /* Fixed height + explicit shared line-height on both children, not align-items:baseline — same
    cross-font (Plex Mono grade label vs Plex Sans unit text) html2canvas baseline-misalignment
-   bug as .row above; see that rule's comment for the full explanation. */
+   bug as .row above; see that rule's comment for the full explanation. Solid green fill + white
+   text is the same themed header treatment TopPriceBulletin's own `.head` uses for its region
+   titles (see that file's own `.head` comment) — reused here so the grade name reads as the
+   card's own bold heading instead of a faint grey label bar. */
 .tableHead {
   display: flex;
   justify-content: space-between;
   height: var(--mb-thead-h, 16px);
   padding: 0 7px;
-  background: #eef0e6;
-  border-bottom: 1px solid #dedacb;
+  background: #2f7d52;
   border-top-left-radius: 2px;
   border-top-right-radius: 2px;
 }
@@ -287,7 +245,7 @@
   font-size: var(--mb-thead-fs, 11px);
   line-height: var(--mb-thead-h, 16px);
   font-weight: 700;
-  color: #124734;
+  color: #fff;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -295,10 +253,15 @@
   font-size: var(--mb-thead-unit-fs, 8.5px);
   line-height: var(--mb-thead-h, 16px);
   font-weight: 500;
-  color: #8b929e;
+  color: rgba(255, 255, 255, 0.8);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+/* Same exact green fill as .tableHead, no border/seam between them — per the user's own
+   instruction, this reads as ONE continuous green header (grade name on top, "This Week"/"Last
+   Week" fused directly beneath it at a smaller size), not a second block stacked under the
+   first. Font stays well below --mb-thead-fs so the grade name still reads as the card's
+   primary heading. */
 .colHead {
   display: flex;
   padding: var(--mb-colhead-pad-v, 1px) 7px;
@@ -306,33 +269,60 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #a3a696;
+  color: #fff;
+  background: #2f7d52;
   white-space: nowrap;
 }
 .colHead span:first-child {
   flex: 1;
 }
-.colHead span {
-  flex: 0 0 100px;
+/* Matches .rowValGroup's own width split below (price 80px + gap 6px + % 26px = 112px), so
+   "This Week"/"Last Week" sit directly over the price column and "Qty%" sits directly over the
+   quantity-% column beneath it, rather than one label vaguely spanning both. */
+.colHeadGroup {
+  flex: 0 0 112px;
+  display: flex;
+  gap: 6px;
+}
+.colHeadPrice {
+  flex: 0 0 80px;
   text-align: right;
 }
-.colHeadSpacer {
-  flex: 0 0 20px !important;
+.colHeadPct {
+  flex: 0 0 26px;
+  text-align: right;
 }
 
-/* The actual overlap bug (found by measuring live: a rowVal's real text width vs. its box) was
-   plain CSS overflow, present on-screen too, not an html2canvas quirk — rowVal's flex-basis was
-   shrunk to 52px during the fit-to-2-pages pass without re-checking it against the widest real
-   value string ("1,020–1,380" measures ~56px at this font/weight); white-space:nowrap with no
-   overflow:hidden meant it spilled left into the delta/label columns instead of wrapping or
-   clipping, which read as "rows overlapping" once captured. Fixed by widening rowVal/colHead to
-   60px instead. Fixed height + an absolute (px) line-height shared by every child span (kept
-   here as a genuine belt-and-suspenders measure, not the fix for this particular bug) avoids
-   flex align-items:baseline's separate, real risk of cross-font metric mismatches under
-   html2canvas — see TopPriceBulletin.module.css's own row/mark comments for that class of bug. */
+/* Real overlap, confirmed by measuring live rendered rects against REAL price data (not the
+   placeholder "NA" rows a demo/empty sale shows, which never overflow and hid this the first
+   time around) — not a perception issue, and not an html2canvas quirk. At the 255px card width
+   (see SECTION_MIN_WIDTH in the .tsx, narrowed to fit 4 cards per row), rowVal's PREVIOUS 100px
+   × 2 (plus a since-removed 20px up/down-arrow delta column between them — dropped entirely per
+   the user's own instruction) left only ~22-30px for rowLabel — even the shortest real labels
+   ("Select Best"/"Below Best", ~58px) badly overflowed their box into the value columns, worst
+   on Dust's much longer elevation-prefixed labels ("Medium Select Best" etc). rowVal was then
+   shrunk to 62px, sized only against the widest value seen in that empty demo sale
+   ("1,020–1,380", ~56px) — too small once real sales carry wider ranges: a real value like
+   "1,650–3,400" (11 characters, four-digit-to-four-digit with thousands commas) measures ~73px,
+   overflowing a 62px box by 11px every time. Widened to 80px for real headroom on values that
+   size, and `.row`'s own `gap` (added alongside) keeps this column and its neighbor visibly
+   apart — with the delta column gone, they'd otherwise sit flush with zero space between them,
+   which is exactly what made two adjacent ranges read as one run-on number. Dust's own much
+   longer labels needed a wider card altogether at this value-column width — see
+   SECTION_MIN_WIDTH's own comment. White-space:nowrap with no overflow:hidden means an
+   under-sized column spills its text into its neighbor instead of wrapping/clipping — see
+   TopPriceBulletin.module.css's own comments for why overflow:hidden is avoided here at all
+   (html2canvas corruption), so getting the column width right, not clipping, is the only real
+   fix. Fixed height + an absolute (px) line-height shared by every child span (kept here as a
+   genuine belt-and-suspenders measure, not the fix for this particular bug) avoids flex
+   align-items:baseline's separate, real risk of cross-font metric mismatches under html2canvas. */
+/* `gap` here (this-week/last-week now sit directly adjacent with no delta arrow between them —
+   see .rowVal's own comment) is what keeps them visually separate; without it two real values
+   ("1,650–3,400" next to "1,600–3,250") read as one run-on number with no space at all. */
 .row {
   display: flex;
   align-items: center;
+  gap: 4px;
   height: var(--mb-row-h, 14px);
   padding: 0 7px 0 4px;
   border-left: 3px solid transparent;
@@ -350,24 +340,15 @@
 .row[data-band-break="true"] {
   margin-top: 3px;
 }
-/* Subtle accent on the two quality extremes only (see tierAccent's own comment in the .tsx) —
-   a gold rail for the best-quality rows, a rust rail for the worst, so the eye can scan a
-   table's quality shape without reading every label. Left deliberately unaccented for the
-   middle tiers and for non-quality rows (Nuwara Eliya, High/Medium/Low bands) so the color
-   stays a meaningful signal instead of striping every row. */
-.row[data-tier="top"] {
-  border-left-color: #d9b44a;
-  background: rgba(217, 180, 74, 0.08);
+/* Per-tier color accents (a gold rail+tint for the best rows, rust for the worst) were dropped
+   per the user's own instruction — they read as busy/inconsistent against the rest of the
+   bulletin's clean typographic style. A small margin instead of color now separates the
+   classifications: see .row[data-tier-break] below. */
+.row:not(:last-child) {
+  margin-bottom: 1px;
 }
-.row[data-tier="top"][data-zebra="true"] {
-  background: rgba(217, 180, 74, 0.14);
-}
-.row[data-tier="poor"] {
-  border-left-color: #a24b3a;
-  background: rgba(162, 75, 58, 0.06);
-}
-.row[data-tier="poor"][data-zebra="true"] {
-  background: rgba(162, 75, 58, 0.11);
+.row[data-tier-break="true"] {
+  margin-top: 3px;
 }
 /* No overflow:hidden/text-overflow:ellipsis here — same html2canvas corruption already fought
    and fixed in TopPriceBulletin.module.css's .mark (confirmed there: overflow:hidden on a flex
@@ -380,11 +361,20 @@
   min-width: 0;
   line-height: var(--mb-row-h, 14px);
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: 700;
   color: #3a4a44;
 }
+/* Groups a price value with its own quantity-% (see .rowPct below) as one visual unit — matches
+   .colHeadGroup's width above so "This Week"/"Last Week" line up over both together, not just
+   the price. */
+.rowValGroup {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 0 0 auto;
+}
 .rowVal {
-  flex: 0 0 100px;
+  flex: 0 0 80px;
   min-width: 0;
   line-height: var(--mb-row-h, 14px);
   text-align: right;
@@ -398,30 +388,25 @@
 }
 .rowValLast {
   font-weight: 700;
-  color: #97998c;
+  color: #124734;
 }
-/* A small colored pill rather than a bare arrow — the delta is the one genuinely "what
-   changed" signal in the whole table, so it earns a bit more visual weight than plain text. */
-.delta {
-  flex: 0 0 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--mb-delta-h, 11px);
-  border-radius: 5px;
-  font-weight: 700;
-  font-size: var(--mb-delta-fs, 8px);
-  line-height: 1;
-}
-.deltaUp {
-  color: #1f7a4d;
-  background: rgba(31, 122, 77, 0.15);
-}
-.deltaDown {
+/* Each tier's share of the grade's total traded Kg that week (see PriceRange.quantityPct's own
+   doc comment) — smaller than the price it sits beside, since the price is still the row's
+   primary figure and this is supporting context, not a second headline number. Colored red
+   per the user's own instruction (previously a muted grey-green) so the quantity share reads
+   as its own distinct figure at a glance rather than blending into the surrounding text. */
+.rowPct {
+  flex: 0 0 26px;
+  min-width: 0;
+  line-height: var(--mb-row-h, 14px);
+  text-align: right;
+  font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.86em;
   color: #a24b3a;
-  background: rgba(162, 75, 58, 0.15);
+  white-space: nowrap;
 }
-
 /* --- page 4: month-over-month quantity/average-price pie comparison ---------------------------- */
 .monthlyUnit {
   font-size: 0.75em;
@@ -489,7 +474,23 @@
   text-transform: none;
   letter-spacing: 0.01em;
 }
+/* Fixed size (not density-scaled like pages 1-3's row heights/fonts) per the user's own
+   instruction to make these much bigger for legibility — page 4 has its own dedicated page and
+   plenty of spare height, so there's no reason to tie its donut size to whichever density rung
+   pages 1-3 happen to need. --mb-donut-size/--mb-donut-gap are plain custom properties declared
+   here and inherited by every descendant that reads them (.donutSvg, .donutLabelThis/Pending,
+   .pieLegendTable), not JS-driven `var(x, fallback)` reads like the rest of this file's `--mb-*`
+   properties.
+   190px (the first size tried) measured ~4mm too tall for one physical page in the REAL Chromium
+   print export (Playwright's page.pdf(), see pdfRender.ts) — confirmed by exporting the actual
+   PDF and counting pages, not just a browser screenshot: a screenshot has no page-break concept
+   and never shows this, since it just renders the DOM as tall as it naturally grows, while a real
+   print enforces the physical page height and pushed the trailing .footer onto a genuine extra
+   5th page. Fixed at 170px instead, verified against the real PDF export (4 pages, no overflow)
+   rather than a screenshot this time — still ~29% bigger than the original 132px this replaced. */
 .donutRow {
+  --mb-donut-size: 170px;
+  --mb-donut-gap: 22px;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-evenly;
@@ -513,7 +514,7 @@
   max-width: var(--mb-donut-size);
   text-align: center;
   line-height: 1.25;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #124734;
 }
@@ -521,60 +522,100 @@
   max-width: var(--mb-donut-size);
   text-align: center;
   line-height: 1.25;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 500;
   font-style: italic;
   color: #97998c;
 }
+/* One shared grid for the header row AND every tier row (see TopPriceBulletin.tsx's own comment
+   at the call site for why) — 6 columns: swatch, tier, a 1px gutter, Kg, another 1px gutter,
+   price. The two gutter columns hold .pieLegendVLine elements spanning every row via
+   `gridRow: "1 / 6"` (set inline per element, not here), which is what makes each divider ONE
+   genuinely continuous line instead of a separate short border per row. Every other cell also
+   gets its gridColumn/gridRow set inline (TSX), since auto-placement has no way to know it
+   should skip over the two line columns. */
 .pieLegendTable {
   width: var(--mb-donut-size);
-  display: flex;
-  flex-direction: column;
-  gap: 1.5px;
-}
-.pieLegendHeadRow {
   display: grid;
-  grid-template-columns: 8px auto 1fr 1fr;
-  gap: 4px;
-  font-size: 6.5px;
+  grid-template-columns: 10px auto 1px 36px 1px 1fr;
+  /* Widened from 6px — per the user's own instruction, text was sitting right up against the
+     vertical rules with no breathing room. Uniform column-gap keeps the same small space on
+     BOTH sides of each line (it's centered in its own 1px track either way), rather than
+     crowding one side more than the other. 8px was tried first but genuinely overflowed the
+     price column on real data (confirmed by measuring real scrollWidth after fixing a separate
+     min-width:auto grid bug that had been masking it — see .pieLegendPrice's own comment); 7px
+     plus a slightly smaller price font closes that gap while keeping most of the extra room. */
+  column-gap: 7px;
+  row-gap: 2px;
+  align-items: center;
+  padding-bottom: 2px;
+}
+.pieLegendHeadCell {
+  text-align: right;
+  font-size: 8.5px;
   font-weight: 700;
   color: #97998c;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.pieLegendHeadCell {
-  text-align: right;
+/* Matches .pieLegendPrice's own left alignment below, so "Rs/Kg" sits over where the range text
+   actually starts instead of over its own column's far/right edge. */
+.pieLegendHeadCellLeft {
+  composes: pieLegendHeadCell;
+  text-align: left;
 }
-.pieLegendRow {
-  display: grid;
-  grid-template-columns: 8px auto 1fr 1fr;
-  align-items: center;
-  gap: 4px;
-  font-size: 8px;
-  white-space: nowrap;
+/* The actual continuous vertical rule — same hairline color the rest of this report's own
+   tables already use. Kept off the tier-name column entirely: a rule there would cut right
+   through the color swatch/tier-label pairing, which already reads as its own group. */
+.pieLegendVLine {
+  width: 1px;
+  align-self: stretch;
+  background: #dedacb;
 }
 .pieLegendSwatch {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   border-radius: 2px;
-  flex: 0 0 auto;
 }
 .pieLegendTier {
+  min-width: 0;
+  font-size: 11px;
   font-weight: 600;
   color: #6b7a72;
+  white-space: nowrap;
 }
 .pieLegendQty {
+  min-width: 0;
+  font-size: 11px;
   font-weight: 600;
   color: #3a3226;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
+/* Left-aligned, per the user's own instruction — a right-aligned range (tried first, split into
+   separately-aligned min/dash/max sub-columns) still read as badly aligned: right-aligning each
+   half made the GAP after Kg (and after the dash) vary row to row depending on how many digits
+   that particular min/max happened to have. Left-aligned as one plain string instead, every
+   row's range now starts at the exact same fixed position right after Kg — simple and
+   consistent, at the cost of the range's own right edge (and the dash) landing wherever that
+   row's own text length puts it, which reads far less "scattered" than a variable starting
+   position did. */
+/* min-width:0 matters here specifically — CSS Grid items default to min-width:auto, which lets
+   a wide range string force this "1fr" track wider than its real fair share, silently growing
+   the WHOLE grid past .pieLegendTable's own declared width rather than the text properly
+   shrinking to fit (confirmed: a screenshot of the table element clipped a genuinely-overflowing
+   "1,600–4,300" mid-digit, while scrollWidth on the price span itself falsely reported zero
+   overflow — because the span itself never overflowed, the TRACK just silently grew instead). */
 .pieLegendPrice {
+  min-width: 0;
   font-weight: 700;
+  font-size: 9px;
   color: #124734;
-  text-align: right;
+  text-align: left;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 @media print {

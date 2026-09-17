@@ -2,14 +2,20 @@
 
 import type { BulletinRow, BulletinSection, BulletinTable, MarketBulletin, MonthlyComparison, MonthlySaleSlot, PriceRange } from "@/types/api";
 import type { CSSProperties } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import styles from "./MarketBulletinBulletin.module.css";
 
 /** A page's own vertical sizing knobs — every value here maps straight onto a `--mb-*` CSS
  *  custom property that MarketBulletinBulletin.module.css consumes via `var()`. Nothing here
  *  touches horizontal layout (grid columns, card widths, section grouping) at all — those stay
  *  exactly as designed regardless of density, per "shrink without affecting the structure."
- *  Only the numbers that determine how TALL a page's content is are density-scaled. */
+ *  Only the numbers that determine how TALL a page's content is are density-scaled.
+ *
+ *  Page 4's pie donuts (donutSize/donutGap) used to live here too, but per the user's own
+ *  instruction to make them much bigger for legibility, they're now a plain fixed size in the
+ *  CSS (.donutSvg/.donutRow) instead — tying their size to whichever rung pages 1-3 need would
+ *  have meant page 4 (which has its own dedicated page and plenty of spare height) staying small
+ *  just because Dust or another page-1-3 section needed a tighter rung. */
 interface MbDensity {
   rowH: number;
   rowFs: number;
@@ -21,16 +27,11 @@ interface MbDensity {
   sectionHeadFs: number;
   sectionHeadPadT: number;
   sectionHeadPadB: number;
-  tgridGap: number;
   tgridPad: number;
   sectionsGap: number;
   pageGap: number;
   pagePadV: number;
   pagePadH: number;
-  deltaH: number;
-  deltaFs: number;
-  donutSize: number;
-  donutGap: number;
 }
 
 /** Three fixed steps rather than a continuous solve (unlike Top Price Page's own
@@ -47,68 +48,53 @@ interface MbDensity {
 const MB_ROOMY: MbDensity = {
   rowH: 15,
   rowFs: 11,
-  theadH: 17,
-  theadFs: 11.5,
-  theadUnitFs: 9,
+  theadH: 22,
+  theadFs: 15.5,
+  theadUnitFs: 8.5,
   colheadFs: 8.5,
   colheadPadV: 1.5,
   sectionHeadFs: 13.5,
   sectionHeadPadT: 3.5,
   sectionHeadPadB: 4.5,
-  tgridGap: 3.5,
   tgridPad: 3.5,
   sectionsGap: 5.5,
   pageGap: 5.5,
   pagePadV: 9.5,
   pagePadH: 13.5,
-  deltaH: 12,
-  deltaFs: 8.5,
-  donutSize: 152,
-  donutGap: 22,
 };
 const MB_COZY: MbDensity = {
   rowH: 14,
   rowFs: 10.5,
-  theadH: 16,
-  theadFs: 11,
-  theadUnitFs: 8.5,
+  theadH: 21,
+  theadFs: 15,
+  theadUnitFs: 8,
   colheadFs: 8,
   colheadPadV: 1,
   sectionHeadFs: 13,
   sectionHeadPadT: 3,
   sectionHeadPadB: 4,
-  tgridGap: 3,
   tgridPad: 3,
   sectionsGap: 5,
   pageGap: 5,
   pagePadV: 9,
   pagePadH: 13,
-  deltaH: 11,
-  deltaFs: 8,
-  donutSize: 132,
-  donutGap: 18,
 };
 const MB_COMPACT: MbDensity = {
   rowH: 12,
   rowFs: 9.5,
-  theadH: 14,
-  theadFs: 10,
-  theadUnitFs: 7.5,
+  theadH: 18,
+  theadFs: 13,
+  theadUnitFs: 7,
   colheadFs: 7,
   colheadPadV: 0.5,
   sectionHeadFs: 11.5,
   sectionHeadPadT: 2,
   sectionHeadPadB: 3,
-  tgridGap: 2,
   tgridPad: 2,
   sectionsGap: 4,
   pageGap: 4,
   pagePadV: 7,
   pagePadH: 11,
-  deltaH: 10,
-  deltaFs: 7.5,
-  donutSize: 100,
-  donutGap: 14,
 };
 const MB_DENSITY_LADDER: MbDensity[] = [MB_ROOMY, MB_COZY, MB_COMPACT];
 
@@ -124,16 +110,11 @@ function densityToCssVars(d: MbDensity): CSSProperties {
     "--mb-sectionhead-fs": `${d.sectionHeadFs}px`,
     "--mb-sectionhead-pad-t": `${d.sectionHeadPadT}px`,
     "--mb-sectionhead-pad-b": `${d.sectionHeadPadB}px`,
-    "--mb-tgrid-gap": `${d.tgridGap}px`,
     "--mb-tgrid-pad": `${d.tgridPad}px`,
     "--mb-sections-gap": `${d.sectionsGap}px`,
     "--mb-page-gap": `${d.pageGap}px`,
     "--mb-page-pad-v": `${d.pagePadV}px`,
     "--mb-page-pad-h": `${d.pagePadH}px`,
-    "--mb-delta-h": `${d.deltaH}px`,
-    "--mb-delta-fs": `${d.deltaFs}px`,
-    "--mb-donut-size": `${d.donutSize}px`,
-    "--mb-donut-gap": `${d.donutGap}px`,
   } as CSSProperties;
 }
 
@@ -175,14 +156,12 @@ function anyPageOverflows(root: HTMLElement): boolean {
  *  SECTION_MIN_WIDTH) plus the density ladder's own COMPACT rung — verify visually after any
  *  future data drift that adds rows/grades, since 3 pages is now a hard requirement, not just
  *  whatever the auto-fit ladder happens to produce.
- *  Every page's real leftover space is filled edge to edge by pure CSS, not JS, split two ways:
- *  a MULTI-row section (isMultiRowSection below) claims its own fair share via `flex: 1 1 auto`
- *  and spreads it BETWEEN its own rows of tables (`.tableGrid`'s `align-content: space-evenly`);
- *  a single-row section stays compact instead — stretching a lone row just centers it with a big
- *  dead band above and below, reading as unfinished rather than spacious — and leaves its share
- *  for `.sections`' own `justify-content: space-evenly` to spread as even margins/gaps around the
- *  compact cards. Both are exact by construction, and neither is measured or tuned to today's
- *  numbers specifically. */
+ *  Every page's real leftover space is filled edge to edge by pure CSS, not JS: every grade-table
+ *  section stays compact (hugs its own content — see `.section`'s own CSS comment for why this
+ *  changed from an earlier per-section flex-grow split), and `.sections`' own
+ *  `justify-content: space-evenly` spreads ALL of a page's leftover height as even margins/gaps
+ *  around every section uniformly. Exact by construction either way, not measured or tuned to
+ *  today's numbers specifically. */
 const PAGE_GROUPS: { sections: string[] }[] = [
   { sections: ["Low Grown", "Premium Flowery"] },
   { sections: ["Off Grade", "Dust", "Unorthodox"] },
@@ -198,56 +177,38 @@ const PAGE_GROUPS: { sections: string[] }[] = [
  *  sat at a third of that). auto-fill instead leaves a normal trailing gap on a short last row,
  *  which reads as an ordinary card grid rather than a layout bug.
  *
- *  Off Grade/Dust/Unorthodox are narrowed from their earlier 480px so page 2 can hold all four
- *  of its sections on one physical sheet (see PAGE_GROUPS' own doc comment on why 3 pages is a
- *  hard requirement) — verify visually if grade text ever needs to wrap. */
+ *  Narrowed again, uniformly, per the user's own instruction: ~255px fits 4 cards per row at the
+ *  real 10px column-gap (see .tableGroupGrid's own CSS comment) across every section rather than
+ *  the previous 2-3 — verify visually if grade text ever needs to wrap.
+ *
+ *  Dust was the one exception, widened up from 255 for its longer elevation-prefixed labels
+ *  ("Medium Select Best", "High Below Best") — confirmed by measuring real rendered label/value
+ *  overflow against actual sale data (a placeholder-only "NA" sale never overflows and hid this
+ *  the first time).
+ *
+ *  Widened again, across every section this time, for the quantity-% column added per the
+ *  user's own instruction (see PriceRange.quantityPct's own doc comment and .rowValGroup/.rowPct
+ *  in the CSS) — two extra narrow columns (this week's % and last week's) push every section's
+ *  real minimum width up, not just Dust's, so the per-row-count win from the earlier "fit 4 per
+ *  row" pass is partly given back here; re-verified against real sale data after adding the %
+ *  columns, not re-derived from theory alone. */
 const SECTION_MIN_WIDTH: Record<string, number> = {
-  "Low Grown": 330,
-  "Premium Flowery": 330,
-  // Widened from 250 (4 columns, 2 rows) to 350 (3 columns, 3 rows) once Premium Flowery moved
-  // to page 1 — page 2's 2-row layout left a single grow-flex section absorbing ALL of that
-  // page's now-larger leftover height as one big gap between its two rows; a 3rd row splits the
-  // same leftover into two smaller gaps instead of one large one.
-  "Off Grade": 350,
-  // Narrowed from 480 (2 columns, 2 rows for 3 tables) to fit all 3 in a single row.
+  "Low Grown": 300,
+  "Premium Flowery": 300,
+  "Off Grade": 300,
   Dust: 350,
-  // Same flat Select Best/Best/Below Best/Poor shape as Low Grown now (the Westerns/Uva/Nuwara
-  // Eliya/Udapussellawa/Medium split was dropped per the user's own instruction), so it gets the
-  // same narrow width — no longer needs the wider column the old 10-row-per-table shape did.
-  "High and Medium": 330,
-  // Narrowed from 480 (2 columns, 2 rows for 4 tables) to fit all 4 in a single row.
-  Unorthodox: 250,
-  "Ex-estate": 330,
+  "High and Medium": 300,
+  Unorthodox: 300,
+  "Ex-estate": 300,
 };
-
-/** Roughly how wide a page's content column is (297mm page minus its own left/right padding,
- *  at the density sizes in play) — only used to categorize a section as one row vs. several,
- *  so an approximation is fine; being off by a few px never changes that categorical answer in
- *  practice. Kept here rather than measured live because the answer only needs to be "1 row or
- *  more than 1", decided once per render, not tracked pixel-for-pixel. */
-const PAGE_CONTENT_WIDTH_PX = 1090;
-
-/** Whether a section's own table cards wrap onto more than one row at its resolved column
- *  count — used to decide how that section absorbs its page's leftover height (see `.section`'s
- *  own CSS comment). A single-row section (every High Grown/Medium Grown/Unorthodox table:
- *  exactly 2 tables at a 2-column width) stretched via flex-grow just centers that one row with
- *  a big empty band above and below it — content reads as floating inside an oversized card,
- *  not "filling the page." A genuinely multi-row section (Low Grown's 13 tables, or H&M
- *  Orthodox/Off Grades/Dust's 4-6) has real rows to spread extra height BETWEEN via
- *  align-content, which reads as a deliberately spacious table instead. */
-function isMultiRowSection(sectionTitle: string, tableCount: number): boolean {
-  const minWidth = SECTION_MIN_WIDTH[sectionTitle] ?? 480;
-  const cols = Math.max(1, Math.floor((PAGE_CONTENT_WIDTH_PX + 4) / (minWidth + 4)));
-  return Math.ceil(tableCount / cols) > 1;
-}
 
 /** A row's label always tells you which merged tier(s) it is (see MarketBulletinEngine.cs's
  *  BuildRow calls): every "Best"/"Brighter" row merges Select Best + Best, every "Other"/
- *  "Poor"/"Others" row merges Below Best + Poor, and "Select Best" alone is the top 20%. Used
- *  to give the two extremes a subtle accent so the eye can scan quality without reading every
- *  label — deliberately leaves the middle tiers and non-quality rows (Nuwara Eliya, and Dust's
- *  "Below Best" rows within each elevation band) unaccented so the color stays meaningful
- *  rather than decorating every row. */
+ *  "Poor"/"Others" row merges Below Best + Poor, and "Select Best" alone is the top 15%. Color
+ *  accents per tier were dropped per the user's own instruction (too busy against the rest of
+ *  the bulletin); this is now only used to add a small gap where the tier changes from one row
+ *  to the next (see tierBreak in TableCard/.row[data-tier-break] in the CSS), so quality groups
+ *  still read as distinct without any color. */
 function tierAccent(label: string): "top" | "poor" | "neutral" {
   // Dust's rows are elevation-prefixed ("Low Select Best", "High Poor") — strip a leading
   // "Low "/"Medium "/"High " band prefix before checking, so those rows get the same accent
@@ -270,21 +231,10 @@ function formatRange(r: PriceRange): string {
   return r.min === r.max ? fmt(r.min) : `${fmt(r.min)}–${fmt(r.max)}`;
 }
 
-/** Purely numeric — no narrative text, just a directional arrow comparing this week's midpoint
- *  price to last week's, so the reader gets an at-a-glance "dearer/easier" cue the same way the
- *  original bulletin's prose did, without generating any prose of our own. */
-function Delta({ row }: { row: BulletinRow }) {
-  const { thisWeek: tw, lastWeek: lw } = row;
-  if (tw.min === null || tw.max === null || lw.min === null || lw.max === null) return <span className={styles.delta} aria-hidden="true" />;
-  const twMid = (tw.min + tw.max) / 2;
-  const lwMid = (lw.min + lw.max) / 2;
-  if (twMid === lwMid) return <span className={styles.delta} aria-hidden="true" />;
-  const up = twMid > lwMid;
-  return (
-    <span className={`${styles.delta} ${up ? styles.deltaUp : styles.deltaDown}`} title={up ? "Dearer than last week" : "Easier than last week"}>
-      {up ? "▲" : "▼"}
-    </span>
-  );
+/** The tier's share of the grade's total traded quantity (Kg) that week — see
+ *  PriceRange.quantityPct's own doc comment for what null vs. a real 0-100 value means. */
+function formatPct(pct: number | null): string {
+  return pct === null ? "—" : `${pct.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
 }
 
 /** Dust's rows are elevation-prefixed ("Low Select Best" … "High Poor", 12 rows per table) — this
@@ -295,20 +245,29 @@ function rowBand(label: string): string | null {
   return /^(Low|Medium|High)\s/.exec(label)?.[1] ?? null;
 }
 
-function RangeRow({ row, zebra, bandBreak }: { row: BulletinRow; zebra: boolean; bandBreak?: boolean }) {
+function RangeRow({ row, zebra, bandBreak, tierBreak }: { row: BulletinRow; zebra: boolean; bandBreak?: boolean; tierBreak?: boolean }) {
   return (
     <div
       className={styles.row}
       data-zebra={zebra ? "true" : "false"}
-      data-tier={tierAccent(row.label)}
       data-band-break={bandBreak ? "true" : undefined}
+      data-tier-break={tierBreak ? "true" : undefined}
     >
       <span className={styles.rowLabel} title={row.label}>
         {row.label}
       </span>
-      <span className={`${styles.rowVal} ${styles.rowValThis}`}>{formatRange(row.thisWeek)}</span>
-      <Delta row={row} />
-      <span className={`${styles.rowVal} ${styles.rowValLast}`}>{formatRange(row.lastWeek)}</span>
+      <span className={styles.rowValGroup}>
+        <span className={`${styles.rowVal} ${styles.rowValThis}`}>{formatRange(row.thisWeek)}</span>
+        <span className={styles.rowPct} title="Share of this grade's total traded quantity this week">
+          {formatPct(row.thisWeek.quantityPct)}
+        </span>
+      </span>
+      <span className={styles.rowValGroup}>
+        <span className={`${styles.rowVal} ${styles.rowValLast}`}>{formatRange(row.lastWeek)}</span>
+        <span className={styles.rowPct} title="Share of this grade's total traded quantity last week">
+          {formatPct(row.lastWeek.quantityPct)}
+        </span>
+      </span>
     </div>
   );
 }
@@ -322,61 +281,36 @@ function TableCard({ table }: { table: BulletinTable }) {
       </div>
       <div className={styles.colHead}>
         <span>&nbsp;</span>
-        <span>This Week</span>
-        <span className={styles.colHeadSpacer}>&nbsp;</span>
-        <span>Last Week</span>
+        <span className={styles.colHeadGroup}>
+          <span className={styles.colHeadPrice}>This Week</span>
+          <span className={styles.colHeadPct}>Qty%</span>
+        </span>
+        <span className={styles.colHeadGroup}>
+          <span className={styles.colHeadPrice}>Last Week</span>
+          <span className={styles.colHeadPct}>Qty%</span>
+        </span>
       </div>
       {table.rows.map((r, i) => {
         const band = rowBand(r.label);
         const bandBreak = i > 0 && band !== null && band !== rowBand(table.rows[i - 1].label);
-        return <RangeRow key={i} row={r} zebra={i % 2 === 1} bandBreak={bandBreak} />;
+        const tierBreak = i > 0 && tierAccent(r.label) !== tierAccent(table.rows[i - 1].label);
+        return <RangeRow key={i} row={r} zebra={i % 2 === 1} bandBreak={bandBreak} tierBreak={tierBreak} />;
       })}
     </div>
   );
 }
 
-/** Chunks a section's tables into consecutive runs sharing the same groupLabel — Low Grown's
- *  Leafy/Semi Leafy/Tippy sub-groups are the only current user; a section whose tables all have
- *  groupLabel null (every other section, including High and Medium) comes back as one group
- *  covering every table, so it renders exactly like a flat section always has. Each group
- *  becomes its own flex child (see .tableGroup in the CSS) so a sub-header sits tight against
- *  its own cards instead of sharing in the section's evenly-spread leftover space. */
-function groupTables(tables: BulletinTable[]): { label: string | null; tables: BulletinTable[] }[] {
-  const groups: { label: string | null; tables: BulletinTable[] }[] = [];
-  tables.forEach((t) => {
-    const last = groups[groups.length - 1];
-    if (last && last.label === t.groupLabel) {
-      last.tables.push(t);
-    } else {
-      groups.push({ label: t.groupLabel, tables: [t] });
-    }
-  });
-  return groups;
-}
-
 function SectionCard({ section }: { section: BulletinSection }) {
   const minWidth = SECTION_MIN_WIDTH[section.title] ?? 480;
-  const flow = isMultiRowSection(section.title, section.tables.length) ? "grow" : "compact";
-  const groups = groupTables(section.tables);
   return (
-    <div className={styles.section} data-mb-flow={flow}>
+    <div className={styles.section}>
       <div className={styles.sectionHead}>{section.title}</div>
       {section.tables.length === 0 ? (
         <div className={styles.sectionEmpty}>No matching lots for this section.</div>
       ) : (
-        <div className={styles.tableGrid} data-mb-multigroup={groups.length > 1 ? "true" : undefined}>
-          {groups.map((g, gi) => (
-            <div key={gi} className={styles.tableGroup}>
-              {g.label !== null && <div className={styles.tableGroupHeader}>{g.label}</div>}
-              <div
-                className={styles.tableGroupGrid}
-                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))` }}
-              >
-                {g.tables.map((t, ti) => (
-                  <TableCard key={ti} table={t} />
-                ))}
-              </div>
-            </div>
+        <div className={styles.tableGrid} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))` }}>
+          {section.tables.map((t, ti) => (
+            <TableCard key={ti} table={t} />
           ))}
         </div>
       )}
@@ -406,17 +340,22 @@ const TIER_SHORT: Record<(typeof TIER_ORDER)[number], string> = {
 /** One pie's four wedge values (quantity, in kg) — 0 for a missing tier so a sale with no data at
  *  all sums to 0 (rendered as a plain hollow placeholder circle by PieSlot, never a silently
  *  wrong-looking chart). Quantity is the one metric that's genuinely a share of one physical
- *  total, so it's the one that drives the wedges — average price is shown as a plain number next
- *  to each wedge instead of a second pie (see PieSlot's own doc comment for why: real sale data
- *  showed a price-share pie barely changes shape week to week even when real Rs/kg prices swing
- *  several percent, because all four tiers move together). */
+ *  total, so it's the one that drives the wedges — price is shown as a min-max range in the
+ *  table below each pie instead of a second pie (see PieSlot's own doc comment for why: real
+ *  sale data showed a price-share pie barely changes shape week to week even when real Rs/kg
+ *  prices swing several percent, because all four tiers move together). */
 function tierQuantities(tiers: MonthlySaleSlot["tiers"]): number[] {
   if (!tiers) return [0, 0, 0, 0];
   return TIER_ORDER.map((name) => tiers.find((t) => t.tier === name)?.quantityKg ?? 0);
 }
 
-function tierPrice(tiers: MonthlySaleSlot["tiers"], tier: (typeof TIER_ORDER)[number]): number | null {
-  return tiers?.find((t) => t.tier === tier)?.averagePrice ?? null;
+/** Min/max price among ASC's own lots in this tier, null when the tier had none — see
+ *  MonthlyTierMetricsDto's own doc comment for why a range instead of a single averaged
+ *  number. */
+function tierPriceRange(tiers: MonthlySaleSlot["tiers"], tier: (typeof TIER_ORDER)[number]): { min: number; max: number } | null {
+  const t = tiers?.find((t) => t.tier === tier);
+  if (!t || t.minPrice === null || t.maxPrice === null) return null;
+  return { min: t.minPrice, max: t.maxPrice };
 }
 
 function tierQty(tiers: MonthlySaleSlot["tiers"], tier: (typeof TIER_ORDER)[number]): number | null {
@@ -427,17 +366,33 @@ function formatKg(n: number): string {
   return Math.round(n).toLocaleString();
 }
 
-function formatPrice(n: number): string {
-  return Math.round(n).toLocaleString();
+/** Left-aligned (see .pieLegendPrice's own CSS comment) per the user's own instruction: every
+ *  row's range now starts at the exact same fixed position right after Kg, rather than each
+ *  half separately right-aligned — which left the gap AFTER Kg (and after the dash) varying
+ *  row to row depending on how many digits that particular min/max happened to have. */
+function formatPriceRange(r: { min: number; max: number }): string {
+  const fmt = (n: number) => Math.round(n).toLocaleString();
+  return r.min === r.max ? fmt(r.min) : `${fmt(r.min)}–${fmt(r.max)}`;
 }
 
 const PIE_CX = 50;
 const PIE_CY = 50;
 const PIE_R = 44;
 
-function polarPoint(angleDeg: number): { x: number; y: number } {
+/** `radius` defaults to the wedge's own outer radius (for drawing the slice's arc points) — the
+ *  label position below passes a smaller radius instead, so the percentage text sits INSIDE the
+ *  wedge rather than out on its rim. */
+function polarPoint(angleDeg: number, radius: number = PIE_R): { x: number; y: number } {
   const rad = ((angleDeg - 90) * Math.PI) / 180; // -90 so 0deg sits at 12 o'clock
-  return { x: PIE_CX + PIE_R * Math.cos(rad), y: PIE_CY + PIE_R * Math.sin(rad) };
+  return { x: PIE_CX + radius * Math.cos(rad), y: PIE_CY + radius * Math.sin(rad) };
+}
+
+/** Where a wedge's own percentage label sits — the midpoint angle of its sweep, at 62% of the
+ *  pie's radius (visually centered within the wedge's own area, not its rim or its center point,
+ *  since a wedge's true visual "middle" sits closer to the outer edge than the circle's own
+ *  center once you account for how a pie slice's area is distributed). */
+function pieLabelPos(midAngleDeg: number): { x: number; y: number } {
+  return polarPoint(midAngleDeg, PIE_R * 0.62);
 }
 
 /** One sale's four tiers as an actual pie chart — a wedge per tier, sized by its share of the
@@ -446,24 +401,33 @@ function polarPoint(angleDeg: number): { x: number; y: number } {
  *  A single non-zero tier is drawn as a plain filled circle rather than a wedge: the general arc
  *  path degenerates to a zero-length arc when its own share is the full 360°, since the start and
  *  end points coincide. Returns null for an all-zero sale so the caller can draw an empty
- *  placeholder circle instead of a broken chart. */
-function pieSlices(values: number[]): { tier: (typeof TIER_ORDER)[number]; d?: string; fullCircle?: boolean }[] | null {
+ *  placeholder circle instead of a broken chart. Each slice also carries `pct` (its own share,
+ *  0-100) and `labelPos` — per the user's own instruction to show the percentage inside the pie
+ *  itself, not just inferred from wedge size. */
+function pieSlices(
+  values: number[]
+): { tier: (typeof TIER_ORDER)[number]; d?: string; fullCircle?: boolean; pct: number; labelPos: { x: number; y: number } }[] | null {
   const total = values.reduce((a, b) => a + b, 0);
   if (total <= 0) return null;
   const nonZero = values.filter((v) => v > 0);
   if (nonZero.length === 1) {
     const i = values.findIndex((v) => v > 0);
-    return [{ tier: TIER_ORDER[i], fullCircle: true }];
+    return [{ tier: TIER_ORDER[i], fullCircle: true, pct: 100, labelPos: { x: PIE_CX, y: PIE_CY } }];
   }
   let angle = 0;
-  const slices: { tier: (typeof TIER_ORDER)[number]; d: string }[] = [];
+  const slices: { tier: (typeof TIER_ORDER)[number]; d: string; pct: number; labelPos: { x: number; y: number } }[] = [];
   values.forEach((v, i) => {
     if (v <= 0) return;
     const sweep = (v / total) * 360;
     const start = polarPoint(angle);
     const end = polarPoint(angle + sweep);
     const largeArc = sweep > 180 ? 1 : 0;
-    slices.push({ tier: TIER_ORDER[i], d: `M ${PIE_CX} ${PIE_CY} L ${start.x} ${start.y} A ${PIE_R} ${PIE_R} 0 ${largeArc} 1 ${end.x} ${end.y} Z` });
+    slices.push({
+      tier: TIER_ORDER[i],
+      d: `M ${PIE_CX} ${PIE_CY} L ${start.x} ${start.y} A ${PIE_R} ${PIE_R} 0 ${largeArc} 1 ${end.x} ${end.y} Z`,
+      pct: Math.round((v / total) * 100),
+      labelPos: pieLabelPos(angle + sweep / 2),
+    });
     angle += sweep;
   });
   return slices;
@@ -490,13 +454,35 @@ function PieSlot({ slot }: { slot?: MonthlySaleSlot }) {
     <div className={styles.donutCard}>
       <svg viewBox={`0 0 ${PIE_CX * 2} ${PIE_CY * 2}`} className={styles.donutSvg} aria-hidden="true">
         {slices ? (
-          slices.map((s) =>
-            s.fullCircle ? (
-              <circle key={s.tier} cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
-            ) : (
-              <path key={s.tier} d={s.d} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
-            ),
-          )
+          <>
+            {slices.map((s) =>
+              s.fullCircle ? (
+                <circle key={s.tier} cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
+              ) : (
+                <path key={s.tier} d={s.d} fill={TIER_COLORS[s.tier]} stroke="#fff" strokeWidth={1} />
+              ),
+            )}
+            {/* Percentage labels inside each wedge, per the user's own instruction — a separate
+                pass over the same slices, drawn AFTER every wedge/circle so no label ever sits
+                underneath a later slice's fill. */}
+            {slices.map((s) => (
+              <text
+                key={`${s.tier}-pct`}
+                x={s.labelPos.x}
+                y={s.labelPos.y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={7.5}
+                fontWeight={700}
+                fill="#fff"
+                stroke="rgba(0,0,0,0.35)"
+                strokeWidth={0.4}
+                paintOrder="stroke"
+              >
+                {s.pct}%
+              </text>
+            ))}
+          </>
         ) : (
           <circle cx={PIE_CX} cy={PIE_CY} r={PIE_R} fill="none" stroke="#c9c4b0" strokeWidth={2} />
         )}
@@ -504,25 +490,48 @@ function PieSlot({ slot }: { slot?: MonthlySaleSlot }) {
       <div className={slices ? styles.donutLabelThis : styles.donutLabelPending} title={slot?.sourceName ?? undefined}>
         {slot?.sourceName ?? "Not yet"}
       </div>
+      {/* One shared CSS Grid for the header AND every tier row (rather than each row being its
+          own separate grid, stacked by the outer flex column) — per the user's own instruction:
+          a `border-left` on each row's own cell only ever draws a short segment for that row's
+          own height, so stacking rows with any gap between them reads as a broken, dashed line
+          rather than one continuous rule. Two dedicated 1px "gutter" columns (positioned via
+          gridColumn 3 and 5 below) hold the actual divider lines, each spanning every row at
+          once via `gridRow: "1 / 6"` (1 header + 4 tiers = 6 line boundaries), so it's genuinely
+          ONE unbroken line regardless of how many rows sit between its two ends. Every real cell
+          gets an explicit gridColumn/gridRow instead of relying on auto-placement, since
+          auto-placement has no way to know it should skip over the two gutter columns. */}
       <div className={styles.pieLegendTable}>
-        <div className={styles.pieLegendHeadRow}>
-          <span />
-          <span />
-          <span className={styles.pieLegendHeadCell}>Kg</span>
-          <span className={styles.pieLegendHeadCell}>Rs/Kg</span>
-        </div>
-        {TIER_ORDER.map((tier) => {
+        <span className={styles.pieLegendHeadCell} style={{ gridColumn: 4, gridRow: 1 }}>
+          Kg
+        </span>
+        <span className={styles.pieLegendHeadCellLeft} style={{ gridColumn: 6, gridRow: 1 }}>
+          Rs/Kg
+        </span>
+        {TIER_ORDER.map((tier, i) => {
+          const row = i + 2;
           const qty = tierQty(slot?.tiers ?? null, tier);
-          const price = tierPrice(slot?.tiers ?? null, tier);
+          const priceRange = tierPriceRange(slot?.tiers ?? null, tier);
           return (
-            <div key={tier} className={styles.pieLegendRow}>
-              <span className={styles.pieLegendSwatch} style={{ background: TIER_COLORS[tier] }} aria-hidden="true" />
-              <span className={styles.pieLegendTier}>{TIER_SHORT[tier]}</span>
-              <span className={styles.pieLegendQty}>{qty !== null ? formatKg(qty) : "—"}</span>
-              <span className={styles.pieLegendPrice}>{price !== null ? formatPrice(price) : "—"}</span>
-            </div>
+            <Fragment key={tier}>
+              <span
+                className={styles.pieLegendSwatch}
+                style={{ gridColumn: 1, gridRow: row, background: TIER_COLORS[tier] }}
+                aria-hidden="true"
+              />
+              <span className={styles.pieLegendTier} style={{ gridColumn: 2, gridRow: row }}>
+                {TIER_SHORT[tier]}
+              </span>
+              <span className={styles.pieLegendQty} style={{ gridColumn: 4, gridRow: row }}>
+                {qty !== null ? formatKg(qty) : "—"}
+              </span>
+              <span className={styles.pieLegendPrice} style={{ gridColumn: 6, gridRow: row }}>
+                {priceRange !== null ? formatPriceRange(priceRange) : "—"}
+              </span>
+            </Fragment>
           );
         })}
+        <span className={styles.pieLegendVLine} style={{ gridColumn: 3, gridRow: "1 / 6" }} aria-hidden="true" />
+        <span className={styles.pieLegendVLine} style={{ gridColumn: 5, gridRow: "1 / 6" }} aria-hidden="true" />
       </div>
     </div>
   );
@@ -561,7 +570,7 @@ function MonthlyComparisonSection({ comparison }: { comparison: MonthlyCompariso
   return (
     <div className={styles.section} data-mb-flow="grow">
       <div className={styles.sectionHead}>
-        Asia Siyaka — Own Sold Lots <span className={styles.monthlyUnit}>wedge = Kg share per tier</span>
+        Month-to-Month Comparison of Quality <span className={styles.monthlyUnit}>wedge = Kg share per tier</span>
       </div>
       <div className={styles.monthlyBody}>
         <div className={styles.monthlyLegend}>
@@ -697,9 +706,11 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBul
           sales above, This Month's below, one combined pie per ordinal sale position (wedges =
           quantity share, table underneath = real Kg and Rs/kg per tier). Its own masthead
           subtitle (not "...Classification/Quotation" — this page shows neither) and a
-          full-height section (data-mb-flow="grow", same mechanism multi-row grade tables use) so
-          the one section fills the page edge to edge rather than floating centered with empty
-          bands above and below it. Rendered only once monthly data has actually loaded — see
+          full-height section (data-mb-flow="grow" — see .section's own CSS comment; pages 1-3's
+          grade sections no longer use this, but page 4 has only one section, so stretching it is
+          still exactly right) so it fills the page edge to edge rather than floating centered
+          with empty bands above and below it. Rendered only once monthly data has actually
+          loaded — see
           MarketBulletinBulletinProps' own doc comment on why this degrades to "just 3 pages"
           rather than a broken 4th page when it hasn't (or the sale's own name doesn't parse into
           a month at all). */}

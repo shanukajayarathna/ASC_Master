@@ -365,6 +365,10 @@ export interface PriceRange {
   min: number | null;
   max: number | null;
   lotCount: number;
+  /** This tier's share (0-100) of the grade's total traded quantity (Kg) that same week.
+   *  Null when the grade traded zero quantity that week — never 0, so "no trade" isn't
+   *  confused with "traded, but this tier got none." */
+  quantityPct: number | null;
 }
 
 export interface BulletinRow {
@@ -396,7 +400,8 @@ export interface MarketBulletin {
 export interface MonthlyTierMetrics {
   tier: string;
   quantityKg: number | null;
-  averagePrice: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
   lotCount: number;
 }
 

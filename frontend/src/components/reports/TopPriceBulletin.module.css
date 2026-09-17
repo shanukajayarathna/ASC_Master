@@ -372,9 +372,6 @@
 .grade[data-grade-start="true"] {
   font-weight: 700;
   color: #1f7a4d;
-  text-decoration: underline;
-  text-decoration-color: #b68c2a;
-  text-underline-offset: 2px;
 }
 /* A mid-group "Cont. <grade>" label (Card's column-break detection in TopPriceBulletin.tsx) —
    renders in-flow on one line: planTppFullWidthLayout (topPricePageExport.ts) folds this prefix's
