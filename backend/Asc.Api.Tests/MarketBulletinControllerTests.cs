@@ -15,6 +15,7 @@ public class MarketBulletinControllerTests
         public IReadOnlyList<ValuedLotSlim> GetValuedSlim(Guid catalogueId) => [];
         public IReadOnlyList<(int SaleNo, DateTime Date)> SalesInMonth(int year, int month) => [];
         public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex() => new Dictionary<string, (string Name, string Elevation)>();
+        public IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates() => new Dictionary<string, DateTime>();
     }
 
     private static Catalogue Sale(int year, int saleNo, DateTime importedAt) => new()

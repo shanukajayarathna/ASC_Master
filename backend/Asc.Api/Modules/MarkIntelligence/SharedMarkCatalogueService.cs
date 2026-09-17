@@ -124,19 +124,14 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .Select(c => c.Id)
             .ToHashSet();
 
-        // Loaded once per catalogue here (not re-fetched later for the 3-month lookback —
-        // see ComputeRecentlySharedFactoryCodes' own doc comment for why that used to matter).
-        var lotsByCatalogue = new Dictionary<Guid, IReadOnlyList<Lot>>();
         var taggedLots = new List<(Lot Lot, bool IsThisMonth)>();
         foreach (var cat in yearCatalogues)
         {
-            var lots = catalogues.GetLots(cat.Id) ?? [];
-            lotsByCatalogue[cat.Id] = lots;
             var isThisMonth = monthCatalogueIds.Contains(cat.Id);
-            foreach (var lot in lots) taggedLots.Add((lot, isThisMonth));
+            foreach (var lot in catalogues.GetLots(cat.Id) ?? []) taggedLots.Add((lot, isThisMonth));
         }
 
-        var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate, targetId, yearCatalogues, lotsByCatalogue);
+        var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate);
         var rows = BuildRows(taggedLots, recentlySharedFactoryCodes);
         return Task.FromResult(new SharedMarkCatalogueResult(year, saleNo, saleDate, monthCalendar, rows, []));
     }
@@ -184,16 +179,11 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .Select(c => c.Id)
             .ToHashSet();
 
-        // Loaded once per catalogue here (not re-fetched later for the 3-month lookback —
-        // see ComputeRecentlySharedFactoryCodes' own doc comment for why that used to matter).
-        var lotsByCatalogue = new Dictionary<Guid, IReadOnlyList<Lot>>();
         var historicalTagged = new List<(Lot Lot, bool IsThisMonth)>();
         foreach (var cat in historicalCatalogues)
         {
-            var lots = catalogues.GetLots(cat.Id) ?? [];
-            lotsByCatalogue[cat.Id] = lots;
             var isThisMonth = monthCatalogueIds.Contains(cat.Id);
-            foreach (var lot in lots) historicalTagged.Add((lot, isThisMonth));
+            foreach (var lot in catalogues.GetLots(cat.Id) ?? []) historicalTagged.Add((lot, isThisMonth));
         }
 
         // First pass: whichever closed sale this year already has the exact same code. Free
@@ -225,7 +215,7 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .Concat(uploadedLots.Select(lot => (Lot: lot, IsThisMonth: true)))
             .ToList();
 
-        var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate, targetId, historicalCatalogues, lotsByCatalogue);
+        var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate);
         var rows = BuildRows(taggedLots, recentlySharedFactoryCodes);
 
         // A mark is genuinely unmatched only if NOTHING feeding this report — uploaded or
@@ -330,67 +320,22 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     /// genuinely, freshly shared this exact month still qualifies even with no lookback
     /// history at all (e.g. a brand new mark).
     ///
-    /// Reuses the catalogues/lots the caller already loaded for its own year-wide MTD/YTD
-    /// pass (loadedCataloguesThisYear/lotsByCatalogue) instead of re-listing and re-fetching
-    /// the last 3 months from ICatalogueSource all over again — the old version did exactly
-    /// that (a second GetLots() per sale in the window), and since SaleFileStore only keeps
-    /// MaxLoadedSales (4) sales "hot" in memory, that second pass mostly missed the cache and
-    /// re-decompressed/re-parsed sales that had just been loaded moments earlier, roughly
-    /// doubling the real IO/CPU cost of every single report generation (confirmed live: this
-    /// was the dominant cost of a generate call, and the reason it felt slow enough to look
-    /// like a hang during testing). loadedCataloguesThisYear is scoped to saleDate.Year alone,
-    /// so the only sliver not already covered is when the lookback spills into the PREVIOUS
-    /// calendar year (e.g. a January sale) — that rare case still gets its own small, bounded
-    /// top-up fetch rather than being silently dropped.</summary>
-    private HashSet<string> ComputeRecentlySharedFactoryCodes(
-        DateTime saleDate, Guid excludeCatalogueId,
-        IReadOnlyList<Catalogue> loadedCataloguesThisYear, IReadOnlyDictionary<Guid, IReadOnlyList<Lot>> lotsByCatalogue)
+    /// Reads SaleFileStore.GetRecentlySharedFactoryCodeDates() — an incrementally-maintained,
+    /// disk-persisted cache of "factory code -> most recent date it was ASC-shared", built
+    /// once across every catalogue ever seen and only ever extended (never fully rescanned)
+    /// as new sales appear. The old version re-scanned the last 3 closed sales' months from
+    /// scratch on every single report generation (confirmed live: the dominant cost of a
+    /// generate call, and the reason it felt slow enough to look like a hang during testing);
+    /// this replaces that with one dictionary read plus a date-range filter, and — since the
+    /// cache spans every year on file, not just saleDate.Year — needs no separate top-up for
+    /// a lookback that spills into the previous calendar year (e.g. a January sale).</summary>
+    private HashSet<string> ComputeRecentlySharedFactoryCodes(DateTime saleDate)
     {
         var lookbackStart = saleDate.AddMonths(-3);
-        var lookbackSales = loadedCataloguesThisYear
-            .Where(c => c.Id != excludeCatalogueId && c.ImportedAt.Date >= lookbackStart.Date && c.ImportedAt.Date < saleDate.Date)
-            .Select(c => (c.Id, Lots: lotsByCatalogue[c.Id]));
-
-        if (lookbackStart.Year < saleDate.Year)
-        {
-            var priorYearSales = catalogues.ListCatalogues()
-                .Where(c => c.Id != excludeCatalogueId && c.ImportedAt.Date >= lookbackStart.Date && c.ImportedAt.Year < saleDate.Year)
-                .Select(c => (c.Id, Lots: (IReadOnlyList<Lot>)(catalogues.GetLots(c.Id) ?? [])));
-            lookbackSales = lookbackSales.Concat(priorYearSales);
-        }
-
-        return FindRecentlySharedFactoryCodes(lookbackSales);
-    }
-
-    /// <summary>Pure core of the above — one HashSet build per closed sale in the window
-    /// (never across sales), then folded into a single result set. Split out for direct unit
-    /// testing without an ICatalogueSource.</summary>
-    internal static HashSet<string> FindRecentlySharedFactoryCodes(
-        IEnumerable<(Guid Id, IReadOnlyList<Lot> Lots)> lookbackSales)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (_, lots) in lookbackSales)
-        {
-            var brokersByCode = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var lot in lots)
-            {
-                if (lot.IsReprint) continue;
-                if (string.IsNullOrWhiteSpace(lot.SellingMark)) continue;
-                if (lot.NetWeight is not { } qty || qty <= 0) continue;
-                var key = GroupKey(lot);
-                if (key is null) continue;
-                var broker = string.IsNullOrWhiteSpace(lot.Broker) ? "(unknown)" : lot.Broker.Trim().ToUpperInvariant();
-                if (!brokersByCode.TryGetValue(key, out var set))
-                    brokersByCode[key] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                set.Add(broker);
-            }
-            foreach (var (code, brokers) in brokersByCode)
-            {
-                if (brokers.Contains(AscBrokerCode) && brokers.Any(b => !string.Equals(b, AscBrokerCode, StringComparison.OrdinalIgnoreCase)))
-                    result.Add(code);
-            }
-        }
-        return result;
+        return catalogues.GetRecentlySharedFactoryCodeDates()
+            .Where(kv => kv.Value.Date >= lookbackStart.Date && kv.Value.Date < saleDate.Date)
+            .Select(kv => kv.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static void Accumulate(

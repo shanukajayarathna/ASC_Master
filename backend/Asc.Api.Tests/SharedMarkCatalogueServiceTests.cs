@@ -18,6 +18,8 @@ public class SharedMarkCatalogueServiceTests
         public IReadOnlyList<(int SaleNo, DateTime Date)> SalesInMonth(int year, int month) => [];
         public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex() =>
             markCodeIndex ?? new Dictionary<string, (string Name, string Elevation)>();
+        public IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates() =>
+            SaleFileStore.FindSharedFactoryCodesForSale(lots).ToDictionary(c => c, _ => catalogue.ImportedAt, StringComparer.OrdinalIgnoreCase);
     }
 
     // Factory is derived from the given code with the trailing letter stripped, matching how
@@ -497,8 +499,12 @@ public class SharedMarkCatalogueServiceTests
     }
 
     [Fact]
-    public void FindRecentlySharedFactoryCodes_RequiresAscAndAnotherBroker_InTheSameSale()
+    public void FindSharedFactoryCodesForSale_RequiresAscAndAnotherBroker_InTheSameSale()
     {
+        // This is the per-sale core SaleFileStore.GetRecentlySharedFactoryCodeDates()
+        // incrementally folds in as each new catalogue is indexed — see that method's own
+        // doc comment for why the lookback is now a cached date-range filter instead of a
+        // full multi-month rescan on every report generation.
         var sharedSale = new List<Lot>
         {
             Lot("MF1350", "BATUWANGALA", "ASC", 5000, saleNo: 34),
@@ -514,12 +520,9 @@ public class SharedMarkCatalogueServiceTests
             Lot("MF7777", "NO ASC HERE", "FW", 900, saleNo: 34),
         };
 
-        var codes = SharedMarkCatalogueService.FindRecentlySharedFactoryCodes(
-        [
-            (Guid.NewGuid(), sharedSale),
-            (Guid.NewGuid(), ascOnlySale),
-            (Guid.NewGuid(), otherBrokersOnlySale),
-        ]);
+        var codes = SaleFileStore.FindSharedFactoryCodesForSale(sharedSale)
+            .Union(SaleFileStore.FindSharedFactoryCodesForSale(ascOnlySale))
+            .Union(SaleFileStore.FindSharedFactoryCodesForSale(otherBrokersOnlySale));
 
         Assert.Contains("MF1350", codes);
         Assert.DoesNotContain("MF9999", codes);

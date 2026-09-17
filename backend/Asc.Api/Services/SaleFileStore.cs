@@ -46,6 +46,15 @@ public interface ICatalogueSource
     /// was last built, not the entire multi-year corpus, so callers doing a cross-year
     /// code lookup (SharedMarkCatalogueService) don't re-pay a full scan on every request.</summary>
     IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex();
+
+    /// <summary>Factory code -> the most recent sale date it was confirmed "ASC-shared"
+    /// (ASC and at least one other broker both catalogued it in that same sale), across
+    /// every catalogue on file. Built once and persisted to disk, same "only scan whatever's
+    /// new" shape as GetMarkCodeIndex — so SharedMarkCatalogueService's 3-month lookback no
+    /// longer re-scans the last 3 closed sales' months on every single report generation; it
+    /// filters this cached, incrementally-maintained map by date instead. Nothing here is
+    /// pruned by age — callers apply their own "how far back counts" window themselves.</summary>
+    IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates();
 }
 
 /// <summary>One valued lot, reduced to what classification history needs.</summary>
@@ -455,6 +464,151 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         }
     }
 
+    // ---- recently shared factory codes -------------------------------------------------
+
+    // Mirrors SharedMarkCatalogueService.AscBrokerCode; duplicated for the same layering
+    // reason NormalizeMarkCode/IsCtcSubMark above are.
+    private const string AscBrokerCode = "ASC";
+
+    private readonly object _sharedFactoryDatesLock = new();
+    private (int Year, HashSet<Guid> IndexedIds, Dictionary<string, DateTime> Dates)? _sharedFactoryDates;
+
+    private sealed class SharedFactoryDatesFile
+    {
+        public int Year { get; set; }
+        public HashSet<Guid> IndexedCatalogueIds { get; set; } = [];
+        public Dictionary<string, DateTime> Dates { get; set; } = new();
+    }
+
+    // v2: scoped to the single latest year on file (see GetRecentlySharedFactoryCodeDates'
+    // own doc comment for why — earlier years' catalogue dates aren't reliable enough to
+    // measure "how recently" against). v1 spanned every year ever indexed and is abandoned
+    // here, same "bump the filename" pattern as MarkCodeIndexPath/SaleCachePath.
+    private string SharedFactoryDatesPath => Path.Combine(CacheDir, "shared-factory-dates-v2.json");
+
+    /// <summary>Builds/extends the map in memory + on disk, then returns it — scoped to the
+    /// single latest calendar year on file (2026, currently), never earlier ones. Only that
+    /// year's catalogue dates are trustworthy enough for a "how recently was this shared"
+    /// question: 2026 has a real per-sale anchor (YearAnchors), but 2024 has no date source
+    /// at all, so SaleDateFor falls back to the Excel file's on-disk last-modified
+    /// timestamp — found live: every 2024 file in this corpus was last touched on 2026-09-01
+    /// (evidently whenever the data was copied onto this machine), which made 2-year-old
+    /// ASC/FW overlap on "Noori" (MF0085, /data/sales/2024 sale 44/45/47) read as shared
+    /// THIS week once the cache spanned every year — a false positive with no real recent
+    /// activity behind it. Restricting to the latest year sidesteps that: only catalogues
+    /// dated within the year that's actually still being sold in are ever considered.
+    ///
+    /// Only catalogues not already folded in get scanned (via the normal GetLots path, so an
+    /// already sale-cached catalogue is cheap) — after the first call in this process (or the
+    /// first call ever, if the persisted file already covers everything), this is a
+    /// dictionary read plus one date-range filter per caller, not a repeated rescan. If the
+    /// latest year on file has advanced since the cache was last built (a new year's first
+    /// sale appeared), the cache starts over clean for that new year rather than carrying the
+    /// previous year's entries forward — a new year's early sales genuinely have no
+    /// same-year lookback history yet, and that's correct, not a regression.</summary>
+    public IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates()
+    {
+        lock (_sharedFactoryDatesLock)
+        {
+            var allCatalogues = ListCatalogues();
+            if (allCatalogues.Count == 0) return new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            var latestYear = allCatalogues.Max(c => c.Year);
+
+            var (cachedYear, indexedIds, dates) = _sharedFactoryDates ??= LoadSharedFactoryDatesFromDisk();
+            if (cachedYear != latestYear)
+            {
+                cachedYear = latestYear;
+                indexedIds = [];
+                dates = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var newCatalogues = allCatalogues.Where(c => c.Year == latestYear && !indexedIds.Contains(c.Id)).ToList();
+            if (newCatalogues.Count > 0)
+            {
+                foreach (var cat in newCatalogues)
+                {
+                    foreach (var code in FindSharedFactoryCodesForSale(GetLots(cat.Id) ?? []))
+                    {
+                        if (!dates.TryGetValue(code, out var existing) || cat.ImportedAt.Date > existing.Date)
+                            dates[code] = cat.ImportedAt.Date;
+                    }
+                    indexedIds.Add(cat.Id);
+                }
+                SaveSharedFactoryDatesToDisk(cachedYear, indexedIds, dates);
+            }
+
+            _sharedFactoryDates = (cachedYear, indexedIds, dates);
+            return new Dictionary<string, DateTime>(dates, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Every factory code (Lot.Factory, falling back to Mark, then trimmed
+    /// SellingMark — mirrors SharedMarkCatalogueService.GroupKey) that both ASC and at least
+    /// one other broker catalogued in this one sale's lots, ignoring reprints and
+    /// blank-mark/zero-weight rows. Split out for direct unit testing without a real
+    /// ICatalogueSource, same as MarkCodeIndex's own inner loop.</summary>
+    internal static HashSet<string> FindSharedFactoryCodesForSale(IReadOnlyList<Lot> lots)
+    {
+        var brokersByCode = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lot in lots)
+        {
+            if (lot.IsReprint) continue;
+            if (string.IsNullOrWhiteSpace(lot.SellingMark)) continue;
+            if (lot.NetWeight is not { } qty || qty <= 0) continue;
+            var key = !string.IsNullOrWhiteSpace(lot.Factory) ? NormalizeMarkCode(lot.Factory)
+                : !string.IsNullOrWhiteSpace(lot.Mark) ? NormalizeMarkCode(lot.Mark)
+                : lot.SellingMark.Trim();
+            var broker = string.IsNullOrWhiteSpace(lot.Broker) ? "(unknown)" : lot.Broker.Trim().ToUpperInvariant();
+            if (!brokersByCode.TryGetValue(key, out var set))
+                brokersByCode[key] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            set.Add(broker);
+        }
+
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (code, brokers) in brokersByCode)
+        {
+            if (brokers.Contains(AscBrokerCode) && brokers.Any(b => !string.Equals(b, AscBrokerCode, StringComparison.OrdinalIgnoreCase)))
+                result.Add(code);
+        }
+        return result;
+    }
+
+    private (int, HashSet<Guid>, Dictionary<string, DateTime>) LoadSharedFactoryDatesFromDisk()
+    {
+        try
+        {
+            var path = SharedFactoryDatesPath;
+            if (File.Exists(path))
+            {
+                var file = JsonSerializer.Deserialize<SharedFactoryDatesFile>(File.ReadAllText(path));
+                if (file is not null)
+                    return (file.Year, file.IndexedCatalogueIds, new Dictionary<string, DateTime>(file.Dates, StringComparer.OrdinalIgnoreCase));
+            }
+        }
+        catch
+        {
+            // Corrupt/unreadable cache — rebuild from scratch below rather than fail the request.
+        }
+        return (0, [], new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private void SaveSharedFactoryDatesToDisk(int year, HashSet<Guid> indexedIds, Dictionary<string, DateTime> dates)
+    {
+        try
+        {
+            Directory.CreateDirectory(CacheDir);
+            var file = new SharedFactoryDatesFile { Year = year, IndexedCatalogueIds = indexedIds, Dates = dates };
+            var path = SharedFactoryDatesPath;
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(file));
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            // Cache is an optimization — never fail a request because it couldn't be written.
+        }
+    }
+
     // ---- public surface --------------------------------------------------------------
 
     public IReadOnlyList<Catalogue> ListCatalogues()
@@ -487,7 +641,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             });
         }
         // A file with no meta entry is either brand new or was replaced on disk (different
-        // size/mtime) since it was last parsed — SaleMetaWarmer only runs once at startup, so
+        // size/mtime) since it was last parsed — the warm pass only runs on demand, so
         // without this a sale edited/replaced while the app is already running would list as
         // 0 lots until someone happened to open it or the app restarted. Non-blocking: this
         // request still returns immediately with whatever's known now; the next ListCatalogues
@@ -567,8 +721,10 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     /// <summary>
     /// The warm pass the listing comment promises: load every sale whose row count/headers
     /// aren't known yet (cached sales in ~1–2s, brand-new files via a full parse), so no
-    /// sale sits in the list showing 0 lots. Runs in the background at startup; the small
-    /// LRU keeps memory bounded while it walks the folder.
+    /// sale sits in the list showing 0 lots for long. Triggered on demand by ListCatalogues
+    /// (see TriggerBackgroundWarm) rather than eagerly at startup, so idle sales that are
+    /// never listed never get parsed; the small LRU keeps memory bounded while it walks the
+    /// folder either way.
     /// </summary>
     public void WarmMeta(CancellationToken ct = default)
     {
@@ -935,12 +1091,4 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             // Cache is an optimization — never fail a request because it couldn't be written.
         }
     }
-}
-
-/// <summary>Runs the store's warm pass in the background at startup so every sale lists
-/// with its real lot count instead of 0 while never having been opened.</summary>
-public class SaleMetaWarmer(SaleFileStore store) : BackgroundService
-{
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        Task.Run(() => store.WarmMeta(stoppingToken), stoppingToken);
 }
