@@ -9,7 +9,7 @@ namespace Asc.Api.Modules.Agents;
 /// from the current weekly sale catalogues (valuations, top prices); this agent answers
 /// from settled auction history and never sees valuations.
 /// </summary>
-public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools) : IAgent
+public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, CttaBylawsTool? bylaws = null) : IAgent
 {
     public string Key => "analytics";
     public string Name => "Analytics Agent";
@@ -110,7 +110,7 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools) : IA
             .ToList();
         var forcedBroker = mentioned.Count == 1 ? mentioned[0] : null;
 
-        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions +
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) +
             (forcedBroker is not null
                 ? $"\n(The user's message references broker {forcedBroker} — breakdowns must be scoped to it.)"
                 : "");
@@ -137,8 +137,9 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools) : IA
         }
 
         var (reply, providerKey) = await gateway.CompleteAsync(
-            request.ProviderKey, systemPrompt, request.History, AnalyticsToolExecutor.DefinitionsFor(request.IsAdmin),
-            Execute, ct);
+            request.ProviderKey, systemPrompt, request.History,
+            CttaBylawsTool.WithDefinition(bylaws, AnalyticsToolExecutor.DefinitionsFor(request.IsAdmin)),
+            CttaBylawsTool.Dispatch(bylaws, Execute), ct);
         return new AgentResponse(reply, providerKey);
     }
 }

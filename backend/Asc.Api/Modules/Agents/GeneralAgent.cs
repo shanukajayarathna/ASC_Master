@@ -9,7 +9,7 @@ namespace Asc.Api.Modules.Agents;
 /// AssistantController (same system prompt, same gateway call) so this is a pure move, not a
 /// behavior change.
 /// </summary>
-public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null) : IAgent
+public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null, CttaBylawsTool? bylaws = null) : IAgent
 {
     public string Key => "general";
     public string Name => "General Assistant";
@@ -68,10 +68,11 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
 
     public async Task<AgentResponse> HandleAsync(AgentRequest request, CancellationToken ct = default)
     {
-        var systemPrompt = SystemPrompt + LanguageInstructions + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        var systemPrompt = SystemPrompt + LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
         var (reply, providerKey) = await gateway.CompleteAsync(
-            request.ProviderKey, systemPrompt, request.History, AssistantToolExecutor.DefinitionsFor(request.IsAdmin),
-            (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct), ct);
+            request.ProviderKey, systemPrompt, request.History,
+            CttaBylawsTool.WithDefinition(bylaws, AssistantToolExecutor.DefinitionsFor(request.IsAdmin)),
+            CttaBylawsTool.Dispatch(bylaws, (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct)), ct);
         return new AgentResponse(reply, providerKey);
     }
 }

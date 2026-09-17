@@ -13,7 +13,7 @@ namespace Asc.Api.Modules.Agents;
 /// OKLO data source; AuctionToolExecutor's tools all read from SaleFileStore's existing sale
 /// files today, and are the extension point a future OKLO-backed tool would join.
 /// </summary>
-public class AuctionAgent(AiGateway gateway, AuctionToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null) : IAgent
+public class AuctionAgent(AiGateway gateway, AuctionToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null, CttaBylawsTool? bylaws = null) : IAgent
 {
     public string Key => "auction";
     public string Name => "Auction Agent";
@@ -57,10 +57,11 @@ public class AuctionAgent(AiGateway gateway, AuctionToolExecutor tools, Asc.Api.
     {
         // Same multilingual contract as GeneralAgent — language behavior must not depend on
         // which capability answered (docs/29 "multi-language orchestration").
-        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
         var (reply, providerKey) = await gateway.CompleteAsync(
-            request.ProviderKey, systemPrompt, request.History, AuctionToolExecutor.DefinitionsFor(request.IsAdmin),
-            (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct), ct);
+            request.ProviderKey, systemPrompt, request.History,
+            CttaBylawsTool.WithDefinition(bylaws, AuctionToolExecutor.DefinitionsFor(request.IsAdmin)),
+            CttaBylawsTool.Dispatch(bylaws, (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct)), ct);
         return new AgentResponse(reply, providerKey);
     }
 }

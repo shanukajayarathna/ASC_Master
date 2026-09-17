@@ -93,6 +93,18 @@ Every tool executor in this module (`AuctionToolExecutor`, `ReportsToolExecutor`
 any tool name outside its own advertised list at dispatch time too, as defense in depth beyond
 what was advertised to the model.
 
+### Shared tool: `get_ctta_bylaws`
+
+The one tool every agent carries. `CttaBylawsTool` answers auction-rule questions (deposits,
+prompt day, default penalties, delivery, storage charges, claims...) from
+[`docs/ctta-bylaws-knowledge-base.md`](../../../../docs/ctta-bylaws-knowledge-base.md) via
+`ICttaBylawsService` (`Modules/Knowledge`) — a section lookup by `##` heading, not embeddings,
+so it needs no OpenAI key and always returns the Key Constants table plus the matching section
+and the CCC-suspension caveat. It is attached inside each agent's `HandleAsync`
+(`CttaBylawsTool.WithDefinition` / `Dispatch` / `PromptFor`), **not** added to any executor's
+`Definitions` — those curated lists (and their boundary tests) are unchanged, and an agent
+constructed without the tool behaves exactly as before.
+
 ## Data source
 
 `AuctionAgent`/`ReportsAgent`/`GeneralAgent` all read the same real catalogue data through the

@@ -33,10 +33,9 @@ using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
 
 // SaleFileStore parses each sale's Excel file synchronously (ClosedXML has no async API),
-// directly on whatever thread calls it — and SaleMetaWarmer does the same, sequentially,
-// on a background thread pool worker for as long as it takes to warm every sale on disk.
-// The dashboard alone can fan out into 6-8 of these calls in parallel (active sale, the
-// recent-sales comparison window, analytics). The CLR's thread pool starts at
+// directly on whatever thread calls it. The dashboard alone can fan out into 6-8 of these
+// calls in parallel (active sale, the recent-sales comparison window, analytics). The CLR's
+// thread pool starts at
 // Environment.ProcessorCount and only grows ~1 thread/~500ms under sustained demand, so a
 // burst like that can starve genuinely fast, already-async endpoints (e.g. auth/me) behind
 // it for several seconds while they wait for a free worker thread. Raising the floor here
@@ -81,9 +80,9 @@ builder.Services.AddSingleton<ICatalogueSource>(sp => sp.GetRequiredService<Sale
 // Per-lot photos and voice notes — disk-backed for now (data/media) behind a seam that a
 // database/blob store can take over later without touching the media controller.
 builder.Services.AddSingleton<ILotMediaStore, LocalLotMediaStore>();
-// Warm every sale's row count/headers at startup so no sale lists as "0 lots" just
-// because it hasn't been opened since the meta cache was last written.
-builder.Services.AddHostedService<SaleMetaWarmer>();
+// Sale meta (row count/headers) warms lazily: ListCatalogues() triggers a background
+// warm pass itself the first time it sees a stale/unknown sale (see TriggerBackgroundWarm
+// in SaleFileStore), so no separate startup-time warmer is needed here.
 
 builder.Services.AddSingleton<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 
@@ -107,6 +106,11 @@ builder.Services.AddSingleton<PlatformDocsSyncService>();
 // OKLO become additional IKnowledgeSource registrations here, nothing else changes.
 builder.Services.AddSingleton<IKnowledgeSource, DocumentKnowledgeSource>();
 builder.Services.AddSingleton<IKnowledgeService, KnowledgeService>();
+// CTTA By-Laws reference (docs/ctta-bylaws-knowledge-base.md) — served to every agent through
+// the get_ctta_bylaws tool by section lookup, not embeddings, so it answers without an OpenAI
+// key and quotes figures exactly. See Modules/Knowledge/CttaBylawsService.cs.
+builder.Services.AddSingleton<ICttaBylawsService, CttaBylawsService>();
+builder.Services.AddSingleton<CttaBylawsTool>();
 
 // MSL archive — the historical auction/private-sale/Tea Board dataset (data/msl, see its
 // README). The watcher runs the initial backfill and then auto-imports whenever files in
@@ -209,7 +213,7 @@ builder.Services.AddSingleton<PerformanceEngine>();
 
 // In-app notifications (no email/WhatsApp — no provider credentials exist yet) and the
 // deadline engine that's their first real producer. DeadlineCheckService is the first
-// *recurring* background job in this app (SaleMetaWarmer only runs once at startup).
+// *recurring* background job in this app.
 builder.Services.AddSingleton<INotificationService, NotificationService>();
 builder.Services.AddSingleton<DeadlineEngine>();
 builder.Services.AddHostedService<DeadlineCheckService>();

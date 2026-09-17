@@ -11,7 +11,7 @@ namespace Asc.Api.Modules.Agents;
 /// ranking (that's AuctionAgent's territory) and no 13-year MSL archive analytics (that's
 /// AnalyticsAgent's) — this agent's whole job is "what reports exist, and what do they say."
 /// </summary>
-public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null) : IAgent
+public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null, CttaBylawsTool? bylaws = null) : IAgent
 {
     public string Key => "reports";
     public string Name => "Reports Agent";
@@ -52,10 +52,11 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
     {
         // Same multilingual contract as GeneralAgent — language behavior must not depend on
         // which capability answered (docs/29 "multi-language orchestration").
-        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
         var (reply, providerKey) = await gateway.CompleteAsync(
-            request.ProviderKey, systemPrompt, request.History, ReportsToolExecutor.DefinitionsFor(request.IsAdmin),
-            (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct), ct);
+            request.ProviderKey, systemPrompt, request.History,
+            CttaBylawsTool.WithDefinition(bylaws, ReportsToolExecutor.DefinitionsFor(request.IsAdmin)),
+            CttaBylawsTool.Dispatch(bylaws, (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct)), ct);
         return new AgentResponse(reply, providerKey);
     }
 }

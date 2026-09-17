@@ -52,6 +52,7 @@ Full diagrams: [01_System_Architecture.md](01_System_Architecture.md).
 ├── 26_Testing_Strategy.md
 ├── 27_Future_Roadmap.md
 ├── 28_Loading_And_Interaction_States.md
+├── ctta-bylaws-knowledge-base.md  CTTA By-Laws & Conditions of Sale reference (domain rules; served to agents via get_ctta_bylaws)
 └── assets/
     ├── wireframes/
     ├── ui/
