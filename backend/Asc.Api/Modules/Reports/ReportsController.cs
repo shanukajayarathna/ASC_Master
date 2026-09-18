@@ -142,21 +142,52 @@ public class ReportsController(ReportGenerator generator, MongoContext db, IGene
     [HttpPost("saved")]
     public async Task<ActionResult<SavedReportDto>> Save(SaveReportRequestDto dto, CancellationToken ct)
     {
+        var custom = dto.Type == SavedReport.CustomChartType;
+        if (custom && ValidateCustomReport(dto.Title, dto.Content) is { } problem) return BadRequest(problem);
         var saved = new SavedReport
         {
             Type = dto.Type,
-            Title = dto.Title,
+            Title = custom ? dto.Title.Trim() : dto.Title,
             CatalogueId = dto.CatalogueId,
             Source = dto.Source,
+            // Only a custom report carries a snapshot; ignore Content on every other type.
+            Content = custom ? dto.Content : null,
         };
         await db.SavedReports.InsertOneAsync(saved, cancellationToken: ct);
         return Ok(ToDto(saved));
+    }
+
+    /// <summary>Upper bound on a saved custom report's snapshot — a few dozen charts' worth of
+    /// JSON, far above anything the assistant produces, but a hard stop on abuse.</summary>
+    internal const int MaxCustomContentChars = 200_000;
+    internal const int MaxCustomTitleChars = 200;
+
+    /// <summary>Null when the snapshot is acceptable, otherwise the message to return.</summary>
+    internal static string? ValidateCustomReport(string? title, string? content)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return "A custom report needs a title.";
+        if (title.Trim().Length > MaxCustomTitleChars) return $"The title can be at most {MaxCustomTitleChars} characters.";
+        if (string.IsNullOrWhiteSpace(content)) return "A custom report needs content to save.";
+        if (content.Length > MaxCustomContentChars) return "That report is too large to save.";
+        if (!content.Contains("```asc-chart", StringComparison.Ordinal))
+            return "Only an answer that contains a chart can be saved as a custom report.";
+        return null;
+    }
+
+    /// <summary>The snapshot of a saved custom report — separate from the list so opening the
+    /// Saved Reports page never loads every snapshot.</summary>
+    [HttpGet("saved/{id:guid}/content")]
+    public async Task<ActionResult<SavedReportContentDto>> GetSavedContent(Guid id, CancellationToken ct)
+    {
+        var report = await db.SavedReports.Find(r => r.Id == id).FirstOrDefaultAsync(ct);
+        return report?.Content is { } content ? Ok(new SavedReportContentDto(content)) : NotFound();
     }
 
     [HttpGet("saved")]
     public async Task<ActionResult<List<SavedReportDto>>> ListSaved(CancellationToken ct)
     {
         var list = await db.SavedReports.Find(FilterDefinition<SavedReport>.Empty)
+            .Project<SavedReport>(Builders<SavedReport>.Projection.Exclude(r => r.Content)) // snapshots load on demand only
             .SortByDescending(r => r.CreatedAt).ToListAsync(ct);
         return Ok(list.Select(ToDto).ToList());
     }
@@ -185,5 +216,5 @@ public class ReportsController(ReportGenerator generator, MongoContext db, IGene
     }
 
     private static SavedReportDto ToDto(SavedReport r) =>
-        new(r.Id, r.Type, r.Title, r.CatalogueId, r.Source, r.CreatedAt, r.StoredFileId.HasValue, r.Notes);
+        new(r.Id, r.Type, r.Title, r.CatalogueId, r.Source, r.CreatedAt, r.StoredFileId.HasValue, r.Notes, r.Type == SavedReport.CustomChartType);
 }

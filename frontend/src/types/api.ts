@@ -476,6 +476,9 @@ export interface SavedReport {
   downloadable: boolean;
   /** Placeholder message on the monthly Combined Report job's output; null otherwise. */
   notes: string | null;
+  /** True for a custom report saved from the AI Assistant — a snapshot (table + charts) fetched
+   *  with getSavedReportContent, viewed in place rather than regenerated from a catalogue. */
+  hasContent: boolean;
 }
 
 // ---- Automated Reports (Admin Panel) — see backend/Modules/ScheduledReports ----

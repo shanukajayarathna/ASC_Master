@@ -1,6 +1,7 @@
 "use client";
 
 import MicButton from "@/components/assistant/MicButton";
+import { parseChartSpec } from "@/components/assistant/ChartBlock";
 import { parseClarify, RichText } from "@/components/assistant/RichText";
 import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
@@ -9,6 +10,7 @@ import type { ActivitySummary, ChatMessage, Conversation, ProviderStatus } from 
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
@@ -169,6 +171,36 @@ function AgentCard({ agent, selected, onSelect }: { agent: AgentInfo; selected: 
         </span>
         <span className="hidden sm:block text-[12.5px] text-text-muted leading-snug">{agent.short}</span>
       </button>
+    </Tooltip>
+  );
+}
+
+/** Saves an answer that contains a chart as a custom report (Saved Reports). A deliberate click by
+ *  the user — the assistant itself stays read-only and never saves anything. */
+function SaveReportButton({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const save = async () => {
+    const first = text.match(/```asc-chart\n([\s\S]*?)\n```/);
+    const suggested = (first && parseChartSpec(first[1])?.title) || "Custom report";
+    const title = window.prompt("Save this report as:", suggested)?.trim();
+    if (!title) return;
+    setState("saving");
+    try {
+      await api.saveCustomReport(title, text);
+      setState("saved");
+    } catch {
+      setState("error");
+    }
+  };
+  const hint =
+    state === "saved" ? "Saved — find it under Saved Reports" : state === "error" ? "Couldn't save — try again" : "Save as a report";
+  return (
+    <Tooltip title={hint}>
+      <span>
+        <IconButton size="small" aria-label="Save report" onClick={save} disabled={state === "saving" || state === "saved"} sx={{ p: 0.5 }}>
+          {state === "saved" ? <CheckIcon sx={{ fontSize: 14 }} /> : <BookmarkBorderOutlinedIcon sx={{ fontSize: 14 }} />}
+        </IconButton>
+      </span>
     </Tooltip>
   );
 }
@@ -549,6 +581,7 @@ export default function AssistantPage() {
                       {!isUser && m.provider && <span>{providers.find((p) => p.key === m.provider)?.displayName ?? m.provider}</span>}
                       <span>{timeLabel(m.createdAt)}</span>
                       {!isUser && <CopyButton text={text.replace(/```asc-chart\n[\s\S]*?\n```/g, "[chart]")} />}
+                      {hasChart && <SaveReportButton text={text} />}
                     </div>
                   </div>
                 );

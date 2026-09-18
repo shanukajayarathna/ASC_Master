@@ -25,6 +25,11 @@ public record ReportDto(string Type, string Title, string Subtitle, string Sourc
 /// like every hand-saved report; the frontend uses it to show a Download action instead of
 /// the usual Reopen-and-regenerate one. Notes is the placeholder message on the monthly
 /// Combined Report job's output; null for everything else.</summary>
-public record SavedReportDto(Guid Id, string Type, string Title, Guid? CatalogueId, string? Source, DateTime CreatedAt, bool Downloadable, string? Notes);
+/// <remarks>HasContent is true for a saved custom report (a snapshot fetched via
+/// <c>saved/{id}/content</c>); the snapshot itself is never part of the list.</remarks>
+public record SavedReportDto(Guid Id, string Type, string Title, Guid? CatalogueId, string? Source, DateTime CreatedAt, bool Downloadable, string? Notes, bool HasContent = false);
 
-public record SaveReportRequestDto(string Type, string Title, Guid? CatalogueId, string? Source);
+/// <param name="Content">Only for Type "custom-chart": the assistant answer to snapshot.</param>
+public record SaveReportRequestDto(string Type, string Title, Guid? CatalogueId, string? Source, string? Content = null);
+
+public record SavedReportContentDto(string Content);

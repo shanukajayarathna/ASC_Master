@@ -45,12 +45,18 @@ public class SavedReportsService(MongoContext db) : ISavedReportsService
         return report;
     }
 
+    // Listings never need a custom report's (potentially large) snapshot; GetAsync still returns it.
+    private static readonly ProjectionDefinition<SavedReport> WithoutContent =
+        Builders<SavedReport>.Projection.Exclude(r => r.Content);
+
     public Task<List<SavedReport>> ListByTypeAsync(string type, int limit, CancellationToken ct = default) =>
-        db.SavedReports.Find(r => r.Type == type).SortByDescending(r => r.CreatedAt).Limit(limit).ToListAsync(ct);
+        db.SavedReports.Find(r => r.Type == type).Project<SavedReport>(WithoutContent)
+            .SortByDescending(r => r.CreatedAt).Limit(limit).ToListAsync(ct);
 
     public async Task<SavedReport?> GetAsync(Guid id, CancellationToken ct = default) =>
         await db.SavedReports.Find(r => r.Id == id).FirstOrDefaultAsync(ct);
 
     public Task<List<SavedReport>> ListAllAsync(int limit, CancellationToken ct = default) =>
-        db.SavedReports.Find(FilterDefinition<SavedReport>.Empty).SortByDescending(r => r.CreatedAt).Limit(limit).ToListAsync(ct);
+        db.SavedReports.Find(FilterDefinition<SavedReport>.Empty).Project<SavedReport>(WithoutContent)
+            .SortByDescending(r => r.CreatedAt).Limit(limit).ToListAsync(ct);
 }

@@ -75,4 +75,14 @@ public class SavedReport
     /// Combined Report placeholder job to mark its output as not yet configured. Null for
     /// every hand-generated report.</summary>
     public string? Notes { get; set; }
+
+    /// <summary>Type of a report a user saved from the AI Assistant (a custom cross-broker table
+    /// and charts) — a point-in-time snapshot kept in <see cref="Content"/>, not regenerable
+    /// from a catalogue like the fixed report types.</summary>
+    public const string CustomChartType = "custom-chart";
+
+    /// <summary>The saved snapshot of a <see cref="CustomChartType"/> report: the assistant's
+    /// answer text (scope, markdown tables, and fenced asc-chart blocks). Null for every other
+    /// type. Listing never returns it; it is fetched on demand by id.</summary>
+    public string? Content { get; set; }
 }

@@ -490,6 +490,15 @@ export const api = {
       body: JSON.stringify({ type, title, catalogueId, source }),
     }),
 
+  /** Snapshots an AI Assistant answer (scope, tables, charts) as a "custom-chart" saved report. */
+  saveCustomReport: (title: string, content: string) =>
+    request<SavedReport>("/api/v1/reports/saved", {
+      method: "POST",
+      body: JSON.stringify({ type: "custom-chart", title, catalogueId: null, source: "AI Assistant", content }),
+    }),
+
+  getSavedReportContent: (id: string) => request<{ content: string }>(`/api/v1/reports/saved/${id}/content`),
+
   listSavedReports: () => request<SavedReport[]>("/api/v1/reports/saved"),
 
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),

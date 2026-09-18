@@ -1,5 +1,6 @@
 "use client";
 
+import { RichText } from "@/components/assistant/RichText";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { api } from "@/lib/api";
@@ -7,7 +8,13 @@ import type { SavedReport } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
@@ -38,6 +45,8 @@ export default function SavedReportsPage() {
   // Report whose delete is in flight — its button locks so a double-click can't fire twice.
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // A custom report open in the viewer: the snapshot is fetched on demand, never with the list.
+  const [viewing, setViewing] = useState<{ report: SavedReport; content: string | null; error: boolean } | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -62,6 +71,16 @@ export default function SavedReportsPage() {
     }
   };
 
+  const view = async (r: SavedReport) => {
+    setViewing({ report: r, content: null, error: false });
+    try {
+      const { content } = await api.getSavedReportContent(r.id);
+      setViewing((v) => (v && v.report.id === r.id ? { ...v, content } : v));
+    } catch {
+      setViewing((v) => (v && v.report.id === r.id ? { ...v, error: true } : v));
+    }
+  };
+
   const download = async (r: SavedReport) => {
     setDownloadingId(r.id);
     try {
@@ -76,7 +95,7 @@ export default function SavedReportsPage() {
     <div>
       <PageHeader
         title="Saved Reports"
-        subtitle="Reports you've bookmarked — reopening regenerates them against current data."
+        subtitle="Reports you've bookmarked — reopening regenerates them against current data. Custom reports from the AI Assistant are saved as a snapshot of the figures at the time."
       />
 
       {loading ? (
@@ -97,7 +116,13 @@ export default function SavedReportsPage() {
                   {r.notes ?? r.source ?? "—"} · {new Date(r.createdAt).toLocaleString()}
                 </div>
               </div>
-              {r.downloadable ? (
+              {r.hasContent ? (
+                <Tooltip title="View">
+                  <IconButton size="small" onClick={() => view(r)} aria-label={`View ${r.title}`}>
+                    <VisibilityOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : r.downloadable ? (
                 <Tooltip title="Download">
                   <span>
                     <IconButton
@@ -142,6 +167,31 @@ export default function SavedReportsPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={viewing !== null} onClose={() => setViewing(null)} maxWidth="md" fullWidth>
+        <DialogTitle>{viewing?.report.title}</DialogTitle>
+        <DialogContent dividers>
+          {viewing?.error ? (
+            <p className="m-0 text-danger text-[13px]">Couldn&apos;t load this report.</p>
+          ) : viewing?.content === null ? (
+            <div className="flex justify-center py-8">
+              <TeaLoader size={36} />
+            </div>
+          ) : viewing ? (
+            <div className="text-[14px] leading-relaxed whitespace-pre-wrap break-words">
+              <RichText text={viewing.content ?? ""} />
+            </div>
+          ) : null}
+          {viewing && !viewing.error && (
+            <p className="mt-3 mb-0 text-[11.5px] text-text-muted">
+              Snapshot saved {new Date(viewing.report.createdAt).toLocaleString()} — figures don&apos;t change if the data is updated later.
+            </p>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewing(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }
