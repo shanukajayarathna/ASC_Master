@@ -23,10 +23,10 @@ public record SharedMarkCatalogueRow(
     string? ProductionLabel = null,
     string? FactoryDisplayName = null);
 
-/// <summary>MonthCalendar is every sale number in the display month, ascending, including
-/// ones with no data yet (future weeks) — the report lays out one column per week of the
-/// month regardless of whether that week has happened, matching the original hand-built
-/// report's fixed weekly-column layout. UnmatchedMarks lists the estate names (as shown in
+/// <summary>MonthCalendar is every sale number in the target's own calendar month —
+/// including weeks that haven't happened yet — already in the report's own DISPLAY order
+/// (target sale first; see BuildMonthCalendar's own doc comment for exactly what that
+/// means). UnmatchedMarks lists the estate names (as shown in
 /// the output) whose code had no elevation history anywhere on file — always empty for
 /// AggregateAsync (its lots already carry real elevation, nothing to look up), populated by
 /// AggregateFromUploadAsync for marks defaulted to "High & Medium Grown" with no way to
@@ -105,13 +105,28 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     // ASC-only file. This file carries every broker's rows together, spelled "ASC".
     private const string AscBrokerCode = "ASC";
 
+    // Investigated live against the company's own hand-built reference for Sale 38/2026:
+    // Danawala (MF1375) and Nilwala (BF0186) each share their Factory code with an
+    // apparently-unrelated sub-mark (Ranketidola; Nilwan). A split was tried here first —
+    // reverted after checking the reference's own Month/MTD figures, which only match our
+    // COMBINED total for both pairs (e.g. Danawala Ctc's JK Month=13,200 only reconciles as
+    // Ranketidola Ctc's 6,600 + Danawala Ctc's own 6,600 — the reference treats them as one
+    // line, same as Boscombe/Kinkini). Only the Year-to-date figure disagreed, and no subset
+    // of the real weekly data reconstructs the reference's Year number at all (confirmed:
+    // summing every single 2026 lot for this code/broker by hand reproduces our own YTD
+    // exactly) — the far more likely explanation is drift in the reference's own
+    // hand-carried-forward running total over 38 weeks, not a merge bug here. Left as a
+    // comment rather than deleted outright in case a FUTURE reference clearly shows these
+    // should split (matching Month AND Year both) — see BuildRows' own reconciliation-pass
+    // comment for the established pattern such a fix would follow.
+
     public Task<SharedMarkCatalogueResult> AggregateAsync(int year, int saleNo, CancellationToken ct)
     {
         var targetId = SaleFileStore.CatalogueIdFor(year, saleNo);
         var targetCatalogue = catalogues.GetCatalogue(targetId)
             ?? throw new InvalidOperationException($"No sale file found for sale {saleNo}/{year}.");
         var saleDate = targetCatalogue.ImportedAt;
-        var monthCalendar = AlignCalendarToKnownSaleDate(catalogues.SalesInMonth(year, saleDate.Month), saleNo, saleDate);
+        var monthCalendar = BuildMonthCalendar(catalogues, year, saleNo, saleDate);
 
         // Every sale so far this calendar year (drives YTD); the subset also in this
         // calendar month drives MTD/the weekly columns. Both windows are inclusive of the
@@ -132,7 +147,8 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         }
 
         var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate);
-        var rows = BuildRows(taggedLots, recentlySharedFactoryCodes);
+        var weekWindowSaleNos = monthCalendar.Select(w => w.SaleNo).ToHashSet();
+        var rows = BuildRows(taggedLots, recentlySharedFactoryCodes, weekWindowSaleNos);
         return Task.FromResult(new SharedMarkCatalogueResult(year, saleNo, saleDate, monthCalendar, rows, []));
     }
 
@@ -161,11 +177,11 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     public Task<SharedMarkCatalogueResult> AggregateFromUploadAsync(
         int year, int saleNo, DateTime saleDate, IReadOnlyList<Lot> uploadedLots, CancellationToken ct)
     {
-        var monthCalendar = AlignCalendarToKnownSaleDate(catalogues.SalesInMonth(year, saleDate.Month), saleNo, saleDate);
+        var monthCalendar = BuildMonthCalendar(catalogues, year, saleNo, saleDate);
 
         // Excluded by identity (CatalogueIdFor), not just by date: /data/sales' own
         // ImportedAt is itself an estimate for years with no explicit date table (see
-        // AlignCalendarToKnownSaleDate) and can land a day either side of the real date —
+        // BuildMonthCalendar) and can land a day either side of the real date —
         // found live, this let the target sale's own already-existing /data/sales file
         // (dated one day "before" the upload's real date by the estimate) slip through the
         // date-only filter and get counted as "historical" on top of the uploaded lots for
@@ -216,7 +232,8 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .ToList();
 
         var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate);
-        var rows = BuildRows(taggedLots, recentlySharedFactoryCodes);
+        var weekWindowSaleNos = monthCalendar.Select(w => w.SaleNo).ToHashSet();
+        var rows = BuildRows(taggedLots, recentlySharedFactoryCodes, weekWindowSaleNos);
 
         // A mark is genuinely unmatched only if NOTHING feeding this report — uploaded or
         // historical, any broker — carries a non-blank elevation under its exact display
@@ -338,14 +355,19 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    // isThisMonth gates Month Todate; isInWeekWindow gates the per-week columns. Both are the
+    // target's own calendar month in practice (BuildMonthCalendar), but kept as two separate
+    // flags rather than reused as one — see BuildRows' own comment for why that separation
+    // matters even though the two sets happen to coincide today.
     private static void Accumulate(
         HashSet<string> brokers, Dictionary<string, decimal> month, Dictionary<string, decimal> year,
-        Dictionary<string, Dictionary<int, decimal>> saleQtyByBroker, string broker, decimal qty, bool isThisMonth, string? saleNoRaw)
+        Dictionary<string, Dictionary<int, decimal>> saleQtyByBroker, string broker, decimal qty,
+        bool isThisMonth, bool isInWeekWindow, string? saleNoRaw)
     {
         brokers.Add(broker);
         Add(year, broker, qty);
-        if (!isThisMonth) return;
-        Add(month, broker, qty);
+        if (isThisMonth) Add(month, broker, qty);
+        if (!isInWeekWindow) return;
         if (!int.TryParse(saleNoRaw, out var saleNo)) return;
         if (!saleQtyByBroker.TryGetValue(broker, out var perSale))
             saleQtyByBroker[broker] = perSale = new Dictionary<int, decimal>();
@@ -370,13 +392,23 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     /// CTC sub-blocks for these factories.</summary>
     public static IReadOnlyList<SharedMarkCatalogueRow> BuildRows(
         IEnumerable<(Lot Lot, bool IsThisMonth)> taggedLots,
-        IReadOnlySet<string>? recentlySharedFactoryCodes = null)
+        IReadOnlySet<string>? recentlySharedFactoryCodes = null,
+        IReadOnlySet<int>? weekWindowSaleNos = null)
     {
         recentlySharedFactoryCodes ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var groups = new Dictionary<string, GroupAccumulator>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (lot, isThisMonth) in taggedLots)
         {
+            // The weekly columns (SaleQtyByBrokerAndSaleNo) are keyed to weekWindowSaleNos —
+            // the target's own calendar month's sale numbers, from BuildMonthCalendar,
+            // including not-yet-happened ones (their lots simply don't exist yet, so they
+            // stay blank regardless). Kept as a parameter separate from isThisMonth rather
+            // than reusing it directly, so the two can diverge later without another
+            // refactor. null (the default, used directly by BuildRows' own unit tests) means
+            // "no restriction" — every week a lot's own SaleNo names gets a column.
+            var isInWeekWindow = weekWindowSaleNos is null ||
+                (int.TryParse(lot.SaleNo, out var lotSaleNo) && weekWindowSaleNos.Contains(lotSaleNo));
             if (lot.IsReprint) continue;
             if (string.IsNullOrWhiteSpace(lot.SellingMark)) continue;
             if (lot.NetWeight is not { } qty || qty <= 0) continue;
@@ -414,7 +446,7 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
                 acc.EstateNameIsFactoryName = candidateIsFactoryName;
             }
             acc.Code ??= key;
-            Accumulate(acc.Brokers, acc.MonthQtyByBroker, acc.YearQtyByBroker, acc.SaleQtyByBrokerAndSaleNo, broker, qty, isThisMonth, lot.SaleNo);
+            Accumulate(acc.Brokers, acc.MonthQtyByBroker, acc.YearQtyByBroker, acc.SaleQtyByBrokerAndSaleNo, broker, qty, isThisMonth, isInWeekWindow, lot.SaleNo);
 
             // Same lot, added again into the factory's CTC-only slice when its own Selling
             // Mark says so — see IsCtcSubMark. Every lot always feeds the combined `acc`
@@ -432,7 +464,7 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
                 // BOTH its sides) — appending another " - Ctc" there would read as a
                 // redundant "Batuwangala - Ctc - Ctc".
                 acc.Ctc.Name ??= lot.SellingMark.Trim();
-                Accumulate(acc.Ctc.Brokers, acc.Ctc.MonthQtyByBroker, acc.Ctc.YearQtyByBroker, acc.Ctc.SaleQtyByBrokerAndSaleNo, broker, qty, isThisMonth, lot.SaleNo);
+                Accumulate(acc.Ctc.Brokers, acc.Ctc.MonthQtyByBroker, acc.Ctc.YearQtyByBroker, acc.Ctc.SaleQtyByBrokerAndSaleNo, broker, qty, isThisMonth, isInWeekWindow, lot.SaleNo);
             }
         }
 
@@ -767,19 +799,43 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         return usable!.Trim();
     }
 
-    /// <summary>SaleFileStore.SalesInMonth estimates every week's date from a once-a-year
-    /// anchor formula for years with no explicit date table yet (e.g. 2026) — close, but it
-    /// can drift a day or two from the real calendar (confirmed: the 2026 formula puts sale
-    /// 36 on 15 Sep, the real file/upload date is 16 Sep). The target sale's own date is
-    /// always known exactly (from /data/sales' ImportedAt or the upload form), so shift
-    /// every week in the calendar by that same offset — correct for the sale that matters,
-    /// and for its neighbors too since a fixed-formula's drift is constant across a year.</summary>
-    private static IReadOnlyList<(int SaleNo, DateTime Date)> AlignCalendarToKnownSaleDate(
-        IReadOnlyList<(int SaleNo, DateTime Date)> calendar, int knownSaleNo, DateTime knownDate)
+    /// <summary>Every sale number in the target's own calendar month — including weeks that
+    /// haven't happened yet (e.g. Sale 39/2026 is October's first sale, so October's
+    /// remaining not-yet-happened weeks 40/41/42 are included too, genuinely blank per
+    /// explicit instruction: WriteQtyCell's own hasData check already renders a not-yet-
+    /// happened week with no value and no fill, distinct from a real recorded zero) — already
+    /// in DISPLAY order: the target sale first, then this month's later weeks ascending, then
+    /// this month's earlier weeks descending. That reduces to plain ascending-then-reversed
+    /// for a month with no later weeks (Sale 38/2026, September's last sale: 38,37,36,35,34)
+    /// and to plain ascending for a month with no earlier weeks (Sale 39/2026: 39,40,41,42) —
+    /// the two cases actually confirmed live — and generalizes sensibly for a sale in the
+    /// middle of its month. The workbook builder uses this order as-is, no further reversal.
+    ///
+    /// SaleFileStore.SalesInMonth estimates each week's date from a once-a-year anchor
+    /// formula for years with no explicit date table yet (e.g. 2026) — close, but it can
+    /// drift a day or two from the real calendar (confirmed: the 2026 formula puts sale 36 on
+    /// 15 Sep, the real file/upload date is 16 Sep). The target sale's own date is always
+    /// known exactly (from /data/sales' ImportedAt or the upload form) — and is forced onto
+    /// its own entry directly rather than trusted to SalesInMonth, which might not have it at
+    /// all (an upload ahead of the sale's own /data/sales file existing, or a test double
+    /// with no real calendar behind it) — every OTHER week in the month is then shifted by
+    /// that same offset, correct for the sale that matters and for its neighbors too since a
+    /// fixed-formula's drift is constant across a year.</summary>
+    private static IReadOnlyList<(int SaleNo, DateTime Date)> BuildMonthCalendar(
+        ICatalogueSource catalogues, int year, int saleNo, DateTime saleDate)
     {
-        var estimated = calendar.FirstOrDefault(w => w.SaleNo == knownSaleNo);
-        if (estimated == default) return calendar;
-        var offset = knownDate.Date - estimated.Date.Date;
-        return offset == TimeSpan.Zero ? calendar : calendar.Select(w => (w.SaleNo, w.Date + offset)).ToList();
+        var byNo = catalogues.SalesInMonth(year, saleDate.Month).ToDictionary(w => w.SaleNo, w => w.Date);
+        var offset = byNo.TryGetValue(saleNo, out var estimated) ? saleDate.Date - estimated.Date : TimeSpan.Zero;
+        if (offset != TimeSpan.Zero)
+            foreach (var no in byNo.Keys.ToList())
+                if (no != saleNo) byNo[no] += offset;
+        byNo[saleNo] = saleDate;
+
+        var after = byNo.Where(kv => kv.Key > saleNo).OrderBy(kv => kv.Key);
+        var before = byNo.Where(kv => kv.Key < saleNo).OrderByDescending(kv => kv.Key);
+        return new[] { (saleNo, byNo[saleNo]) }
+            .Concat(after.Select(kv => (kv.Key, kv.Value)))
+            .Concat(before.Select(kv => (kv.Key, kv.Value)))
+            .ToList();
     }
 }

@@ -40,11 +40,13 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         IReadOnlyList<SharedMarkCatalogueRow> rows, bool includeYearColumn)
     {
         var ws = wb.CreateSheet(bucketName == "Low Grown" ? "Low Grown" : "High & Medium Grown");
-        // result.MonthCalendar is ascending (SaleNo, Date); reversed here so the latest sale's
-        // column lands immediately after the label column instead of at the far end, right
-        // before Month/(Year) — data extraction/values are untouched, only the on-sheet column
-        // order changes.
-        var weeks = result.MonthCalendar.Reverse().ToList();
+        // result.MonthCalendar is already in the report's own display order (target sale
+        // first — see SharedMarkCatalogueService.BuildMonthCalendar's own doc comment), so
+        // no reordering needed here. An earlier version of this reversed a plain-ascending
+        // calendar instead, which put not-yet-happened weeks ahead of the target sale
+        // whenever the target wasn't its month's last week (found live: Sale 39/2026,
+        // October's first sale, showed 42/41/40 before 39).
+        var weeks = result.MonthCalendar;
 
         var titleStyle = wb.CreateCellStyle();
         var titleFont = wb.CreateFont();
@@ -82,6 +84,13 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         var estateNameFont = wb.CreateFont();
         estateNameFont.IsBold = true;
         estateNameStyle.SetFont(estateNameFont);
+        // Some real estate/factory names run long (confirmed live: "Diggala Enterprises Tea
+        // Processing Center", "Polkollagollawatta Tea Processing Center" — over 40
+        // characters) and were clipping against the label column's old fixed width. Wrapping
+        // is the safety net for whatever's still longer than the widened column below;
+        // Excel/LibreOffice both auto-grow the row height for a wrapped cell by default, so
+        // this never needs an explicit row height.
+        estateNameStyle.WrapText = true;
         ApplyGridBorders(estateNameStyle);
 
         var brokerLabelStyle = wb.CreateCellStyle();
@@ -112,6 +121,18 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         zeroQtyStyle.CloneStyleFrom(qtyStyle);
         zeroQtyStyle.FillForegroundColor = IndexedColors.Red.Index;
         zeroQtyStyle.FillPattern = FillPattern.SolidForeground;
+
+        // Month-to-date/Year-to-date are the report's own running totals, not just another
+        // week — bolded per explicit instruction so they stand out from the plain weekly
+        // figures either side of them.
+        var boldQtyFont = wb.CreateFont();
+        boldQtyFont.IsBold = true;
+        var boldQtyStyle = wb.CreateCellStyle();
+        boldQtyStyle.CloneStyleFrom(qtyStyle);
+        boldQtyStyle.SetFont(boldQtyFont);
+        var boldZeroQtyStyle = wb.CreateCellStyle();
+        boldZeroQtyStyle.CloneStyleFrom(zeroQtyStyle);
+        boldZeroQtyStyle.SetFont(boldQtyFont);
 
         const int labelCol = 0;
         var weekCols = weeks.Count;
@@ -240,14 +261,16 @@ internal static class SharedMarkCatalogueWorkbookBuilder
                     WriteQtyCell(dataRow.CreateCell(labelCol + 1 + i), qty, hasData, qtyStyle, zeroQtyStyle);
                 }
 
-                WriteQtyCell(dataRow.CreateCell(monthCol), row.MonthQtyByBroker.GetValueOrDefault(broker), true, qtyStyle, zeroQtyStyle);
+                WriteQtyCell(dataRow.CreateCell(monthCol), row.MonthQtyByBroker.GetValueOrDefault(broker), true, boldQtyStyle, boldZeroQtyStyle);
 
                 if (includeYearColumn)
-                    WriteQtyCell(dataRow.CreateCell(yearCol), row.YearQtyByBroker.GetValueOrDefault(broker), true, qtyStyle, zeroQtyStyle);
+                    WriteQtyCell(dataRow.CreateCell(yearCol), row.YearQtyByBroker.GetValueOrDefault(broker), true, boldQtyStyle, boldZeroQtyStyle);
             }
         }
 
-        ws.SetColumnWidth(labelCol, 22 * 256);
+        // Widened from 22 — several real estate/factory names (see estateNameStyle's own
+        // comment) were wider than that and clipping in both Excel and the PDF conversion.
+        ws.SetColumnWidth(labelCol, 34 * 256);
         for (var i = labelCol + 1; i <= lastCol; i++) ws.SetColumnWidth(i, 12 * 256);
 
         // Landscape + fit-to-width so every week/Month/Year column lands on the same page
@@ -260,5 +283,12 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         ws.PrintSetup.FitWidth = 1;
         ws.PrintSetup.FitHeight = 0;
         ws.FitToPage = true;
+
+        // FitHeight=0 lets the sheet span as many pages tall as the row count needs, so
+        // without this the title (row 0) and column headers (rows 1-2) would only ever
+        // print on the first page — every later page would start mid-table with no context
+        // for what the numbers mean. Repeating them as print titles puts the same title +
+        // header rows at the top of every page, matching the original hand-built PDF.
+        ws.RepeatingRows = new CellRangeAddress(0, 2, -1, -1);
     }
 }

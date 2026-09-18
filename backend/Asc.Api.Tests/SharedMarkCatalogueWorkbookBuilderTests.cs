@@ -25,7 +25,9 @@ public class SharedMarkCatalogueWorkbookBuilderTests
         // happened with a genuine recorded zero for ASC (should show "0" on red), while
         // week 37 hasn't happened yet at all (should be genuinely blank — not "0", no red)
         // per explicit instruction: a future week has nothing to report, distinct from a
-        // real recorded zero.
+        // real recorded zero. MonthCalendar is passed already in the report's own display
+        // order (target sale first — see SharedMarkCatalogueService.BuildMonthCalendar's own
+        // doc comment); the workbook builder no longer reorders it itself.
         var calendar = new List<(int SaleNo, DateTime Date)> { (36, new DateTime(2026, 9, 16)), (37, new DateTime(2026, 9, 23)) };
         var row = Row("MF0001", "TEST ESTATE", "Low Grown", asc36: 0, asc37: 0);
         var result = new SharedMarkCatalogueResult(2026, 36, new DateTime(2026, 9, 16), calendar, [row], []);
@@ -34,11 +36,11 @@ public class SharedMarkCatalogueWorkbookBuilderTests
         using var wb = new XSSFWorkbook(new MemoryStream(bytes));
         var ws = wb.GetSheetAt(0);
 
-        // Row 3 = estate name, row 4 = first (ASC) broker row. Week columns run latest-first,
-        // so col 1 = week 37 (the later sale), col 2 = week 36.
+        // Row 3 = estate name, row 4 = first (ASC) broker row. Target-first order: col 1 =
+        // week 36 (the target), col 2 = week 37 (the later, not-yet-happened sale).
         var ascRow = ws.GetRow(4);
-        var week37Cell = ascRow.GetCell(1);
-        var week36Cell = ascRow.GetCell(2);
+        var week36Cell = ascRow.GetCell(1);
+        var week37Cell = ascRow.GetCell(2);
 
         Assert.Equal(0d, week36Cell.NumericCellValue);
         Assert.Equal(FillPattern.SolidForeground, week36Cell.CellStyle.FillPattern);
