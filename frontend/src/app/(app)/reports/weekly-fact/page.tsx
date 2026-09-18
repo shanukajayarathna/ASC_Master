@@ -3,6 +3,7 @@
 import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, ApiError } from "@/lib/api";
 import { dateStamp } from "@/lib/worksheetPdf";
 import {
@@ -351,6 +352,11 @@ export default function WeeklyFactReportsPage() {
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [job, setJob] = useState<WeeklyJobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useLeaveConfirmation(
+    generatingMarketShare || generating || zipping || pdfBusy !== null,
+    "Weekly FACT is still generating. Leaving now will cancel it — continue?"
+  );
   // A freshly computed result that came back with warnings, held here instead of being
   // revealed immediately — the user has to explicitly click through WarningsConfirmDialog
   // (Cancel discards it, nothing is ever shown as generated) or Continue (commits it exactly

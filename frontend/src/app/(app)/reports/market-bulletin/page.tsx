@@ -5,6 +5,7 @@ import MarketBulletinBulletin from "@/components/reports/MarketBulletinBulletin"
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, AUTH_TOKEN_STORAGE_KEY } from "@/lib/api";
 import type { MarketBulletin, MonthlyComparison } from "@/types/api";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
@@ -22,6 +23,8 @@ export default function MarketBulletinPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  useLeaveConfirmation(exportingPdf, "The Market Bulletin PDF is still exporting. Leaving now will cancel it — continue?");
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect

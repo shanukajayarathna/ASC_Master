@@ -4,6 +4,7 @@ import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
 import { useCatalogue } from "@/context/CatalogueContext";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { WorksheetFacets, WorksheetImportResult, WorksheetRow } from "@/types/api";
@@ -221,6 +222,11 @@ export default function WorksheetPage() {
   // An import that came back with skipped rows, held here until the user explicitly accepts
   // it via WarningsConfirmDialog — Cancel discards it entirely (the current sheet is untouched).
   const [pendingImport, setPendingImport] = useState<WorksheetImportResult | null>(null);
+
+  useLeaveConfirmation(
+    uploading || exporting,
+    "The worksheet is still working. Leaving now will cancel it — continue?"
+  );
 
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

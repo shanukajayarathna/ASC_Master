@@ -4,6 +4,7 @@ import BusyOverlay from "@/components/shared/BusyOverlay";
 import PageHeader from "@/components/shared/PageHeader";
 import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
 import { useCatalogue } from "@/context/CatalogueContext";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { WorksheetFacets, WorksheetImportResult, WorksheetRow } from "@/types/api";
@@ -247,6 +248,11 @@ export default function AskingPricePage() {
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useLeaveConfirmation(
+    uploading || exporting,
+    "The asking price sheet is still working. Leaving now will cancel it — continue?"
+  );
   // An import that came back with skipped rows, held here until the user explicitly accepts
   // it via WarningsConfirmDialog — Cancel discards it entirely (the current sheet is untouched).
   const [pendingImport, setPendingImport] = useState<WorksheetImportResult | null>(null);

@@ -2,6 +2,7 @@
 
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, ApiError } from "@/lib/api";
 import type { CatalogueSummary, CategoryAnalysis, CategoryOption, ScheduledReportOutput } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
@@ -54,6 +55,8 @@ export default function CategoryAnalysisPage() {
 
   const [outputs, setOutputs] = useState<ScheduledReportOutput[] | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useLeaveConfirmation(generating, "Category Analysis is still generating. Leaving now will cancel it — continue?");
 
   const refreshOutputs = useCallback(() => {
     api.listCategoryAnalysisOutputs().then(setOutputs).catch(() => setOutputs([]));

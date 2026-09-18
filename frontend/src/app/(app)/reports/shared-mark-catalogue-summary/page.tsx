@@ -3,6 +3,7 @@
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import WarningsConfirmDialog from "@/components/shared/WarningsConfirmDialog";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api } from "@/lib/api";
 import type { ScheduledReportOutput } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
@@ -57,6 +58,11 @@ export default function SharedMarkCatalogueSummaryPage() {
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const zipInputRef = useRef<HTMLInputElement | null>(null);
+
+  useLeaveConfirmation(
+    generating || convertingPdfId !== null,
+    "Sharing Mark Catalogued Summary is still generating. Leaving now will cancel it — continue?"
+  );
 
   const refresh = () => {
     api.listSharedMarkCatalogueSummaryOutputs().then(setOutputs).catch(() => setOutputs([]));

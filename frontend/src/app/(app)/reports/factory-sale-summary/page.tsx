@@ -2,6 +2,7 @@
 
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, ApiError } from "@/lib/api";
 import type { ScheduledReportOutput } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
@@ -21,6 +22,8 @@ export default function FactorySaleSummaryPage() {
 
   const [outputs, setOutputs] = useState<ScheduledReportOutput[] | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useLeaveConfirmation(generating, "Factory Sale Summary is still generating. Leaving now will cancel it — continue?");
 
   const refresh = () => {
     api.listFactorySaleSummaryOutputs().then(setOutputs).catch(() => setOutputs([]));

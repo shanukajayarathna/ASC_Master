@@ -2,6 +2,7 @@
 
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, ApiError } from "@/lib/api";
 import type { ScheduledReportJob, ScheduledReportOutput, StagedCbac } from "@/types/api";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
@@ -41,6 +42,8 @@ function JobRow({ job, onChanged }: { job: ScheduledReportJob; onChanged: () => 
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [outputs, setOutputs] = useState<ScheduledReportOutput[] | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useLeaveConfirmation(running, `${job.key} is still running. Leaving now will cancel it — continue?`);
 
   const toggle = async () => {
     try {

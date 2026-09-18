@@ -3,6 +3,7 @@
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api } from "@/lib/api";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { Report } from "@/types/api";
@@ -52,6 +53,8 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"excel" | "pptx" | "save" | null>(null);
   const [saved, setSaved] = useState(false);
+
+  useLeaveConfirmation(busy !== null, "This report is still working. Leaving now will cancel it — continue?");
 
   // A "Reopen" link from Saved Reports carries ?catalogueId=; apply it once on load.
   useEffect(() => {

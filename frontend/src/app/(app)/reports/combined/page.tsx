@@ -5,6 +5,7 @@ import AuctionReportView from "@/components/reports/AuctionReportView";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api } from "@/lib/api";
 import { exportCombinedReportExcel, exportCombinedReportPdf } from "@/lib/combinedReportExport";
 import type { AuctionReport, CombinedReport } from "@/types/api";
@@ -103,6 +104,11 @@ export default function CombinedReportPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadSaleNo, setUploadSaleNo] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  useLeaveConfirmation(
+    uploading || exportingAll !== null,
+    "The combined report is still working. Leaving now will cancel it — continue?"
+  );
 
   useEffect(() => {
     if (source !== "catalogue") return;

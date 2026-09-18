@@ -5,6 +5,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import TopPriceBulletin from "@/components/reports/TopPriceBulletin";
 import { useCatalogue } from "@/context/CatalogueContext";
+import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, AUTH_TOKEN_STORAGE_KEY } from "@/lib/api";
 import {
   buildTppMeta,
@@ -32,6 +33,11 @@ export default function TopPricePagePage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  useLeaveConfirmation(
+    exporting || exportingPdf,
+    "The Top Price Page export is still running. Leaving now will cancel it — continue?"
+  );
 
   useEffect(() => {
     if (!activeCatalogueId) {
