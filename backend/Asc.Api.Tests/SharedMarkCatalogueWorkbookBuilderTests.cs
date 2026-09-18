@@ -48,4 +48,38 @@ public class SharedMarkCatalogueWorkbookBuilderTests
         Assert.Equal(CellType.Blank, week37Cell.CellType);
         Assert.NotEqual(FillPattern.SolidForeground, week37Cell.CellStyle.FillPattern);
     }
+
+    [Theory]
+    [InlineData("BOSCOMBE", 1)]
+    [InlineData("Diggala Enterprises Tea Processing Center", 2)] // real Sale 39/2026 case — 42 chars
+    [InlineData("Polkollagollawatta Tea Processing Center", 2)] // real Sale 38/2026 case — 41 chars
+    public void EstimateWrappedLines_MatchesRealNamesFoundLive(string name, int expectedLines)
+    {
+        // Found live converting a real Sale 39/2026 PDF through LibreOffice headless: WrapText
+        // alone doesn't grow a row's height there the way Excel does when opened interactively,
+        // so Diggala's own wrapped second line rendered on top of the row above it. The name
+        // row's height now has to be set explicitly from this estimate — this pins the two
+        // real names that exposed the bug to the line count that actually avoids it.
+        Assert.Equal(expectedLines, SharedMarkCatalogueWorkbookBuilder.EstimateWrappedLines(name));
+    }
+
+    [Fact]
+    public void LongEstateName_GetsATallerRow_ThanAShortOne()
+    {
+        var shortRow = Row("MF0001", "BOSCOMBE", "Low Grown", asc36: 100, asc37: 0);
+        var longRow = Row("MF0002", "Diggala Enterprises Tea Processing Center", "Low Grown", asc36: 100, asc37: 0);
+        var calendar = new List<(int SaleNo, DateTime Date)> { (36, new DateTime(2026, 9, 16)) };
+        var result = new SharedMarkCatalogueResult(2026, 36, new DateTime(2026, 9, 16), calendar, [shortRow, longRow], []);
+
+        var bytes = SharedMarkCatalogueWorkbookBuilder.BuildBucket(result, "Low Grown", [shortRow, longRow]);
+        using var wb = new XSSFWorkbook(new MemoryStream(bytes));
+        var ws = wb.GetSheetAt(0);
+
+        // Row 3 = short name's header; Row() stamps both ASC and JK into MonthQtyByBroker, so
+        // each estate's block is 3 rows (name + ASC + JK) — long name's header lands at row 6.
+        var shortNameRow = ws.GetRow(3);
+        var longNameRow = ws.GetRow(6);
+
+        Assert.True(longNameRow.HeightInPoints > shortNameRow.HeightInPoints);
+    }
 }

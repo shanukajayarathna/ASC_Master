@@ -24,6 +24,25 @@ namespace Asc.Api.Modules.MarkIntelligence;
 /// </summary>
 internal static class SharedMarkCatalogueWorkbookBuilder
 {
+    // The label column's own width, in characters (SetColumnWidth below) — also the basis
+    // for EstimateWrappedLines' row-height math, kept as one constant so the two can't drift.
+    private const int LabelColumnChars = 34;
+
+    /// <summary>How many lines a bold estate/factory name needs to wrap onto within the
+    /// label column, so its row's height can be set to actually fit them — found live that
+    /// WrapText alone isn't enough (see estateNameStyle's own doc comment: LibreOffice's
+    /// headless PDF conversion doesn't auto-grow a wrapped row's height the way Excel does
+    /// when opened interactively, so an unset row height let a long name's second line
+    /// overlap the row below it in the real converted PDF). Uses 70% of the column's own
+    /// character width as the effective capacity per line — bold text renders wider than
+    /// plain per character, and this is a column-width estimate in the first place (Excel's
+    /// own "characters" unit is itself an approximation based on the default font's digit
+    /// width, not a literal count), so erring toward MORE estimated lines (extra blank space
+    /// in a row) is the safe direction to be wrong in — the alternative, underestimating,
+    /// is exactly the overlap bug this exists to fix.</summary>
+    internal static int EstimateWrappedLines(string text) =>
+        Math.Max(1, (int)Math.Ceiling(text.Length / (LabelColumnChars * 0.7)));
+
     public static byte[] BuildBucket(SharedMarkCatalogueResult result, string bucketName, IReadOnlyList<SharedMarkCatalogueRow> rows)
     {
         var wb = new XSSFWorkbook();
@@ -87,9 +106,13 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         // Some real estate/factory names run long (confirmed live: "Diggala Enterprises Tea
         // Processing Center", "Polkollagollawatta Tea Processing Center" — over 40
         // characters) and were clipping against the label column's old fixed width. Wrapping
-        // is the safety net for whatever's still longer than the widened column below;
-        // Excel/LibreOffice both auto-grow the row height for a wrapped cell by default, so
-        // this never needs an explicit row height.
+        // is the safety net for whatever's still longer than the widened column below — but
+        // WrapText alone isn't enough: it was assumed Excel/LibreOffice auto-grow a wrapped
+        // row's height, and Excel does when opened interactively, but LibreOffice's headless
+        // PDF conversion does NOT (found live: Diggala's own two-line wrapped name rendered
+        // on top of the row above it, overlapping text, in the real converted PDF). The row
+        // height has to be set explicitly instead — see LabelColumnChars/EstimateWrappedLines
+        // below, applied when each name row is created.
         estateNameStyle.WrapText = true;
         ApplyGridBorders(estateNameStyle);
 
@@ -224,10 +247,13 @@ internal static class SharedMarkCatalogueWorkbookBuilder
                 string.Equals(previous.FactoryDisplayName, row.FactoryDisplayName, StringComparison.OrdinalIgnoreCase);
             if (!continuesPair)
             {
+                var displayName = row.FactoryDisplayName ?? row.EstateName;
                 var nameRow = ws.CreateRow(r++);
                 var nameCell = nameRow.CreateCell(labelCol);
-                nameCell.SetCellValue(row.FactoryDisplayName ?? row.EstateName);
+                nameCell.SetCellValue(displayName);
                 nameCell.CellStyle = estateNameStyle;
+                var lines = EstimateWrappedLines(displayName);
+                if (lines > 1) nameRow.HeightInPoints = ws.DefaultRowHeightInPoints * lines;
             }
             previous = row;
 
@@ -270,7 +296,10 @@ internal static class SharedMarkCatalogueWorkbookBuilder
 
         // Widened from 22 — several real estate/factory names (see estateNameStyle's own
         // comment) were wider than that and clipping in both Excel and the PDF conversion.
-        ws.SetColumnWidth(labelCol, 34 * 256);
+        // Same value EstimateWrappedLines used above to size each name row's height — kept
+        // as one constant (LabelColumnChars) rather than two separately-typed numbers so a
+        // future width change can't silently stop matching the height math.
+        ws.SetColumnWidth(labelCol, LabelColumnChars * 256);
         for (var i = labelCol + 1; i <= lastCol; i++) ws.SetColumnWidth(i, 12 * 256);
 
         // Landscape + fit-to-width so every week/Month/Year column lands on the same page
