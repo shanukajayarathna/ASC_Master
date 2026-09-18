@@ -3,7 +3,7 @@
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 interface PageHeaderProps {
   title: string;
@@ -68,16 +68,28 @@ function ScrollToTopButton() {
  * under a launchpad sub-section (e.g. Reports' tile pages) also get a `backTo` pill pointing
  * at that section, since Home alone would skip past it.
  *
- * Sticky under the topbar (whose own height is published as --topbar-height, since it wraps
- * to a second row on narrow viewports) so the title and back/Home pills stay reachable while
- * scrolling a long page, instead of scrolling away with the content below them.
+ * Truly fixed under the topbar (whose own height is published as --topbar-height, since it
+ * wraps to a second row on narrow viewports) — it never travels with the page's scroll, it's
+ * simply docked there from the moment the page loads. `position: sticky` used to sit in normal
+ * flow and visibly scroll up with the content until it reached this offset, which read as a
+ * jump/catch-up rather than a header that "stays put". A same-height placeholder below (kept
+ * in sync via ResizeObserver, since actions can wrap to extra rows on narrow viewports) holds
+ * its place in the document flow so content doesn't slide underneath it.
  */
 export default function PageHeader({ title, subtitle, actions, backTo }: PageHeaderProps) {
-  return (
-    <div
-      className="sticky z-10 mb-5 pt-4 pb-3 flex items-center justify-between gap-3 flex-wrap print:hidden border-b border-border"
-      style={{ top: "var(--topbar-height, 68px)", background: "var(--surface-alt)" }}
-    >
+  const barRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setHeight(entry.target.getBoundingClientRect().height));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const content = (
+    <>
       <div>
         <div className="flex items-center gap-2 mb-2">
           {backTo && <BackPill href={backTo.href} label={backTo.label} />}
@@ -94,6 +106,21 @@ export default function PageHeader({ title, subtitle, actions, backTo }: PageHea
       </div>
       {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
       <ScrollToTopButton />
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      <div
+        ref={barRef}
+        className="app-pageheader-fixed z-10 pt-4 pb-3 flex items-center justify-between gap-3 flex-wrap print:hidden border-b border-border"
+        style={{ top: "var(--topbar-height, 68px)", background: "var(--surface-alt)" }}
+      >
+        {content}
+      </div>
+      {/* Reserves the fixed bar's real height in the document flow, replacing the mb-5 the
+          sticky version got for free from being an in-flow element. */}
+      <div aria-hidden style={{ height, marginBottom: height ? 20 : 0 }} />
+    </>
   );
 }

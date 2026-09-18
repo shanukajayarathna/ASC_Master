@@ -353,6 +353,15 @@ body {
   padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
   padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
 }
+/* PageHeader (shared/PageHeader.tsx) is `position: fixed`, so it sits outside `main` and needs
+   its own copy of app-main-safe's horizontal padding to line up with the content beneath it. */
+.app-pageheader-fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+}
 @media (min-width: 640px) {
   .app-topbar {
     padding-top: env(safe-area-inset-top, 0px);
@@ -366,6 +375,10 @@ body {
     padding-left: max(2rem, env(safe-area-inset-left, 0px));
     padding-right: max(2rem, env(safe-area-inset-right, 0px));
     padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  }
+  .app-pageheader-fixed {
+    padding-left: max(2rem, env(safe-area-inset-left, 0px));
+    padding-right: max(2rem, env(safe-area-inset-right, 0px));
   }
 }
 
