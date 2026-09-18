@@ -843,7 +843,12 @@ function spanColsForRegion(cat: TppAutoCategory, density: TppDensity, entry: Tpp
   );
   const rowsTarget = Math.min(TPP_MAX_SPAN_COLS, Math.ceil(rowCount / TPP_ROWS_PER_COL_TARGET));
   let cols = Math.min(rowsTarget, widthCap);
-  cols = Math.max(cols, Math.min(TPP_MIN_SPAN_COLS, widthCap));
+  // Never let the MIN_SPAN_COLS floor spread a sparse region (e.g. Premium Flowery with only a
+  // few grades) across more columns than it has rows for — that leaves most columns holding a
+  // single row with a large dead gap between mark and price, which is exactly the "unclear
+  // section" complaint this cap fixes. A data-rich region is unaffected since rowCount already
+  // exceeds TPP_MIN_SPAN_COLS by a wide margin.
+  cols = Math.max(cols, Math.min(TPP_MIN_SPAN_COLS, widthCap, rowCount));
   const ceiling = Math.min(TPP_MAX_SPAN_COLS, widthCap);
   while (cols < ceiling && estimateTppAutoCardHeightRaw(cat, cols, density) > density.pageBudget) cols++;
   return cols;
