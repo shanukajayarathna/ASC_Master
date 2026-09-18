@@ -387,9 +387,128 @@ function Donut({ spec }: { spec: ChartSpec }) {
   );
 }
 
+// ---------------------------------------------------------------------------- PNG export
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "chart";
+
+/** Word-wrap `text` to `maxWidth` using the canvas's current font. */
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
+ * Saves the rendered chart as a PNG (title, scope line, chart, legend) for pasting into a slide or
+ * email. The chart's colours are CSS variables, which mean nothing outside the page, so they are
+ * resolved against the figure's computed style — the image matches the current light/dark theme.
+ */
+async function downloadPng(fig: HTMLElement | null, spec: ChartSpec) {
+  const svg = fig?.querySelector("svg");
+  if (!fig || !svg) return;
+  const cs = getComputedStyle(fig);
+  const css = (name: string) => cs.getPropertyValue(name).trim();
+  const resolve = (v: string) => v.replace(/var\((--[\w-]+)\)/g, (_, n: string) => css(n) || "#888888");
+  const font = cs.fontFamily || "sans-serif";
+
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("font-family", font);
+  clone.querySelectorAll<SVGElement>("*").forEach((el) => {
+    for (const attr of ["fill", "stroke"]) {
+      const v = el.getAttribute(attr);
+      if (v?.includes("var(")) el.setAttribute(attr, resolve(v));
+    }
+  });
+  const cw = svg.width.baseVal.value;
+  const ch = svg.height.baseVal.value;
+  const image = new Image();
+  const loaded = new Promise<void>((ok, fail) => {
+    image.onload = () => ok();
+    image.onerror = () => fail(new Error("chart image failed to load"));
+  });
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
+  await loaded;
+
+  const scale = 2;
+  const pad = 16;
+  const width = Math.max(cw, 420) + pad * 2;
+  const measure = document.createElement("canvas").getContext("2d");
+  if (!measure) return;
+  measure.font = `600 15px ${font}`;
+  const titleLines = wrapLines(measure, spec.title, width - pad * 2);
+  measure.font = `12px ${font}`;
+  const subLines = spec.subtitle ? wrapLines(measure, spec.subtitle, width - pad * 2) : [];
+  const legend = (spec.type === "pie" && spec.series.length === 1 ? spec.categories : spec.series.map((s) => s.name)).map((name, i) => ({
+    name,
+    color: resolve(seriesColor(name, i)),
+  }));
+  const showLegend = legend.length > 1;
+  // Lay the legend out first so the canvas height is known.
+  const legendRows: { name: string; color: string; x: number; row: number }[] = [];
+  let lx = pad;
+  let row = 0;
+  for (const item of legend) {
+    const iw = measure.measureText(item.name).width + 26;
+    if (lx + iw > width - pad && lx > pad) { lx = pad; row++; }
+    legendRows.push({ ...item, x: lx, row });
+    lx += iw + 8;
+  }
+  const legendH = showLegend ? (row + 1) * 20 + 8 : 0;
+  const headerH = titleLines.length * 20 + subLines.length * 16 + 10;
+  const height = pad + headerH + ch + legendH + pad;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.scale(scale, scale);
+  ctx.fillStyle = css("--surface") || "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.textBaseline = "top";
+  let y = pad;
+  ctx.fillStyle = css("--text-strong") || "#111111";
+  ctx.font = `600 15px ${font}`;
+  for (const l of titleLines) { ctx.fillText(l, pad, y); y += 20; }
+  ctx.fillStyle = css("--text-muted") || "#666666";
+  ctx.font = `12px ${font}`;
+  for (const l of subLines) { ctx.fillText(l, pad, y); y += 16; }
+  y += 10;
+  ctx.drawImage(image, pad + (width - pad * 2 - cw) / 2, y, cw, ch);
+  y += ch + 8;
+  if (showLegend) {
+    ctx.font = `12px ${font}`;
+    for (const it of legendRows) {
+      const ry = y + it.row * 20;
+      ctx.fillStyle = it.color;
+      ctx.fillRect(it.x, ry + 2, 10, 10);
+      ctx.fillStyle = css("--text") || "#222222";
+      ctx.fillText(it.name, it.x + 16, ry);
+    }
+  }
+
+  const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/png"));
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${slug(spec.title)}.png`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ---------------------------------------------------------------------------- frame
 export default function ChartBlock({ spec }: { spec: ChartSpec }) {
   const [ref, w] = useWidth();
+  const figRef = useRef<HTMLElement>(null);
   const [asTable, setAsTable] = useState(false);
   const multi = spec.series.length > 1;
   const donutOk = spec.type === "pie" && !multi && spec.categories.length <= 6;
@@ -400,20 +519,32 @@ export default function ChartBlock({ spec }: { spec: ChartSpec }) {
   ];
 
   return (
-    <figure className="my-2 not-prose w-full border border-border rounded-lg bg-surface px-3.5 py-3 m-0 whitespace-normal">
+    <figure ref={figRef} className="my-2 not-prose w-full border border-border rounded-lg bg-surface px-3.5 py-3 m-0 whitespace-normal">
       <style>{brokerPaletteCss()}</style>
       <figcaption className="flex items-start gap-3 mb-2">
         <div className="flex-1 min-w-0">
           <div className="font-display text-[14px] font-semibold text-text-strong leading-snug">{spec.title}</div>
           {spec.subtitle && <div className="text-[11.5px] text-text-muted mt-0.5">{spec.subtitle}</div>}
         </div>
-        <button
-          type="button"
-          onClick={() => setAsTable((t) => !t)}
-          className="shrink-0 px-2 py-0.5 rounded border border-border text-[11px] font-semibold text-text hover:bg-surface-alt cursor-pointer"
-        >
-          {asTable ? "Chart" : "Table"}
-        </button>
+        <div className="shrink-0 flex gap-1.5">
+          {!asTable && (
+            <button
+              type="button"
+              onClick={() => void downloadPng(figRef.current, spec)}
+              aria-label="Download chart as PNG"
+              className="px-2 py-0.5 rounded border border-border text-[11px] font-semibold text-text hover:bg-surface-alt cursor-pointer"
+            >
+              PNG
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setAsTable((t) => !t)}
+            className="px-2 py-0.5 rounded border border-border text-[11px] font-semibold text-text hover:bg-surface-alt cursor-pointer"
+          >
+            {asTable ? "Chart" : "Table"}
+          </button>
+        </div>
       </figcaption>
 
       <div ref={ref}>
