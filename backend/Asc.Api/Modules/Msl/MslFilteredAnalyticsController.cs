@@ -121,28 +121,58 @@ public record FilterOptionsDto(
     Dictionary<string, string> BuyerNames);
 
 /// <summary>
+/// HTTP surface of <see cref="MslFilteredAnalyticsEngine"/> — kept thin so the same engine can
+/// also back the Reports Agent's custom-report tools without going through a controller.
+/// </summary>
+[ApiController]
+[Route("api/v1/msl/analytics")]
+[Authorize]
+public class MslFilteredAnalyticsController(MslFilteredAnalyticsEngine engine) : ControllerBase
+{
+    [HttpPost("filtered")]
+    public async Task<ActionResult<FilteredAnalyticsDto>> Filtered(
+        [FromBody] MslAnalyticsFilter filter, CancellationToken ct, [FromQuery] bool lite = false) =>
+        await engine.FilteredAsync(filter, ct, lite);
+
+    [HttpGet("filter-options")]
+    public async Task<ActionResult<FilterOptionsDto>> FilterOptions(CancellationToken ct) =>
+        await engine.FilterOptionsAsync(ct);
+
+    /// <summary>Lot-line detail under the FULL filter object — the reports' "Invoice Line
+    /// Details" source. Same filter semantics as /filtered, paged.</summary>
+    [HttpPost("filtered/lots")]
+    public async Task<ActionResult<FilteredLotsDto>> FilteredLots([FromBody] FilteredLotsRequest req, CancellationToken ct)
+    {
+        if (req.Filter is null) return BadRequest("A filter object is required.");
+        return await engine.FilteredLotsAsync(req, ct);
+    }
+}
+
+/// <summary>
 /// The cross-filtering engine behind the Analysis screen: one aggregation pass computes
 /// every section ($facet), so applying any filter re-renders the whole page from a single
 /// round trip. Results are cached on (filter signature, DataVersion) — repeated filter
 /// combinations are instant, and new MSL imports invalidate automatically.
 /// </summary>
-[ApiController]
-[Route("api/v1/msl/analytics")]
-[Authorize]
-public class MslFilteredAnalyticsController(
-    MongoContext db, MslImportService importer, MslReferenceService reference, IMemoryCache cache) : ControllerBase
+public class MslFilteredAnalyticsEngine(
+    MongoContext db, MslImportService importer, MslReferenceService reference, IMemoryCache cache)
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
 
-    [HttpPost("filtered")]
-    public async Task<ActionResult<FilteredAnalyticsDto>> Filtered([FromBody] MslAnalyticsFilter filter, CancellationToken ct)
+    /// <summary>
+    /// <paramref name="lite"/> skips what only the Analysis screen's cascading dropdowns need — the
+    /// option facets and the factory-name reference (which loads every weekly sale catalogue into
+    /// memory on first use). Every section (by broker/grade/category/sale…) is identical either
+    /// way; the Reports Agent's custom-report tools use it so a chat request never pays that cost.
+    /// </summary>
+    public async Task<FilteredAnalyticsDto> FilteredAsync(MslAnalyticsFilter filter, CancellationToken ct, bool lite = false)
     {
-        var key = "msl:filtered:" + importer.DataVersion + ":" +
+        var key = (lite ? "msl:filtered-lite:" : "msl:filtered:") + importer.DataVersion + ":" +
                   Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(filter))));
         var result = await cache.GetOrCreateAsync(key, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return await ComputeAsync(filter, ct);
+            return await ComputeAsync(filter, lite, ct);
         });
         return result!;
     }
@@ -177,73 +207,93 @@ public class MslFilteredAnalyticsController(
             return map;
         })!;
 
-    [HttpGet("filter-options")]
-    public async Task<ActionResult<FilterOptionsDto>> FilterOptions(CancellationToken ct)
+    private string FullOptionsKey => "msl:filteropts:" + importer.DataVersion;
+
+    public async Task<FilterOptionsDto> FilterOptionsAsync(CancellationToken ct)
     {
-        var key = "msl:filteropts:" + importer.DataVersion;
-        var result = await cache.GetOrCreateAsync(key, async entry =>
+        var result = await cache.GetOrCreateAsync(FullOptionsKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-
-            var totals = await db.MslSaleStats.Find(s => s.Dimension == "total")
-                .SortByDescending(s => s.Year).ThenByDescending(s => s.SaleNo).ToListAsync(ct);
-            var grades = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "grade").ToListAsync(ct);
-            var buyers = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "buyer").ToListAsync(ct);
-            var elevations = await db.MslSaleStats
-                .Find(s => s.Dimension == "elevation" && s.Year == totals.FirstOrDefault()!.Year)
-                .ToListAsync(ct);
-
-            // Real sale-book categories (Ex-estate, etc.) and the private-sale bucket are
-            // lot-level overrides, not a function of grade alone — pure grade-classification
-            // categories miss them entirely, which meant they never appeared as pickable
-            // options despite already appearing correctly in the Category Mix breakdown.
-            var saleCategories = await db.AuctionLots.Distinct(
-                l => l.SaleCategory, Builders<AuctionLot>.Filter.Ne(l => l.SaleCategory, null)).ToListAsync(ct);
-
-            var gradeCats = grades.ToDictionary(g => g, g => MslClassification.Classify(g).Category);
-            var gradeClasses = grades.ToDictionary(g => g, g =>
-            {
-                var c = MslClassification.Classify(g);
-                return new[] { c.Category, c.GradeType, c.TeaType, c.Manufacture };
-            });
-            var buyerNames = await BuyerNamesAsync(ct);
-            return new FilterOptionsDto(
-                [.. totals.Select(t => t.Year).Distinct().OrderDescending()],
-                totals.Select(t => new SaleSummaryDto(
-                    t.Year, t.SaleNo, t.SaleDate, t.Lots, t.SoldLots,
-                    Math.Round(t.TotalQtyKg, 2), Math.Round(t.SoldQtyKg, 2), Math.Round(t.ProceedsRs, 2),
-                    t.SoldQtyKg > 0 ? Math.Round(t.ProceedsRs / t.SoldQtyKg, 2) : null)).ToList(),
-                [.. MslBrokers.CodeToName.Keys.OrderBy(k => k)],
-                elevations.GroupBy(e => e.Key).Select(g => g.First()).Select(e => new FilteredSectionRow(
-                    e.Key, e.Label, 0, 0, 0, 0, 0, null, null)).ToList(),
-                [.. grades.Order()],
-                gradeCats,
-                gradeClasses,
-                [.. gradeCats.Values
-                    .Concat(saleCategories.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => MslClassification.NormalizeSaleCategory(c!)))
-                    .Append(MslClassification.PrivateSaleCategory)
-                    .Distinct()
-                    .Order()],
-                ["Main Grade", "Off Grade"],
-                ["Black Tea", "Green Tea"],
-                ["Orthodox", "CTC"],
-                ["MF", "BF", "RT", "HT"],
-                [.. reference.GroupToFactories().Keys.Order()],
-                [.. buyers.Order()],
-                buyerNames);
+            return await BuildOptionsAsync(includeSaleCategories: true, ct);
         });
         return result!;
     }
 
-    /// <summary>Lot-line detail under the FULL filter object — the reports' "Invoice Line
-    /// Details" source. Same filter semantics as /filtered, paged.</summary>
-    [HttpPost("filtered/lots")]
-    public async Task<ActionResult<FilteredLotsDto>> FilteredLots([FromBody] FilteredLotsRequest req, CancellationToken ct)
+    /// <summary>
+    /// The same options as <see cref="FilterOptionsAsync"/> minus the one full-archive scan (the
+    /// distinct sale-book categories over every lot), for callers that sit inside a chat request —
+    /// the Reports Agent's custom-report tools — where a multi-minute cold start is unacceptable.
+    /// Returns the full result when it is already cached; otherwise the sale-book categories that
+    /// grade names cannot reveal are limited to the known closed set (see MslClassification).
+    /// </summary>
+    public async Task<FilterOptionsDto> LightweightOptionsAsync(CancellationToken ct)
+    {
+        if (cache.TryGetValue(FullOptionsKey, out FilterOptionsDto? warm) && warm is not null) return warm;
+        var result = await cache.GetOrCreateAsync(FullOptionsKey + ":light", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
+            return await BuildOptionsAsync(includeSaleCategories: false, ct);
+        });
+        return result!;
+    }
+
+    private async Task<FilterOptionsDto> BuildOptionsAsync(bool includeSaleCategories, CancellationToken ct)
+    {
+        var totals = await db.MslSaleStats.Find(s => s.Dimension == "total")
+            .SortByDescending(s => s.Year).ThenByDescending(s => s.SaleNo).ToListAsync(ct);
+        var grades = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "grade").ToListAsync(ct);
+        var buyers = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "buyer").ToListAsync(ct);
+        var elevations = await db.MslSaleStats
+            .Find(s => s.Dimension == "elevation" && s.Year == totals.FirstOrDefault()!.Year)
+            .ToListAsync(ct);
+
+        // Real sale-book categories (Ex-estate, etc.) and the private-sale bucket are
+        // lot-level overrides, not a function of grade alone — pure grade-classification
+        // categories miss them entirely, which meant they never appeared as pickable
+        // options despite already appearing correctly in the Category Mix breakdown.
+        var saleCategories = includeSaleCategories
+            ? await db.AuctionLots.Distinct(
+                l => l.SaleCategory, Builders<AuctionLot>.Filter.Ne(l => l.SaleCategory, null)).ToListAsync(ct)
+            : [.. MslClassification.KnownSaleBookCategories];
+
+        var gradeCats = grades.ToDictionary(g => g, g => MslClassification.Classify(g).Category);
+        var gradeClasses = grades.ToDictionary(g => g, g =>
+        {
+            var c = MslClassification.Classify(g);
+            return new[] { c.Category, c.GradeType, c.TeaType, c.Manufacture };
+        });
+        var buyerNames = await BuyerNamesAsync(ct);
+        return new FilterOptionsDto(
+            [.. totals.Select(t => t.Year).Distinct().OrderDescending()],
+            totals.Select(t => new SaleSummaryDto(
+                t.Year, t.SaleNo, t.SaleDate, t.Lots, t.SoldLots,
+                Math.Round(t.TotalQtyKg, 2), Math.Round(t.SoldQtyKg, 2), Math.Round(t.ProceedsRs, 2),
+                t.SoldQtyKg > 0 ? Math.Round(t.ProceedsRs / t.SoldQtyKg, 2) : null)).ToList(),
+            [.. MslBrokers.CodeToName.Keys.OrderBy(k => k)],
+            elevations.GroupBy(e => e.Key).Select(g => g.First()).Select(e => new FilteredSectionRow(
+                e.Key, e.Label, 0, 0, 0, 0, 0, null, null)).ToList(),
+            [.. grades.Order()],
+            gradeCats,
+            gradeClasses,
+            [.. gradeCats.Values
+                .Concat(saleCategories.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => MslClassification.NormalizeSaleCategory(c!)))
+                .Append(MslClassification.PrivateSaleCategory)
+                .Distinct()
+                .Order()],
+            ["Main Grade", "Off Grade"],
+            ["Black Tea", "Green Tea"],
+            ["Orthodox", "CTC"],
+            ["MF", "BF", "RT", "HT"],
+            [.. reference.GroupToFactories().Keys.Order()],
+            [.. buyers.Order()],
+            buyerNames);
+    }
+
+    public async Task<FilteredLotsDto> FilteredLotsAsync(FilteredLotsRequest req, CancellationToken ct)
     {
         var pageSize = Math.Clamp(req.PageSize ?? 200, 1, 500);
         var page = Math.Max(req.Page ?? 1, 1);
-        if (req.Filter is null) return BadRequest("A filter object is required.");
-        var stages = await MatchStagesAsync(req.Filter, ct);
+        var stages = await MatchStagesAsync(req.Filter ?? throw new ArgumentException("A filter object is required."), ct);
         // In-report quick search: prefix match over mark/estate/buyer/grade/invoice/lot.
         if (!string.IsNullOrWhiteSpace(req.Search))
         {
@@ -420,7 +470,13 @@ public class MslFilteredAnalyticsController(
         return stages;
     }
 
-    private async Task<FilteredAnalyticsDto> ComputeAsync(MslAnalyticsFilter f, CancellationToken ct)
+    private static readonly IReadOnlyDictionary<string, MslReferenceService.FactoryRef> NoFactoryRefs =
+        new Dictionary<string, MslReferenceService.FactoryRef>();
+
+    private static readonly AvailableOptionsDto NoOptions =
+        new([], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+
+    private async Task<FilteredAnalyticsDto> ComputeAsync(MslAnalyticsFilter f, bool lite, CancellationToken ct)
     {
         var started = DateTime.UtcNow;
         var stages = await MatchStagesAsync(f, ct);
@@ -494,7 +550,7 @@ public class MslFilteredAnalyticsController(
             ["default"] = "3,000+",
         });
 
-        stages.Add(new BsonDocument("$facet", new BsonDocument
+        var facets = new BsonDocument
         {
             ["total"] = Facet(BsonNull.Value, 1),
             ["byBroker"] = Facet("$b", 12),
@@ -534,7 +590,11 @@ public class MslFilteredAnalyticsController(
                     ["sc"] = new BsonDocument("$ifNull", new BsonArray { "$ct", BsonNull.Value }),
                     ["g"] = "$g",
                 }, 3000),
-        }));
+        };
+        if (lite)
+            foreach (var name in facets.Names.Where(n => n.StartsWith("opt", StringComparison.Ordinal)).ToList())
+                facets.Remove(name);
+        stages.Add(new BsonDocument("$facet", facets));
 
         var doc = await db.AuctionLots.Aggregate<BsonDocument>(stages, new AggregateOptions { AllowDiskUse = true }, ct)
             .FirstAsync(ct);
@@ -558,7 +618,7 @@ public class MslFilteredAnalyticsController(
             }).ToList();
 
         var buyerNames = await BuyerNamesAsync(ct);
-        var factoryRefs = reference.ByFactory;
+        var factoryRefs = lite ? NoFactoryRefs : reference.ByFactory;
 
         var byGrade = Rows("byGrade");
         // Category rollup: prefer the Excel-enriched SaleCategory per (category, grade)
@@ -620,7 +680,7 @@ public class MslFilteredAnalyticsController(
             Rows("byPacking", id => (id.IsBsonNull ? "(none)" : id.ToString() ?? "(none)", null)),
             Rows("bySale", id => ($"{id["s"].ToInt32():00}/{id["y"].ToInt32()}", null)),
             BuildOklo(),
-            BuildOptions(),
+            lite ? NoOptions : BuildOptions(),
             (long)(DateTime.UtcNow - started).TotalMilliseconds);
 
         List<FilteredSectionRow> BuildOklo()

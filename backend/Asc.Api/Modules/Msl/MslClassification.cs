@@ -74,6 +74,12 @@ public static class MslClassification
     /// grade-name classification and landed mixed in with public lots' ordinary categories.</summary>
     public const string PrivateSaleCategory = "Private Sale";
 
+    /// <summary>The sale-book categories the Excel join can stamp on a lot, as listed in
+    /// <see cref="NormalizeSaleCategory"/>'s own comment — a closed set, so callers that must not
+    /// scan the archive for the distinct values (the Reports Agent's tools) can use it instead.</summary>
+    public static readonly string[] KnownSaleBookCategories =
+        ["Leafy", "Semi Leafy", "Tippy", "Dust", "BOP1A", "Off Grade", "Premium Flowery", "Ex-estate", "High & Medium"];
+
     /// <summary>Single source of truth for a lot's Category, in the same precedence order
     /// everywhere it's resolved (the per-lot report and the aggregate facet had drifted out
     /// of sync with each other once before over exactly this kind of duplicated logic).

@@ -14,7 +14,9 @@ namespace Asc.Api.Modules.Agents;
 /// (generate_report) and surface reports already produced (list_saved_reports/
 /// get_saved_report), but never saves, edits, or deletes one — SaveAsync stays a job-only path.
 /// </summary>
-public class ReportsToolExecutor(AssistantToolExecutor generalTools, ISavedReportsService savedReports, ILogger<ReportsToolExecutor> logger)
+public class ReportsToolExecutor(
+    AssistantToolExecutor generalTools, ISavedReportsService savedReports, ILogger<ReportsToolExecutor> logger,
+    CustomReportTools? custom = null)
 {
     private const int MaxSavedReports = 25;
     private const int DefaultSavedReports = 10;
@@ -27,6 +29,7 @@ public class ReportsToolExecutor(AssistantToolExecutor generalTools, ISavedRepor
     public static readonly IReadOnlyList<ToolDef> Definitions =
     [
         .. AssistantToolExecutor.Definitions.Where(d => ReusedToolNames.Contains(d.Name)),
+        .. CustomReportTools.Definitions,
         new ToolDef(
             "list_saved_reports",
             "List reports that have already been generated and saved (e.g. by an automated weekly/monthly " +
@@ -65,6 +68,11 @@ public class ReportsToolExecutor(AssistantToolExecutor generalTools, ISavedRepor
         if (Definitions.All(d => d.Name != name))
             return JsonSerializer.Serialize(new { error = $"Tool '{name}' is not available to the Reports Agent." });
 
+        if (CustomReportTools.IsCustomTool(name))
+            return custom is null
+                ? JsonSerializer.Serialize(new { error = "Custom reports are not available in this environment." })
+                : await custom.ExecuteAsync(name, argumentsJson, ct);
+
         if (name is "list_saved_reports" or "get_saved_report")
         {
             logger.LogInformation("Reports tool call: {Tool} isAdmin={IsAdmin} args={Args}", name, isAdmin, argumentsJson);
@@ -96,6 +104,14 @@ public class ReportsToolExecutor(AssistantToolExecutor generalTools, ISavedRepor
         // GeneralAgent uses, including its own admin-gating, error-handling, and logging.
         return await generalTools.ExecuteAsync(name, argumentsJson, isAdmin, ct);
     }
+
+    /// <summary>Chart id from a make_chart result, so the agent can expand its [[chart:id]] placeholder.</summary>
+    public static string? TryGetChartId(string toolName, string toolResult) =>
+        toolName == "make_chart" ? CustomReportTools.TryGetChartId(toolResult) : null;
+
+    /// <summary>Expands [[chart:id]] placeholders in a finished reply into real chart blocks.</summary>
+    public string ResolveCharts(string reply, IEnumerable<string> madeChartIds) =>
+        custom?.ResolveCharts(reply, madeChartIds) ?? reply;
 
     private async Task<string> ListSavedReports(string? type, int limit, CancellationToken ct)
     {

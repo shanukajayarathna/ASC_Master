@@ -29,7 +29,7 @@ internal static class FactorySaleSummaryWorkbookBuilder
     private static string ResolveOwnerGroup(string factory, MslReferenceService reference)
     {
         if (string.IsNullOrWhiteSpace(factory)) return "(Unclassified)";
-        var normalized = MslFilteredAnalyticsController.NormalizeFactory(factory);
+        var normalized = MslFilteredAnalyticsEngine.NormalizeFactory(factory);
         return reference.ByFactory.TryGetValue(normalized, out var r) && !string.IsNullOrWhiteSpace(r.Group)
             ? r.Group!
             : "(Unclassified)";

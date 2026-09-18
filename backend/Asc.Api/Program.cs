@@ -127,6 +127,9 @@ builder.Services.AddSingleton<MslUploadStagingService>();
 // powers the Analysis screen's Group filter across all MSL years.
 builder.Services.AddSingleton<MslReferenceService>();
 builder.Services.AddSingleton<MslEnrichmentService>();
+// The Analysis screen's cross-filtering engine, shared by its controller and the Reports
+// Agent's custom-report tools (Modules/Agents/CustomReportTools.cs).
+builder.Services.AddSingleton<Asc.Api.Modules.Msl.MslFilteredAnalyticsEngine>();
 builder.Services.AddSingleton<MslExcelExportService>();
 builder.Services.AddSingleton<MslReportExportService>();
 // Weekly FACT Reports' "generate from database" option — reproduces the WES master
@@ -177,6 +180,7 @@ builder.Services.AddSingleton<AnalyticsToolExecutor>();
 builder.Services.AddScoped<IAgent, AnalyticsAgent>();
 // ReportsAgent's tool set — reused AssistantToolExecutor lookups plus ISavedReportsService
 // access (list/fetch already-generated reports); see Modules/Agents/ReportsToolExecutor.cs.
+builder.Services.AddSingleton<CustomReportTools>();
 builder.Services.AddSingleton<ReportsToolExecutor>();
 builder.Services.AddScoped<IAgent, ReportsAgent>();
 builder.Services.AddScoped<IAgentRegistry, AgentRegistry>();

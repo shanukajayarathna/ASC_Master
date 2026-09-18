@@ -6,10 +6,13 @@ namespace Asc.Api.Modules.Agents;
 /// The reports-and-data specialist: finds reports that already exist (saved/automated outputs,
 /// via ReportsToolExecutor over ISavedReportsService), generates a fresh one from live catalogue
 /// data on request (generate_report, the same computation the Reports page itself shows), and
-/// grounds either with the underlying lot/KPI data behind it. Deliberately narrower than
-/// GeneralAgent: no document/knowledge-base search, no deadline tracking, no auction price-
-/// ranking (that's AuctionAgent's territory) and no 13-year MSL archive analytics (that's
-/// AnalyticsAgent's) — this agent's whole job is "what reports exist, and what do they say."
+/// grounds either with the underlying lot/KPI data behind it. It also builds custom cross-broker
+/// reports on demand from the MSL archive (query_data + make_chart, see CustomReportTools):
+/// any filter/group/measure combination, with charts. Deliberately narrower than GeneralAgent:
+/// no document/knowledge-base search, no deadline tracking, no auction price-ranking (that's
+/// AuctionAgent's territory) and no mark-performance scans or by-laws Q&A beyond the shared
+/// by-laws tool — this agent's job is "what reports exist, what do they say, and build me the
+/// report I describe."
 /// </summary>
 public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.Services.ICatalogueSource? catalogues = null, CttaBylawsTool? bylaws = null) : IAgent
 {
@@ -19,10 +22,11 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
     public string Description =>
         "Finds and explains reports — saved/automated report outputs, or a fresh executive, " +
         "broker, grade, category, garden, classification, or valuation report generated on the " +
-        "spot from a catalogue's live data. Read-only.";
+        "spot from a catalogue's live data — and builds custom cross-broker tables and charts " +
+        "(bar, stacked, share-of-total, line, pie) from the full auction archive on request. Read-only.";
 
     public IReadOnlyList<string> Capabilities { get; } =
-        ["report-lookup", "report-generation", "saved-reports"];
+        ["report-lookup", "report-generation", "saved-reports", "custom-reports", "charts"];
 
     private const string SystemPrompt =
         "You are the Reports Agent for Asia Siyaka Commodities' tea auction Intelligence Hub. Your " +
@@ -38,7 +42,18 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
         "found. Every monetary value in this system — prices, valuations, averages — is in Sri " +
         "Lankan Rupees (LKR): write them as e.g. 'Rs. 5,200' or '5,200 LKR', never as dollars or " +
         "any other currency. Never narrate a plan to call a tool or describe what a tool 'would' " +
-        "return — actually call the tool and use only its real output. When you answer from a tool " +
+        "return — actually call the tool and use only its real output. CUSTOM REPORTS: when the user " +
+        "asks for a breakdown, share, split, comparison or trend that no fixed report covers (e.g. " +
+        "'how is off-grade quantity shared among brokers', 'stacked chart of broker share by grade " +
+        "over the last 6 sales'), build it with query_data (filter + group_by + optional " +
+        "split_by='sale' + metric) over the full all-broker archive, then make_chart when a chart " +
+        "helps or was asked for. Always: (1) say the scope the tool reported (filters and period) — " +
+        "if no period was requested the tool only covers the latest sale, so say so and offer a wider " +
+        "window; (2) paste markdownTable verbatim and never retype or round its numbers; (3) paste " +
+        "chartPlaceholder verbatim on its own line where the chart belongs; (4) if a tool returns an " +
+        "error listing valid values, retry once with a valid one; (5) choose the chart type that suits " +
+        "the question and mention one alternative. Quantities are kilograms and money is Rs. Never " +
+        "state a figure that is not in a tool result. When you answer from a tool " +
         "result, cite the specific report title/id or catalogue it came from. You are strictly " +
         "read-only: you cannot save, edit, or delete a report, and must never claim to have done " +
         "so — point the user to the Reports page for that. If a question isn't about reports or the " +
@@ -53,10 +68,18 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
         // Same multilingual contract as GeneralAgent — language behavior must not depend on
         // which capability answered (docs/29 "multi-language orchestration").
         var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        var madeCharts = new List<string>();
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History,
             CttaBylawsTool.WithDefinition(bylaws, ReportsToolExecutor.DefinitionsFor(request.IsAdmin)),
-            CttaBylawsTool.Dispatch(bylaws, (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct)), ct);
-        return new AgentResponse(reply, providerKey);
+            CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
+            {
+                var result = await tools.ExecuteAsync(name, args, request.IsAdmin, ct);
+                if (ReportsToolExecutor.TryGetChartId(name, result) is { } chartId) madeCharts.Add(chartId);
+                return result;
+            }), ct);
+        // The model only ever handles a short [[chart:id]] placeholder, never the chart's numbers;
+        // swap it for the real chart block here so it is stored with the message.
+        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey);
     }
 }

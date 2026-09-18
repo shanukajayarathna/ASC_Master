@@ -93,6 +93,16 @@
   --tile-gradient-8: linear-gradient(135deg, var(--liquor-dark), var(--warn));
 }
 
+/* Chart palette (assistant custom reports) — the dataviz skill's validated categorical
+   order: eight hues assigned in fixed order, never cycled; a broker keeps its slot across
+   every chart. --series-other is a neutral, never a hue, for the folded "Other" bucket. */
+:root {
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
+  --series-other: #a9a79f;
+  --viz-grid: #e1e0d9; --viz-baseline: #c3c2b7;
+}
+
 :root[data-theme="dark"] {
   /* The same two brand hues, lifted to carry on a dark ground — unchanged, still the
      signature accent (buttons, links, active states) rather than a page-wide tint. */
@@ -118,6 +128,10 @@
   --shadow-lg: 0 10px 32px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.4);
 
   --overlay-veil: rgba(16,18,23,0.62);
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  --series-other: #6b6a65;
+  --viz-grid: #2c2c2a; --viz-baseline: #383835;
 
   /* Dark counterpart of --glass-surface/--glass-border above — same translucent-surface
      pattern, just against the dark theme's own surface color (#1B1E24) instead of paper-0. */

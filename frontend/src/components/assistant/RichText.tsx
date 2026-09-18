@@ -3,6 +3,7 @@
 import { api } from "@/lib/api";
 import { useState } from "react";
 import { Fragment } from "react";
+import ChartBlock, { parseChartSpec } from "./ChartBlock";
 
 /** Structured clarifying question parsed from a CLARIFY: line (Claude-style options) —
  *  shared parsing so both AnalyticsChat and the main /assistant page recognize it the
@@ -42,7 +43,7 @@ function isSafeUrl(url: string): boolean {
 
 /** A table the agent rendered — with a "Download as" bar so ANY tabular answer,
  *  however custom, is exportable exactly as shown (Excel via the server, CSV locally). */
-function ChatTable({ rows }: { rows: string[][] }) {
+export function ChatTable({ rows }: { rows: string[][] }) {
   const [busy, setBusy] = useState(false);
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
   const headers = rows[0] ?? [];
@@ -164,6 +165,26 @@ function ExportFileCard({ url, filename }: { url: string; filename: string }) {
  *  and the main /assistant page so agent output renders identically wherever it's reached
  *  from, and so the link-safety check in isSafeUrl only has to be gotten right once. */
 export function RichText({ text }: { text: string }) {
+  // Charts the Reports Agent built arrive as ```asc-chart fenced JSON — pulled out first so the
+  // table/link handling below never sees (or mangles) the spec. A spec that fails validation is
+  // dropped rather than shown as raw JSON.
+  const parts = text.split(/```asc-chart\n([\s\S]*?)\n```/g);
+  if (parts.length === 1) return <RichTextBody text={text} />;
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) {
+          const t = part.replace(/^\n+|\n+$/g, "");
+          return t ? <RichTextBody key={i} text={t} /> : null;
+        }
+        const spec = parseChartSpec(part);
+        return spec ? <ChartBlock key={i} spec={spec} /> : null;
+      })}
+    </>
+  );
+}
+
+function RichTextBody({ text }: { text: string }) {
   const lines = text.split("\n");
   const blocks: ({ type: "text"; lines: string[] } | { type: "table"; rows: string[][] })[] = [];
   for (const line of lines) {
