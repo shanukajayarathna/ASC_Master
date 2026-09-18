@@ -357,10 +357,19 @@ public static class BrokerCatalogueUploadParser
     /// <summary>Combines whichever broker files are on hand (as few as one, as many as all
     /// 8 — callers use this both for a live guess as files are chosen one at a time and for
     /// the final zip-upload detection) into one best-effort sale year/number/date, plus a
-    /// human-readable warning for each field the files actually disagree on (never silently
-    /// picks a side when they conflict — surfaces it so the user can check). Year falls back
-    /// to whatever a detected date's own year is when no file states it directly (MB/FW/CTB
-    /// carry a date but not a separate year column).</summary>
+    /// human-readable warning for each field the files actually disagree on. On a genuine
+    /// disagreement, that field comes back null instead of picking a side — found live
+    /// (Sale 39/2026): the old version silently took dates.Min(), which favored "10 Jul
+    /// 2026" over the real "07 Oct 2026" for no better reason than July sorting earlier than
+    /// October, and a generated report silently carried that wrong date all the way through
+    /// (mixing Sale 39's real figures into an unrelated July week sequence) since the date
+    /// field LOOKED like a sensible pre-filled value with nothing to prompt a second look.
+    /// Leaving it blank instead forces whoever's generating the report to type the real date
+    /// in themselves — the warning banner is what flags the disagreement either way, this
+    /// just stops the field silently handing over a coin-flip guess alongside it. Year still
+    /// falls back to whatever a detected date's own year is when no file states it directly
+    /// (MB/FW/CTB carry a date but not a separate year column) — moot when the date itself
+    /// is blank for disagreeing, same as everything else here.</summary>
     public static (int? Year, int? SaleNo, DateTime? Date, List<string> Warnings) DetectSaleInfo(
         IReadOnlyDictionary<string, List<List<string>>> rowsByBroker, CatalogueImportService importer)
     {
@@ -381,9 +390,9 @@ public static class BrokerCatalogueUploadParser
         if (saleNos.Count > 1) warnings.Add($"The files disagree on sale number: {string.Join(", ", saleNos.OrderBy(x => x))}.");
         if (dates.Count > 1) warnings.Add($"The files disagree on sale date: {string.Join(", ", dates.OrderBy(x => x).Select(d => d.ToString("dd MMM yyyy")))}.");
 
-        var finalDate = dates.Count > 0 ? dates.Min() : (DateTime?)null;
-        var finalYear = years.Count > 0 ? years.Min() : finalDate?.Year;
-        var finalSaleNo = saleNos.Count > 0 ? saleNos.Min() : (int?)null;
+        var finalDate = dates.Count == 1 ? dates.Single() : (DateTime?)null;
+        var finalYear = years.Count == 1 ? years.Single() : finalDate?.Year;
+        var finalSaleNo = saleNos.Count == 1 ? saleNos.Single() : (int?)null;
         return (finalYear, finalSaleNo, finalDate, warnings);
     }
 

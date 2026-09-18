@@ -339,6 +339,31 @@ public class BrokerCatalogueUploadParserTests
     }
 
     [Fact]
+    public void DetectSaleInfo_DateDisagreement_LeavesDateAndYearNull_RatherThanGuessing()
+    {
+        // Real Sale 39/2026 case: MB and CTB's own date cells said "10/07/2026", FW's said
+        // "2026-10-07" — the old version silently took dates.Min() (10 Jul, chronologically
+        // earlier), which was the WRONG one; a generated report carried that bad date all
+        // the way through with nothing to flag it beyond the warning text itself, mixing the
+        // target sale's real figures into an unrelated July week sequence. Whichever field
+        // genuinely disagrees must come back null — forcing a person to type the real value
+        // in, rather than silently handing over a coin-flip guess next to the warning.
+        var rowsByBroker = new Dictionary<string, List<List<string>>>
+        {
+            [BrokerCode.Mb] = Blank(Row("MB", "39", "10/07/2026", "1", "BF00020", "WATADENIYA", "3571", "OP1", "10", "B", "30", "300", "LOW GROWN LEAFY")),
+            [BrokerCode.Fw] = Blank(Row("FW", "39", "2026-10-07", "1", "MF0007", "WINDSORFOREST", "183", "BOPF", "10", "B", "58", "580", "1", "EX-ESTATE", "10")),
+        };
+
+        var (year, saleNo, date, warnings) = BrokerCatalogueUploadParser.DetectSaleInfo(rowsByBroker, Importer);
+
+        Assert.Equal(39, saleNo); // no disagreement on sale number, so this still resolves
+        Assert.Null(date);
+        Assert.Equal(2026, year); // both disputed dates land in the same calendar year, so this alone isn't actually in doubt
+        Assert.Single(warnings);
+        Assert.Contains("sale date", warnings[0]);
+    }
+
+    [Fact]
     public void DetectSaleInfo_ReturnsAllNulls_WhenOnlyJkAndLcblAreOnHand()
     {
         // A live guess made while the user has only picked JK/LCBL so far (neither carries
