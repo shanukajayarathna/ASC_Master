@@ -1,0 +1,298 @@
+/*
+ * AI Assistant hub — styles.
+ *
+ * Built from the app's own design system: PageHeader on top, cards on --surface with --border,
+ * --radius-xl and --shadow-*, font-display names, muted descriptions, liquor accents. Light and dark come
+ * from the global tokens.
+ *
+ * Layout: one obvious action first (the ask box — General, with its animated art), then a compact row of
+ * three specialist links for people who already know which job they want.
+ *
+ * Motion: only the ask box art animates; it stops under prefers-reduced-motion and when off-screen.
+ */
+
+/* ------------------------------------------------------------------ page body */
+.hub-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding-bottom: 28px;
+}
+.hub-eyebrow {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hub-heading {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+/* ------------------------------------------------------------------ the ask box (General) */
+.hub-ask {
+  display: flex;
+  width: min(940px, 100%);
+  border: 1px solid var(--brass);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg), 0 0 44px var(--brass-dim);
+}
+.hub-ask .hub-art {
+  flex: 0 0 300px;
+  border-radius: calc(var(--radius-xl) - 1px) 0 0 calc(var(--radius-xl) - 1px);
+}
+.hub-ask-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 26px;
+}
+.hub-ask-hint {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.hub-ask-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.hub-ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ specialists: a compact row of links */
+.hub-specialists {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(940px, 100%);
+}
+.hub-specialists .hub-eyebrow {
+  margin: 0;
+}
+.hub-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.hub-spec {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm, none);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.hub-spec:hover {
+  border-color: var(--liquor);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.hub-spec:focus-visible {
+  outline: 2px solid var(--liquor);
+  outline-offset: 2px;
+}
+.hub-spec-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: #ffffff;
+  background: var(--hub-art);
+}
+.hub-spec[data-agent="auction"] { --hub-art: var(--tile-gradient-8); }
+.hub-spec[data-agent="analytics"] { --hub-art: var(--tile-gradient-3); }
+.hub-spec[data-agent="reports"] { --hub-art: var(--tile-gradient-4); }
+:root[data-theme="dark"] .hub-spec-icon {
+  background: linear-gradient(rgba(6, 10, 8, 0.36), rgba(6, 10, 8, 0.36)), var(--hub-art);
+}
+.hub-spec-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hub-spec-name {
+  font-family: var(--font-display), serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text-strong);
+}
+.hub-spec-desc {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ art area of the ask box */
+/* art area: brand gradient + the animated visual, in white / soft gold so it reads in both themes */
+.hub-art {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 6px;
+  border-radius: calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px) 0 0;
+  background: radial-gradient(120% 140% at 15% 15%, rgba(255, 255, 255, 0.2), transparent 55%), var(--hub-art);
+  --hub-a: var(--brand-gold-soft);
+  --hub-b: #ffffff;
+  --hub-c: rgba(255, 255, 255, 0.78);
+  --hub-ink: #ffffff;
+  --hub-page: #ffffff;
+  --hub-page-ink: var(--ink-solid-800);
+}
+[data-agent="general"] .hub-art { --hub-art: var(--tile-gradient-5); }
+.hub-glare {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--gx, 50%) var(--gy, 0%), rgba(255, 255, 255, 0.24), transparent 55%);
+}
+
+.hub-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+}
+.hub-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono), monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffffff;
+  padding: 4px 10px 4px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42);
+}
+.hub-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffffff;
+  animation: hub-dot 2.4s ease-in-out infinite;
+}
+.hub-arrow {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+}
+
+.hub-visual {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.hub-ask .hub-visual {
+  flex: none;
+  height: 170px;
+}
+.hub-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Opacity only, on purpose: a transform on a wrapper that contains the fixed PageHeader would make it the
+   containing block, displacing the header during the animation and snapping it back at the end. */
+.hub-enter {
+  animation: hub-enter 450ms ease both;
+}
+
+@keyframes hub-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(1.5); }
+}
+@keyframes hub-enter {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* off-screen art: pause everything the CSS drives (SMIL is paused from JS) */
+.hub-svg[data-run="false"] * {
+  animation-play-state: paused;
+}
+
+/* The global tile gradients lighten in dark mode; a scrim under the art keeps the white linework above 3:1. */
+:root[data-theme="dark"] .hub-art {
+  background:
+    linear-gradient(rgba(6, 10, 8, 0.36), rgba(6, 10, 8, 0.36)),
+    radial-gradient(120% 140% at 15% 15%, rgba(255, 255, 255, 0.2), transparent 55%),
+    var(--hub-art);
+}
+
+/* ------------------------------------------------------------------ compact: stack */
+@media (max-width: 899px) {
+  .hub-ask {
+    flex-direction: column;
+  }
+  .hub-ask .hub-art {
+    flex: none;
+    border-radius: calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px) 0 0;
+  }
+  .hub-ask-body {
+    padding: 18px 18px 20px;
+  }
+  .hub-ask-form {
+    flex-wrap: wrap;
+  }
+  .hub-ask-form > :first-child {
+    flex: 1 1 100%;
+  }
+  .hub-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hub-glare {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-dot,
+  .hub-enter {
+    animation: none !important;
+  }
+  .hub-spec {
+    transition: none !important;
+  }
+  .hub-spec:hover {
+    transform: none;
+  }
+}

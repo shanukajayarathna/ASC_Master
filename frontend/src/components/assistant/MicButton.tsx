@@ -46,7 +46,7 @@ const MIC_LANG_KEY = "asc_mic_lang";
  * error), permission and provider failures degrade to a plain message, and an unsupported
  * browser (e.g. Firefox) shows a disabled mic with an explanation instead of a dead button.
  */
-export default function MicButton({ onTranscript, disabled }: { onTranscript: (text: string) => void; disabled?: boolean }) {
+export default function MicButton({ onTranscript, disabled, large }: { onTranscript: (text: string) => void; disabled?: boolean; /** 44px touch targets, for surfaces where the mic is a primary control (the hub's ask box). */ large?: boolean }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +118,7 @@ export default function MicButton({ onTranscript, disabled }: { onTranscript: (t
     return (
       <Tooltip title="Voice input isn't supported in this browser — Chrome or Edge support it.">
         <span>
-          <IconButton disabled aria-label="Voice input unavailable">
+          <IconButton disabled aria-label="Voice input unavailable" sx={large ? { width: 44, height: 44 } : undefined}>
             <KeyboardVoiceOutlinedIcon fontSize="small" />
           </IconButton>
         </span>
@@ -134,7 +134,7 @@ export default function MicButton({ onTranscript, disabled }: { onTranscript: (t
         onClick={cycleLang}
         title={`Voice language: ${MIC_LANGS[langIdx].tag} — tap to change`}
         aria-label={`Voice input language ${MIC_LANGS[langIdx].tag}, tap to change`}
-        className="px-1.5 py-0.5 rounded-full border border-border text-[10.5px] font-semibold cursor-pointer"
+        className={`px-1.5 py-0.5 rounded-full border border-border font-semibold cursor-pointer ${large ? "min-h-[44px] min-w-[44px] text-[12px]" : "text-[10.5px]"}`}
         style={{ background: "var(--surface-alt)", color: "var(--text-muted)" }}
       >
         {MIC_LANGS[langIdx].label}
@@ -152,7 +152,7 @@ export default function MicButton({ onTranscript, disabled }: { onTranscript: (t
           onClick={listening ? stop : start}
           disabled={disabled}
           aria-label={listening ? "Stop listening" : "Start voice input"}
-          sx={{ color: listening ? "var(--danger)" : "var(--liquor)" }}
+          sx={{ color: listening ? "var(--danger)" : "var(--liquor)", ...(large ? { width: 44, height: 44 } : {}) }}
         >
           {listening ? <StopCircleOutlinedIcon fontSize="small" /> : <KeyboardVoiceOutlinedIcon fontSize="small" />}
         </IconButton>
