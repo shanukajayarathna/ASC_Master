@@ -9,3 +9,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
 }
+
+// jsdom does not implement scrollIntoView / scrollTo on elements.
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
+if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};

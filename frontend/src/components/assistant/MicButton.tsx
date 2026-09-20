@@ -46,12 +46,19 @@ const MIC_LANG_KEY = "asc_mic_lang";
  * error), permission and provider failures degrade to a plain message, and an unsupported
  * browser (e.g. Firefox) shows a disabled mic with an explanation instead of a dead button.
  */
-export default function MicButton({ onTranscript, disabled, large }: { onTranscript: (text: string) => void; disabled?: boolean; /** 44px touch targets, for surfaces where the mic is a primary control (the hub's ask box). */ large?: boolean }) {
+export default function MicButton({ onTranscript, disabled, large, onListeningChange }: { onTranscript: (text: string) => void; disabled?: boolean; /** 44px touch targets, for surfaces where the mic is a primary control (the hub's ask box). */ large?: boolean; /** Lets a surface (the Voice Orb) mirror the listening state. */ onListeningChange?: (listening: boolean) => void }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [langIdx, setLangIdx] = useState(0);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
+  const listeningCb = useRef(onListeningChange);
+  useEffect(() => {
+    listeningCb.current = onListeningChange;
+  });
+  useEffect(() => {
+    listeningCb.current?.(listening);
+  }, [listening]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from a browser-only API (SpeechRecognition feature check), not derivable during SSR render

@@ -39,7 +39,7 @@ export const agentName = (agent: HubAgent, t: UiStrings) => t[agent.nameKey];
 export const SPECIALISTS: readonly HubAgent[] = HUB_AGENTS.filter((a) => a.key !== "general");
 
 /**
- * Where a question typed on the hub goes: the General assistant, with the question sent straight away
- * (`send=1`) rather than only prefilled, so asking takes one step. The chat page performs the send.
+ * Where a question typed on the hub goes: the General workspace, with the question sent straight away
+ * (`send=1`) rather than only prefilled, so asking takes one step. The workspace performs the send.
  */
-export const askHref = (question: string) => `/assistant/classic?agent=general&send=1&q=${encodeURIComponent(question)}`;
+export const askHref = (question: string) => `/assistant/general?send=1&q=${encodeURIComponent(question)}`;

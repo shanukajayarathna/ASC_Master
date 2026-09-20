@@ -21,8 +21,8 @@ describe("hub agents", () => {
   });
 
   it("sends a hub question to the General assistant, sent immediately, with the text safely encoded", () => {
-    expect(askHref("top prices")).toBe("/assistant/classic?agent=general&send=1&q=top%20prices");
-    expect(askHref("a&b=c #x?")).toBe("/assistant/classic?agent=general&send=1&q=a%26b%3Dc%20%23x%3F");
+    expect(askHref("top prices")).toBe("/assistant/general?send=1&q=top%20prices");
+    expect(askHref("a&b=c #x?")).toBe("/assistant/general?send=1&q=a%26b%3Dc%20%23x%3F");
   });
 });
 

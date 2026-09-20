@@ -1,0 +1,124 @@
+/*
+ * Voice orb. Colours come from the app's own tokens (amber = brass, green = success, champagne = brand gold
+ * soft), so it reads as part of the system in light and dark. Tempo and glow are per state.
+ */
+.voice-orb {
+  --orb-color: var(--brass);
+  --orb-glow: var(--brass-dim);
+  --orb-breath: 4.5s;
+  --orb-eq: 1.6s;
+  --lvl: 0;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100%, 260px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+}
+.voice-orb[data-state="listening"] {
+  --orb-color: var(--success, #2e7d4f);
+  --orb-glow: color-mix(in srgb, var(--success, #2e7d4f) 35%, transparent);
+  --orb-breath: 1.4s;
+  --orb-eq: 0.55s;
+}
+.voice-orb[data-state="thinking"] {
+  --orb-color: var(--brand-gold-soft, #d9c48a);
+  --orb-glow: color-mix(in srgb, var(--brand-gold-soft, #d9c48a) 40%, transparent);
+  --orb-breath: 2.4s;
+  --orb-eq: 1s;
+}
+.voice-orb[data-state="speaking"] {
+  --orb-color: var(--brass);
+  --orb-glow: color-mix(in srgb, var(--brass) 45%, transparent);
+  --orb-breath: 1s;
+  --orb-eq: 0.4s;
+}
+
+.voice-orb-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.voice-ring {
+  fill: none;
+  stroke: var(--orb-color);
+  stroke-width: 1.5;
+  transform-origin: 100px 100px;
+  transition: stroke 400ms ease;
+}
+.voice-ring-outer {
+  stroke-dasharray: 3 9;
+  animation: voice-spin 40s linear infinite;
+}
+.voice-ring-inner {
+  stroke-dasharray: 14 6;
+  opacity: 0.7;
+  animation: voice-spin 26s linear infinite reverse;
+}
+.voice-orb[data-state="listening"] .voice-ring-outer,
+.voice-orb[data-state="speaking"] .voice-ring-outer {
+  animation-duration: 16s;
+}
+
+.voice-core {
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, var(--orb-color) 55%, color-mix(in srgb, var(--orb-color) 60%, #000) 100%);
+  box-shadow: 0 0 calc(30px + var(--lvl) * 50px) calc(6px + var(--lvl) * 14px) var(--orb-glow);
+  transform: scale(calc(1 + var(--lvl) * 0.28));
+  animation: voice-breathe var(--orb-breath) ease-in-out infinite;
+  transition: background 400ms ease, box-shadow 120ms linear;
+}
+
+.voice-eq {
+  position: absolute;
+  bottom: 6%;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 22px;
+}
+.voice-eq span {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--orb-color);
+  opacity: 0.85;
+  transform-origin: 50% 100%;
+  transform: scaleY(0.18);
+  animation: voice-eq var(--orb-eq) ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.11s);
+}
+.voice-orb[data-state="idle"] .voice-eq span {
+  animation-play-state: paused;
+}
+
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes voice-breathe {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.18); }
+}
+@keyframes voice-eq {
+  0%, 100% { transform: scaleY(0.18); }
+  50% { transform: scaleY(calc(0.45 + var(--lvl) * 0.55)); }
+}
+
+/* Reduced motion: still frame, colour still shows the state. */
+@media (prefers-reduced-motion: reduce) {
+  .voice-ring,
+  .voice-core,
+  .voice-eq span {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.voice-orb[data-reduced="true"] .voice-ring,
+.voice-orb[data-reduced="true"] .voice-core,
+.voice-orb[data-reduced="true"] .voice-eq span {
+  animation: none !important;
+}

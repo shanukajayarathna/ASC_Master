@@ -1,0 +1,114 @@
+/* Agent workspace shell + General workspace. System tokens only; each agent sets its accent via data-agent. */
+.workspace { --ws-accent: var(--brass); }
+.workspace[data-agent="auction"] { --ws-accent: #c8553d; }
+.workspace[data-agent="analytics"] { --ws-accent: var(--success, #2e7d4f); }
+.workspace[data-agent="reports"] { --ws-accent: var(--brand-gold-soft, #d9c48a); }
+
+.ws-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.ws-status-orb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ws-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ws-accent) 25%, transparent);
+  transition: background 300ms ease;
+}
+.ws-status-orb[data-state="listening"] { background: var(--success, #2e7d4f); animation: ws-pulse 0.9s ease-in-out infinite; }
+.ws-status-orb[data-state="thinking"] { background: var(--brand-gold-soft, #d9c48a); animation: ws-pulse 1.6s ease-in-out infinite; }
+.ws-status-orb[data-state="speaking"] { animation: ws-pulse 0.7s ease-in-out infinite; }
+@keyframes ws-pulse { 50% { transform: scale(1.5); opacity: 0.6; } }
+
+.ws-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.ws-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 160ms ease;
+}
+.ws-pill:hover { border-color: var(--ws-accent); }
+.ws-pill[aria-current="page"] {
+  border-color: var(--ws-accent);
+  background: color-mix(in srgb, var(--ws-accent) 14%, var(--surface));
+  color: var(--text-strong);
+}
+.ws-pill:focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; }
+@media (max-width: 899px) {
+  .ws-pill { min-height: 44px; }
+}
+
+/* General: chat left, voice panel right */
+.ws-general {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+}
+.ws-voice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  text-align: center;
+  overflow-y: auto;
+}
+.ws-voice-title {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.ws-voice-hint { margin: 0; font-size: 13px; color: var(--text-muted); }
+.ws-voice-note { margin: 0; font-size: 12px; color: var(--danger); }
+.ws-demo {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  width: 100%;
+}
+@media (max-width: 1023px) {
+  .ws-general { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  /* Compact strip above the chat: small orb beside the state, the rest tucked under it. */
+  .ws-voice {
+    order: -1;
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 0;
+    padding: 10px 12px;
+    text-align: left;
+  }
+  .ws-voice .voice-orb { width: 72px; grid-row: 1 / span 2; }
+  .ws-voice .voice-eq { display: none; }
+  .ws-voice-title { font-size: 16px; }
+  .ws-voice-hint { font-size: 12px; }
+  .ws-voice > :not(.voice-orb):not(:nth-child(2)) { grid-column: 2; }
+}

@@ -100,14 +100,14 @@ describe("AgentHub: the ask box", () => {
     fireEvent.click(askButton());
 
     expect(nav.push).toHaveBeenCalledTimes(1);
-    expect(nav.push).toHaveBeenCalledWith("/assistant/classic?agent=general&send=1&q=Who%20paid%20most%20for%20BOPF%3F");
+    expect(nav.push).toHaveBeenCalledWith("/assistant/general?send=1&q=Who%20paid%20most%20for%20BOPF%3F");
   });
 
   it("submits on Enter", () => {
     render(<AgentHub />);
     fireEvent.change(box(), { target: { value: "hello" } });
     fireEvent.submit(box().closest("form")!);
-    expect(nav.push).toHaveBeenCalledWith("/assistant/classic?agent=general&send=1&q=hello");
+    expect(nav.push).toHaveBeenCalledWith("/assistant/general?send=1&q=hello");
   });
 
   it("offers three suggested questions that each send in one click", () => {
@@ -115,7 +115,7 @@ describe("AgentHub: the ask box", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Which broker performed best?" }));
 
-    expect(nav.push).toHaveBeenCalledWith("/assistant/classic?agent=general&send=1&q=Which%20broker%20performed%20best%3F");
+    expect(nav.push).toHaveBeenCalledWith("/assistant/general?send=1&q=Which%20broker%20performed%20best%3F");
     expect(screen.getAllByRole("button").filter((b) => /Summarise this week|Which broker|Explain a CTTA/.test(b.textContent ?? ""))).toHaveLength(3);
   });
 
