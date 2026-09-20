@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   getProviderStatuses: vi.fn(),
+  listPins: vi.fn(() => Promise.resolve([])),
   listReportSpecs: vi.fn(),
   createReportSpec: vi.fn(),
   deleteReportSpec: vi.fn(),

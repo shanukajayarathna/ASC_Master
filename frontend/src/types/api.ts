@@ -1476,3 +1476,19 @@ export interface ReportSpec {
   lastSavedReportId: string | null;
   lastError: string | null;
 }
+
+/** A pinned insight on the Analytics board, stored per user on the server. */
+export interface AnalyticsPinDto {
+  id: string;
+  key: string;
+  kind: "chart" | "answer";
+  title: string;
+  chartJson: string | null;
+  text: string | null;
+  pinnedAt: string;
+}
+
+export interface CreatePinResult {
+  status: "added" | "exists" | "full";
+  pin: AnalyticsPinDto | null;
+}

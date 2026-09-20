@@ -6,7 +6,17 @@ import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const api = vi.hoisted(() => ({ getProviderStatuses: vi.fn(), mslAnalyticsSales: vi.fn(() => Promise.resolve([])), sendAgentChatMessage: vi.fn() }));
+const api = vi.hoisted(() => ({
+  getProviderStatuses: vi.fn(),
+  mslAnalyticsSales: vi.fn(() => Promise.resolve([])),
+  sendAgentChatMessage: vi.fn(),
+  listPins: vi.fn(),
+  createPin: vi.fn(),
+  deletePin: vi.fn(),
+}));
+
+/** An in-memory stand-in for the pins endpoints: one board, capped like the real one. */
+const server = vi.hoisted(() => ({ pins: [] as Record<string, unknown>[], cap: 12 }));
 vi.mock("@/lib/api", () => ({ api }));
 vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { roles: [] } }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -22,6 +32,20 @@ const chartReply = `Scope: last 12 sales.\n\`\`\`asc-chart\n${JSON.stringify(spe
 
 beforeEach(() => {
   window.localStorage.clear();
+  server.pins = [];
+  server.cap = 12;
+  api.listPins.mockReset().mockImplementation(async () => [...server.pins]);
+  api.createPin.mockReset().mockImplementation(async (p: { key: string; kind: string; title: string; chartJson: string | null; text: string | null }) => {
+    const existing = server.pins.find((x) => x.key === p.key);
+    if (existing) return { status: "exists", pin: existing };
+    if (server.pins.length >= server.cap) return { status: "full", pin: null };
+    const pin = { id: `srv-${server.pins.length + 1}-${p.key}`, ...p, pinnedAt: "2026-09-20T00:00:00Z" };
+    server.pins = [pin, ...server.pins];
+    return { status: "added", pin };
+  });
+  api.deletePin.mockReset().mockImplementation(async (id: string) => {
+    server.pins = server.pins.filter((x) => x.id !== id);
+  });
   api.getProviderStatuses.mockReset().mockResolvedValue([{ key: "local", displayName: "Local", configured: true }]);
   api.sendAgentChatMessage.mockReset().mockResolvedValue({ conversationId: "c1", reply: chartReply, provider: "local" });
   window.history.pushState({}, "", "/assistant/analytics");
@@ -105,7 +129,7 @@ describe("AnalyticsWorkspace", () => {
     expect(api.sendAgentChatMessage.mock.calls[1][1]).toBe(drillPrompt(spec, "Forbes"));
   });
 
-  it("pins a chart to the board, keeps it across a reload, and unpins it", async () => {
+  it("pins a chart to the board on the server, shows it on a fresh mount, and unpins it", async () => {
     await askAndGetChart();
     fireEvent.click(screen.getByRole("button", { name: "Pin" }));
 
@@ -113,31 +137,58 @@ describe("AnalyticsWorkspace", () => {
     await waitFor(() => expect(within(board).getAllByText("Average price by broker").length).toBeGreaterThan(0)); // pin title + the chart's own caption
     expect(within(board).getByText("1/12")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Pinned" }).length).toBeGreaterThan(0);
-    expect(JSON.parse(window.localStorage.getItem("asc.analytics.pins")!)).toHaveLength(1);
+    expect(server.pins).toHaveLength(1);
+    expect(JSON.parse(server.pins[0].chartJson as string).title).toBe("Average price by broker");
 
-    // a fresh mount reads the same board back
+    // a fresh mount (another device, say) reads the same board back from the server
     render(<AnalyticsWorkspace />);
     const boards = screen.getAllByRole("region", { name: "Pinned insights" });
     await waitFor(() => expect(within(boards[1]).getAllByText("Average price by broker").length).toBeGreaterThan(0));
 
     fireEvent.click(within(board).getByRole("button", { name: "Unpin Average price by broker" }));
     await waitFor(() => expect(within(board).getByText(/Pin a chart or answer/)).toBeInTheDocument());
-    expect(JSON.parse(window.localStorage.getItem("asc.analytics.pins")!)).toHaveLength(0);
+    expect(server.pins).toHaveLength(0);
+    expect(api.deletePin).toHaveBeenCalledTimes(1);
   });
 
   it("stops at the cap instead of silently dropping the oldest pin", async () => {
-    const pins = Array.from({ length: MAX_PINS }, (_, i) => ({ id: `answer-${i}`, kind: "answer", title: `Pin ${i}`, text: "t", pinnedAt: "2026-01-01" }));
-    window.localStorage.setItem("asc.analytics.pins", JSON.stringify(pins));
+    server.pins = Array.from({ length: MAX_PINS }, (_, i) => ({ id: `p${i}`, key: `answer-${i}`, kind: "answer", title: `Pin ${i}`, chartJson: null, text: "t", pinnedAt: "2026-01-01" }));
     await askAndGetChart();
     fireEvent.click(screen.getByRole("button", { name: "Pin" }));
     expect(await screen.findByText(/board is full/)).toBeInTheDocument();
-    expect(JSON.parse(window.localStorage.getItem("asc.analytics.pins")!)).toHaveLength(MAX_PINS);
+    expect(server.pins).toHaveLength(MAX_PINS);
   });
 
-  it("ignores a corrupt saved board", async () => {
-    window.localStorage.setItem("asc.analytics.pins", "{not json");
+  it("says so when a pin can't be saved", async () => {
+    await askAndGetChart();
+    api.createPin.mockRejectedValueOnce(new Error("down"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    expect(await screen.findByText(/Couldn't pin that/)).toBeInTheDocument();
+  });
+
+  it("skips a pin whose chart can't be read, and stays empty if the server can't be reached", async () => {
+    server.pins = [{ id: "bad", key: "chart-x", kind: "chart", title: "Broken", chartJson: "{not json", text: null, pinnedAt: "2026-01-01" }];
+    const first = render(<AnalyticsWorkspace />);
+    expect(await screen.findByText(/Pin a chart or answer/)).toBeInTheDocument();
+    first.unmount();
+
+    api.listPins.mockRejectedValue(new Error("offline"));
     render(<AnalyticsWorkspace />);
     expect(await screen.findByText(/Pin a chart or answer/)).toBeInTheDocument();
+  });
+
+  it("moves pins an earlier version kept in this browser onto the server, once", async () => {
+    const chart = { type: "bar", title: "Old chart", unit: "kg", categories: ["A", "B"], series: [{ name: "s", values: [1, 2] }] };
+    window.localStorage.setItem("asc.analytics.pins", JSON.stringify([
+      { id: "chart-old", kind: "chart", title: "Old chart", chart, pinnedAt: "2026-01-01" },
+      { id: "answer-old", kind: "answer", title: "Old answer", text: "Forbes led.", pinnedAt: "2026-01-02" },
+    ]));
+    render(<AnalyticsWorkspace />);
+
+    const board = screen.getByRole("region", { name: "Pinned insights" });
+    await waitFor(() => expect(within(board).getByText("2/12")).toBeInTheDocument());
+    expect(server.pins.map((p) => p.key).sort()).toEqual(["answer-old", "chart-old"]);
+    expect(window.localStorage.getItem("asc.analytics.pins")).toBeNull();
   });
 
   it("offers to pin a plain written answer (no chart)", async () => {

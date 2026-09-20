@@ -43,11 +43,13 @@ export default function AnalyticsWorkspace() {
 
   const ask = (question: string) => void chat.send(question);
 
-  const tell = (result: "added" | "exists" | "full") =>
-    setNotice(result === "added" ? "Pinned to the board." : result === "exists" ? "Already on the board." : "The board is full — unpin something first.");
+  const tell = (result: "added" | "exists" | "full" | "error") =>
+    setNotice(
+      result === "added" ? "Pinned to the board." : result === "exists" ? "Already on the board." : result === "full" ? "The board is full — unpin something first." : "Couldn't pin that — try again.",
+    );
 
-  const pinChart = (spec: ChartSpec) =>
-    tell(pin({ id: pinId("chart", JSON.stringify(spec)), kind: "chart", title: spec.title, chart: spec }));
+  const pinChart = async (spec: ChartSpec) =>
+    tell(await pin({ key: pinId("chart", JSON.stringify(spec)), kind: "chart", title: spec.title, chart: spec }));
 
   const chartExtra = (spec: ChartSpec) => {
     const pinned = isPinned(pinId("chart", JSON.stringify(spec)));
@@ -84,7 +86,7 @@ export default function AnalyticsWorkspace() {
         disabled={isPinned(id)}
         icon={<PushPinOutlinedIcon sx={{ fontSize: 14 }} />}
         label={isPinned(id) ? "Pinned" : "Pin"}
-        onClick={() => tell(pin({ id, kind: "answer", title: answerTitle(plain), text: plain.slice(0, 600) }))}
+        onClick={async () => tell(await pin({ key: id, kind: "answer", title: answerTitle(plain), text: plain.slice(0, 600) }))}
         sx={{ height: 24, fontSize: 11 }}
       />
     );

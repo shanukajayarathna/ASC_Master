@@ -77,6 +77,8 @@ import type {
   CustomPreviewRequest,
   BylawsClause,
   ReportSpec,
+  AnalyticsPinDto,
+  CreatePinResult,
   AgentUsageRow,
   CustomDeckRequest,
   ScheduledReportJob,
@@ -512,6 +514,12 @@ export const api = {
    *  stored, audited and listed under Saved Reports, and this returns that saved report (download it by id). */
   generateReportDeck: (req: CustomDeckRequest) =>
     request<SavedReport>("/api/v1/reports/custom/pptx", { method: "POST", body: JSON.stringify(req) }),
+
+  /** The Analytics workspace's pinned-insights board (per user, up to 12). */
+  listPins: () => request<AnalyticsPinDto[]>("/api/v1/assistant/pins"),
+  createPin: (pin: { key: string; kind: string; title: string; chartJson: string | null; text: string | null }) =>
+    request<CreatePinResult>("/api/v1/assistant/pins", { method: "POST", body: JSON.stringify(pin) }),
+  deletePin: (id: string) => request<void>(`/api/v1/assistant/pins/${id}`, { method: "DELETE" }),
 
   /** Scheduled reports (re-run every Monday by the scheduled-reports runner). */
   listReportSpecs: () => request<ReportSpec[]>("/api/v1/reports/custom/specs"),

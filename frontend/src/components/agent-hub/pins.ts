@@ -1,13 +1,19 @@
 "use client";
 
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
+import { api } from "@/lib/api";
+import type { AnalyticsPinDto } from "@/types/api";
 import { useCallback, useEffect, useState } from "react";
 
-const KEY = "asc.analytics.pins";
+/** Pins used to live only in this browser; they are moved to the server (once) the first time the board loads. */
+const LEGACY_KEY = "asc.analytics.pins";
 export const MAX_PINS = 12;
 
 export interface Pin {
+  /** The server's id — what unpinning uses. */
   id: string;
+  /** Stable id of the content, so pinning the same chart twice does nothing. */
+  key: string;
   /** A chart the agent built, or a written answer. */
   kind: "chart" | "answer";
   title: string;
@@ -16,6 +22,8 @@ export interface Pin {
   text?: string;
   pinnedAt: string;
 }
+
+export type NewPin = Omit<Pin, "id" | "pinnedAt">;
 
 /** Stable id from the content, so pinning the same chart twice does nothing. */
 export function pinId(kind: Pin["kind"], content: string): string {
@@ -30,51 +38,90 @@ export function answerTitle(text: string): string {
   return line.length > 80 ? `${line.slice(0, 77)}…` : line;
 }
 
-function read(): Pin[] {
+export function fromDto(d: AnalyticsPinDto): Pin | null {
   try {
-    const raw = window.localStorage.getItem(KEY);
+    return {
+      id: d.id, key: d.key, kind: d.kind, title: d.title, pinnedAt: d.pinnedAt,
+      chart: d.chartJson ? (JSON.parse(d.chartJson) as ChartSpec) : undefined,
+      text: d.text ?? undefined,
+    };
+  } catch {
+    return null; // a pin whose chart can't be read is skipped rather than breaking the board
+  }
+}
+
+function readLegacy(): { id: string; kind: Pin["kind"]; title: string; chart?: ChartSpec; text?: string }[] {
+  try {
+    const raw = window.localStorage.getItem(LEGACY_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed) ? (parsed as Pin[]).filter((p) => p && typeof p.id === "string" && (p.kind === "chart" || p.kind === "answer")) : [];
+    return Array.isArray(parsed) ? parsed.filter((p) => p && typeof p.id === "string" && (p.kind === "chart" || p.kind === "answer")) : [];
   } catch {
     return [];
   }
 }
 
 /**
- * The Analytics workspace's pinned-insights board. Pins live in this browser's localStorage (a per-viewer
- * convenience — they don't follow you to another device). Capped, newest first; pinning the same content
- * twice is a no-op, and a full board says so instead of silently dropping the oldest.
+ * The Analytics workspace's pinned-insights board, kept on the server per user so it follows you between devices.
+ * Capped at 12; pinning the same content twice is a no-op, and a full board says so instead of dropping the oldest.
+ * Pins saved by an earlier version in this browser are uploaded once and then cleared.
  */
 export function usePins() {
   const [pins, setPins] = useState<Pin[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading browser storage after mount
-    setPins(read());
+    let cancelled = false;
+    (async () => {
+      try {
+        let list = await api.listPins();
+        const legacy = readLegacy();
+        if (legacy.length > 0) {
+          const have = new Set(list.map((p) => p.key));
+          for (const old of [...legacy].reverse()) {
+            if (have.has(old.id) || (old.kind === "chart" && !old.chart)) continue;
+            const res = await api.createPin({ key: old.id, kind: old.kind, title: old.title, chartJson: old.chart ? JSON.stringify(old.chart) : null, text: old.text ?? null }).catch(() => null);
+            if (res?.status === "full") break;
+          }
+          window.localStorage.removeItem(LEGACY_KEY);
+          list = await api.listPins();
+        }
+        if (!cancelled) setPins(list.map(fromDto).filter((p): p is Pin => p !== null));
+      } catch {
+        /* the board simply stays empty if the server can't be reached */
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const write = useCallback((next: Pin[]) => {
-    setPins(next);
+  const pin = useCallback(async (p: NewPin): Promise<"added" | "exists" | "full" | "error"> => {
     try {
-      window.localStorage.setItem(KEY, JSON.stringify(next));
+      const res = await api.createPin({ key: p.key, kind: p.kind, title: p.title, chartJson: p.chart ? JSON.stringify(p.chart) : null, text: p.text ?? null });
+      const created = res.pin ? fromDto(res.pin) : null;
+      if (res.status === "added" && created) setPins((cur) => [created, ...cur]);
+      return res.status;
     } catch {
-      /* storage blocked or full — the pin still shows for this session */
+      return "error";
     }
   }, []);
 
-  const pin = useCallback(
-    (p: Omit<Pin, "pinnedAt">): "added" | "exists" | "full" => {
-      const current = read();
-      if (current.some((x) => x.id === p.id)) return "exists";
-      if (current.length >= MAX_PINS) return "full";
-      write([{ ...p, pinnedAt: new Date().toISOString() }, ...current]);
-      return "added";
-    },
-    [write],
-  );
+  const unpin = useCallback(async (id: string) => {
+    setPins((cur) => cur.filter((p) => p.id !== id)); // optimistic; restored below if the server refuses
+    try {
+      await api.deletePin(id);
+    } catch {
+      try {
+        setPins((await api.listPins()).map(fromDto).filter((p): p is Pin => p !== null));
+      } catch {
+        /* leave as is */
+      }
+    }
+  }, []);
 
-  const unpin = useCallback((id: string) => write(read().filter((p) => p.id !== id)), [write]);
-  const isPinned = useCallback((id: string) => pins.some((p) => p.id === id), [pins]);
+  const isPinned = useCallback((key: string) => pins.some((p) => p.key === key), [pins]);
 
-  return { pins, pin, unpin, isPinned };
+  return { pins, loaded, pin, unpin, isPinned };
 }
