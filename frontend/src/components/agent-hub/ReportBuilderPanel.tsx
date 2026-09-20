@@ -32,9 +32,9 @@ function Segment<T extends string>({ name, value, options, onChange }: { name: s
 interface ReportBuilderPanelProps {
   state: BuilderState;
   onChange: (next: BuilderState) => void;
-  /** "Build from description": hands the text to the Reports agent. */
-  onDescribe: (text: string) => void;
-  describing: boolean;
+  /** "Build from description": hands the text to the Reports agent. Omitted where the chat itself takes requests. */
+  onDescribe?: (text: string) => void;
+  describing?: boolean;
 }
 
 /** The left pane: describe it, or set grouping, brokers, measure, period and visual by hand. */
@@ -47,11 +47,12 @@ export default function ReportBuilderPanel({ state, onChange, onDescribe, descri
     <aside className="ws-lots" aria-label="Builder">
       <h2 className="ws-lots-title">Builder</h2>
 
+      {onDescribe && (
       <form
         className="ws-describe"
         onSubmit={(e) => {
           e.preventDefault();
-          if (text.trim() && !describing) onDescribe(text.trim());
+          if (onDescribe && text.trim() && !describing) onDescribe(text.trim());
         }}
       >
         <TextField
@@ -70,6 +71,7 @@ export default function ReportBuilderPanel({ state, onChange, onDescribe, descri
           {describing ? "Building…" : "Build from description"}
         </Button>
       </form>
+      )}
 
       <div className="ws-seg">
         <span className="ws-seg-label" id="rb-templates">Start from a template</span>

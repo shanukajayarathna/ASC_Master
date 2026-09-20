@@ -19,6 +19,16 @@ const MAX_MESSAGE_LENGTH = 8000;
 
 const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+/** What a workspace may want to know about the answer it is decorating. */
+export interface MessageContext {
+  /** The user's message this answer replies to. */
+  question: string;
+  /** Which agent answered (universal chat); null when unknown. */
+  agent: string | null;
+  /** True for a clarifying question the router asked itself (no agent answered it). */
+  fromRouter: boolean;
+}
+
 interface ChatPanelProps {
   chat: ReturnType<typeof useAgentChat>;
   speech: ReturnType<typeof useSpeech>;
@@ -28,9 +38,11 @@ interface ChatPanelProps {
   /** Mirrors the mic's listening state up to the workspace (drives the status orb). */
   onListeningChange?: (listening: boolean) => void;
   /** Extra actions under each chart in an answer (e.g. Explain / Pin / drill-down). */
-  chartExtra?: (spec: ChartSpec) => ReactNode;
+  chartExtra?: (spec: ChartSpec, context: MessageContext) => ReactNode;
   /** Extra chips in an answer's footer row (e.g. Pin). Given the answer's id and text. */
-  messageExtra?: (message: { id: string; text: string }) => ReactNode;
+  messageExtra?: (message: { id: string; text: string } & MessageContext) => ReactNode;
+  /** Block content under an answer's footer row (e.g. lot cards). */
+  belowMessage?: (message: { id: string; text: string } & MessageContext) => ReactNode;
   /** Shown between the conversation and the composer (e.g. a hand-off suggestion). */
   aboveComposer?: ReactNode;
 }
@@ -40,7 +52,7 @@ interface ChatPanelProps {
  * chips), suggested prompts, read-aloud and copy on each answer, and a composer with the mic. The workspace
  * owns the chat state (so it can also send from elsewhere, e.g. a lot card) and passes it in.
  */
-export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange, chartExtra, messageExtra, aboveComposer }: ChatPanelProps) {
+export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange, chartExtra, messageExtra, belowMessage, aboveComposer }: ChatPanelProps) {
   const reduced = useReducedMotion();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -101,6 +113,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
         <div role="log" aria-live="polite" className="flex flex-col gap-4">
           {chat.messages.map((m, i) => {
             const isUser = m.role === "user";
+          const question = [...chat.messages.slice(0, i)].reverse().find((x) => x.role === "user")?.content ?? "";
             const { text, clarify } = isUser ? { text: m.content, clarify: undefined } : parseClarify(m.content);
             const hasChart = !isUser && text.includes("```asc-chart");
             return (
@@ -110,7 +123,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
                     isUser ? "bg-brass/15 text-text-strong" : "bg-surface-alt text-text"
                   }`}
                 >
-                  {isUser ? text : <RichText text={text} chartExtra={chartExtra} />}
+                  {isUser ? text : <RichText text={text} chartExtra={chartExtra ? (spec) => chartExtra(spec, { question, agent: m.agent ?? null, fromRouter: m.provider === "router" }) : undefined} />}
                 </div>
                 {clarify && (
                   <div className="max-w-[88%] sm:max-w-[80%] flex flex-col gap-1.5 px-1">
@@ -161,8 +174,9 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
                       sx={{ height: 24, fontSize: 11 }}
                     />
                   )}
-                  {!isUser && messageExtra?.({ id: m.id, text })}
+                  {!isUser && messageExtra?.({ id: m.id, text, question, agent: m.agent ?? null, fromRouter: m.provider === "router" })}
                 </div>
+                {!isUser && belowMessage?.({ id: m.id, text, question, agent: m.agent ?? null, fromRouter: m.provider === "router" })}
               </div>
             );
           })}

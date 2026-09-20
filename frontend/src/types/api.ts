@@ -262,6 +262,8 @@ export interface ChatMessage {
   provider?: string | null;
   /** Where the answer's figures came from; only present on a reply received live (not stored with history). */
   sources?: ChatSource[];
+  /** Which agent answered (general | auction | analytics | reports); set on replies from the universal chat. */
+  agent?: string | null;
 }
 
 /** A source chip under an answer. kind: bylaws | archive | catalogue | saved | report | file. */
@@ -276,6 +278,8 @@ export interface ChatResponse {
   reply: string;
   provider: string;
   sources?: ChatSource[];
+  /** The agent that answered, or that will answer once a clarifying question is answered. */
+  agent?: string | null;
 }
 
 export interface ProviderStatus {

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Project architecture, module behaviour and engineering standards live in [`docs/`](docs/README.md) — start there. The AI Assistant hub and its four agent workspaces are described in [`docs/30_AI_Assistant_Hub.md`](docs/30_AI_Assistant_Hub.md). Frontend-specific agent notes: [`frontend/CLAUDE.md`](frontend/CLAUDE.md).
+Project architecture, module behaviour and engineering standards live in [`docs/`](docs/README.md) — start there. The universal AI Assistant (one chat, automatic routing to specialist agents) is described in [`docs/30_AI_Assistant_Hub.md`](docs/30_AI_Assistant_Hub.md). Frontend-specific agent notes: [`frontend/CLAUDE.md`](frontend/CLAUDE.md).
 
 ## Domain Rules — CTTA By-Laws (governing law for all auction workflows)
 

@@ -995,10 +995,10 @@ export const api = {
    *  configured provider key — see getProviderStatuses(). `catalogueId` is the
    *  Topbar's active sale — AuctionAgent reads it to know what "the current sale"
    *  means without a tool round-trip, same reasoning as sendChatMessage's own. */
-  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string, signal?: AbortSignal) =>
+  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string, signal?: AbortSignal, previousAgent?: string) =>
     request<ChatResponse>("/api/v1/assistant/chat", {
       method: "POST",
-      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null }),
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null, previousAgent: previousAgent ?? null }),
       signal,
     }),
 

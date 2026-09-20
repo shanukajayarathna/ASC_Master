@@ -413,7 +413,7 @@ export default function AssistantPage() {
     <div className="chat-vh flex flex-col">
       <PageHeader
         title="AI Assistant"
-        backTo={{ href: "/assistant", label: ui.hubAllAgents }}
+        backTo={{ href: "/assistant", label: "AI Assistant" }}
         subtitle="Specialist agents over this sale's data, the full auction archive, your documents and saved reports. Read-only — it can't edit anything."
         actions={
           <>

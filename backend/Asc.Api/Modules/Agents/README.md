@@ -159,4 +159,4 @@ matched section), archive, catalogue, saved reports, generated files. The mappin
 tool names and results (a tool that returned an error is not a source), never from what the model claims.
 `AssistantController` also wraps each agent call in `AiUsageScope`, so `AiGateway` logs every AI call against
 the agent that made it (`AiUsageLogEntry.AgentKey`). See
-[`docs/30_AI_Assistant_Hub.md`](../../../../docs/30_AI_Assistant_Hub.md) for the workspaces that show them.
+[`docs/30_AI_Assistant_Hub.md`](../../../../docs/30_AI_Assistant_Hub.md) for the assistant screen that shows them.

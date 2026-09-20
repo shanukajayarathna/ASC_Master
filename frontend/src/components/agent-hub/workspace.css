@@ -368,3 +368,22 @@
 .ws-source-link { cursor: pointer; color: var(--liquor); border-color: var(--liquor); min-height: 32px; }
 .ws-source-link:hover { background: color-mix(in srgb, var(--liquor) 10%, var(--surface)); }
 .ws-source-link:focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; }
+
+/* Report canvas (drawer) */
+.ws-canvas { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-alt); }
+.ws-canvas-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.ws-canvas-title { margin: 0; font-family: var(--font-display), serif; font-size: 20px; font-weight: 600; color: var(--text-strong); }
+.ws-canvas-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; align-content: start; }
+.ws-canvas-body .ws-center { overflow: visible; }
+@media (max-width: 1099px) {
+  .ws-canvas-body.ws-reports { grid-template-columns: minmax(0, 1fr); }
+  .ws-canvas-body.ws-reports > :last-child { grid-column: auto; }
+}
+
+/* Universal assistant */
+.universal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; width: min(960px, 100%); margin: 0 auto; }
+.ws-mini-orb { display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; }
+.ws-mini-orb .voice-orb { width: 40px; margin: 0; }
+.ws-mini-orb .voice-eq { display: none; }
+.ws-library { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-alt); }
+.ws-library-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }

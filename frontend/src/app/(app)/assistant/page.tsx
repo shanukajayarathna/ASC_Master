@@ -1,17 +1,10 @@
-import AgentHub from "@/components/agent-hub/AgentHub";
-import { redirect } from "next/navigation";
+import UniversalAssistant from "@/components/agent-hub/UniversalAssistant";
 
 /**
- * The AI Assistant hub. The original single chat now lives at /assistant/classic, unchanged.
- *
- * The dashboard's Ask ASC box arrives here with `?q=…`. That is redirected on the server, before any
- * hub markup is rendered, so a prefilled question goes straight to the chat with no flash of the hub.
- * (Reading `searchParams` makes this route dynamic; it is a small page, so that costs nothing.)
- * Until the General workspace takes prefills over, the chat is the place that handles them.
+ * The AI Assistant: one conversation, with the right specialist chosen behind the scenes. The original chat lives
+ * on at /assistant/classic. The dashboard's Ask ASC box arrives with `?q=…` (prefilled, never sent) and hub-style
+ * links may carry `?send=1&q=…` (sent once) — the conversation handles both itself (see useAgentChat).
  */
-export default async function AssistantHubPage({ searchParams }: { searchParams: Promise<{ q?: string | string[] }> }) {
-  const { q } = await searchParams;
-  const text = Array.isArray(q) ? q[0] : q;
-  if (text) redirect(`/assistant/classic?q=${encodeURIComponent(text)}`);
-  return <AgentHub />;
+export default function AssistantPage() {
+  return <UniversalAssistant />;
 }

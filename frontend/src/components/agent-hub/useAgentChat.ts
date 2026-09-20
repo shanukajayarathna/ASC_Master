@@ -25,7 +25,7 @@ interface Options {
  * Topbar's active sale attached, and can send a question handed over from the hub (`?send=1&q=`) exactly once,
  * after the provider list and active sale have loaded so the message goes out with the right context.
  */
-export function useAgentChat(agent: AgentKey, { onReply }: Options = {}) {
+export function useAgentChat(agent: AgentKey | "auto", { onReply }: Options = {}) {
   const { activeCatalogueId, loading: catalogueLoading } = useCatalogue();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -38,6 +38,8 @@ export function useAgentChat(agent: AgentKey, { onReply }: Options = {}) {
   const conversationId = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pendingQ = useRef<string | null>(null);
+  /** The agent that answered last, so a short follow-up stays with it (universal chat only). */
+  const lastAgent = useRef<string | null>(null);
   const onReplyRef = useRef(onReply);
   useEffect(() => {
     onReplyRef.current = onReply;
@@ -76,7 +78,7 @@ export function useAgentChat(agent: AgentKey, { onReply }: Options = {}) {
   }, [sending]);
 
   const send = useCallback(
-    async (raw: string): Promise<boolean> => {
+    async (raw: string, override?: AgentKey): Promise<boolean> => {
       const text = raw.trim();
       if (!text || sending) return false;
       const optimistic: ChatMessage = {
@@ -92,9 +94,11 @@ export function useAgentChat(agent: AgentKey, { onReply }: Options = {}) {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const res = await api.sendAgentChatMessage(agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal);
+        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined));
+        const answeredBy = override ?? res.agent ?? null;
+        if (answeredBy) lastAgent.current = answeredBy;
         conversationId.current = res.conversationId;
-        setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: res.reply, createdAt: new Date().toISOString(), provider: res.provider, sources: res.sources }]);
+        setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: res.reply, createdAt: new Date().toISOString(), provider: res.provider, sources: res.sources, agent: answeredBy }]);
         onReplyRef.current?.(res.reply);
         return true;
       } catch (e) {
@@ -125,6 +129,7 @@ export function useAgentChat(agent: AgentKey, { onReply }: Options = {}) {
   const reset = useCallback(() => {
     abortRef.current?.abort();
     conversationId.current = null;
+    lastAgent.current = null;
     setMessages([]);
     setError(null);
   }, []);

@@ -1,4 +1,4 @@
-import ReportsWorkspace from "@/components/agent-hub/ReportsWorkspace";
+import ReportCanvas from "@/components/agent-hub/ReportCanvas";
 import { DEFAULT_STATE, MAX_DECK_SLIDES, chartSpecFrom, deckSlideCount, toDeckReport, safeFileName, snapshotContent, summarize, tableRows, toRequest } from "@/components/agent-hub/reportBuilder";
 import type { CustomPreview } from "@/types/api";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -31,6 +31,8 @@ const preview: CustomPreview = {
   series: [{ name: "Average price (Rs/kg)", values: [1200, 1100, 980] }],
   markdownTable: "| Broker | Average price (Rs/kg) |\n|---|---|\n| ASC | 1,200 |\n| FW | 1,100 |\n| BC | 980 |",
 };
+
+const renderCanvas = () => render(<ReportCanvas open initial={DEFAULT_STATE} onClose={() => {}} />);
 
 beforeEach(() => {
   api.getProviderStatuses.mockReset().mockResolvedValue([{ key: "local", displayName: "Local", configured: true }]);
@@ -84,10 +86,10 @@ describe("builder logic", () => {
   });
 });
 
-describe("ReportsWorkspace", () => {
+describe("Report canvas", () => {
   it("shows the three panes with the report drawn from the archive figures", async () => {
-    render(<ReportsWorkspace />);
-    expect(screen.getByRole("heading", { level: 1, name: "Reports" })).toBeInTheDocument();
+    renderCanvas();
+    expect(screen.getByRole("heading", { level: 2, name: "Report canvas" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Builder" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Output" })).toBeInTheDocument();
 
@@ -102,7 +104,7 @@ describe("ReportsWorkspace", () => {
   });
 
   it("re-queries the archive when a control changes, once after a short pause", async () => {
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
 
     fireEvent.click(screen.getByRole("button", { name: "Grade" }));
@@ -114,13 +116,13 @@ describe("ReportsWorkspace", () => {
 
   it("says why when the archive has nothing, without inventing numbers", async () => {
     api.previewCustomReport.mockRejectedValue(new Error("No data for that selection."));
-    render(<ReportsWorkspace />);
+    renderCanvas();
     expect(await screen.findByRole("alert")).toHaveTextContent("No data for that selection.");
     expect(screen.queryByRole("heading", { name: /by broker/ })).not.toBeInTheDocument();
   });
 
   it("saves a snapshot once, then shows it as saved", async () => {
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
     fireEvent.click(screen.getByRole("button", { name: "Save snapshot" }));
 
@@ -132,7 +134,7 @@ describe("ReportsWorkspace", () => {
   });
 
   it("opens the print page for PDF, reusing the saved snapshot when nothing changed", async () => {
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
 
     fireEvent.click(screen.getByRole("button", { name: "Open PDF" }));
@@ -144,28 +146,10 @@ describe("ReportsWorkspace", () => {
 
   it("disables every output until there is a report", async () => {
     api.previewCustomReport.mockReturnValue(new Promise(() => {}));
-    render(<ReportsWorkspace />);
+    renderCanvas();
     expect(screen.getByRole("button", { name: "Download Excel" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Open PDF" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save snapshot" })).toBeDisabled();
-  });
-
-  it("sends 'Build from description' to the Reports agent and shows its answer", async () => {
-    render(<ReportsWorkspace />);
-    await waitFor(() => expect(api.getProviderStatuses).toHaveBeenCalled());
-    const build = screen.getByRole("button", { name: "Build from description" });
-    expect(build).toBeDisabled();
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Describe it" }), { target: { value: "BOPF share by broker over 6 sales" } });
-    fireEvent.click(build);
-
-    expect(await screen.findByText("Here is the report.")).toBeInTheDocument();
-    const [agent, message] = api.sendAgentChatMessage.mock.calls[0];
-    expect(agent).toBe("reports");
-    expect(message).toContain("BOPF share by broker over 6 sales");
-
-    fireEvent.click(screen.getByRole("button", { name: "Save this answer as a report" }));
-    await waitFor(() => expect(api.saveCustomReport).toHaveBeenCalledWith("Custom report", "Here is the report."));
   });
 });
 
@@ -181,7 +165,7 @@ describe("PowerPoint deck", () => {
   });
 
   it("generates a deck from the report on screen, saves it via the backend and downloads the file", async () => {
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
     const card = screen.getByRole("region", { name: "PowerPoint" });
 
@@ -200,7 +184,7 @@ describe("PowerPoint deck", () => {
 
   it("builds a longer deck from several reports and lets the slide count be lowered", async () => {
     api.previewCustomReport.mockResolvedValueOnce(preview).mockResolvedValue({ ...preview, title: "Average price (Rs/kg) by grade" });
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
     const card = screen.getByRole("region", { name: "PowerPoint" });
 
@@ -224,7 +208,7 @@ describe("PowerPoint deck", () => {
   });
 
   it("removes a report from the deck and never goes below two slides", async () => {
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
     const card = screen.getByRole("region", { name: "PowerPoint" });
     fireEvent.click(within(card).getByRole("button", { name: "Add this report to the deck" }));
@@ -237,7 +221,7 @@ describe("PowerPoint deck", () => {
 
   it("shows the reason when the deck cannot be built, and offers nothing while there is no report", async () => {
     api.generateReportDeck.mockRejectedValue(new Error("A deck can hold at most 5 reports."));
-    render(<ReportsWorkspace />);
+    renderCanvas();
     await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
     const card = screen.getByRole("region", { name: "PowerPoint" });
     fireEvent.click(within(card).getByRole("button", { name: "Generate PowerPoint" }));

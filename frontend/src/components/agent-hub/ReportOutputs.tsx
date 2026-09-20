@@ -7,8 +7,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import DeckCard from "./DeckCard";
 import ScheduleCard from "./ScheduleCard";
-import VoiceBuilder from "./VoiceBuilder";
-import type { VoiceCommand } from "./voiceCommand";
 import { chartSpecFrom, downloadXlsx, snapshotContent, type VisualKey } from "./reportBuilder";
 
 type Busy = null | "excel" | "pdf" | "snapshot";
@@ -18,8 +16,6 @@ interface ReportOutputsProps {
   visual: VisualKey;
   /** The builder's current query, for scheduling it. */
   request: CustomPreviewRequest;
-  /** A spoken request, ready to apply to the builder. */
-  onVoiceApply: (command: VoiceCommand) => void;
 }
 
 /**
@@ -27,7 +23,7 @@ interface ReportOutputsProps {
  * snapshot saves the report (scope, chart, table) as a Saved Report; PDF saves one and opens its print page, where
  * the browser's Save as PDF captures it. PowerPoint is its own card (a deck of one or more reports).
  */
-export default function ReportOutputs({ preview, visual, request, onVoiceApply }: ReportOutputsProps) {
+export default function ReportOutputs({ preview, visual, request }: ReportOutputsProps) {
   const [busy, setBusy] = useState<Busy>(null);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [savedId, setSavedId] = useState<{ content: string; id: string } | null>(null);
@@ -101,7 +97,6 @@ export default function ReportOutputs({ preview, visual, request, onVoiceApply }
 
       <ScheduleCard preview={preview} request={request} visual={visual} />
 
-      <VoiceBuilder onApply={onVoiceApply} />
 
       <p className="ws-lots-note" role="status" aria-live="polite" style={message?.error ? { color: "var(--danger)" } : undefined}>{message?.text}</p>
     </aside>
