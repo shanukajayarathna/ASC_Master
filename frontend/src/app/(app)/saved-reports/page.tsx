@@ -8,6 +8,7 @@ import type { SavedReport } from "@/types/api";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
+import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -189,6 +190,14 @@ export default function SavedReportsPage() {
           )}
         </DialogContent>
         <DialogActions>
+          {viewing?.content && (
+            <Button
+              startIcon={<PrintOutlinedIcon fontSize="small" />}
+              onClick={() => window.open(`/print/custom-report?id=${viewing.report.id}`, "_blank", "noopener")}
+            >
+              Print / PDF
+            </Button>
+          )}
           <Button onClick={() => setViewing(null)}>Close</Button>
         </DialogActions>
       </Dialog>

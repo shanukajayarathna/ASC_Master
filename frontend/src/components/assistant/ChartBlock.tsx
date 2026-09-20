@@ -519,14 +519,14 @@ export default function ChartBlock({ spec }: { spec: ChartSpec }) {
   ];
 
   return (
-    <figure ref={figRef} className="my-2 not-prose w-full border border-border rounded-lg bg-surface px-3.5 py-3 m-0 whitespace-normal">
+    <figure ref={figRef} className="my-2 not-prose w-full border border-border rounded-lg bg-surface px-3.5 py-3 m-0 whitespace-normal print:break-inside-avoid">
       <style>{brokerPaletteCss()}</style>
       <figcaption className="flex items-start gap-3 mb-2">
         <div className="flex-1 min-w-0">
           <div className="font-display text-[14px] font-semibold text-text-strong leading-snug">{spec.title}</div>
           {spec.subtitle && <div className="text-[11.5px] text-text-muted mt-0.5">{spec.subtitle}</div>}
         </div>
-        <div className="shrink-0 flex gap-1.5">
+        <div className="shrink-0 flex gap-1.5 print:hidden">
           {!asTable && (
             <button
               type="button"

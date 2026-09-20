@@ -85,7 +85,7 @@ export function ChatTable({ rows }: { rows: string[][] }) {
           </tbody>
         </table>
       </div>
-      <div className="flex items-center gap-2 px-2 py-1 border-t border-border/60 bg-surface-sunken/30">
+      <div className="flex items-center gap-2 px-2 py-1 border-t border-border/60 bg-surface-sunken/30 print:hidden">
         <span className="text-[10.5px] text-text-muted">Download as</span>
         <button onClick={asExcel} disabled={busy}
           className="px-2 py-0.5 rounded border border-brass/60 text-[11px] font-semibold text-text-strong hover:bg-brass/10 disabled:opacity-50">
