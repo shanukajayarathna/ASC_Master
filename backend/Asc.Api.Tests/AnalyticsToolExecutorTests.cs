@@ -110,4 +110,20 @@ public class AnalyticsToolExecutorTests
         Assert.Contains("generate_presentation", names);
         Assert.Contains("generate_excel", names); // the pre-existing sibling must still be there
     }
+
+    [Fact]
+    public void Definitions_IncludeChartTools_ForCustomBreakdowns()
+    {
+        var names = AnalyticsToolExecutor.DefinitionsFor(false).Select(d => d.Name).ToList();
+        Assert.Contains("query_data", names);
+        Assert.Contains("make_chart", names);
+        Assert.Contains("list_sales", names); // the fixed tools are untouched
+    }
+
+    [Fact]
+    public void TryGetChartId_OnlyReadsMakeChartResults()
+    {
+        Assert.Null(AnalyticsToolExecutor.TryGetChartId("query_data", "{\"chartId\":\"abc\"}"));
+        Assert.Null(AnalyticsToolExecutor.TryGetChartId("list_sales", "{}"));
+    }
 }

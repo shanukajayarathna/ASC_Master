@@ -506,7 +506,7 @@ async function downloadPng(fig: HTMLElement | null, spec: ChartSpec) {
 }
 
 // ---------------------------------------------------------------------------- frame
-export default function ChartBlock({ spec }: { spec: ChartSpec }) {
+export default function ChartBlock({ spec, extra }: { spec: ChartSpec; /** Rendered under the chart (a workspace's own actions, e.g. Explain / Pin / drill-down). */ extra?: React.ReactNode }) {
   const [ref, w] = useWidth();
   const figRef = useRef<HTMLElement>(null);
   const [asTable, setAsTable] = useState(false);
@@ -573,6 +573,7 @@ export default function ChartBlock({ spec }: { spec: ChartSpec }) {
           ))}
         </ul>
       )}
+      {extra && <div className="mt-2 print:hidden">{extra}</div>}
     </figure>
   );
 }

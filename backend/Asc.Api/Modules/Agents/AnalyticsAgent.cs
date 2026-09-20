@@ -57,6 +57,15 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
         "top / bottom); its premiums are computed server-side against the market average of the " +
         "same sales, so paste its table verbatim, state its scope line, and present the results " +
         "as evidence, not proof. " +
+        "CHARTS AND CUSTOM BREAKDOWNS: when the user asks for a chart, a share/split/trend, or a " +
+        "comparison across brokers, grades or periods that the fixed tools do not cover, build it " +
+        "with query_data (filter + group_by + optional split_by='sale' + metric) and then make_chart. " +
+        "Say the scope the tool reported (filters and period); paste its markdownTable verbatim; " +
+        "paste chartPlaceholder verbatim on its own line where the chart belongs; if no period was " +
+        "requested the tool covers only the latest sale, so say so and offer a wider window; if a tool " +
+        "returns an error listing valid values, retry once with a valid one. When the user asks you to " +
+        "explain a chart, explain only what its figures show — never add numbers that are not in a " +
+        "tool result. " +
         "NEVER write a tool-call JSON object into your reply text — replies are for the " +
         "user; to use a tool, actually call it. The chat " +
         "renders those as real tables. When the user asks for an Excel/spreadsheet/workbook " +
@@ -136,10 +145,17 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
             return tools.ExecuteAsync(name, args, request.IsAdmin, ct);
         }
 
+        var madeCharts = new List<string>();
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History,
             CttaBylawsTool.WithDefinition(bylaws, AnalyticsToolExecutor.DefinitionsFor(request.IsAdmin)),
-            CttaBylawsTool.Dispatch(bylaws, Execute), ct);
-        return new AgentResponse(reply, providerKey);
+            CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
+            {
+                var result = await Execute(name, args);
+                if (AnalyticsToolExecutor.TryGetChartId(name, result) is { } chartId) madeCharts.Add(chartId);
+                return result;
+            }), ct);
+        // The model only handles a short [[chart:id]] placeholder, never the chart's numbers.
+        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey);
     }
 }

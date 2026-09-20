@@ -178,3 +178,44 @@
   .ws-auction { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(420px, 1fr); }
   .ws-lots { max-height: 340px; }
 }
+
+/* Analytics: chat left, compare + pinned board right */
+.ws-analytics {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 12px;
+}
+.ws-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ws-compare,
+.ws-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.ws-seg { display: flex; flex-direction: column; gap: 4px; }
+.ws-seg-label { font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+.ws-board-count { font-family: var(--font-mono), monospace; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.ws-pin { display: flex; flex-direction: column; gap: 6px; }
+.ws-pin-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ws-pin-title { font-size: 13px; font-weight: 600; color: var(--text-strong); min-width: 0; overflow-wrap: anywhere; }
+.ws-pin-text { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ws-chart-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ws-drill { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
+.ws-drill-label { font-size: 12px; color: var(--text-muted); }
+@media (max-width: 1023px) {
+  .workspace[data-agent="analytics"] { height: auto; min-height: calc(100dvh - 140px); }
+  .ws-analytics { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(520px, auto) auto; }
+  .ws-side { overflow: visible; }
+}

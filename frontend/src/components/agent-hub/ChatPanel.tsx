@@ -8,7 +8,8 @@ import VolumeUpOutlinedIcon from "@mui/icons-material/VolumeUpOutlined";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
-import { useEffect, useRef, useState } from "react";
+import type { ChartSpec } from "@/components/assistant/ChartBlock";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useReducedMotion } from "./useHubEnv";
 import type { useAgentChat } from "./useAgentChat";
 import type { useSpeech } from "./voice";
@@ -25,6 +26,10 @@ interface ChatPanelProps {
   placeholder: string;
   /** Mirrors the mic's listening state up to the workspace (drives the status orb). */
   onListeningChange?: (listening: boolean) => void;
+  /** Extra actions under each chart in an answer (e.g. Explain / Pin / drill-down). */
+  chartExtra?: (spec: ChartSpec) => ReactNode;
+  /** Extra chips in an answer's footer row (e.g. Pin). Given the answer's id and text. */
+  messageExtra?: (message: { id: string; text: string }) => ReactNode;
 }
 
 /**
@@ -32,7 +37,7 @@ interface ChatPanelProps {
  * chips), suggested prompts, read-aloud and copy on each answer, and a composer with the mic. The workspace
  * owns the chat state (so it can also send from elsewhere, e.g. a lot card) and passes it in.
  */
-export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange }: ChatPanelProps) {
+export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange, chartExtra, messageExtra }: ChatPanelProps) {
   const reduced = useReducedMotion();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -101,7 +106,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
                     isUser ? "bg-brass/15 text-text-strong" : "bg-surface-alt text-text"
                   }`}
                 >
-                  {isUser ? text : <RichText text={text} />}
+                  {isUser ? text : <RichText text={text} chartExtra={chartExtra} />}
                 </div>
                 {clarify && (
                   <div className="max-w-[88%] sm:max-w-[80%] flex flex-col gap-1.5 px-1">
@@ -137,6 +142,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
                       sx={{ height: 24, fontSize: 11 }}
                     />
                   )}
+                  {!isUser && messageExtra?.({ id: m.id, text })}
                 </div>
               </div>
             );

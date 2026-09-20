@@ -3,7 +3,7 @@
 import { api } from "@/lib/api";
 import { useState } from "react";
 import { Fragment } from "react";
-import ChartBlock, { parseChartSpec } from "./ChartBlock";
+import ChartBlock, { parseChartSpec, type ChartSpec } from "./ChartBlock";
 
 /** Structured clarifying question parsed from a CLARIFY: line (Claude-style options) —
  *  shared parsing so both AnalyticsChat and the main /assistant page recognize it the
@@ -164,7 +164,7 @@ function ExportFileCard({ url, filename }: { url: string; filename: string }) {
  *  | table convention every agent's system prompt is told to use. Shared by AnalyticsChat
  *  and the main /assistant page so agent output renders identically wherever it's reached
  *  from, and so the link-safety check in isSafeUrl only has to be gotten right once. */
-export function RichText({ text }: { text: string }) {
+export function RichText({ text, chartExtra }: { text: string; /** Optional actions rendered under each chart (given the parsed chart). */ chartExtra?: (spec: ChartSpec) => React.ReactNode }) {
   // Charts the Reports Agent built arrive as ```asc-chart fenced JSON — pulled out first so the
   // table/link handling below never sees (or mangles) the spec. A spec that fails validation is
   // dropped rather than shown as raw JSON.
@@ -178,7 +178,7 @@ export function RichText({ text }: { text: string }) {
           return t ? <RichTextBody key={i} text={t} /> : null;
         }
         const spec = parseChartSpec(part);
-        return spec ? <ChartBlock key={i} spec={spec} /> : null;
+        return spec ? <ChartBlock key={i} spec={spec} extra={chartExtra?.(spec)} /> : null;
       })}
     </>
   );

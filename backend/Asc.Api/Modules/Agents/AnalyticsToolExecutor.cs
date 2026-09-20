@@ -15,12 +15,14 @@ public class AnalyticsToolExecutor(
     MongoContext db,
     Asc.Api.Modules.Msl.MslExcelExportService excel,
     Asc.Api.Modules.Msl.MslReportExportService reportExports,
-    ILogger<AnalyticsToolExecutor> logger)
+    ILogger<AnalyticsToolExecutor> logger,
+    CustomReportTools? custom = null)
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private static readonly IReadOnlyList<ToolDef> Definitions =
     [
+        .. CustomReportTools.Definitions,
         new("list_sales",
             "Lists auction sales (newest first) with headline numbers: lots, sold lots, total and " +
             "sold quantity (kg), proceeds (Rs), and quantity-weighted average price (Rs/kg). " +
@@ -197,10 +199,22 @@ public class AnalyticsToolExecutor(
 
     public static IReadOnlyList<ToolDef> DefinitionsFor(bool _) => Definitions;
 
+    /// <summary>Chart id from a make_chart result, so the agent can expand its [[chart:id]] placeholder.</summary>
+    public static string? TryGetChartId(string toolName, string toolResult) =>
+        toolName == "make_chart" ? CustomReportTools.TryGetChartId(toolResult) : null;
+
+    /// <summary>Expands [[chart:id]] placeholders in a finished reply into real chart blocks.</summary>
+    public string ResolveCharts(string reply, IEnumerable<string> madeChartIds) =>
+        custom?.ResolveCharts(reply, madeChartIds) ?? reply;
+
     public async Task<string> ExecuteAsync(string name, string argumentsJson, bool isAdmin, CancellationToken ct = default)
     {
         if (Definitions.All(d => d.Name != name))
             return JsonSerializer.Serialize(new { error = $"Tool '{name}' is not available to the Analytics Agent." });
+        if (CustomReportTools.IsCustomTool(name))
+            return custom is null
+                ? JsonSerializer.Serialize(new { error = "Custom charts are not available in this environment." })
+                : await custom.ExecuteAsync(name, argumentsJson, ct);
         logger.LogInformation("Analytics tool call: {Tool} args={Args}", name, argumentsJson);
         try
         {
