@@ -81,6 +81,10 @@ public class SavedReport
     /// from a catalogue like the fixed report types.</summary>
     public const string CustomChartType = "custom-chart";
 
+    /// <summary>A PowerPoint deck generated from the Reports workspace: its file is stored (StoredFileId) and
+    /// downloadable like the other generated reports; it carries no snapshot Content.</summary>
+    public const string CustomDeckType = "custom-deck";
+
     /// <summary>The saved snapshot of a <see cref="CustomChartType"/> report: the assistant's
     /// answer text (scope, markdown tables, and fenced asc-chart blocks). Null for every other
     /// type. Listing never returns it; it is fetched on demand by id.</summary>

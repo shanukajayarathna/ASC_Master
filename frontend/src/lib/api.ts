@@ -75,6 +75,7 @@ import type {
   SavedReport,
   CustomPreview,
   CustomPreviewRequest,
+  CustomDeckRequest,
   ScheduledReportJob,
   ScheduledReportOutput,
   SharedMarkCatalogueGenerateResponse,
@@ -503,6 +504,11 @@ export const api = {
    *  builder's controls (no model involved), so every figure comes from the system. */
   previewCustomReport: (req: CustomPreviewRequest, signal?: AbortSignal) =>
     request<CustomPreview>("/api/v1/reports/custom/preview", { method: "POST", body: JSON.stringify(req), signal }),
+
+  /** Builds a PowerPoint deck (native charts and tables) from datasets the workspace already showed; the file is
+   *  stored, audited and listed under Saved Reports, and this returns that saved report (download it by id). */
+  generateReportDeck: (req: CustomDeckRequest) =>
+    request<SavedReport>("/api/v1/reports/custom/pptx", { method: "POST", body: JSON.stringify(req) }),
 
   getSavedReportContent: (id: string) => request<{ content: string }>(`/api/v1/reports/saved/${id}/content`),
 

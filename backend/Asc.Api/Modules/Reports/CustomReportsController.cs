@@ -1,5 +1,9 @@
 using System.Text.Json.Nodes;
+using Asc.Api.Data;
+using Asc.Api.Models;
 using Asc.Api.Modules.Agents;
+using Asc.Api.Modules.Audit;
+using Asc.Api.Modules.ScheduledReports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,13 +29,44 @@ public record CustomPreviewRequest(
 [ApiController]
 [Route("api/v1/reports/custom")]
 [Authorize]
-public class CustomReportsController(CustomReportTools tools) : ControllerBase
+public class CustomReportsController(CustomReportTools tools, MongoContext db, IGeneratedReportFileStore fileStore, IAuditLogger audit) : ControllerBase
 {
     [HttpPost("preview")]
     public async Task<ActionResult<CustomPreview>> Preview(CustomPreviewRequest request, CancellationToken ct)
     {
         var (preview, error) = await tools.PreviewAsync(ToArgs(request), ct);
         return preview is null ? BadRequest(new { error }) : Ok(preview);
+    }
+
+    /// <summary>
+    /// Generates a PowerPoint deck from report datasets the workspace already showed (native charts and tables,
+    /// ASC Ivory or ASC Ink). The file is stored and listed under Saved Reports (downloadable), and the generation
+    /// is written to the audit log. Any signed-in user, like every other report action.
+    /// </summary>
+    [HttpPost("pptx")]
+    public async Task<ActionResult<SavedReportDto>> GenerateDeck(CustomDeckRequest request, CancellationToken ct)
+    {
+        if (CustomDeckGenerator.Validate(request) is { } problem) return BadRequest(new { error = problem });
+
+        var bytes = CustomDeckGenerator.Build(request);
+        var slides = CustomDeckGenerator.Plan(request).Count;
+        var template = (request.Template ?? "ivory").ToLowerInvariant();
+        using var data = new MemoryStream(bytes);
+        var fileId = await fileStore.SaveAsync(data, CustomDeckGenerator.FileName(request),
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation", ct);
+
+        var saved = new SavedReport
+        {
+            Type = SavedReport.CustomDeckType,
+            Title = request.Title.Trim(),
+            Source = "AI Assistant · Reports",
+            StoredFileId = fileId,
+            Notes = $"{slides} slides · template {template}",
+        };
+        await db.SavedReports.InsertOneAsync(saved, cancellationToken: ct);
+        await audit.LogAsync(User, "report.deck.generated", nameof(SavedReport), saved.Id.ToString(),
+            $"{slides} slides, template {template}, {request.Reports.Count} report(s)", ct);
+        return Ok(new SavedReportDto(saved.Id, saved.Type, saved.Title, null, saved.Source, saved.CreatedAt, true, saved.Notes));
     }
 
     /// <summary>Maps the request onto the tool's argument names, so validation lives in exactly one place.</summary>

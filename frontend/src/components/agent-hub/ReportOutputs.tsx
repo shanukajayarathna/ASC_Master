@@ -5,6 +5,7 @@ import type { CustomPreview } from "@/types/api";
 import Button from "@mui/material/Button";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import DeckCard from "./DeckCard";
 import { chartSpecFrom, downloadXlsx, snapshotContent, type VisualKey } from "./reportBuilder";
 
 type Busy = null | "excel" | "pdf" | "snapshot";
@@ -17,7 +18,7 @@ interface ReportOutputsProps {
 /**
  * The right pane: what to do with the report. Excel is built in the browser from the preview's own numbers; a
  * snapshot saves the report (scope, chart, table) as a Saved Report; PDF saves one and opens its print page, where
- * the browser's Save as PDF captures it. PowerPoint and the voice builder are the next steps.
+ * the browser's Save as PDF captures it. PowerPoint is its own card (a deck of one or more reports).
  */
 export default function ReportOutputs({ preview, visual }: ReportOutputsProps) {
   const [busy, setBusy] = useState<Busy>(null);
@@ -89,9 +90,11 @@ export default function ReportOutputs({ preview, visual }: ReportOutputsProps) {
         {saved && <Link href="/saved-reports" className="ws-out-link">Open Saved Reports</Link>}
       </section>
 
+      <DeckCard preview={preview} visual={visual} />
+
       <section className="ws-out ws-out-soon">
-        <h3 className="ws-out-title">PowerPoint &amp; voice builder</h3>
-        <p className="ws-lots-note">Coming next: a slide deck from this report, and building reports by speaking.</p>
+        <h3 className="ws-out-title">Voice builder</h3>
+        <p className="ws-lots-note">Coming next: building reports by speaking.</p>
       </section>
 
       <p className="ws-lots-note" role="status" aria-live="polite" style={message?.error ? { color: "var(--danger)" } : undefined}>{message?.text}</p>

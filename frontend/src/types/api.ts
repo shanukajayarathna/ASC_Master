@@ -1418,3 +1418,21 @@ export interface CustomPreview {
   series: { name: string; values: (number | null)[] }[];
   markdownTable: string;
 }
+
+/** One report in a PowerPoint deck: a dataset the preview computed from the archive. */
+export interface DeckReport {
+  title: string;
+  scope: string;
+  unit: string;
+  categoryAxis: string;
+  visual: "bar" | "line" | "table";
+  categories: string[];
+  series: { name: string; values: (number | null)[] }[];
+}
+
+export interface CustomDeckRequest {
+  title: string;
+  template: "ivory" | "ink";
+  maxSlides: number;
+  reports: DeckReport[];
+}

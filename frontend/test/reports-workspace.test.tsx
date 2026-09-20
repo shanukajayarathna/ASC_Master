@@ -1,5 +1,5 @@
 import ReportsWorkspace from "@/components/agent-hub/ReportsWorkspace";
-import { DEFAULT_STATE, chartSpecFrom, safeFileName, snapshotContent, summarize, tableRows, toRequest } from "@/components/agent-hub/reportBuilder";
+import { DEFAULT_STATE, MAX_DECK_SLIDES, chartSpecFrom, deckSlideCount, toDeckReport, safeFileName, snapshotContent, summarize, tableRows, toRequest } from "@/components/agent-hub/reportBuilder";
 import type { CustomPreview } from "@/types/api";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   sendAgentChatMessage: vi.fn(),
   previewCustomReport: vi.fn(),
   saveCustomReport: vi.fn(),
+  generateReportDeck: vi.fn(),
+  downloadSavedReport: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ api }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -34,6 +36,10 @@ beforeEach(() => {
   api.sendAgentChatMessage.mockReset().mockResolvedValue({ conversationId: "c1", reply: "Here is the report.", provider: "local" });
   api.previewCustomReport.mockReset().mockResolvedValue(preview);
   api.saveCustomReport.mockReset().mockResolvedValue({ id: "saved-1" });
+  api.generateReportDeck.mockReset().mockResolvedValue({ id: "deck-1", type: "custom-deck", title: "x" });
+  api.downloadSavedReport.mockReset().mockResolvedValue({ blob: new Blob(["pptx"]), fileName: "deck.pptx" });
+  URL.createObjectURL = vi.fn(() => "blob:x");
+  URL.revokeObjectURL = vi.fn();
   window.open = vi.fn();
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {} })) as unknown as typeof window.matchMedia;
 });
@@ -159,5 +165,82 @@ describe("ReportsWorkspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save this answer as a report" }));
     await waitFor(() => expect(api.saveCustomReport).toHaveBeenCalledWith("Custom report", "Here is the report."));
+  });
+});
+
+describe("PowerPoint deck", () => {
+  it("counts slides as a title plus a chart and a table per report (a table report has no chart), capped at 12", () => {
+    const bar = toDeckReport(preview, "bar");
+    const table = toDeckReport(preview, "table");
+    expect(deckSlideCount([bar])).toBe(3);
+    expect(deckSlideCount([table])).toBe(2);
+    expect(deckSlideCount([bar, table, bar])).toBe(1 + 2 + 1 + 2);
+    expect(deckSlideCount(Array(9).fill(bar))).toBe(MAX_DECK_SLIDES);
+    expect(toDeckReport(preview, "line")).toMatchObject({ visual: "line", categories: preview.categories, unit: "Rs/kg" });
+  });
+
+  it("generates a deck from the report on screen, saves it via the backend and downloads the file", async () => {
+    render(<ReportsWorkspace />);
+    await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
+    const card = screen.getByRole("region", { name: "PowerPoint" });
+
+    expect(within(card).getByText("of 3 available (max 12)")).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "ASC Ink" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Generate PowerPoint" }));
+
+    await waitFor(() => expect(api.generateReportDeck).toHaveBeenCalledTimes(1));
+    const req = api.generateReportDeck.mock.calls[0][0];
+    expect(req).toMatchObject({ title: "Average price (Rs/kg) by broker", template: "ink", maxSlides: 3 });
+    expect(req.reports).toHaveLength(1);
+    expect(req.reports[0].categories).toEqual(["ASC", "FW", "BC"]);
+    await waitFor(() => expect(api.downloadSavedReport).toHaveBeenCalledWith("deck-1"));
+    await waitFor(() => expect(card.textContent).toContain("PowerPoint downloaded (3 slides)"));
+  });
+
+  it("builds a longer deck from several reports and lets the slide count be lowered", async () => {
+    api.previewCustomReport.mockResolvedValueOnce(preview).mockResolvedValue({ ...preview, title: "Average price (Rs/kg) by grade" });
+    render(<ReportsWorkspace />);
+    await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
+    const card = screen.getByRole("region", { name: "PowerPoint" });
+
+    fireEvent.click(within(card).getByRole("button", { name: "Add this report to the deck" }));
+    expect(within(card).getByRole("button", { name: "Add this report to the deck" })).toBeDisabled(); // the same report twice is a no-op
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Builder" })).getByRole("button", { name: "Grade" }));
+    await waitFor(() => expect(api.previewCustomReport).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Add this report to the deck" })).toBeEnabled());
+    fireEvent.click(within(card).getByRole("button", { name: "Add this report to the deck" }));
+
+    expect(within(card).getByRole("list", { name: "Reports in the deck" }).children).toHaveLength(2);
+    expect(within(card).getByText("of 5 available (max 12)")).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "Fewer slides" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Generate PowerPoint" }));
+
+    await waitFor(() => expect(api.generateReportDeck).toHaveBeenCalled());
+    const req = api.generateReportDeck.mock.calls[0][0];
+    expect(req.maxSlides).toBe(4);
+    expect(req.reports).toHaveLength(2);
+    expect(req.title).toContain("+ 1 more");
+  });
+
+  it("removes a report from the deck and never goes below two slides", async () => {
+    render(<ReportsWorkspace />);
+    await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
+    const card = screen.getByRole("region", { name: "PowerPoint" });
+    fireEvent.click(within(card).getByRole("button", { name: "Add this report to the deck" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Fewer slides" })); // 3 -> 2
+    expect(within(card).getByRole("button", { name: "Fewer slides" })).toBeDisabled();
+
+    fireEvent.click(within(card).getByRole("button", { name: /^Remove .* from the deck$/ }));
+    expect(within(card).queryByRole("list", { name: "Reports in the deck" })).not.toBeInTheDocument();
+  });
+
+  it("shows the reason when the deck cannot be built, and offers nothing while there is no report", async () => {
+    api.generateReportDeck.mockRejectedValue(new Error("A deck can hold at most 5 reports."));
+    render(<ReportsWorkspace />);
+    await screen.findByRole("heading", { name: "Average price (Rs/kg) by broker" });
+    const card = screen.getByRole("region", { name: "PowerPoint" });
+    fireEvent.click(within(card).getByRole("button", { name: "Generate PowerPoint" }));
+    expect(await within(card).findByText("A deck can hold at most 5 reports.")).toBeInTheDocument();
+    expect(api.downloadSavedReport).not.toHaveBeenCalled();
   });
 });

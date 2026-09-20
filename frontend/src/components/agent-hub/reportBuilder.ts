@@ -1,6 +1,6 @@
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { BROKERS } from "@/lib/brokers";
-import type { CustomPreview, CustomPreviewRequest } from "@/types/api";
+import type { CustomPreview, CustomPreviewRequest, DeckReport } from "@/types/api";
 
 export const GROUPS = [
   { key: "broker", label: "Broker" },
@@ -137,4 +137,27 @@ export async function downloadXlsx(preview: CustomPreview) {
   a.download = `${safeFileName(preview.title)}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export const MAX_DECK_SLIDES = 12;
+export const MAX_DECK_REPORTS = 5;
+
+/** The preview as a deck entry (what the backend turns into a native chart slide and a table slide). */
+export function toDeckReport(preview: CustomPreview, visual: VisualKey): DeckReport {
+  return {
+    title: preview.title,
+    scope: preview.scope,
+    unit: preview.unit,
+    categoryAxis: preview.categoryAxis,
+    visual,
+    categories: preview.categories,
+    series: preview.series,
+  };
+}
+
+export const deckReportKey = (r: DeckReport) => JSON.stringify([r.title, r.scope, r.visual, r.categories, r.series]);
+
+/** Slides a deck holds: a title slide, then a chart slide (unless it is a table) and a table slide per report — capped at 12. */
+export function deckSlideCount(reports: readonly DeckReport[]): number {
+  return Math.min(MAX_DECK_SLIDES, 1 + reports.reduce((n, r) => n + (r.visual === "table" ? 1 : 2), 0));
 }

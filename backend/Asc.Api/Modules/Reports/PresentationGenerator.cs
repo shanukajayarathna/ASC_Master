@@ -145,7 +145,7 @@ public static class PresentationGenerator
 
     // ---- layout / master / theme skeleton --------------------------------------------
 
-    private static P.SlideLayout BuildTitleAndBodyLayout()
+    internal static P.SlideLayout BuildTitleAndBodyLayout()
     {
         var shapeTree = new P.ShapeTree(
             new P.NonVisualGroupShapeProperties(
@@ -162,7 +162,7 @@ public static class PresentationGenerator
         };
     }
 
-    private static P.SlideMaster BuildSlideMaster(string slideLayoutRelationshipId)
+    internal static P.SlideMaster BuildSlideMaster(string slideLayoutRelationshipId)
     {
         var shapeTree = new P.ShapeTree(
             new P.NonVisualGroupShapeProperties(
@@ -196,7 +196,7 @@ public static class PresentationGenerator
     /// <summary>A minimal but complete Office theme — every field PowerPoint requires to
     /// treat the file as valid, none of it visually distinctive (ASC's actual brand palette
     /// can replace these hex values later without touching the slide-building logic above).</summary>
-    private static A.Theme BuildTheme()
+    internal static A.Theme BuildTheme()
     {
         var colorScheme = new A.ColorScheme(
             new A.Dark1Color(new A.SystemColor { Val = A.SystemColorValues.WindowText, LastColor = "000000" }),
