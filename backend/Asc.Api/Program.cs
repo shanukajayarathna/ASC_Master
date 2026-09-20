@@ -247,6 +247,8 @@ builder.Services.AddHttpClient(WeeklyFactAutoReportJob.HttpClientName, c =>
 builder.Services.AddSingleton<WeeklyFactAutoReportJob>();
 builder.Services.AddSingleton<IScheduledReportJob>(sp => sp.GetRequiredService<WeeklyFactAutoReportJob>());
 builder.Services.AddSingleton<IScheduledReportJob, MonthlyCombinedPlaceholderJob>();
+// Re-runs the specs people scheduled from the Reports workspace (Modules/Reports/CustomReportSpecsJob.cs) every Monday.
+builder.Services.AddSingleton<IScheduledReportJob, Asc.Api.Modules.Reports.CustomReportSpecsJob>();
 // Registered as itself too (not just IScheduledReportJob) — FactorySaleSummaryController
 // injects the concrete type directly for its own on-demand "Generate for this sale" endpoint,
 // the same pattern WeeklyFactAutoReportJob uses for its HttpClientName constant.

@@ -12,6 +12,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   getProviderStatuses: vi.fn(),
+  listReportSpecs: vi.fn(),
+  createReportSpec: vi.fn(),
+  deleteReportSpec: vi.fn(),
   mslAnalyticsSales: vi.fn(),
   sendAgentChatMessage: vi.fn(),
   previewCustomReport: vi.fn(),
@@ -34,6 +37,7 @@ const lot = (over: Partial<Lot> = {}): Lot =>
 
 beforeEach(() => {
   api.getProviderStatuses.mockReset().mockResolvedValue([]);
+  api.listReportSpecs.mockReset().mockResolvedValue([]);
   api.mslAnalyticsSales.mockReset().mockResolvedValue([
     { year: 2026, saleNo: 0 }, { year: 2026, saleNo: 32 }, { year: 2026, saleNo: 31 }, { year: 2025, saleNo: 51 },
   ]);
@@ -165,5 +169,50 @@ describe("Auction price ladder", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Kenilworth/ }));
     fireEvent.click(screen.getByRole("button", { name: "Price ladder" }));
     expect(await screen.findByText(/Couldn't load the ladder/)).toBeInTheDocument();
+  });
+});
+
+describe("Schedule weekly", () => {
+  const spec = (over = {}) => ({ id: "s1", title: "Average price by broker", request: { groupBy: "broker" }, visual: "bar", createdAt: "2026-09-01T00:00:00Z", lastRunAt: null, lastSavedReportId: null, lastError: null, ...over });
+
+  it("lists your schedules, schedules the report on screen with the builder's exact query, and removes one", async () => {
+    api.listReportSpecs.mockResolvedValue([spec({ id: "old", title: "Older report", lastRunAt: "2026-09-14T06:00:00Z" })]);
+    api.createReportSpec.mockResolvedValue(spec());
+    api.deleteReportSpec.mockResolvedValue(undefined);
+    render(<ReportsWorkspace />);
+    const card = await screen.findByRole("region", { name: "Schedule" });
+    expect(await within(card).findByText("Older report")).toBeInTheDocument();
+
+    await screen.findByRole("heading", { name: "Average price by broker" });
+    fireEvent.click(within(card).getByRole("button", { name: "Schedule weekly" }));
+    await waitFor(() => expect(api.createReportSpec).toHaveBeenCalledTimes(1));
+    const [title, req, visual] = api.createReportSpec.mock.calls[0];
+    expect([title, visual]).toEqual(["Average price by broker", "bar"]);
+    expect(req).toMatchObject({ groupBy: "broker", metric: "avg_price_rs", lastNSales: 12 });
+    expect(await within(card).findByText(/Scheduled — it will be saved every Monday morning/)).toBeInTheDocument();
+    expect(within(card).getByRole("list", { name: "Your scheduled reports" }).children).toHaveLength(2);
+
+    fireEvent.click(within(card).getByRole("button", { name: "Stop scheduling Older report" }));
+    await waitFor(() => expect(api.deleteReportSpec).toHaveBeenCalledWith("old"));
+    await waitFor(() => expect(within(card).queryByText("Older report")).not.toBeInTheDocument());
+  });
+
+  it("says why a schedule was refused", async () => {
+    api.listReportSpecs.mockResolvedValue([]);
+    api.createReportSpec.mockRejectedValue(new Error("You can schedule at most 10 reports — remove one first."));
+    render(<ReportsWorkspace />);
+    const card = await screen.findByRole("region", { name: "Schedule" });
+    await screen.findByRole("heading", { name: "Average price by broker" });
+    fireEvent.click(within(card).getByRole("button", { name: "Schedule weekly" }));
+    expect(await within(card).findByText(/at most 10 reports/)).toBeInTheDocument();
+  });
+
+  it("shows the last result of a run, including a failure, and is disabled until there is a report", async () => {
+    api.listReportSpecs.mockResolvedValue([spec({ lastRunAt: "2026-09-14T06:00:00Z", lastError: "No data for that selection." })]);
+    api.previewCustomReport.mockReturnValue(new Promise(() => {}));
+    render(<ReportsWorkspace />);
+    const card = await screen.findByRole("region", { name: "Schedule" });
+    expect(await within(card).findByText(/No data for that selection/)).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Schedule weekly" })).toBeDisabled();
   });
 });

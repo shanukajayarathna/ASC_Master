@@ -76,6 +76,7 @@ import type {
   CustomPreview,
   CustomPreviewRequest,
   BylawsClause,
+  ReportSpec,
   AgentUsageRow,
   CustomDeckRequest,
   ScheduledReportJob,
@@ -511,6 +512,12 @@ export const api = {
    *  stored, audited and listed under Saved Reports, and this returns that saved report (download it by id). */
   generateReportDeck: (req: CustomDeckRequest) =>
     request<SavedReport>("/api/v1/reports/custom/pptx", { method: "POST", body: JSON.stringify(req) }),
+
+  /** Scheduled reports (re-run every Monday by the scheduled-reports runner). */
+  listReportSpecs: () => request<ReportSpec[]>("/api/v1/reports/custom/specs"),
+  createReportSpec: (title: string, req: CustomPreviewRequest, visual: string) =>
+    request<ReportSpec>("/api/v1/reports/custom/specs", { method: "POST", body: JSON.stringify({ title, request: req, visual }) }),
+  deleteReportSpec: (id: string) => request<void>(`/api/v1/reports/custom/specs/${id}`, { method: "DELETE" }),
 
   /** One CTTA By-Laws section, for opening a cited clause. */
   getBylawsClause: (title: string) =>

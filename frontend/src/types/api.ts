@@ -1464,3 +1464,15 @@ export interface AgentUsageRow {
   completionTokens: number;
   estimatedCostUsd: number | null;
 }
+
+/** A report scheduled from the Reports workspace: re-run every Monday and saved as a Saved Report snapshot. */
+export interface ReportSpec {
+  id: string;
+  title: string;
+  request: CustomPreviewRequest;
+  visual: "bar" | "line" | "table";
+  createdAt: string;
+  lastRunAt: string | null;
+  lastSavedReportId: string | null;
+  lastError: string | null;
+}

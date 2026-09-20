@@ -7,7 +7,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
-  getProviderStatuses: vi.fn(), mslAnalyticsSales: vi.fn(() => Promise.resolve([])),
+  getProviderStatuses: vi.fn(), mslAnalyticsSales: vi.fn(() => Promise.resolve([])), listReportSpecs: vi.fn(() => Promise.resolve([])),
   sendAgentChatMessage: vi.fn(),
   previewCustomReport: vi.fn(),
   saveCustomReport: vi.fn(),

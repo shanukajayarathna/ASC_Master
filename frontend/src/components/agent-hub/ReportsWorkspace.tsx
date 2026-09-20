@@ -9,7 +9,7 @@ import ProviderSelect from "./ProviderSelect";
 import ReportBuilderPanel from "./ReportBuilderPanel";
 import ReportOutputs from "./ReportOutputs";
 import ReportPreview from "./ReportPreview";
-import { DEFAULT_STATE, type BuilderState } from "./reportBuilder";
+import { DEFAULT_STATE, toRequest, type BuilderState } from "./reportBuilder";
 import { applyVoiceCommand } from "./voiceCommand";
 import { useAgentChat } from "./useAgentChat";
 import { useReportPreview } from "./useReportPreview";
@@ -91,7 +91,7 @@ export default function ReportsWorkspace() {
           )}
         </div>
 
-        <ReportOutputs preview={preview} visual={state.visual} onVoiceApply={(cmd) => setState((s) => applyVoiceCommand(s, cmd))} />
+        <ReportOutputs preview={preview} visual={state.visual} request={toRequest(state)} onVoiceApply={(cmd) => setState((s) => applyVoiceCommand(s, cmd))} />
       </div>
     </WorkspaceShell>
   );

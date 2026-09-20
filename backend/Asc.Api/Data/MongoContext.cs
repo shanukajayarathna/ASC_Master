@@ -280,6 +280,7 @@ public class MongoContext
     public IMongoCollection<FilterPreset> FilterPresets => Database.GetCollection<FilterPreset>("filterPresets");
     public IMongoCollection<ActualPrice> ActualPrices => Database.GetCollection<ActualPrice>("actualPrices");
     public IMongoCollection<SavedReport> SavedReports => Database.GetCollection<SavedReport>("savedReports");
+    public IMongoCollection<CustomReportSpec> CustomReportSpecs => Database.GetCollection<CustomReportSpec>("customReportSpecs");
 
     // Legacy collections from the pre-file-store era — kept addressable only so the purge
     // endpoint can drop them and reclaim the space.
