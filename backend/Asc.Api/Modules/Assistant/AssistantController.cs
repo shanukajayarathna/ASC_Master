@@ -58,9 +58,27 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
         var isAdmin = (await authorizationService.AuthorizeAsync(User, Policies.UseAdminAiTools)).Succeeded;
         AgentResponse response;
+        string? answeredBy = dto.Agent;
         try
         {
-            var agent = agentRouter.Resolve(dto.Agent);
+            var requested = dto.Agent;
+            if (string.Equals(requested, IntentRouter.Auto, StringComparison.OrdinalIgnoreCase))
+            {
+                // The universal chat: choose the agent (or ask one short question first) — see IntentRouter.
+                var replies = priorMessages.Where(m => m.Role == "assistant").TakeLast(IntentRouter.MaxClarifications).Select(m => m.Content);
+                var lastUser = priorMessages.LastOrDefault(m => m.Role == "user")?.Content;
+                var decision = IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser);
+                answeredBy = decision.Agent;
+                if (decision.Clarify is { } question)
+                {
+                    var ask = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(question), Provider = "router" };
+                    await db.ConversationMessages.InsertOneAsync(ask, cancellationToken: ct);
+                    return Ok(new ChatResponseDto(conversation.Id, ask.Content, "router", null, decision.Agent));
+                }
+                requested = decision.Agent;
+            }
+
+            var agent = agentRouter.Resolve(requested);
             using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
             response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId), ct);
         }
@@ -79,7 +97,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         };
         await db.ConversationMessages.InsertOneAsync(assistantMessage, cancellationToken: ct);
 
-        return Ok(new ChatResponseDto(conversation.Id, response.Reply, response.ProviderKey, response.Sources));
+        return Ok(new ChatResponseDto(conversation.Id, response.Reply, response.ProviderKey, response.Sources, answeredBy));
     }
 
     [HttpGet("providers")]

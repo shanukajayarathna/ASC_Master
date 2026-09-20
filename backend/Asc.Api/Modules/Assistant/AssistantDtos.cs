@@ -7,10 +7,11 @@ namespace Asc.Api.Modules.Assistant;
 /// <summary>CatalogueId is the sale currently selected in the app's Topbar, so agents can
 /// ground "the current sale" without a tool round-trip (see AgentContext.ActiveSaleLine).
 /// Optional — older clients that never send it lose nothing but that grounding.</summary>
-public record ChatRequestDto(Guid? ConversationId, string Message, string? Provider = null, string? Agent = null, Guid? CatalogueId = null);
+/// <summary>Agent "auto" lets the assistant choose (see IntentRouter); PreviousAgent is the agent that answered the last turn, so short follow-ups stay with it.</summary>
+public record ChatRequestDto(Guid? ConversationId, string Message, string? Provider = null, string? Agent = null, Guid? CatalogueId = null, string? PreviousAgent = null);
 
 /// <summary>Sources is additive: where the answer's figures came from (empty when no tool was used).</summary>
-public record ChatResponseDto(Guid ConversationId, string Reply, string Provider, IReadOnlyList<Asc.Api.Modules.Agents.ChatSource>? Sources = null);
+public record ChatResponseDto(Guid ConversationId, string Reply, string Provider, IReadOnlyList<Asc.Api.Modules.Agents.ChatSource>? Sources = null, string? Agent = null);
 
 public record ConversationDto(Guid Id, string Title, DateTime CreatedAt);
 
