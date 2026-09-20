@@ -112,3 +112,69 @@
   .ws-voice-hint { font-size: 12px; }
   .ws-voice > :not(.voice-orb):not(:nth-child(2)) { grid-column: 2; }
 }
+
+/* Auction: lot lookup left, chat right */
+.ws-auction {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 12px;
+}
+.ws-lots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.ws-lots-title {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.ws-lots-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+.ws-lots-error { color: var(--danger); }
+.ws-lot-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ws-lot {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ws-lot[data-selected="true"] {
+  border-color: var(--ws-accent);
+  background: color-mix(in srgb, var(--ws-accent) 8%, var(--surface));
+}
+.ws-lot-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+.ws-lot-head:focus-visible { outline: 2px solid var(--liquor); outline-offset: -2px; }
+.ws-lot-no { font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.ws-lot-value { grid-row: 1; grid-column: 2; font-weight: 600; font-size: 13px; color: var(--text-strong); }
+.ws-lot-garden { grid-column: 1 / -1; font-family: var(--font-display), serif; font-weight: 600; font-size: 15px; color: var(--text-strong); }
+.ws-lot-meta { grid-column: 1 / -1; font-size: 12px; color: var(--text-muted); }
+.ws-lot-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 12px; }
+/* Stacked: the page scrolls (a fixed-height split leaves the chat a sliver once a lot is open); the lot list
+   scrolls inside a capped box and the chat keeps a usable height. */
+@media (max-width: 1023px) {
+  .workspace[data-agent="auction"] { height: auto; min-height: calc(100dvh - 140px); }
+  .ws-auction { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(420px, 1fr); }
+  .ws-lots { max-height: 340px; }
+}
