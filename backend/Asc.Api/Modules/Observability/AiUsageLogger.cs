@@ -9,7 +9,7 @@ public class AiUsageLogger(MongoContext db, AiCostEstimator costEstimator) : IAi
 {
     public async Task LogAsync(
         string providerKey, string model, int promptTokens, int completionTokens,
-        bool success, long durationMs, CancellationToken ct = default)
+        bool success, long durationMs, CancellationToken ct = default, string? agentKey = null)
     {
         var entry = new AiUsageLogEntry
         {
@@ -19,6 +19,7 @@ public class AiUsageLogger(MongoContext db, AiCostEstimator costEstimator) : IAi
             CompletionTokens = completionTokens,
             TotalTokens = promptTokens + completionTokens,
             EstimatedCostUsd = costEstimator.EstimateCostUsd(model, promptTokens, completionTokens),
+            AgentKey = agentKey,
             Success = success,
             DurationMs = durationMs,
         };

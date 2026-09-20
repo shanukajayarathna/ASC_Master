@@ -351,3 +351,20 @@
 .ws-ladder li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-radius: 6px; }
 .ws-ladder li[data-self="true"] { background: color-mix(in srgb, var(--ws-accent) 18%, transparent); font-weight: 600; }
 .ws-ladder em { font-style: normal; color: var(--text-muted); }
+
+/* Source chips */
+.ws-sources { list-style: none; margin: 0; padding: 0 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+.ws-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ws-source-link { cursor: pointer; color: var(--liquor); border-color: var(--liquor); min-height: 32px; }
+.ws-source-link:hover { background: color-mix(in srgb, var(--liquor) 10%, var(--surface)); }
+.ws-source-link:focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; }

@@ -7,6 +7,7 @@ import Chip from "@mui/material/Chip";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { agentHref, agentName, HUB_AGENTS, type AgentKey } from "./agents";
+import AgentUsageBadge from "./AgentUsageBadge";
 import { archiveGap, parseSaleName, useLatestArchivedSale } from "./archive";
 import type { OrbState } from "./VoiceOrb";
 import "./workspace.css";
@@ -49,6 +50,7 @@ export default function WorkspaceShell({ agent, status, actions, children }: Wor
         actions={
           <>
             <Chip size="small" variant="outlined" label={activeCatalogue ? activeCatalogue.sourceName : t.hubNoSale} />
+            <AgentUsageBadge agent={agent} />
             {actions}
           </>
         }

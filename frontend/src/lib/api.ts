@@ -75,6 +75,8 @@ import type {
   SavedReport,
   CustomPreview,
   CustomPreviewRequest,
+  BylawsClause,
+  AgentUsageRow,
   CustomDeckRequest,
   ScheduledReportJob,
   ScheduledReportOutput,
@@ -509,6 +511,13 @@ export const api = {
    *  stored, audited and listed under Saved Reports, and this returns that saved report (download it by id). */
   generateReportDeck: (req: CustomDeckRequest) =>
     request<SavedReport>("/api/v1/reports/custom/pptx", { method: "POST", body: JSON.stringify(req) }),
+
+  /** One CTTA By-Laws section, for opening a cited clause. */
+  getBylawsClause: (title: string) =>
+    request<BylawsClause>(`/api/v1/knowledge/ctta-bylaws/section?title=${encodeURIComponent(title)}`),
+
+  /** Admin only: AI usage per agent over the last N days (the workspace usage badge). */
+  getAgentUsage: (days = 7) => request<AgentUsageRow[]>(`/api/v1/admin/ai-usage/by-agent?days=${days}`),
 
   getSavedReportContent: (id: string) => request<{ content: string }>(`/api/v1/reports/saved/${id}/content`),
 

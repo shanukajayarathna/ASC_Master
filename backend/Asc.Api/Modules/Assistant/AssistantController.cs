@@ -1,3 +1,4 @@
+using Asc.Api.Modules.Observability;
 using System.Security.Claims;
 using Asc.Api.Data;
 using Asc.Api.Modules.Agents;
@@ -60,6 +61,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         try
         {
             var agent = agentRouter.Resolve(dto.Agent);
+            using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
             response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId), ct);
         }
         catch (UnknownAgentException ex)
@@ -77,7 +79,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         };
         await db.ConversationMessages.InsertOneAsync(assistantMessage, cancellationToken: ct);
 
-        return Ok(new ChatResponseDto(conversation.Id, response.Reply, response.ProviderKey));
+        return Ok(new ChatResponseDto(conversation.Id, response.Reply, response.ProviderKey, response.Sources));
     }
 
     [HttpGet("providers")]

@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   sendAgentChatMessage: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ api }));
+vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { roles: [] } }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 const catalogue = vi.hoisted(() => ({ loading: false }));
 vi.mock("@/context/CatalogueContext", () => ({

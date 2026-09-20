@@ -4,5 +4,5 @@ public interface IAiUsageLogger
 {
     Task LogAsync(
         string providerKey, string model, int promptTokens, int completionTokens,
-        bool success, long durationMs, CancellationToken ct = default);
+        bool success, long durationMs, CancellationToken ct = default, string? agentKey = null);
 }

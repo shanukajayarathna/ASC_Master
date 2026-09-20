@@ -146,16 +146,17 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
         }
 
         var madeCharts = new List<string>();
+        var sources = new SourceTracker();
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History,
             CttaBylawsTool.WithDefinition(bylaws, AnalyticsToolExecutor.DefinitionsFor(request.IsAdmin)),
-            CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
+            sources.Wrap(CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
             {
                 var result = await Execute(name, args);
                 if (AnalyticsToolExecutor.TryGetChartId(name, result) is { } chartId) madeCharts.Add(chartId);
                 return result;
-            }), ct);
+            })), ct);
         // The model only handles a short [[chart:id]] placeholder, never the chart's numbers.
-        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey);
+        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey, sources.ToSources());
     }
 }

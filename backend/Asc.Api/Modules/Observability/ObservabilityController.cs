@@ -37,4 +37,22 @@ public class ObservabilityController(MongoContext db) : ControllerBase
 
         return Ok(summary);
     }
+
+    /// <summary>Usage per agent — the admin badge on each assistant workspace.</summary>
+    [HttpGet("by-agent")]
+    public async Task<ActionResult<List<AgentUsageRowDto>>> ByAgent([FromQuery] int days = 7, CancellationToken ct = default)
+    {
+        var since = DateTime.UtcNow.AddDays(-Math.Clamp(days, 1, 90));
+        var rows = await db.AiUsageLogs.Find(e => e.CreatedAt >= since).ToListAsync(ct);
+        return Ok(SummariseByAgent(rows));
+    }
+
+    public static List<AgentUsageRowDto> SummariseByAgent(IEnumerable<AiUsageLogEntry> rows) =>
+        [.. rows
+            .GroupBy(e => e.AgentKey)
+            .Select(g => new AgentUsageRowDto(
+                g.Key, g.Count(), g.Count(e => !e.Success),
+                g.Sum(e => (long)e.PromptTokens), g.Sum(e => (long)e.CompletionTokens),
+                g.Any(e => e.EstimatedCostUsd is not null) ? g.Sum(e => e.EstimatedCostUsd ?? 0) : null))
+            .OrderByDescending(r => r.CallCount)];
 }

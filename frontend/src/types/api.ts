@@ -260,12 +260,22 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   provider?: string | null;
+  /** Where the answer's figures came from; only present on a reply received live (not stored with history). */
+  sources?: ChatSource[];
+}
+
+/** A source chip under an answer. kind: bylaws | archive | catalogue | saved | report | file. */
+export interface ChatSource {
+  kind: string;
+  label: string;
+  detail?: string | null;
 }
 
 export interface ChatResponse {
   conversationId: string;
   reply: string;
   provider: string;
+  sources?: ChatSource[];
 }
 
 export interface ProviderStatus {
@@ -1435,4 +1445,22 @@ export interface CustomDeckRequest {
   template: "ivory" | "ink";
   maxSlides: number;
   reports: DeckReport[];
+}
+
+/** One section of the CTTA By-Laws reference. */
+export interface BylawsClause {
+  title: string;
+  text: string;
+  lastVerified: string | null;
+  caveat: string;
+}
+
+/** AI usage for one agent over a window (admin only). agent is null for calls outside an agent. */
+export interface AgentUsageRow {
+  agent: string | null;
+  callCount: number;
+  failureCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  estimatedCostUsd: number | null;
 }

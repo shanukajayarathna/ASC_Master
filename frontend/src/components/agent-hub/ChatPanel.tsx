@@ -10,6 +10,7 @@ import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import BylawsClauseDialog from "./BylawsClauseDialog";
 import { useReducedMotion } from "./useHubEnv";
 import type { useAgentChat } from "./useAgentChat";
 import type { useSpeech } from "./voice";
@@ -45,6 +46,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [clause, setClause] = useState<string | null>(null);
 
   useEffect(() => {
     // Scroll only the conversation card (never the page) and only once there is something to follow.
@@ -120,6 +122,21 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
                     </div>
                   </div>
                 )}
+                {!isUser && m.sources && m.sources.length > 0 && (
+                  <ul className="ws-sources" aria-label="Sources">
+                    {m.sources.map((src) => (
+                      <li key={`${src.kind}-${src.label}-${src.detail ?? ""}`}>
+                        {src.kind === "bylaws" && src.detail ? (
+                          <button type="button" className="ws-source ws-source-link" onClick={() => setClause(src.detail!)} aria-label={`Open by-law section ${src.detail}`}>
+                            Source · {src.label} · {src.detail}
+                          </button>
+                        ) : (
+                          <span className="ws-source">Source · {src.label}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <div className="flex items-center gap-1.5 px-1 text-[11px] text-text-muted">
                   <span>{timeLabel(m.createdAt)}</span>
                   {!isUser && speech.supported && (
@@ -178,6 +195,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
         </div>
       )}
 
+      <BylawsClauseDialog title={clause} onClose={() => setClause(null)} />
       {aboveComposer}
 
       <form

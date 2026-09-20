@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   downloadSavedReport: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ api }));
+vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { roles: [] } }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("@/context/CatalogueContext", () => ({
   useCatalogue: () => ({ activeCatalogue: { sourceName: "Sale 39 - 2026", rowCount: 10 }, activeCatalogueId: "cat-39", loading: false }),

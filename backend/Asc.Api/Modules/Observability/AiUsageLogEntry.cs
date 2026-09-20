@@ -15,6 +15,8 @@ public class AiUsageLogEntry
     public int CompletionTokens { get; set; }
     public int TotalTokens { get; set; }
     public decimal? EstimatedCostUsd { get; set; }
+    /// <summary>The agent (general/auction/analytics/reports) the call was made for; null for calls outside an agent and for rows logged before this field existed.</summary>
+    public string? AgentKey { get; set; }
     public bool Success { get; set; }
     public long DurationMs { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

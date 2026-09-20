@@ -9,7 +9,8 @@ namespace Asc.Api.Modules.Assistant;
 /// Optional — older clients that never send it lose nothing but that grounding.</summary>
 public record ChatRequestDto(Guid? ConversationId, string Message, string? Provider = null, string? Agent = null, Guid? CatalogueId = null);
 
-public record ChatResponseDto(Guid ConversationId, string Reply, string Provider);
+/// <summary>Sources is additive: where the answer's figures came from (empty when no tool was used).</summary>
+public record ChatResponseDto(Guid ConversationId, string Reply, string Provider, IReadOnlyList<Asc.Api.Modules.Agents.ChatSource>? Sources = null);
 
 public record ConversationDto(Guid Id, string Title, DateTime CreatedAt);
 

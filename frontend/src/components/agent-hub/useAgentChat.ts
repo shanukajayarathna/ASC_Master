@@ -94,7 +94,7 @@ export function useAgentChat(agent: AgentKey, { onReply }: Options = {}) {
       try {
         const res = await api.sendAgentChatMessage(agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal);
         conversationId.current = res.conversationId;
-        setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: res.reply, createdAt: new Date().toISOString(), provider: res.provider }]);
+        setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: res.reply, createdAt: new Date().toISOString(), provider: res.provider, sources: res.sources }]);
         onReplyRef.current?.(res.reply);
         return true;
       } catch (e) {

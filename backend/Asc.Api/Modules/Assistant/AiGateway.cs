@@ -51,7 +51,7 @@ public class AiGateway(IEnumerable<IChatProvider> providers, IAiUsageLogger usag
             logger.LogInformation(
                 "AI gateway call: provider={Provider} model={Model} durationMs={DurationMs} promptTokens={PromptTokens} completionTokens={CompletionTokens} success=true",
                 provider.Key, provider.Model, sw.ElapsedMilliseconds, result.PromptTokens, result.CompletionTokens);
-            await usageLogger.LogAsync(provider.Key, provider.Model, result.PromptTokens, result.CompletionTokens, true, sw.ElapsedMilliseconds, ct);
+            await usageLogger.LogAsync(provider.Key, provider.Model, result.PromptTokens, result.CompletionTokens, true, sw.ElapsedMilliseconds, ct, AiUsageScope.Current);
             return (result.Reply, provider.Key);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -59,7 +59,7 @@ public class AiGateway(IEnumerable<IChatProvider> providers, IAiUsageLogger usag
             logger.LogWarning(ex,
                 "AI gateway call: provider={Provider} model={Model} durationMs={DurationMs} success=false",
                 provider.Key, provider.Model, sw.ElapsedMilliseconds);
-            await usageLogger.LogAsync(provider.Key, provider.Model, 0, 0, false, sw.ElapsedMilliseconds, ct);
+            await usageLogger.LogAsync(provider.Key, provider.Model, 0, 0, false, sw.ElapsedMilliseconds, ct, AiUsageScope.Current);
             throw new ProviderUnavailableException($"{provider.DisplayName} request failed: {ex.Message}");
         }
     }

@@ -69,17 +69,18 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
         // which capability answered (docs/29 "multi-language orchestration").
         var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
         var madeCharts = new List<string>();
+        var sources = new SourceTracker();
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History,
             CttaBylawsTool.WithDefinition(bylaws, ReportsToolExecutor.DefinitionsFor(request.IsAdmin)),
-            CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
+            sources.Wrap(CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
             {
                 var result = await tools.ExecuteAsync(name, args, request.IsAdmin, ct);
                 if (ReportsToolExecutor.TryGetChartId(name, result) is { } chartId) madeCharts.Add(chartId);
                 return result;
-            }), ct);
+            })), ct);
         // The model only ever handles a short [[chart:id]] placeholder, never the chart's numbers;
         // swap it for the real chart block here so it is stored with the message.
-        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey);
+        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey, sources.ToSources());
     }
 }
