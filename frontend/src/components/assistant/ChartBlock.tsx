@@ -177,7 +177,7 @@ function ColumnChart({ spec, w, kind }: { spec: ChartSpec; w: number; kind: "bar
 
   return (
     <div className="relative" onPointerLeave={() => setHover(null)}>
-      <svg width={w} height={H} role="img" aria-label={spec.title} className="block">
+      <svg width={w} height={H} role="group" aria-label={spec.title} className="block">
         {ticks.map((t) => (
           <g key={t}>
             <line x1={m.l} x2={w - m.r} y1={y(t)} y2={y(t)} stroke={t === 0 ? "var(--viz-baseline)" : "var(--viz-grid)"} strokeWidth={1} />
@@ -269,7 +269,7 @@ function ColumnChart({ spec, w, kind }: { spec: ChartSpec; w: number; kind: "bar
             height={ph}
             fill="transparent"
             tabIndex={0}
-            aria-label={`${c}: ${spec.series.map((s) => `${s.name} ${full(s.values[i], spec.unit)}`).join(", ")}`}
+            role="img" aria-label={`${c}: ${spec.series.map((s) => `${s.name} ${full(s.values[i], spec.unit)}`).join(", ")}`}
             onPointerMove={() => setHover({ index: i, x: xc(i) })}
             onFocus={() => setHover({ index: i, x: xc(i) })}
             onBlur={() => setHover(null)}
@@ -296,7 +296,7 @@ function HorizontalBars({ spec, w, showShare }: { spec: ChartSpec; w: number; sh
 
   return (
     <div className="relative" onPointerLeave={() => setHover(null)}>
-      <svg width={w} height={H} role="img" aria-label={spec.title} className="block">
+      <svg width={w} height={H} role="group" aria-label={spec.title} className="block">
         <line x1={m.l} x2={m.l} y1={m.t} y2={H - m.b} stroke="var(--viz-baseline)" strokeWidth={1} />
         {spec.categories.map((c, i) => {
           const v = values[i] ?? 0;
@@ -314,7 +314,7 @@ function HorizontalBars({ spec, w, showShare }: { spec: ChartSpec; w: number; sh
               </text>
               <rect
                 x={0} y={cy} width={w} height={rowH} fill="transparent" tabIndex={0}
-                aria-label={`${c}: ${full(values[i], spec.unit)}${total > 0 ? ` (${share.toFixed(1)}%)` : ""}`}
+                role="img" aria-label={`${c}: ${full(values[i], spec.unit)}${total > 0 ? ` (${share.toFixed(1)}%)` : ""}`}
                 onPointerMove={() => setHover({ index: i, x: Math.min(m.l + bw, w - 110) })}
                 onFocus={() => setHover({ index: i, x: Math.min(m.l + bw, w - 110) })}
                 onBlur={() => setHover(null)}
@@ -354,13 +354,13 @@ function Donut({ spec }: { spec: ChartSpec }) {
 
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-      <svg width={size} height={size} role="img" aria-label={spec.title} className="block shrink-0" onPointerLeave={() => setActive(null)}>
+      <svg width={size} height={size} role="group" aria-label={spec.title} className="block shrink-0" onPointerLeave={() => setActive(null)}>
         {arcs.map(({ d, i }) =>
           d ? (
             <path
               key={i} d={d} fill={seriesColor(spec.categories[i], i)} stroke="var(--surface)" strokeWidth={2}
               opacity={shown !== null && shown !== i ? 0.55 : 1} tabIndex={0}
-              aria-label={`${spec.categories[i]}: ${full(values[i], spec.unit)} (${total > 0 ? ((values[i] / total) * 100).toFixed(1) : 0}%)`}
+              role="img" aria-label={`${spec.categories[i]}: ${full(values[i], spec.unit)} (${total > 0 ? ((values[i] / total) * 100).toFixed(1) : 0}%)`}
               onPointerEnter={() => setActive(i)} onFocus={() => setActive(i)} onBlur={() => setActive(null)}
               style={{ outline: "none" }}
             />

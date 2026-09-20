@@ -6,7 +6,7 @@ import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const api = vi.hoisted(() => ({ getProviderStatuses: vi.fn(), sendAgentChatMessage: vi.fn() }));
+const api = vi.hoisted(() => ({ getProviderStatuses: vi.fn(), mslAnalyticsSales: vi.fn(() => Promise.resolve([])), sendAgentChatMessage: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("@/context/CatalogueContext", () => ({

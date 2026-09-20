@@ -12,6 +12,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import ChatPanel from "./ChatPanel";
 import ProviderSelect from "./ProviderSelect";
+import { agentHref } from "./agents";
+import { handoffHref, suggestSpecialist } from "./handoff";
 import { useAgentChat } from "./useAgentChat";
 import { useReducedMotion } from "./useHubEnv";
 import VoiceOrb, { ORB_COPY, ORB_STATES, type OrbState } from "./VoiceOrb";
@@ -49,6 +51,8 @@ export default function GeneralWorkspace() {
   const orbState = demoState ?? liveState;
   const getLevel = orbState === "listening" ? micLevel : speech.getLevel;
   const copy = ORB_COPY[orbState];
+  const lastQuestion = [...chat.messages].reverse().find((m) => m.role === "user")?.content ?? null;
+  const handoff = lastQuestion ? suggestSpecialist(lastQuestion) : null;
 
   return (
     <WorkspaceShell
@@ -83,6 +87,18 @@ export default function GeneralWorkspace() {
           emptyTitle="What would you like to know?"
           placeholder="Ask anything — English, සිංහල, தமிழ், or Singlish"
           onListeningChange={setListening}
+          aboveComposer={
+            handoff && lastQuestion && (
+              <p className="ws-handoff" role="note">
+                This looks like {handoff.reason}. The{" "}
+                <Link href={handoffHref(handoff.agent, lastQuestion)} data-agent={handoff.agent}>
+                  {handoff.agent[0].toUpperCase() + handoff.agent.slice(1)} agent
+                </Link>{" "}
+                can take it further — your question goes with you.{" "}
+                <Link href={agentHref(handoff.agent)} className="ws-handoff-alt">Open it empty</Link>
+              </p>
+            )
+          }
         />
 
         <aside className="ws-voice" aria-label="Voice">

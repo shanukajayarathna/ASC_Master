@@ -22,6 +22,15 @@ export function valuationLabel(lot: Lot): string | null {
   return null;
 }
 
+/** A lot's valuation as one number: the single value, or the middle of its range. Null when it has none. */
+export function effectiveValue(lot: Lot): number | null {
+  const v = lot.valuation;
+  if (!v) return null;
+  if (v.valuationSingle != null) return v.valuationSingle;
+  if (v.valuationFrom != null && v.valuationTo != null) return (v.valuationFrom + v.valuationTo) / 2;
+  return v.valuationFrom ?? v.valuationTo ?? null;
+}
+
 const describe = (lot: Lot) =>
   [lot.garden, lot.grade && `grade ${lot.grade}`, lot.broker && `broker ${lot.broker}`].filter(Boolean).join(", ");
 
@@ -51,6 +60,17 @@ export default function LotLookup({ onAsk, busy }: LotLookupProps) {
   /** The query the shown results answer, so "no matches" is never claimed before the search has run. */
   const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [ladder, setLadder] = useState<{ lotId: string; rows: Lot[] } | { lotId: string; error: true } | { lotId: string; loading: true } | null>(null);
+
+  /** The three highest-valued lots of this lot's grade in the active sale, to see where it sits. */
+  const showLadder = (lot: Lot) => {
+    if (!activeCatalogueId || !lot.grade) return;
+    setLadder({ lotId: lot.id, loading: true });
+    api
+      .getLots(activeCatalogueId, { grade: lot.grade, sortKey: "Valuation", sortDir: -1, pageSize: 3 })
+      .then((res) => setLadder({ lotId: lot.id, rows: res.rows }))
+      .catch(() => setLadder({ lotId: lot.id, error: true }));
+  };
 
   useEffect(() => {
     const q = query.trim();
@@ -128,6 +148,34 @@ export default function LotLookup({ onAsk, busy }: LotLookupProps) {
                   <Button size="small" variant="outlined" disabled={busy} onClick={() => onAsk(comparePrompt(lot))} sx={{ minHeight: 40 }}>
                     Compare with grade &amp; broker
                   </Button>
+                  {lot.grade && (
+                    <Button size="small" variant="outlined" onClick={() => showLadder(lot)} sx={{ minHeight: 40 }}>
+                      Price ladder
+                    </Button>
+                  )}
+                </div>
+              )}
+              {selected && ladder?.lotId === lot.id && (
+                <div className="ws-ladder" role="status">
+                  {"loading" in ladder ? (
+                    <span>Loading the ladder…</span>
+                  ) : "error" in ladder ? (
+                    <span className="ws-lots-error">Couldn&apos;t load the ladder.</span>
+                  ) : (
+                    <>
+                      <strong>Top {ladder.rows.length} {lot.grade} lots by valuation</strong>
+                      <ol>
+                        {ladder.rows.map((r) => (
+                          <li key={r.id} data-self={r.id === lot.id ? "true" : "false"}>
+                            <span>Lot {r.lotNumber ?? "—"} · {r.garden ?? "?"}</span>
+                            <span>{valuationLabel(r) ?? "—"}</span>
+                          </li>
+                        ))}
+                      </ol>
+                      {!ladder.rows.some((r) => r.id === lot.id) && <span>This lot: {valuationLabel(lot) ?? "not valued yet"}</span>}
+                      <em>Valuations, not achieved prices — the archive has no result for this sale yet.</em>
+                    </>
+                  )}
                 </div>
               )}
             </li>

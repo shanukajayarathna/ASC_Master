@@ -5,6 +5,7 @@ import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { useState } from "react";
+import { REPORT_TEMPLATES } from "./reportTemplates";
 import { BROKER_CHIPS, GROUPS, METRICS, PERIODS, VISUALS, type BuilderState } from "./reportBuilder";
 
 interface Option<T extends string> {
@@ -69,6 +70,17 @@ export default function ReportBuilderPanel({ state, onChange, onDescribe, descri
           {describing ? "Building…" : "Build from description"}
         </Button>
       </form>
+
+      <div className="ws-seg">
+        <span className="ws-seg-label" id="rb-templates">Start from a template</span>
+        <div className="ws-broker-chips" role="group" aria-labelledby="rb-templates">
+          {REPORT_TEMPLATES.map((t) => (
+            <button key={t.key} type="button" className="ws-broker-chip" title={t.hint} onClick={() => onChange(t.state)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <Segment name="Group by" value={state.group} options={GROUPS} onChange={(v) => set("group", v)} />
 

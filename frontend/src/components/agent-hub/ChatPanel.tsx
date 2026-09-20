@@ -30,6 +30,8 @@ interface ChatPanelProps {
   chartExtra?: (spec: ChartSpec) => ReactNode;
   /** Extra chips in an answer's footer row (e.g. Pin). Given the answer's id and text. */
   messageExtra?: (message: { id: string; text: string }) => ReactNode;
+  /** Shown between the conversation and the composer (e.g. a hand-off suggestion). */
+  aboveComposer?: ReactNode;
 }
 
 /**
@@ -37,7 +39,7 @@ interface ChatPanelProps {
  * chips), suggested prompts, read-aloud and copy on each answer, and a composer with the mic. The workspace
  * owns the chat state (so it can also send from elsewhere, e.g. a lot card) and passes it in.
  */
-export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange, chartExtra, messageExtra }: ChatPanelProps) {
+export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange, chartExtra, messageExtra, aboveComposer }: ChatPanelProps) {
   const reduced = useReducedMotion();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -175,6 +177,8 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
           {chat.error}
         </div>
       )}
+
+      {aboveComposer}
 
       <form
         onSubmit={(e) => {

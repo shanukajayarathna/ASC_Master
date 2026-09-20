@@ -323,3 +323,31 @@
 .ws-vb-result { font-size: 12.5px; line-height: 1.45; color: var(--text); }
 .ws-vb-result ul { margin: 4px 0 0 18px; padding: 0; }
 .ws-vb-result p { margin: 4px 0 0; }
+
+/* Archive notice, hand-off, ladder */
+.ws-gap {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ws-accent);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.ws-handoff {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--ws-accent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--ws-accent) 10%, var(--surface));
+  font-size: 13px;
+  color: var(--text);
+}
+.ws-handoff a { color: var(--liquor); font-weight: 600; }
+.ws-handoff-alt { font-weight: 400 !important; }
+.ws-ladder { display: flex; flex-direction: column; gap: 4px; padding: 0 12px 12px; font-size: 12.5px; color: var(--text); }
+.ws-ladder ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ws-ladder li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-radius: 6px; }
+.ws-ladder li[data-self="true"] { background: color-mix(in srgb, var(--ws-accent) 18%, transparent); font-weight: 600; }
+.ws-ladder em { font-style: normal; color: var(--text-muted); }

@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
-  getProviderStatuses: vi.fn(),
+  getProviderStatuses: vi.fn(), mslAnalyticsSales: vi.fn(() => Promise.resolve([])),
   sendAgentChatMessage: vi.fn(),
   getLots: vi.fn(),
 }));

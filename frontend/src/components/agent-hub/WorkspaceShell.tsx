@@ -7,6 +7,7 @@ import Chip from "@mui/material/Chip";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { agentHref, agentName, HUB_AGENTS, type AgentKey } from "./agents";
+import { archiveGap, parseSaleName, useLatestArchivedSale } from "./archive";
 import type { OrbState } from "./VoiceOrb";
 import "./workspace.css";
 
@@ -30,6 +31,8 @@ export default function WorkspaceShell({ agent, status, actions, children }: Wor
   const { t } = useUiLang();
   const { activeCatalogue } = useCatalogue();
   const current = HUB_AGENTS.find((a) => a.key === agent)!;
+  const latestArchived = useLatestArchivedSale();
+  const gap = archiveGap(latestArchived, parseSaleName(activeCatalogue?.sourceName));
   const name = agentName(current, t);
 
   return (
@@ -62,6 +65,14 @@ export default function WorkspaceShell({ agent, status, actions, children }: Wor
           );
         })}
       </nav>
+
+      {gap && (
+        <p className="ws-gap" role="note">
+          {agent === "analytics" || agent === "reports"
+            ? `Archive data runs to sale ${gap.archived}, so these figures stop there. Catalogue data for sale ${gap.active} is available in the Auction and General agents.`
+            : `Archive questions cover up to sale ${gap.archived}; the active sale (${gap.active}) is answered from its catalogue.`}
+        </p>
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col">{children}</div>
     </div>
