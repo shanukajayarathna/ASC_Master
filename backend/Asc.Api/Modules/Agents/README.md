@@ -150,3 +150,13 @@ build, per the same "small, real, working" principle the rest of this codebase h
 20 requests/minute) — every turn costs a real LLM call regardless of which agent answers, and
 `/compare` multiplies that by the number of configured providers, so both need the same
 ceiling against runaway cost, not just `/auth/login`'s brute-force concern.
+
+## Sources and usage attribution
+
+Each agent wraps its tool dispatcher in a `SourceTracker`, and `AgentResponse.Sources` (surfaced as the
+chat response's additive `sources` list) says where the answer's figures came from — by-laws (with the
+matched section), archive, catalogue, saved reports, generated files. The mapping is deterministic from the
+tool names and results (a tool that returned an error is not a source), never from what the model claims.
+`AssistantController` also wraps each agent call in `AiUsageScope`, so `AiGateway` logs every AI call against
+the agent that made it (`AiUsageLogEntry.AgentKey`). See
+[`docs/30_AI_Assistant_Hub.md`](../../../../docs/30_AI_Assistant_Hub.md) for the workspaces that show them.

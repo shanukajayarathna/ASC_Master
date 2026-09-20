@@ -11,6 +11,8 @@ The `/assistant` route and `Modules/Assistant` backend module. Not the Knowledge
 - Stay grounded — every factual claim about data must come from a tool call against real platform data, not model recall.
 - Persist conversations so context isn't lost across a session.
 
+> **The user-facing structure of the assistant — the hub at `/assistant` and the four per-agent workspaces (General, Auction, Analytics, Reports), plus source chips, pinned insights, PowerPoint/Excel/PDF output, scheduling and voice — is documented in [30_AI_Assistant_Hub.md](30_AI_Assistant_Hub.md).** The original single chat page now lives at `/assistant/classic`.
+
 ## Architecture
 `Modules/Assistant` (`api/v1/assistant` — chat, conversations), backed by OpenAI (`gpt-5.1`) with **read-only tool-calling** into the platform's own data. Conversations and messages persist to MongoDB (`conversations`/`conversationMessages`). Requires an `OpenAI:ApiKey` user secret (root README §1b) — the rest of the platform functions without one, but the Assistant does not.
 
