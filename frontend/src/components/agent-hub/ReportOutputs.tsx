@@ -6,6 +6,8 @@ import Button from "@mui/material/Button";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import DeckCard from "./DeckCard";
+import VoiceBuilder from "./VoiceBuilder";
+import type { VoiceCommand } from "./voiceCommand";
 import { chartSpecFrom, downloadXlsx, snapshotContent, type VisualKey } from "./reportBuilder";
 
 type Busy = null | "excel" | "pdf" | "snapshot";
@@ -13,6 +15,8 @@ type Busy = null | "excel" | "pdf" | "snapshot";
 interface ReportOutputsProps {
   preview: CustomPreview | null;
   visual: VisualKey;
+  /** A spoken request, ready to apply to the builder. */
+  onVoiceApply: (command: VoiceCommand) => void;
 }
 
 /**
@@ -20,7 +24,7 @@ interface ReportOutputsProps {
  * snapshot saves the report (scope, chart, table) as a Saved Report; PDF saves one and opens its print page, where
  * the browser's Save as PDF captures it. PowerPoint is its own card (a deck of one or more reports).
  */
-export default function ReportOutputs({ preview, visual }: ReportOutputsProps) {
+export default function ReportOutputs({ preview, visual, onVoiceApply }: ReportOutputsProps) {
   const [busy, setBusy] = useState<Busy>(null);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [savedId, setSavedId] = useState<{ content: string; id: string } | null>(null);
@@ -92,10 +96,7 @@ export default function ReportOutputs({ preview, visual }: ReportOutputsProps) {
 
       <DeckCard preview={preview} visual={visual} />
 
-      <section className="ws-out ws-out-soon">
-        <h3 className="ws-out-title">Voice builder</h3>
-        <p className="ws-lots-note">Coming next: building reports by speaking.</p>
-      </section>
+      <VoiceBuilder onApply={onVoiceApply} />
 
       <p className="ws-lots-note" role="status" aria-live="polite" style={message?.error ? { color: "var(--danger)" } : undefined}>{message?.text}</p>
     </aside>

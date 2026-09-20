@@ -139,3 +139,84 @@ export function useSpeech() {
 
   return { supported, speaking, speak, cancel, getLevel, missingVoice };
 }
+
+/** Web Speech recognition, minimally typed (the DOM lib doesn't ship it; Chromium-only, prefixed). */
+interface RecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  onend: (() => void) | null;
+}
+
+const recognitionCtor = (): (new () => RecognitionLike) | null => {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { SpeechRecognition?: new () => RecognitionLike; webkitSpeechRecognition?: new () => RecognitionLike };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+};
+
+const RECOGNITION_ERRORS: Record<string, string> = {
+  "not-allowed": "Microphone permission was denied — allow it in your browser to use voice.",
+  "service-not-allowed": "Microphone permission was denied — allow it in your browser to use voice.",
+  "no-speech": "Didn't hear anything — hold the button while you speak.",
+  "audio-capture": "No microphone found on this device.",
+  "language-not-supported": "Speech recognition isn't available for that language in this browser.",
+};
+
+/**
+ * Hold-to-speak: `start()` on press, `stop()` on release, and the words arrive once through `onTranscript`
+ * (never auto-run — the caller shows them for review). Reports unsupported browsers and every failure in plain
+ * words instead of a dead button.
+ */
+export function useHoldToSpeak(onTranscript: (text: string) => void) {
+  const [supported, setSupported] = useState(true);
+  const [listening, setListening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const rec = useRef<RecognitionLike | null>(null);
+  const cb = useRef(onTranscript);
+  useEffect(() => {
+    cb.current = onTranscript;
+  });
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only feature check
+    setSupported(recognitionCtor() !== null);
+    return () => rec.current?.abort();
+  }, []);
+
+  const start = useCallback(() => {
+    const Ctor = recognitionCtor();
+    if (!Ctor || rec.current) return;
+    setError(null);
+    const r = new Ctor();
+    rec.current = r;
+    r.lang = readVoiceLang();
+    r.interimResults = false;
+    r.continuous = true;
+    r.onresult = (e) => {
+      const text = Array.from({ length: e.results.length }, (_, i) => e.results[i][0]?.transcript ?? "").join(" ").trim();
+      if (text) cb.current(text);
+      else setError("Didn't catch anything — try again closer to the microphone.");
+    };
+    r.onerror = (e) => setError(RECOGNITION_ERRORS[e.error] ?? "Voice input failed — you can type instead.");
+    r.onend = () => {
+      rec.current = null;
+      setListening(false);
+    };
+    try {
+      r.start();
+      setListening(true);
+    } catch {
+      rec.current = null;
+      setError("Couldn't start the microphone — you can type instead.");
+    }
+  }, []);
+
+  const stop = useCallback(() => rec.current?.stop(), []);
+
+  return { supported, listening, error, start, stop };
+}

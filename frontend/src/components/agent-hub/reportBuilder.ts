@@ -37,10 +37,12 @@ export interface BuilderState {
   period: PeriodKey;
   /** Broker short codes (ASC, FW, …); empty = all brokers. */
   brokers: string[];
+  /** Grade filter (BOPF, OP1, …) — set by the voice builder; empty = all grades. */
+  grades: string[];
   visual: VisualKey;
 }
 
-export const DEFAULT_STATE: BuilderState = { group: "broker", metric: "avg_price_rs", period: "12", brokers: [], visual: "bar" };
+export const DEFAULT_STATE: BuilderState = { group: "broker", metric: "avg_price_rs", period: "12", brokers: [], grades: [], visual: "bar" };
 
 /** The eight brokers with their permanent colours (light-theme value; the chart itself themes them). */
 export const BROKER_CHIPS = Object.values(BROKERS).map((b) => ({ code: b.code, name: b.name, color: b.color }));
@@ -54,6 +56,7 @@ export function toRequest(state: BuilderState, now = new Date()): CustomPreviewR
   else if (state.period === "12") req.lastNSales = 12;
   else if (state.period === "year") req.years = [now.getFullYear()];
   if (state.brokers.length > 0) req.brokers = state.brokers;
+  if (state.grades.length > 0) req.grades = state.grades;
   // A per-sale breakdown wants every sale shown, not just the biggest few.
   if (state.group === "sale") req.topN = 12;
   return req;

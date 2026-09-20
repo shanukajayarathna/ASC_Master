@@ -95,6 +95,19 @@ export default function ReportBuilderPanel({ state, onChange, onDescribe, descri
         </div>
       </div>
 
+      {state.grades.length > 0 && (
+        <div className="ws-seg">
+          <span className="ws-seg-label">Grade filter</span>
+          <div className="ws-broker-chips">
+            {state.grades.map((g) => (
+              <button key={g} type="button" className="ws-broker-chip" aria-label={`Remove grade filter ${g}`} onClick={() => set("grades", state.grades.filter((x) => x !== g))}>
+                {g} ×
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <Segment name="Measure" value={state.metric} options={METRICS} onChange={(v) => set("metric", v)} />
       <Segment name="Period" value={state.period} options={PERIODS} onChange={(v) => set("period", v)} />
       <Segment name="Visual" value={state.visual} options={VISUALS} onChange={(v) => set("visual", v)} />

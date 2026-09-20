@@ -10,6 +10,7 @@ import ReportBuilderPanel from "./ReportBuilderPanel";
 import ReportOutputs from "./ReportOutputs";
 import ReportPreview from "./ReportPreview";
 import { DEFAULT_STATE, type BuilderState } from "./reportBuilder";
+import { applyVoiceCommand } from "./voiceCommand";
 import { useAgentChat } from "./useAgentChat";
 import { useReportPreview } from "./useReportPreview";
 import type { OrbState } from "./VoiceOrb";
@@ -90,7 +91,7 @@ export default function ReportsWorkspace() {
           )}
         </div>
 
-        <ReportOutputs preview={preview} visual={state.visual} />
+        <ReportOutputs preview={preview} visual={state.visual} onVoiceApply={(cmd) => setState((s) => applyVoiceCommand(s, cmd))} />
       </div>
     </WorkspaceShell>
   );
