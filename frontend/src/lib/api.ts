@@ -73,6 +73,8 @@ import type {
   Report,
   ReportGroupRow,
   SavedReport,
+  CustomPreview,
+  CustomPreviewRequest,
   ScheduledReportJob,
   ScheduledReportOutput,
   SharedMarkCatalogueGenerateResponse,
@@ -496,6 +498,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ type: "custom-chart", title, catalogueId: null, source: "AI Assistant", content }),
     }),
+
+  /** Live preview for the Reports workspace: the archive query behind the Reports Agent's query_data, driven by the
+   *  builder's controls (no model involved), so every figure comes from the system. */
+  previewCustomReport: (req: CustomPreviewRequest, signal?: AbortSignal) =>
+    request<CustomPreview>("/api/v1/reports/custom/preview", { method: "POST", body: JSON.stringify(req), signal }),
 
   getSavedReportContent: (id: string) => request<{ content: string }>(`/api/v1/reports/saved/${id}/content`),
 

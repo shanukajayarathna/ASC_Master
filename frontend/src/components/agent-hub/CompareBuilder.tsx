@@ -40,7 +40,7 @@ function Segment<T extends string>({ label, value, options, onChange }: { label:
       <span className="ws-seg-label" id={`seg-${label}`}>{label}</span>
       <ToggleButtonGroup exclusive size="small" value={value} onChange={(_, v: T | null) => v && onChange(v)} aria-labelledby={`seg-${label}`} sx={{ flexWrap: "wrap" }}>
         {options.map((o) => (
-          <ToggleButton key={o.key} value={o.key} sx={{ textTransform: "none", fontSize: 12.5, minHeight: 40, px: 1.25 }}>
+          <ToggleButton key={o.key} value={o.key} sx={{ textTransform: "none", fontSize: 12.5, minHeight: 40, minWidth: 44, px: 1.25 }}>
             {o.label}
           </ToggleButton>
         ))}

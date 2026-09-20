@@ -1,3 +1,4 @@
+import ReportsWorkspace from "@/components/agent-hub/ReportsWorkspace";
 import AnalyticsWorkspace from "@/components/agent-hub/AnalyticsWorkspace";
 import AuctionWorkspace from "@/components/agent-hub/AuctionWorkspace";
 import GeneralWorkspace from "@/components/agent-hub/GeneralWorkspace";
@@ -15,9 +16,10 @@ export function generateStaticParams() {
 export default async function AgentWorkspacePage({ params }: { params: Promise<{ agent: string }> }) {
   const { agent } = await params;
   if (!isAgentKey(agent)) notFound();
-  // General, Auction and Analytics have their own workspaces; Reports opens the classic chat until theirs are built.
+  // Every agent has its own workspace now; the classic-chat stub below is only a safety net for a future agent key.
   if (agent === "general") return <GeneralWorkspace />;
   if (agent === "auction") return <AuctionWorkspace />;
   if (agent === "analytics") return <AnalyticsWorkspace />;
+  if (agent === "reports") return <ReportsWorkspace />;
   return <AgentWorkspaceStub agent={agent} />;
 }

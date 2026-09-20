@@ -1391,3 +1391,30 @@ export interface AccessRequest {
   status: AccessRequestStatus;
   createdAt: string;
 }
+
+/** What the Reports workspace builder asks the archive for (see CustomReportsController). */
+export interface CustomPreviewRequest {
+  groupBy: string;
+  metric?: string;
+  splitBySale?: boolean;
+  lastNSales?: number;
+  years?: number[];
+  brokers?: string[];
+  grades?: string[];
+  topN?: number;
+  title?: string;
+}
+
+/** A computed dataset for the live preview — every number comes from the archive. */
+export interface CustomPreview {
+  title: string;
+  scope: string;
+  metric: string;
+  unit: string;
+  additive: boolean;
+  split: boolean;
+  categoryAxis: string;
+  categories: string[];
+  series: { name: string; values: (number | null)[] }[];
+  markdownTable: string;
+}

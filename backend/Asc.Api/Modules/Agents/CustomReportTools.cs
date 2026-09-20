@@ -11,6 +11,11 @@ namespace Asc.Api.Modules.Agents;
 
 public record CustomSeries(string Name, IReadOnlyList<decimal?> Values);
 
+/// <summary>A dataset as the Reports workspace preview shows it (structured, plus the markdown table for snapshots).</summary>
+public record CustomPreview(
+    string Title, string Scope, string Metric, string Unit, bool Additive, bool Split,
+    string CategoryAxis, IReadOnlyList<string> Categories, IReadOnlyList<CustomSeries> Series, string MarkdownTable);
+
 /// <summary>One query_data result, held server-side so make_chart can draw it without the model
 /// ever re-typing (and possibly corrupting) the numbers.</summary>
 public record CustomDataset(
@@ -245,6 +250,22 @@ public static class CustomReportLogic
             columns.Select(c => c.Label).ToList(), rows.Select(r => new CustomSeries(r.Name, r.Values)).ToList());
     }
 
+    /// <summary>
+    /// Adds up per-sale section rows into one row per key: additive fields sum, and the average is the
+    /// quantity-weighted proceeds / sold quantity (the same definition the archive uses), never a mean of
+    /// the per-sale averages. This is what "over the last N sales" means for a non-split query.
+    /// </summary>
+    public static IReadOnlyList<FilteredSectionRow> MergeRows(IEnumerable<IReadOnlyList<FilteredSectionRow>> perSale) =>
+        [.. perSale.SelectMany(rows => rows).GroupBy(r => r.Key).Select(g =>
+        {
+            var sold = g.Sum(r => r.SoldQtyKg);
+            var proceeds = g.Sum(r => r.ProceedsRs);
+            return new FilteredSectionRow(
+                g.Key, g.Select(r => r.Label).FirstOrDefault(l => l is not null), g.Sum(r => r.Lots), g.Sum(r => r.SoldLots),
+                g.Sum(r => r.TotalQtyKg), sold, proceeds, sold > 0 ? proceeds / sold : null,
+                g.Max(r => r.MaxPriceRs));
+        })];
+
     private static string ToTitle(string dimension) =>
         CultureInfo.InvariantCulture.TextInfo.ToTitleCase(dimension.Replace('_', ' '));
 
@@ -375,7 +396,7 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
                     group_by = new { type = "string", description = "What to break the data down by: " + string.Join(" | ", CustomReportLogic.Dimensions) + "." },
                     metric = new { type = "string", description = "Measure: " + string.Join(" | ", CustomReportLogic.Metrics.Keys) + ". Default quantity_kg (quantity offered)." },
                     split_by = new { type = "string", description = "Optional: 'sale' repeats the breakdown for each of the most recent sales (needed for trends and stacked charts)." },
-                    last_n_sales = new { type = "integer", description = $"With split_by='sale': how many recent sales. Default {CustomReportLogic.DefaultSales}, max {CustomReportLogic.MaxSales}." },
+                    last_n_sales = new { type = "integer", description = $"How many recent sales. With split_by='sale' each sale is a column (default {CustomReportLogic.DefaultSales}); without it the sales are added up into one total over that window. Max {CustomReportLogic.MaxSales}." },
                     top_n = new { type = "integer", description = $"Keep the top N groups; the rest fold into 'Other'. Default 8, max {CustomReportLogic.MaxCategories}." },
                     years = new { type = "array", items = new { type = "integer" }, description = "Sale years to include, e.g. [2026]." },
                     sale_nos = new { type = "array", items = new { type = "integer" }, description = "Sale numbers within those years." },
@@ -433,22 +454,26 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
         }
     }
 
-    private async Task<string> QueryDataAsync(JsonNode args, CancellationToken ct)
+    private static (CustomDataset? Dataset, bool Split, string? Error) Fail(string message) => (null, false, message);
+
+    /// <summary>Validates the arguments and builds the dataset — shared by the agent's query_data tool and the
+    /// Reports workspace's live preview, so both read the very same numbers from the archive.</summary>
+    private async Task<(CustomDataset? Dataset, bool Split, string? Error)> BuildDatasetAsync(JsonNode args, CancellationToken ct)
     {
         var groupBy = args["group_by"]?.ToString().Trim().ToLowerInvariant().Replace(' ', '_') ?? "";
         if (!CustomReportLogic.Dimensions.Contains(groupBy))
-            return Error($"group_by must be one of: {string.Join(", ", CustomReportLogic.Dimensions)}.");
+            return Fail($"group_by must be one of: {string.Join(", ", CustomReportLogic.Dimensions)}.");
         var metricKey = args["metric"]?.ToString().Trim().ToLowerInvariant() ?? "quantity_kg";
         if (!CustomReportLogic.Metrics.TryGetValue(metricKey, out var metric))
-            return Error($"metric must be one of: {string.Join(", ", CustomReportLogic.Metrics.Keys)}.");
+            return Fail($"metric must be one of: {string.Join(", ", CustomReportLogic.Metrics.Keys)}.");
         var splitRaw = args["split_by"]?.ToString().Trim().ToLowerInvariant();
         if (!string.IsNullOrEmpty(splitRaw) && splitRaw is not ("sale" or "none"))
-            return Error("split_by must be 'sale' (or omitted).");
+            return Fail("split_by must be 'sale' (or omitted).");
         var split = splitRaw == "sale";
-        if (split && groupBy == "sale") return Error("Cannot split by sale when already grouping by sale — use group_by='sale' alone for a per-sale trend.");
+        if (split && groupBy == "sale") return Fail("Cannot split by sale when already grouping by sale — use group_by='sale' alone for a per-sale trend.");
 
         var options = await engine.LightweightOptionsAsync(ct);
-        if (!CustomReportLogic.TryParseFilter(args, options, out var filter, out var filterError)) return Error(filterError!);
+        if (!CustomReportLogic.TryParseFilter(args, options, out var filter, out var filterError)) return Fail(filterError!);
 
         // Resolve which (year, sale) columns to run.
         var sales = options.Sales
@@ -458,7 +483,7 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
         if (sales.Count == 0)
         {
             var latest = options.Sales.OrderByDescending(s => s.Year).ThenByDescending(s => s.SaleNo).FirstOrDefault();
-            return Error("No sales in the archive match those years/sale numbers." +
+            return Fail("No sales in the archive match those years/sale numbers." +
                 (latest is null ? "" : $" The archive's most recent sale is {latest.SaleNo:00}/{latest.Year} — the newest catalogue sale may not be imported yet."));
         }
 
@@ -473,6 +498,20 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
                 var dto = await engine.FilteredAsync(filter with { Years = [s.Year], SaleNos = [s.SaleNo] }, ct, lite: true);
                 columns.Add(($"{s.SaleNo:00}/{s.Year}", CustomReportLogic.Section(dto, groupBy)!));
             }
+            period = $"the last {chosen.Count} sale(s), {chosen[0].SaleNo:00}/{chosen[0].Year}–{chosen[^1].SaleNo:00}/{chosen[^1].Year}";
+        }
+        else if (args["last_n_sales"] is not null)
+        {
+            // One aggregate over the last N sales (not a column per sale), merged exactly across sale boundaries.
+            var n = Math.Clamp(args["last_n_sales"]!.GetValue<int>(), 1, CustomReportLogic.MaxSales);
+            var chosen = sales.Take(n).OrderBy(s => s.Year).ThenBy(s => s.SaleNo).ToList();
+            var perSale = new List<IReadOnlyList<FilteredSectionRow>>();
+            foreach (var s in chosen)
+            {
+                var dto = await engine.FilteredAsync(filter with { Years = [s.Year], SaleNos = [s.SaleNo] }, ct, lite: true);
+                perSale.Add(CustomReportLogic.Section(dto, groupBy)!);
+            }
+            columns.Add(("Total", CustomReportLogic.MergeRows(perSale)));
             period = $"the last {chosen.Count} sale(s), {chosen[0].SaleNo:00}/{chosen[0].Year}–{chosen[^1].SaleNo:00}/{chosen[^1].Year}";
         }
         else
@@ -493,17 +532,34 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
         var id = Guid.NewGuid().ToString("N")[..8];
         var dataset = CustomReportLogic.BuildDataset(id, title, scope, groupBy, metric, split, columns, topN);
         if (dataset.Categories.Count == 0 || dataset.Series.All(s => s.Values.All(v => v is null or 0)))
-            return Error($"No data for that selection ({scope}). Loosen a filter or widen the period.");
+            return Fail($"No data for that selection ({scope}). Loosen a filter or widen the period.");
 
-        cache.Set(DatasetKey(id), dataset, Ttl);
+        return (dataset, split, null);
+    }
+
+    private async Task<string> QueryDataAsync(JsonNode args, CancellationToken ct)
+    {
+        var (dataset, split, error) = await BuildDatasetAsync(args, ct);
+        if (dataset is null) return Error(error!);
+        cache.Set(DatasetKey(dataset.Id), dataset, Ttl);
         return JsonSerializer.Serialize(new
         {
-            datasetId = id,
-            scope,
-            title,
+            datasetId = dataset.Id,
+            scope = dataset.Scope,
+            title = dataset.Title,
             note = "State the scope in your answer. Paste markdownTable verbatim. Then call make_chart with this datasetId if a chart helps.",
             markdownTable = CustomReportLogic.ToMarkdown(dataset, split),
         });
+    }
+
+    /// <summary>The numbers behind the Reports workspace's live preview: the same query as query_data, with no
+    /// model in the loop, returned as structured data (nothing is cached — the preview is recomputed on demand).</summary>
+    public async Task<(CustomPreview? Preview, string? Error)> PreviewAsync(JsonNode args, CancellationToken ct = default)
+    {
+        var (dataset, split, error) = await BuildDatasetAsync(args, ct);
+        if (dataset is null) return (null, error);
+        return (new CustomPreview(dataset.Title, dataset.Scope, dataset.Metric, dataset.Unit, dataset.Additive, split,
+            dataset.CategoryAxis, dataset.Categories, dataset.Series, CustomReportLogic.ToMarkdown(dataset, split)), null);
     }
 
     private string MakeChart(JsonNode args)
