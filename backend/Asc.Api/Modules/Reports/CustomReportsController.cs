@@ -26,7 +26,13 @@ public record CustomPreviewRequest(
     List<string>? Brokers,
     List<string>? Grades,
     int? TopN,
-    string? Title);
+    string? Title,
+    // A chosen stretch of the archive (see ArchiveScope) and an off-grade / main-grade filter.
+    int? FromYear = null,
+    int? FromSale = null,
+    int? ToYear = null,
+    int? ToSale = null,
+    List<string>? GradeTypes = null);
 
 /// <summary>
 /// Live preview for the Reports workspace's builder: the same archive query the Reports Agent's query_data tool
@@ -149,6 +155,11 @@ public class CustomReportsController(CustomReportTools tools, MongoContext db, I
         if (r.Grades is { Count: > 0 }) args["grades"] = new JsonArray([.. r.Grades.Select(g => (JsonNode)JsonValue.Create(g)!)]);
         if (r.TopN is { } top) args["top_n"] = top;
         if (!string.IsNullOrWhiteSpace(r.Title)) args["title"] = r.Title;
+        if (r.FromYear is { } fy) args["from_year"] = fy;
+        if (r.FromSale is { } fs) args["from_sale"] = fs;
+        if (r.ToYear is { } ty) args["to_year"] = ty;
+        if (r.ToSale is { } ts) args["to_sale"] = ts;
+        if (r.GradeTypes is { Count: > 0 }) args["grade_types"] = new JsonArray([.. r.GradeTypes.Select(g => (JsonNode)JsonValue.Create(g)!)]);
         return args;
     }
 }

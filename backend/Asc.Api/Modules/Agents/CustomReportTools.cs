@@ -42,6 +42,9 @@ public static class CustomReportLogic
         ["proceeds_rs"] = new("proceeds_rs", "Proceeds (Rs)", "Rs", true, r => r.ProceedsRs),
         ["avg_price_rs"] = new("avg_price_rs", "Average price (Rs/kg)", "Rs/kg", false, r => r.AvgPriceRs),
         ["lots"] = new("lots", "Lots offered", "lots", true, r => r.Lots),
+        // Only with group_by=broker: the filtered quantity as a percentage of that broker's own offered quantity in the same
+        // sales (the rows are rewritten by ShareRows so TotalQtyKg carries the percentage).
+        ["share_of_own_volume_pct"] = new("share_of_own_volume_pct", "Share of own offered volume (%)", "%", false, r => r.TotalQtyKg),
         ["sold_lots"] = new("sold_lots", "Lots sold", "lots", true, r => r.SoldLots),
     };
 
@@ -266,6 +269,38 @@ public static class CustomReportLogic
                 g.Max(r => r.MaxPriceRs));
         })];
 
+    /// <summary>The filter that defines a broker's whole offered volume in the same sales: every narrowing filter
+    /// (grade, category, mark, price…) dropped, only the period, the brokers and public/private kept.</summary>
+    public static MslAnalyticsFilter OwnVolumeFilter(MslAnalyticsFilter f) => f with
+    {
+        Elevations = null, Grades = null, Categories = null, GradeTypes = null, TeaTypes = null, Manufactures = null, Buyers = null,
+        Marks = null, Factories = null, MarkTypes = null, Groups = null, SoldStatus = null, RefuseTea = null, PriceMin = null,
+        PriceMax = null, MarkSearch = null, BuyerSearch = null, LotNos = null, Invoices = null, Bags = null, Packings = null,
+        Districts = null, SharingStatus = null, Organic = null,
+    };
+
+    /// <summary>Rewrites broker rows so TotalQtyKg holds the row's quantity as a percentage of that broker's total
+    /// (from <paramref name="totals"/>). A broker with no total volume has no share and is left out. Merge the raw rows
+    /// across sales FIRST — a mean of per-sale percentages would be wrong.</summary>
+    public static IReadOnlyList<FilteredSectionRow> ShareRows(IReadOnlyList<FilteredSectionRow> rows, IReadOnlyList<FilteredSectionRow> totals)
+    {
+        var total = totals.GroupBy(t => t.Key).ToDictionary(g => g.Key, g => g.Sum(t => t.TotalQtyKg));
+        return [.. rows.Where(r => total.TryGetValue(r.Key, out var t) && t > 0).Select(r => r with { TotalQtyKg = r.TotalQtyKg / total[r.Key] * 100m })];
+    }
+
+    /// <summary>The range named by from_year/from_sale/to_year/to_sale arguments, null when none was given.</summary>
+    public static ArchiveScope? ParseRange(JsonNode args, out string? error)
+    {
+        error = null;
+        int? Int(string key) => args[key] is { } n && int.TryParse(n.ToString(), out var v) ? v : null;
+        var fy = Int("from_year");
+        var ty = Int("to_year");
+        if (fy is null && ty is null && Int("from_sale") is null && Int("to_sale") is null) return null;
+        var range = new ArchiveScope(fy ?? ty ?? 0, Int("from_sale"), ty ?? fy ?? 0, Int("to_sale"));
+        error = range.Validate();
+        return error is null ? range : null;
+    }
+
     private static string ToTitle(string dimension) =>
         CultureInfo.InvariantCulture.TextInfo.ToTitleCase(dimension.Replace('_', ' '));
 
@@ -385,7 +420,7 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
             "Build a custom cross-broker table from the full Colombo auction archive (all 8 brokers, 13 years): " +
             "filter the lots, group them by one dimension, optionally split across recent sales, and pick a measure. " +
             "Use it for ANY 'how is X shared/split/distributed among Y' or 'trend of X over sales' question — e.g. off-grade " +
-            "quantity shared among brokers = grade_types ['Off Grade'], group_by 'broker', metric 'quantity_kg'. " +
+            "quantity shared among brokers = grade_types ['Off Grade'], group_by 'broker', metric 'quantity_kg'. To compare how much of EACH broker's own volume is off-grade (not just who has most tonnes), use metric 'share_of_own_volume_pct' with group_by 'broker'. A period can also be a range: from_year/from_sale to to_year/to_sale (a whole year = from_year and to_year only). " +
             "Returns a datasetId (pass it to make_chart to draw it) and a markdownTable to paste verbatim. " +
             "With no years/sale_nos and no split_by it covers only the LATEST sale — pass years or split_by='sale' for more.",
             new
@@ -470,6 +505,10 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
         if (!string.IsNullOrEmpty(splitRaw) && splitRaw is not ("sale" or "none"))
             return Fail("split_by must be 'sale' (or omitted).");
         var split = splitRaw == "sale";
+        var shareMode = metric.Key == "share_of_own_volume_pct";
+        if (shareMode && groupBy != "broker") return Fail("share_of_own_volume_pct compares each broker with its own total, so it only works with group_by='broker'.");
+        var range = CustomReportLogic.ParseRange(args, out var rangeError);
+        if (rangeError is not null) return Fail(rangeError);
         if (split && groupBy == "sale") return Fail("Cannot split by sale when already grouping by sale — use group_by='sale' alone for a per-sale trend.");
 
         var options = await engine.LightweightOptionsAsync(ct);
@@ -479,26 +518,54 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
         var sales = options.Sales
             .Where(s => filter.Years is not { Count: > 0 } || filter.Years.Contains(s.Year))
             .Where(s => filter.SaleNos is not { Count: > 0 } || filter.SaleNos.Contains(s.SaleNo))
+            .Where(s => range is null || range.Contains(s.Year, s.SaleNo))
             .OrderByDescending(s => s.Year).ThenByDescending(s => s.SaleNo).ToList();
         if (sales.Count == 0)
         {
             var latest = options.Sales.OrderByDescending(s => s.Year).ThenByDescending(s => s.SaleNo).FirstOrDefault();
-            return Fail("No sales in the archive match those years/sale numbers." +
+            return Fail("No sales in the archive match those years/sale numbers" + (range is null ? "." : $" or the chosen range ({range.Describe()}).") +
                 (latest is null ? "" : $" The archive's most recent sale is {latest.SaleNo:00}/{latest.Year} — the newest catalogue sale may not be imported yet."));
         }
 
         var columns = new List<(string Label, IReadOnlyList<FilteredSectionRow> Rows)>();
         string period;
+
+        // One place that runs the archive query, so the "share of own volume" measure gets its denominator the same way
+        // in every branch below.
+        async Task<(IReadOnlyList<FilteredSectionRow> Rows, IReadOnlyList<FilteredSectionRow> Totals)> Load(MslAnalyticsFilter f)
+        {
+            var rows = CustomReportLogic.Section(await engine.FilteredAsync(f, ct, lite: true), groupBy)!;
+            var totals = shareMode ? CustomReportLogic.Section(await engine.FilteredAsync(CustomReportLogic.OwnVolumeFilter(f), ct, lite: true), "broker")! : [];
+            return (rows, totals);
+        }
+        IReadOnlyList<FilteredSectionRow> Finish(IReadOnlyList<FilteredSectionRow> rows, IReadOnlyList<FilteredSectionRow> totals) =>
+            shareMode ? CustomReportLogic.ShareRows(rows, totals) : rows;
         if (split)
         {
-            var n = Math.Clamp(args["last_n_sales"]?.GetValue<int>() ?? CustomReportLogic.DefaultSales, 1, CustomReportLogic.MaxSales);
+            var n = Math.Clamp(args["last_n_sales"]?.GetValue<int>() ?? (range is null ? CustomReportLogic.DefaultSales : CustomReportLogic.MaxSales), 1, CustomReportLogic.MaxSales);
             var chosen = sales.Take(n).OrderBy(s => s.Year).ThenBy(s => s.SaleNo).ToList();
             foreach (var s in chosen)
             {
-                var dto = await engine.FilteredAsync(filter with { Years = [s.Year], SaleNos = [s.SaleNo] }, ct, lite: true);
-                columns.Add(($"{s.SaleNo:00}/{s.Year}", CustomReportLogic.Section(dto, groupBy)!));
+                var (rows, totals) = await Load(filter with { Years = [s.Year], SaleNos = [s.SaleNo] });
+                columns.Add(($"{s.SaleNo:00}/{s.Year}", Finish(rows, totals)));
             }
             period = $"the last {chosen.Count} sale(s), {chosen[0].SaleNo:00}/{chosen[0].Year}–{chosen[^1].SaleNo:00}/{chosen[^1].Year}";
+        }
+        else if (range is not null && args["last_n_sales"] is null)
+        {
+            // One aggregate over the chosen sales/years: one archive query per year (each with that year's sales in the range),
+            // merged exactly, so a range that crosses a year boundary never pairs the wrong year with a sale number.
+            var years = sales.Select(s => s.Year).Distinct().OrderBy(y => y).ToList();
+            var perYear = new List<IReadOnlyList<FilteredSectionRow>>();
+            var perYearTotals = new List<IReadOnlyList<FilteredSectionRow>>();
+            foreach (var y in years)
+            {
+                var (rows, totals) = await Load(filter with { Years = [y], SaleNos = [.. sales.Where(s => s.Year == y).Select(s => s.SaleNo)] });
+                perYear.Add(rows);
+                perYearTotals.Add(totals);
+            }
+            columns.Add(("Total", Finish(CustomReportLogic.MergeRows(perYear), CustomReportLogic.MergeRows(perYearTotals))));
+            period = $"{range.Describe()} ({sales.Count} sale(s) in the archive)";
         }
         else if (args["last_n_sales"] is not null)
         {
@@ -506,20 +573,22 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
             var n = Math.Clamp(args["last_n_sales"]!.GetValue<int>(), 1, CustomReportLogic.MaxSales);
             var chosen = sales.Take(n).OrderBy(s => s.Year).ThenBy(s => s.SaleNo).ToList();
             var perSale = new List<IReadOnlyList<FilteredSectionRow>>();
+            var perSaleTotals = new List<IReadOnlyList<FilteredSectionRow>>();
             foreach (var s in chosen)
             {
-                var dto = await engine.FilteredAsync(filter with { Years = [s.Year], SaleNos = [s.SaleNo] }, ct, lite: true);
-                perSale.Add(CustomReportLogic.Section(dto, groupBy)!);
+                var (rows, totals) = await Load(filter with { Years = [s.Year], SaleNos = [s.SaleNo] });
+                perSale.Add(rows);
+                perSaleTotals.Add(totals);
             }
-            columns.Add(("Total", CustomReportLogic.MergeRows(perSale)));
+            columns.Add(("Total", Finish(CustomReportLogic.MergeRows(perSale), CustomReportLogic.MergeRows(perSaleTotals))));
             period = $"the last {chosen.Count} sale(s), {chosen[0].SaleNo:00}/{chosen[0].Year}–{chosen[^1].SaleNo:00}/{chosen[^1].Year}";
         }
         else
         {
             var explicitScope = filter.Years is { Count: > 0 } || filter.SaleNos is { Count: > 0 };
             var f = explicitScope ? filter : filter with { Years = [sales[0].Year], SaleNos = [sales[0].SaleNo] };
-            var dto = await engine.FilteredAsync(f, ct, lite: true);
-            columns.Add(("Total", CustomReportLogic.Section(dto, groupBy)!));
+            var (rows, totals) = await Load(f);
+            columns.Add(("Total", Finish(rows, totals)));
             period = explicitScope
                 ? (filter.Years is { Count: > 0 } ? $"year(s) {string.Join(", ", filter.Years)}" : "all years") +
                   (filter.SaleNos is { Count: > 0 } ? $", sale(s) {string.Join(", ", filter.SaleNos)}" : "")

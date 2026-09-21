@@ -119,7 +119,7 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
             .ToList();
         var forcedBroker = mentioned.Count == 1 ? mentioned[0] : null;
 
-        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) +
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + ArchiveScope.PromptLine(request.Scope) +
             (forcedBroker is not null
                 ? $"\n(The user's message references broker {forcedBroker} — breakdowns must be scoped to it.)"
                 : "");
@@ -142,7 +142,7 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
                     // Malformed args flow through; the executor reports them back to the model.
                 }
             }
-            return tools.ExecuteAsync(name, args, request.IsAdmin, ct);
+            return tools.ExecuteAsync(name, ArchiveScope.ApplyToToolCall(name, args, request.Scope), request.IsAdmin, ct);
         }
 
         var madeCharts = new List<string>();

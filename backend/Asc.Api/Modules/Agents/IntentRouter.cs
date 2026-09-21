@@ -25,7 +25,7 @@ public static class IntentRouter
 
     private static readonly Regex Bylaws = new(@"\b(by-?laws?|ctta|deposit|penalt(y|ies)|prompt day|debar|default(s|ed)?|claims?|storage charges?|objection)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Reports = new(@"\b(reports?|deck|powerpoint|power point|pptx|slides?|presentation|excel|spreadsheet|pdf|snapshot|export|schedule[d]?|weekly report)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex Analytics = new(@"\b(trend|trends|compare|comparison|compared|over the last|last \d+ sales?|13 years|archive|histor(y|ical)|market share|share of|by broker|by grade|per sale|year on year|mark (performance|history)|tea ?board|average price|avg price|brokers?|grades?)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex Analytics = new(@"\b(trend|trends|compare|comparison|compared|over the last|last \d+ sales?|13 years|archive|histor(y|ical)|market share|share of|by broker|by grade|per sale|year on year|mark (performance|history)|tea ?board|average price|avg price|off[- ]?grades?|brokers?|grades?)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Auction = new(@"(\blot\s*#?\s*\d+|\b(lot number|valuation|valuations|valued|garden|gardens|catalogue|top prices?|top lots|highest price|this sale|current sale|liquor)\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex FollowUp = new(@"^(and|also|what about|how about|for|only|now|then|ok|okay|yes|no|show|make|same)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -37,8 +37,9 @@ public static class IntentRouter
     /// <param name="previousAgent">The agent that answered (or is about to answer) the last turn; null at the start of a chat.</param>
     /// <param name="recentAssistantReplies">The last few assistant messages, newest last — used to see whether the last
     /// message was a clarifying question and how many were just asked.</param>
+    /// <param name="hasScope">The user already chose a period (a sale, range or year) in the scope control, so the router never asks for one.</param>
     /// <param name="previousUserMessage">The user message before this one — the request a clarifying question was about.</param>
-    public static RouteDecision Decide(string message, string? previousAgent, IEnumerable<string>? recentAssistantReplies = null, string? previousUserMessage = null)
+    public static RouteDecision Decide(string message, string? previousAgent, IEnumerable<string>? recentAssistantReplies = null, string? previousUserMessage = null, bool hasScope = false)
     {
         var text = (message ?? "").Trim();
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
@@ -52,13 +53,13 @@ public static class IntentRouter
         if (answeredOurQuestion)
         {
             var combined = $"{previousUserMessage} {text}".Trim();
-            if (askedInARow < MaxClarifications && Clarify(combined, prev!, null) is { } more)
+            if (askedInARow < MaxClarifications && Clarify(combined, prev!, null, hasScope) is { } more)
                 return new RouteDecision(prev!, more, "still needs a detail");
             return new RouteDecision(prev!, null, "answer to a clarifying question");
         }
 
         var agent = Classify(text, words, prev, out var reason);
-        if (askedInARow < MaxClarifications && Clarify(text, agent, prev) is { } q)
+        if (askedInARow < MaxClarifications && Clarify(text, agent, prev, hasScope) is { } q)
             return new RouteDecision(agent, q, reason + " (needs clarification)");
 
         return new RouteDecision(agent, null, reason);
@@ -77,7 +78,7 @@ public static class IntentRouter
     }
 
     /// <summary>The single question to ask first, or null when the request is specific enough to answer.</summary>
-    private static ClarifyQuestion? Clarify(string text, string agent, string? prev)
+    private static ClarifyQuestion? Clarify(string text, string agent, string? prev, bool hasScope)
     {
         if (agent is not ("analytics" or "reports")) return null;
         // A short reply continuing the same agent's thread is an answer or refinement, not a new open request.
@@ -86,7 +87,8 @@ public static class IntentRouter
 
         if (!HasSubject.IsMatch(text))
             return new ClarifyQuestion("What should I compare?", ["Brokers", "Grades", "Sales over time"]);
-        if (!HasPeriod.IsMatch(text))
+        // A period chosen in the scope control already answers this question.
+        if (!hasScope && !HasPeriod.IsMatch(text))
             return new ClarifyQuestion("Over which period?", ["Last 4 sales", "Last 12 sales", "This year"]);
         return null;
     }

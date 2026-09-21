@@ -57,6 +57,8 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         var history = priorMessages.Select(m => (m.Role, m.Content)).Append((userMessage.Role, userMessage.Content)).ToList();
 
         var isAdmin = (await authorizationService.AuthorizeAsync(User, Policies.UseAdminAiTools)).Succeeded;
+        var scope = dto.Scope?.ToScope();
+        if (scope?.Validate() is { } scopeProblem) return BadRequest(new { error = scopeProblem });
         AgentResponse response;
         string? answeredBy = dto.Agent;
         try
@@ -67,7 +69,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                 // The universal chat: choose the agent (or ask one short question first) — see IntentRouter.
                 var replies = priorMessages.Where(m => m.Role == "assistant").TakeLast(IntentRouter.MaxClarifications).Select(m => m.Content);
                 var lastUser = priorMessages.LastOrDefault(m => m.Role == "user")?.Content;
-                var decision = IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser);
+                var decision = IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser, hasScope: scope is not null);
                 answeredBy = decision.Agent;
                 if (decision.Clarify is { } question)
                 {
@@ -80,7 +82,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
             var agent = agentRouter.Resolve(requested);
             using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
-            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId), ct);
+            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId, scope), ct);
         }
         catch (UnknownAgentException ex)
         {

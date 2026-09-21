@@ -81,7 +81,7 @@ const compact = (v: number) => {
   return `${+v.toFixed(1)}`;
 };
 const full = (v: number | null, unit: string) =>
-  v === null ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: unit === "Rs/kg" ? 2 : 0 });
+  v === null ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: unit === "Rs/kg" ? 2 : unit === "%" ? 1 : 0 });
 
 /** Round axis: a "nice" step (1/2/5 × 10ⁿ) so ticks read 0 / 1,000 / 2,000, never 0 / 1,137. */
 function niceScale(max: number, target = 4): { max: number; ticks: number[] } {

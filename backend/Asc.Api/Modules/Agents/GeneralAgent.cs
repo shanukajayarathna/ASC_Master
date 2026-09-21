@@ -68,7 +68,7 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
 
     public async Task<AgentResponse> HandleAsync(AgentRequest request, CancellationToken ct = default)
     {
-        var systemPrompt = SystemPrompt + LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "");
+        var systemPrompt = SystemPrompt + LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "") + ArchiveScope.PromptLine(request.Scope);
         var sources = new SourceTracker();
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History,
