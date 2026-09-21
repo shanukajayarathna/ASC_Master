@@ -4,6 +4,9 @@ import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { api } from "@/lib/api";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useState } from "react";
 import { specSnapshot, specToDeckReport, specToPreview } from "./chartExports";
 import { downloadXlsx, safeFileName } from "./reportBuilder";
@@ -34,6 +37,7 @@ export default function ChartActions({ spec, busy, pinned, onAsk, onPin, onEdit,
   const [working, setWorking] = useState<Working>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
 
   const run = async (kind: Exclude<Working, null>, action: () => Promise<string | void>) => {
     setWorking(kind);
@@ -65,36 +69,48 @@ export default function ChartActions({ spec, busy, pinned, onAsk, onPin, onEdit,
       <Button size="small" variant="outlined" disabled={pinned} onClick={onPin} sx={{ minHeight: 40 }}>
         {pinned ? "Pinned" : "Pin"}
       </Button>
-      <Button size="small" variant="outlined" disabled={disabled} onClick={() => run("excel", async () => { await downloadXlsx(specToPreview(spec)); return "Excel downloaded."; })} sx={{ minHeight: 40 }}>
-        Excel
-      </Button>
-      <Button size="small" variant="outlined" disabled={disabled} onClick={() => run("pdf", async () => { const id = await save(); window.open(`/print/custom-report?id=${id}`, "_blank", "noopener"); })} sx={{ minHeight: 40 }}>
-        PDF
-      </Button>
-      <Button size="small" variant="outlined" disabled={disabled || savedId !== null} onClick={() => run("save", async () => { await save(); return "Saved under Saved Reports."; })} sx={{ minHeight: 40 }}>
-        {savedId ? "Saved" : "Save"}
-      </Button>
       <Button
         size="small"
         variant="outlined"
         disabled={disabled}
-        onClick={() =>
-          run("deck", async () => {
-            const saved = await api.generateReportDeck({ title: spec.title, template: "ivory", maxSlides: 3, reports: [specToDeckReport(spec)] });
-            const { blob, fileName } = await api.downloadSavedReport(saved.id);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = fileName ?? `${safeFileName(spec.title)}.pptx`;
-            a.click();
-            URL.revokeObjectURL(url);
-            return "PowerPoint downloaded.";
-          })
-        }
+        endIcon={<ExpandMoreIcon fontSize="small" />}
+        aria-haspopup="menu"
+        aria-expanded={menu !== null}
+        onClick={(e) => setMenu(e.currentTarget)}
         sx={{ minHeight: 40 }}
       >
-        {working === "deck" ? "Building…" : "PowerPoint"}
+        {working === "deck" ? "Building…" : "Export"}
       </Button>
+      <Menu anchorEl={menu} open={menu !== null} onClose={() => setMenu(null)}>
+        <MenuItem sx={{ minHeight: 44 }} onClick={() => { setMenu(null); void run("excel", async () => { await downloadXlsx(specToPreview(spec)); return "Excel downloaded."; }); }}>
+          Excel
+        </MenuItem>
+        <MenuItem sx={{ minHeight: 44 }} onClick={() => { setMenu(null); void run("pdf", async () => { const id = await save(); window.open(`/print/custom-report?id=${id}`, "_blank", "noopener"); }); }}>
+          PDF
+        </MenuItem>
+        <MenuItem
+          sx={{ minHeight: 44 }}
+          onClick={() => {
+            setMenu(null);
+            void run("deck", async () => {
+              const saved = await api.generateReportDeck({ title: spec.title, template: "ivory", maxSlides: 3, reports: [specToDeckReport(spec)] });
+              const { blob, fileName } = await api.downloadSavedReport(saved.id);
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = fileName ?? `${safeFileName(spec.title)}.pptx`;
+              a.click();
+              URL.revokeObjectURL(url);
+              return "PowerPoint downloaded.";
+            });
+          }}
+        >
+          PowerPoint
+        </MenuItem>
+        <MenuItem sx={{ minHeight: 44 }} disabled={savedId !== null} onClick={() => { setMenu(null); void run("save", async () => { await save(); return "Saved under Saved Reports."; }); }}>
+          {savedId ? "Saved" : "Save to Saved Reports"}
+        </MenuItem>
+      </Menu>
       {onEdit && (
         <Button size="small" variant="contained" onClick={onEdit} sx={{ minHeight: 40 }}>
           Edit in report canvas

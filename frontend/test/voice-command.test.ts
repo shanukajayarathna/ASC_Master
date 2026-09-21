@@ -49,4 +49,25 @@ describe("parseVoiceCommand", () => {
     expect(moved).toMatchObject({ group: "grade", metric: "proceeds_rs", grades: [], period: "4" });
     expect(toRequest({ ...DEFAULT_STATE, grades: ["BOPF"] }).grades).toEqual(["BOPF"]);
   });
+
+  it("understands off-grade and main-grade, and the share of a broker's own volume", () => {
+    expect(parseVoiceCommand("compare off grade quantity by broker").patch).toMatchObject({ gradeTypes: ["Off Grade"], group: "broker" });
+    expect(parseVoiceCommand("main grade proceeds by broker").patch.gradeTypes).toEqual(["Main Grade"]);
+    const share = parseVoiceCommand("what share of each broker's own volume is off grade");
+    expect(share.patch).toMatchObject({ metric: "share_of_own_volume_pct", gradeTypes: ["Off Grade"] });
+    expect(share.understood).toContain("Measure: share of own volume");
+    // the measure only makes sense per broker, so applying it groups by broker
+    expect(applyVoiceCommand({ ...DEFAULT_STATE, group: "grade" }, share).group).toBe("broker");
+    // a new subject clears an old grade-type filter unless one was said
+    expect(applyVoiceCommand({ ...DEFAULT_STATE, gradeTypes: ["Off Grade"] }, parseVoiceCommand("compare grades by proceeds")).gradeTypes).toEqual([]);
+    expect(toRequest({ ...DEFAULT_STATE, gradeTypes: ["Off Grade"] }).gradeTypes).toEqual(["Off Grade"]);
+  });
+
+  it("sends a chosen scope as the period only when the period is 'Chosen scope'", () => {
+    const range = { fromYear: 2025, fromSale: 40, toYear: 2026, toSale: 5 };
+    expect(toRequest({ ...DEFAULT_STATE, period: "scope", range })).toMatchObject({ fromYear: 2025, fromSale: 40, toYear: 2026, toSale: 5 });
+    expect(toRequest({ ...DEFAULT_STATE, period: "scope", range }).lastNSales).toBeUndefined();
+    expect(toRequest({ ...DEFAULT_STATE, period: "12", range }).fromYear).toBeUndefined();
+    expect(toRequest({ ...DEFAULT_STATE, period: "scope", range: null }).fromYear).toBeUndefined();
+  });
 });

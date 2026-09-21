@@ -3,7 +3,7 @@
 import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
-import type { Lot } from "@/types/api";
+import type { ChatScope, Lot } from "@/types/api";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 import InsertChartOutlinedIcon from "@mui/icons-material/InsertChartOutlined";
@@ -23,6 +23,8 @@ import LotCards, { lotNumberIn, useLotsFor } from "./LotCards";
 import { drillPrompt, explainChartPrompt } from "./PinnedBoard";
 import ProviderSelect from "./ProviderSelect";
 import ReportCanvas from "./ReportCanvas";
+import ScopeControl from "./ScopeControl";
+import { readScope, saveScope } from "./scope";
 import { archiveGap, parseSaleName, useLatestArchivedSale } from "./archive";
 import { answerTitle, pinId, usePins } from "./pins";
 import { DEFAULT_STATE, type BuilderState } from "./reportBuilder";
@@ -42,7 +44,12 @@ const STARTERS = [
 const CHART_MARKER = /```asc-chart\n[\s\S]*?\n```/g;
 
 /** The builder settings a request implies (group, period, measure…), so the report canvas opens already set up for it. */
-export const canvasStateFor = (question: string): BuilderState => applyVoiceCommand(DEFAULT_STATE, parseVoiceCommand(question));
+export function canvasStateFor(question: string, scope: ChatScope | null = null): BuilderState {
+  const cmd = parseVoiceCommand(question);
+  const state = applyVoiceCommand(DEFAULT_STATE, cmd);
+  // A period chosen in the scope control is the default; a period named in the question itself wins.
+  return scope ? { ...state, range: scope, period: cmd.patch.period ?? "scope" } : state;
+}
 
 /** Lot cards under an answer about a lot: looked up from the lot number in the question, shown only if the sale has it. */
 function LotsUnder({ question, onAsk, busy }: { question: string; onAsk: (q: string) => void; busy: boolean }) {
@@ -81,7 +88,18 @@ export default function UniversalAssistant() {
   useEffect(() => {
     voiceRepliesRef.current = voiceReplies;
   });
+  // The chosen part of the archive (default: nothing is limited). Remembered per browser; read after mount so the server render matches.
+  const [scope, setScopeState] = useState<ChatScope | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- restore a saved choice from browser storage
+    setScopeState(readScope());
+  }, []);
+  const setScope = (next: ChatScope | null) => {
+    setScopeState(next);
+    saveScope(next);
+  };
   const chat = useAgentChat("auto", {
+    scope,
     onReply: (text) => {
       if (voiceRepliesRef.current) speech.speak(text);
     },
@@ -98,7 +116,7 @@ export default function UniversalAssistant() {
   const getLevel = orb === "listening" ? micLevel : speech.getLevel;
 
   const ask = (question: string) => void chat.send(question);
-  const openCanvas = (question: string) => setCanvas({ open: true, initial: canvasStateFor(question) });
+  const openCanvas = (question: string) => setCanvas({ open: true, initial: canvasStateFor(question, scope) });
 
   const tellPin = (result: "added" | "exists" | "full" | "error") =>
     setNotice(result === "added" ? "Pinned to your library." : result === "exists" ? "Already in your library." : result === "full" ? "Your library is full — remove a pin first." : "Couldn't pin that — try again.");
@@ -107,7 +125,7 @@ export default function UniversalAssistant() {
     <div className="chat-vh flex flex-col workspace universal" data-agent="general">
       <PageHeader
         title="AI Assistant"
-        subtitle="Ask in plain words — I'll bring in the right specialist, and ask if I need to know more."
+        subtitle="Ask in plain words. The right specialist answers, and I'll ask if I need to know more."
         actions={
           <>
             <AgentUsageBadge agent="all" />
@@ -123,7 +141,7 @@ export default function UniversalAssistant() {
                 </IconButton>
               </Tooltip>
             )}
-            <Button size="small" variant="outlined" startIcon={<InsertChartOutlinedIcon fontSize="small" />} onClick={() => setCanvas({ open: true, initial: DEFAULT_STATE })} sx={{ minHeight: 44 }}>
+            <Button size="small" variant="outlined" startIcon={<InsertChartOutlinedIcon fontSize="small" />} onClick={() => setCanvas({ open: true, initial: canvasStateFor("", scope) })} sx={{ minHeight: 44 }}>
               Report canvas
             </Button>
             <Button size="small" variant="outlined" startIcon={<BookmarkBorderOutlinedIcon fontSize="small" />} onClick={() => setLibraryOpen(true)} sx={{ minHeight: 44 }}>
@@ -138,18 +156,23 @@ export default function UniversalAssistant() {
         }
       />
 
-      {gap && (
-        <p className="ws-gap" role="note">
-          Archive figures run to sale {gap.archived}; the active sale ({gap.active}) is answered from its catalogue.
-        </p>
-      )}
-
       <div className="universal-body">
         <ChatPanel
           chat={chat}
           speech={speech}
           prompts={STARTERS}
           emptyTitle="What would you like to know?"
+          emptyHint="Ask about prices, brokers, lots, by-laws or reports — in English, සිංහල or தமிழ்."
+          aboveComposer={
+            <div className="ws-scopebar">
+              <ScopeControl scope={scope} onChange={setScope} />
+              {gap && (
+                <span className="ws-scopebar-note" role="note">
+                  Archive figures run to sale {gap.archived}; the active sale ({gap.active}) comes from its catalogue.
+                </span>
+              )}
+            </div>
+          }
           placeholder="Ask anything — English, සිංහල, தமிழ், or Singlish"
           onListeningChange={setListening}
           chartExtra={(spec: ChartSpec, ctx) => (

@@ -34,6 +34,8 @@ interface ChatPanelProps {
   speech: ReturnType<typeof useSpeech>;
   prompts: readonly string[];
   emptyTitle: string;
+  /** One line under the empty-state title. */
+  emptyHint?: string;
   placeholder: string;
   /** Mirrors the mic's listening state up to the workspace (drives the status orb). */
   onListeningChange?: (listening: boolean) => void;
@@ -52,7 +54,7 @@ interface ChatPanelProps {
  * chips), suggested prompts, read-aloud and copy on each answer, and a composer with the mic. The workspace
  * owns the chat state (so it can also send from elsewhere, e.g. a lot card) and passes it in.
  */
-export default function ChatPanel({ chat, speech, prompts, emptyTitle, placeholder, onListeningChange, chartExtra, messageExtra, belowMessage, aboveComposer }: ChatPanelProps) {
+export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint, placeholder, onListeningChange, chartExtra, messageExtra, belowMessage, aboveComposer }: ChatPanelProps) {
   const reduced = useReducedMotion();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -119,9 +121,12 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
         {isEmpty && !chat.sending && (
           <div className="flex flex-col items-center gap-3 my-auto py-2 text-center">
             <h2 className="font-display text-[22px] font-semibold m-0 text-text-strong">{emptyTitle}</h2>
-            <div className="flex flex-wrap justify-center gap-2">
+            {emptyHint && <p className="m-0 text-[13px] text-text-muted max-w-xl">{emptyHint}</p>}
+            <div className="ws-starters">
               {prompts.map((p) => (
-                <Chip key={p} label={p} variant="outlined" clickable onClick={() => submit(p)} sx={{ height: 40 }} />
+                <button key={p} type="button" className="ws-starter" onClick={() => submit(p)}>
+                  {p}
+                </button>
               ))}
             </div>
           </div>

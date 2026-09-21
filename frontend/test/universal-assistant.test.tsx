@@ -88,6 +88,10 @@ const open = async () => {
   render(<UniversalAssistant />);
   await waitFor(() => expect(api.getProviderStatuses).toHaveBeenCalled());
 };
+const exportMenu = async (item: string) => {
+  fireEvent.click(screen.getAllByRole("button", { name: "Export" })[0]);
+  fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+};
 const box = () => screen.getByRole("textbox", { name: "Message" });
 const send = async (text: string) => {
   fireEvent.change(box(), { target: { value: text } });
@@ -191,9 +195,10 @@ describe("charts in the conversation", () => {
 
   it("offers every action on the chart, including opening it in the report canvas", async () => {
     await withChart();
-    for (const name of ["Explain this chart", "Pin", "Excel", "PDF", "Save", "PowerPoint", "Edit in report canvas"])
-      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    for (const name of ["Explain this chart", "Pin", "Export", "Edit in report canvas"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "Drill down" })).getAllByRole("button").map((b) => b.textContent)).toEqual(["ASC", "FW", "BC"]);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    for (const name of ["Excel", "PDF", "PowerPoint", "Save to Saved Reports"]) expect(screen.getByRole("menuitem", { name })).toBeInTheDocument();
   });
 
   it("explains a chart by sending its own figures, and drills into a category", async () => {
@@ -209,21 +214,20 @@ describe("charts in the conversation", () => {
 
   it("saves a snapshot once, then opens the print page for PDF from the same snapshot", async () => {
     await withChart();
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled());
-    expect(api.saveCustomReport).toHaveBeenCalledTimes(1);
+    await exportMenu("Save to Saved Reports");
+    await waitFor(() => expect(api.saveCustomReport).toHaveBeenCalledTimes(1));
     expect(api.saveCustomReport.mock.calls[0][0]).toBe("Average price by broker");
     expect(api.saveCustomReport.mock.calls[0][1]).toContain("```asc-chart");
     expect(api.saveCustomReport.mock.calls[0][1]).toContain("| ASC | 1,200 |");
 
-    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    await exportMenu("PDF");
     await waitFor(() => expect(window.open).toHaveBeenCalledWith("/print/custom-report?id=saved-1", "_blank", "noopener"));
     expect(api.saveCustomReport).toHaveBeenCalledTimes(1);
   });
 
   it("builds a one-report PowerPoint from the chart and downloads it", async () => {
     await withChart();
-    fireEvent.click(screen.getByRole("button", { name: "PowerPoint" }));
+    await exportMenu("PowerPoint");
     await waitFor(() => expect(api.downloadSavedReport).toHaveBeenCalledWith("deck-1"));
     const req = api.generateReportDeck.mock.calls[0][0];
     expect(req).toMatchObject({ title: "Average price by broker", template: "ivory", maxSlides: 3 });
@@ -382,7 +386,7 @@ describe("sources, library and admin extras", () => {
 
   it("tells the reader where the archive stops relative to the active sale", async () => {
     await open();
-    expect(await screen.findByRole("note")).toHaveTextContent("Archive figures run to sale 32/2026; the active sale (39/2026) is answered from its catalogue.");
+    expect(await screen.findByRole("note")).toHaveTextContent("Archive figures run to sale 32/2026; the active sale (39/2026) comes from its catalogue.");
   });
 
   it("shows an admin the last week's total usage, and shows nobody else", async () => {
@@ -401,6 +405,97 @@ describe("sources, library and admin extras", () => {
     await waitFor(() => expect(api.getProviderStatuses).toHaveBeenCalledTimes(2));
     expect(screen.queryByLabelText(/Usage over the last/)).not.toBeInTheDocument();
     expect(api.getAgentUsage).not.toHaveBeenCalled();
+  });
+});
+
+describe("scope: not limited to one sale", () => {
+  const openScope = async () => fireEvent.click(screen.getByRole("button", { name: /^Scope: All sales/ }));
+
+  it("starts unlimited: nothing about a sale is sent", async () => {
+    await open();
+    await send("Compare brokers over the last 12 sales");
+    await screen.findByText("Plain answer.");
+    expect(api.sendAgentChatMessage.mock.calls[0][7]).toBeNull();
+    expect(screen.getByRole("button", { name: /^Scope: All sales/ })).toBeInTheDocument();
+  });
+
+  it("limits the questions to one sale, a range across a year, or whole years — and sends it with every message", async () => {
+    api.mslAnalyticsSales.mockResolvedValue([{ year: 2026, saleNo: 32 }, { year: 2026, saleNo: 31 }, { year: 2025, saleNo: 51 }, { year: 2025, saleNo: 50 }, { year: 2025, saleNo: 0 }]);
+    await open();
+    await openScope();
+    const dialog = await screen.findByRole("dialog", { name: "Scope" });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Range" }));
+    fireEvent.mouseDown(within(dialog).getByRole("combobox", { name: "From sale" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Sale 50/2025" })); // the private-sale bucket (0) is not offered
+    fireEvent.mouseDown(within(dialog).getByRole("combobox", { name: "To sale" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Sale 31/2026" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    const chip = await screen.findByRole("button", { name: "Scope: Sales 50/2025–31/2026. Change" });
+    expect(chip).toBeInTheDocument();
+    await send("Which grades gained the most?");
+    await screen.findByText("Plain answer.");
+    expect(api.sendAgentChatMessage.mock.calls[0][7]).toEqual({ fromYear: 2025, fromSale: 50, toYear: 2026, toSale: 31 });
+    expect(JSON.parse(window.localStorage.getItem("asc.assistant.scope")!)).toMatchObject({ fromYear: 2025, toSale: 31 });
+  });
+
+  it("offers a single sale, refuses a range that ends before it starts, and can go back to all sales", async () => {
+    api.mslAnalyticsSales.mockResolvedValue([{ year: 2026, saleNo: 32 }, { year: 2026, saleNo: 31 }]);
+    await open();
+    await openScope();
+    let dialog = await screen.findByRole("dialog", { name: "Scope" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "One sale" }));
+    fireEvent.mouseDown(within(dialog).getByRole("combobox", { name: "Sale" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Sale 32/2026" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await screen.findByRole("button", { name: "Scope: Sale 32/2026. Change" });
+    await send("Top buyers");
+    await screen.findByText("Plain answer.");
+    expect(api.sendAgentChatMessage.mock.calls[0][7]).toEqual({ fromYear: 2026, fromSale: 32, toYear: 2026, toSale: 32 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Scope: Sale 32/2026. Change" }));
+    dialog = await screen.findByRole("dialog", { name: "Scope" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Range" }));
+    fireEvent.mouseDown(within(dialog).getByRole("combobox", { name: "From sale" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Sale 32/2026" }));
+    fireEvent.mouseDown(within(dialog).getByRole("combobox", { name: "To sale" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Sale 31/2026" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("The end can't be before the start.");
+    expect(within(dialog).getByRole("button", { name: "Apply" })).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "All sales" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await screen.findByRole("button", { name: "Scope: All sales. Change" });
+    expect(window.localStorage.getItem("asc.assistant.scope")).toBeNull();
+  });
+
+  it("restores the saved scope on the next visit, and ignores a corrupt one", async () => {
+    window.localStorage.setItem("asc.assistant.scope", JSON.stringify({ fromYear: 2026, fromSale: null, toYear: 2026, toSale: null }));
+    const first = render(<UniversalAssistant />);
+    expect(await screen.findByRole("button", { name: "Scope: Year 2026. Change" })).toBeInTheDocument();
+    first.unmount();
+
+    window.localStorage.setItem("asc.assistant.scope", "{bad");
+    render(<UniversalAssistant />);
+    expect(await screen.findByRole("button", { name: "Scope: All sales. Change" })).toBeInTheDocument();
+  });
+
+  it("opens the report canvas on the chosen scope (unless the question names its own period), with the off-grade share when asked", async () => {
+    window.localStorage.setItem("asc.assistant.scope", JSON.stringify({ fromYear: 2026, fromSale: 28, toYear: 2026, toSale: 32 }));
+    api.sendAgentChatMessage.mockResolvedValue(reply({ agent: "analytics", reply: chartReply }));
+    await open();
+    await screen.findByRole("button", { name: "Scope: Sales 28/2026–32/2026. Change" });
+    await send("What share of each broker's own volume is off grade?");
+    await screen.findByRole("button", { name: "Edit in report canvas" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit in report canvas" }));
+
+    await screen.findByRole("dialog", { name: "Report canvas" });
+    await waitFor(() => expect(api.previewCustomReport).toHaveBeenCalled());
+    expect(api.previewCustomReport.mock.calls[0][0]).toMatchObject({
+      groupBy: "broker", metric: "share_of_own_volume_pct", gradeTypes: ["Off Grade"], fromYear: 2026, fromSale: 28, toYear: 2026, toSale: 32,
+    });
+    expect(api.previewCustomReport.mock.calls[0][0].lastNSales).toBeUndefined();
   });
 });
 

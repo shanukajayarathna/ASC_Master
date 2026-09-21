@@ -2,7 +2,7 @@
 
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
-import type { ChatMessage, ProviderStatus } from "@/types/api";
+import type { ChatMessage, ChatScope, ProviderStatus } from "@/types/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentKey } from "./agents";
 
@@ -16,6 +16,8 @@ export function pickProvider(statuses: ProviderStatus[]): string | null {
 }
 
 interface Options {
+  /** The part of the archive to limit answers to; read each time a message is sent. */
+  scope?: ChatScope | null;
   /** Called with each assistant reply as it arrives (used for optional read-aloud). */
   onReply?: (text: string) => void;
 }
@@ -25,7 +27,7 @@ interface Options {
  * Topbar's active sale attached, and can send a question handed over from the hub (`?send=1&q=`) exactly once,
  * after the provider list and active sale have loaded so the message goes out with the right context.
  */
-export function useAgentChat(agent: AgentKey | "auto", { onReply }: Options = {}) {
+export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Options = {}) {
   const { activeCatalogueId, loading: catalogueLoading } = useCatalogue();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -41,8 +43,10 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply }: Options = {}
   /** The agent that answered last, so a short follow-up stays with it (universal chat only). */
   const lastAgent = useRef<string | null>(null);
   const onReplyRef = useRef(onReply);
+  const scopeRef = useRef(scope ?? null);
   useEffect(() => {
     onReplyRef.current = onReply;
+    scopeRef.current = scope ?? null;
   });
 
   useEffect(() => {
@@ -94,7 +98,7 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply }: Options = {}
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined));
+        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined), scopeRef.current);
         const answeredBy = override ?? res.agent ?? null;
         if (answeredBy) lastAgent.current = answeredBy;
         conversationId.current = res.conversationId;

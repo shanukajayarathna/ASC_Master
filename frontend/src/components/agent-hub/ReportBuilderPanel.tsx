@@ -122,8 +122,15 @@ export default function ReportBuilderPanel({ state, onChange, onDescribe, descri
         </div>
       )}
 
+      <Segment
+        name="Grade type"
+        value={state.gradeTypes.length === 1 ? (state.gradeTypes[0] === "Off Grade" ? "off" : "main") : "all"}
+        options={[{ key: "all", label: "All" }, { key: "off", label: "Off grade" }, { key: "main", label: "Main grade" }]}
+        onChange={(v) => set("gradeTypes", v === "off" ? ["Off Grade"] : v === "main" ? ["Main Grade"] : [])}
+      />
+
       <Segment name="Measure" value={state.metric} options={METRICS} onChange={(v) => set("metric", v)} />
-      <Segment name="Period" value={state.period} options={PERIODS} onChange={(v) => set("period", v)} />
+      <Segment name="Period" value={state.period} options={PERIODS.filter((p) => p.key !== "scope" || state.range !== null)} onChange={(v) => set("period", v)} />
       <Segment name="Visual" value={state.visual} options={VISUALS} onChange={(v) => set("visual", v)} />
     </aside>
   );

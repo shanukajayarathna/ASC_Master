@@ -1,6 +1,6 @@
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { BROKERS } from "@/lib/brokers";
-import type { CustomPreview, CustomPreviewRequest, DeckReport } from "@/types/api";
+import type { ChatScope, CustomPreview, CustomPreviewRequest, DeckReport } from "@/types/api";
 
 export const GROUPS = [
   { key: "broker", label: "Broker" },
@@ -13,12 +13,14 @@ export const METRICS = [
   { key: "sold_quantity_kg", label: "Qty sold" },
   { key: "proceeds_rs", label: "Proceeds" },
   { key: "sold_lots", label: "Lots sold" },
+  { key: "share_of_own_volume_pct", label: "% of own volume" },
 ] as const;
 export const PERIODS = [
   { key: "4", label: "Last 4" },
   { key: "12", label: "Last 12" },
   { key: "year", label: "Year" },
   { key: "latest", label: "Latest sale" },
+  { key: "scope", label: "Chosen scope" },
 ] as const;
 export const VISUALS = [
   { key: "bar", label: "Bar" },
@@ -39,10 +41,14 @@ export interface BuilderState {
   brokers: string[];
   /** Grade filter (BOPF, OP1, …) — set by the voice builder; empty = all grades. */
   grades: string[];
+  /** "Off Grade" and/or "Main Grade"; empty = both. */
+  gradeTypes: string[];
+  /** The scope chosen in the assistant (a sale, range or years). The "Chosen scope" period uses it. */
+  range: ChatScope | null;
   visual: VisualKey;
 }
 
-export const DEFAULT_STATE: BuilderState = { group: "broker", metric: "avg_price_rs", period: "12", brokers: [], grades: [], visual: "bar" };
+export const DEFAULT_STATE: BuilderState = { group: "broker", metric: "avg_price_rs", period: "12", brokers: [], grades: [], gradeTypes: [], range: null, visual: "bar" };
 
 /** The eight brokers with their permanent colours (light-theme value; the chart itself themes them). */
 export const BROKER_CHIPS = Object.values(BROKERS).map((b) => ({ code: b.code, name: b.name, color: b.color }));
@@ -55,8 +61,15 @@ export function toRequest(state: BuilderState, now = new Date()): CustomPreviewR
   if (state.period === "4") req.lastNSales = 4;
   else if (state.period === "12") req.lastNSales = 12;
   else if (state.period === "year") req.years = [now.getFullYear()];
+  else if (state.period === "scope" && state.range) {
+    req.fromYear = state.range.fromYear;
+    req.fromSale = state.range.fromSale;
+    req.toYear = state.range.toYear;
+    req.toSale = state.range.toSale;
+  }
   if (state.brokers.length > 0) req.brokers = state.brokers;
   if (state.grades.length > 0) req.grades = state.grades;
+  if (state.gradeTypes.length > 0) req.gradeTypes = state.gradeTypes;
   // A per-sale breakdown wants every sale shown, not just the biggest few.
   if (state.group === "sale") req.topN = 12;
   return req;

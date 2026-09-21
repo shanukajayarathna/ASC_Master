@@ -28,8 +28,8 @@ const BROKER_WORDS: [RegExp, string][] = [
 const GRADES = ["FBOPF1", "FBOPF", "FBOP", "BOPF1", "BOPF", "BOP1", "BOPSM", "BOP", "OP1", "OPA", "OP", "PEKOE", "PEK", "BP1", "BPF", "BP", "FNGS1", "FNGS", "DUST1", "DUST", "FGS", "FF1", "FF"];
 
 const GROUP_LABEL: Record<GroupKey, string> = { broker: "brokers", grade: "grades", sale: "sales (trend)", elevation: "origins" };
-const METRIC_LABEL: Record<MetricKey, string> = { avg_price_rs: "average price", sold_quantity_kg: "quantity sold", proceeds_rs: "proceeds", sold_lots: "lots sold" };
-const PERIOD_LABEL: Record<PeriodKey, string> = { "4": "last 4 sales", "12": "last 12 sales", year: "this year", latest: "the latest sale" };
+const METRIC_LABEL: Record<MetricKey, string> = { avg_price_rs: "average price", sold_quantity_kg: "quantity sold", proceeds_rs: "proceeds", sold_lots: "lots sold", share_of_own_volume_pct: "share of own volume" };
+const PERIOD_LABEL: Record<PeriodKey, string> = { "4": "last 4 sales", "12": "last 12 sales", year: "this year", latest: "the latest sale", scope: "the chosen scope" };
 const VISUAL_LABEL: Record<VisualKey, string> = { bar: "bar chart", line: "line chart", table: "table" };
 
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
@@ -88,7 +88,14 @@ export function parseVoiceCommand(input: string): VoiceCommand {
     understood.push(`Grade: ${specific.join(", ")}`);
   }
 
-  const m: MetricKey | null = /\b(average price|avg price|avg|price|prices)\b/.test(t)
+  const gradeTypes = /\boff[- ]?grades?\b/.test(t) ? ["Off Grade"] : /\bmain[- ]?grades?\b/.test(t) ? ["Main Grade"] : null;
+  if (gradeTypes) {
+    patch.gradeTypes = gradeTypes;
+    understood.push(`Grade type: ${gradeTypes[0]}`);
+  }
+
+  const share = /\b(share of (their|its|our|each broker'?s?|the broker'?s?) own|of (their|its|our) own (volume|quantity|offering)|own volume|% of (their |its |our )?own|percentage of (their |its |our )?own)\b/.test(t);
+  const m: MetricKey | null = share ? "share_of_own_volume_pct" : /\b(average price|avg price|avg|price|prices)\b/.test(t)
     ? "avg_price_rs"
     : /\b(proceeds|revenue|value)\b/.test(t)
       ? "proceeds_rs"
@@ -123,6 +130,13 @@ export function parseVoiceCommand(input: string): VoiceCommand {
 /** Applies a command onto the current builder state (a spoken request replaces what it mentions and leaves the rest). */
 export function applyVoiceCommand(state: BuilderState, cmd: VoiceCommand): BuilderState {
   // A new grouping/subject starts with a clean grade filter unless one was spoken.
-  const base: BuilderState = cmd.patch.grades ? state : { ...state, grades: cmd.patch.group || cmd.patch.metric ? [] : state.grades };
-  return { ...base, ...cmd.patch };
+  const fresh = !!(cmd.patch.group || cmd.patch.metric);
+  const base: BuilderState = {
+    ...state,
+    grades: cmd.patch.grades ? state.grades : fresh ? [] : state.grades,
+    gradeTypes: cmd.patch.gradeTypes ? state.gradeTypes : fresh ? [] : state.gradeTypes,
+  };
+  const merged = { ...base, ...cmd.patch };
+  // Share of a broker's own volume only makes sense per broker.
+  return merged.metric === "share_of_own_volume_pct" ? { ...merged, group: "broker" } : merged;
 }

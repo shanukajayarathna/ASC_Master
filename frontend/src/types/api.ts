@@ -1407,6 +1407,14 @@ export interface AccessRequest {
 }
 
 /** What the Reports workspace builder asks the archive for (see CustomReportsController). */
+/** The part of the archive the assistant is limited to: one sale, a range of sales, or whole years. Absent sale numbers mean the year's first / last. */
+export interface ChatScope {
+  fromYear: number;
+  fromSale: number | null;
+  toYear: number;
+  toSale: number | null;
+}
+
 export interface CustomPreviewRequest {
   groupBy: string;
   metric?: string;
@@ -1417,6 +1425,12 @@ export interface CustomPreviewRequest {
   grades?: string[];
   topN?: number;
   title?: string;
+  /** A chosen stretch of the archive (see ChatScope) and an Off Grade / Main Grade filter. */
+  fromYear?: number;
+  fromSale?: number | null;
+  toYear?: number;
+  toSale?: number | null;
+  gradeTypes?: string[];
 }
 
 /** A computed dataset for the live preview — every number comes from the archive. */

@@ -5,6 +5,7 @@ import { effectiveValue, lotNumberIn, valuationLabel } from "@/components/agent-
 import { chartSummary, drillPrompt, explainChartPrompt } from "@/components/agent-hub/PinnedBoard";
 import { answerTitle, pinId } from "@/components/agent-hub/pins";
 import { REPORT_TEMPLATES } from "@/components/agent-hub/reportTemplates";
+import { describeScope, scopeProblem } from "@/components/agent-hub/scope";
 import { pickProvider } from "@/components/agent-hub/useAgentChat";
 import { speakable } from "@/components/agent-hub/voice";
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
@@ -117,5 +118,23 @@ describe("usage", () => {
     expect([total.callCount, total.estimatedCostUsd]).toEqual([44, 0.314]);
     expect(totalOf([row({ estimatedCostUsd: null })])!.estimatedCostUsd).toBeNull();
     expect(totalOf([])).toBeUndefined();
+  });
+});
+
+describe("scope", () => {
+  it("describes a scope in words", () => {
+    expect(describeScope(null)).toBe("All sales");
+    expect(describeScope({ fromYear: 2026, fromSale: 32, toYear: 2026, toSale: 32 })).toBe("Sale 32/2026");
+    expect(describeScope({ fromYear: 2025, fromSale: 50, toYear: 2026, toSale: 5 })).toBe("Sales 50/2025–05/2026");
+    expect(describeScope({ fromYear: 2026, fromSale: null, toYear: 2026, toSale: null })).toBe("Year 2026");
+    expect(describeScope({ fromYear: 2025, fromSale: null, toYear: 2026, toSale: null })).toBe("Years 2025–2026");
+  });
+
+  it("applies the same limits as the server", () => {
+    expect(scopeProblem(null)).toBeNull();
+    expect(scopeProblem({ fromYear: 2026, fromSale: 5, toYear: 2026, toSale: 9 })).toBeNull();
+    expect(scopeProblem({ fromYear: 2025, fromSale: 50, toYear: 2026, toSale: 5 })).toBeNull(); // across a year boundary
+    expect(scopeProblem({ fromYear: 2026, fromSale: 9, toYear: 2026, toSale: 5 })).toMatch(/end can't be before/);
+    expect(scopeProblem({ fromYear: 2023, fromSale: null, toYear: 2026, toSale: null })).toMatch(/three years/);
   });
 });

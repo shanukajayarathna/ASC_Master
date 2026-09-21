@@ -26,7 +26,9 @@ Front end: `frontend/src/app/(app)/assistant/**` and `frontend/src/components/ag
 - **The report canvas** (`ReportCanvas.tsx`) slides in beside the chat only when asked (from a chart's *Edit in report canvas*, an analysis/report answer's *Open in report canvas*, or the header button). It opens already set up from what was asked (`voiceCommand.ts` reads group, period, measure, brokers, grade). Builder · live preview (figures straight from the archive) · outputs (Excel, PDF, snapshot, PowerPoint, Schedule weekly).
 - **The library** (`LibraryDrawer.tsx`) holds pinned insights (server-side, per user, max 12), scheduled weekly reports and the way to Saved Reports.
 - **Voice.** A mic in the composer (transcript lands in the box for review, never auto-sent), *Read aloud* on each answer and a header toggle for reading every reply. The small orb shows listening / thinking / speaking.
-- **Archive notice.** One line under the header when the archive stops before the active sale (e.g. "Archive figures run to sale 32/2026; the active sale (39/2026) is answered from its catalogue.").
+- **Scope: not tied to one sale.** By default nothing is limited — the assistant picks the period that fits each question. The **scope** button above the composer limits archive questions to **one sale**, a **range of sales** (it may cross a year boundary, e.g. 50/2025–05/2026) or **whole years** (up to three); it is remembered per browser and sent with every message (`ChatRequestDto.Scope`). Every agent's prompt names it, a `query_data` call that named no period is given it deterministically (`ArchiveScope.ApplyToToolCall`), a chosen period also answers the router's "over which period?", and the report canvas opens on it ("Chosen scope" period). It applies to archive analysis; questions about lots in the current catalogue still follow the sale chosen in the top bar.
+- **Archive notice.** A small note beside the scope button when the archive stops before the active sale (e.g. "Archive figures run to sale 32/2026; the active sale (39/2026) comes from its catalogue.").
+- **Off-grade and share of a broker's own volume.** The report builder and the analysis tools can filter Off Grade / Main Grade and use the measure `share_of_own_volume_pct` (per broker): the filtered quantity as a percentage of that broker's own offered volume in the same sales — merged across sales before dividing, never a mean of percentages. This answers "is ASC's off-grade higher because it is bigger, or because more of its volume is off-grade?".
 
 ## Routing (back end)
 `POST /api/v1/assistant/chat` with `agent: "auto"` runs `Modules/Agents/IntentRouter.cs` — plain keyword rules, no model, so it costs nothing, behaves the same every time and is unit-tested:
@@ -39,8 +41,9 @@ The response carries `agent` (the specialist that answered, or will answer once 
 |---|---|
 | `UniversalAssistant.tsx` | The page: header, conversation, drawers. |
 | `ChatPanel.tsx`, `useAgentChat.ts` | Conversation card, composer, clarify buttons, sources, read-aloud, copy; conversation state, provider choice, one-time URL send, `previousAgent`. |
+| `ScopeControl.tsx`, `scope.ts` | The scope button and popover (one sale · range · years), its storage, and the archive sale list. |
 | `AgentTag.tsx`, `agents.ts` | The answer tag and the four agent keys. |
-| `ChartActions.tsx`, `chartExports.ts`, `PinnedBoard.tsx`, `pins.ts` | Chart actions, chart → table/snapshot/deck/preview, prompts, server-side pins. |
+| `ChartActions.tsx` (Explain · Pin · Export ▾ · Edit in report canvas), `chartExports.ts`, `PinnedBoard.tsx`, `pins.ts` | Chart actions, chart → table/snapshot/deck/preview, prompts, server-side pins. |
 | `LotCards.tsx` | Lot cards, price ladder, lot-number detection. |
 | `ReportCanvas.tsx`, `ReportBuilderPanel.tsx`, `ReportPreview.tsx`, `ReportOutputs.tsx`, `DeckCard.tsx`, `ScheduleCard.tsx`, `reportBuilder.ts`, `reportTemplates.ts`, `useReportPreview.ts`, `voiceCommand.ts` | The canvas and everything in it. |
 | `LibraryDrawer.tsx`, `BylawsClauseDialog.tsx`, `AgentUsageBadge.tsx`, `archive.ts` | Library, clause viewer, admin usage chip, archive notice. |
@@ -54,7 +57,8 @@ The response carries `agent` (the specialist that answered, or will answer once 
 - `Modules/Agents/SourceTracker.cs` — chat replies carry an additive `sources` list from the tools actually used (failed tools excluded); `Modules/Knowledge/CttaBylawsController.cs` serves a cited clause.
 - `Modules/Observability/AiUsageScope.cs` — records the agent on each AI usage row; `GET /api/v1/admin/ai-usage/by-agent` feeds the admin badge (cost only when the model was priced).
 - `Modules/Assistant/AnalyticsPinsController.cs` — `GET/POST/DELETE /api/v1/assistant/pins` (per user, max 12).
-- `CustomReportTools` — `last_n_sales` without `split_by` adds the sales up into one total (`CustomReportLogic.MergeRows`); the Analytics agent has `query_data`/`make_chart`.
+- `CustomReportTools` — `last_n_sales` without `split_by` adds the sales up into one total (`CustomReportLogic.MergeRows`); `from_year/from_sale/to_year/to_sale` select a range (one archive query per year, merged); `share_of_own_volume_pct`; the Analytics agent has `query_data`/`make_chart`.
+- `Modules/Agents/ArchiveScope.cs` — the scope (validation, prompt line, deterministic injection into `query_data`).
 
 ## Access and audit
 Any signed-in user can use every agent and Reports generation (tools are read-only). Decks and scheduled specs are audit-logged (who, what, when — not the data). Usage is logged per agent; only admins see it.
@@ -68,7 +72,7 @@ Any signed-in user can use every agent and Reports generation (tools are read-on
 - **Source chips** appear on live replies and are not stored with history. The agent tag likewise.
 
 ## Testing
-Frontend (Vitest + Testing Library): `universal-assistant.test.tsx` (routing calls, follow-ups, tag re-ask, clarifying buttons, chart actions, canvas, lot cards, sources, library, usage, axe-core structural accessibility), `report-canvas.test.tsx` (builder logic, canvas, deck), `voice-command.test.ts`, `assistant-logic.test.ts`. Backend (xUnit, no Mongo): `IntentRouterTests`, `CustomReport*Tests`, `CustomDeckGeneratorTests` (OpenXml schema validation and exact chart values), `SourceTrackerTests`, `AnalyticsPinsTests`. Colour contrast and layout need a real browser; a browser pass of the universal screen has **not** been done yet. Run archive queries one at a time — a cold archive query can exhaust RAM on a small machine.
+Frontend (Vitest + Testing Library): `universal-assistant.test.tsx` (routing calls, scope, follow-ups, tag re-ask, clarifying buttons, chart actions, canvas, lot cards, sources, library, usage, axe-core structural accessibility), `report-canvas.test.tsx` (builder logic, canvas, deck), `voice-command.test.ts`, `assistant-logic.test.ts`. Backend (xUnit, no Mongo): `IntentRouterTests`, `CustomReport*Tests`, `CustomDeckGeneratorTests` (OpenXml schema validation and exact chart values), `SourceTrackerTests`, `AnalyticsPinsTests`. Colour contrast and layout need a real browser; a browser pass of the universal screen has **not** been done yet. Run archive queries one at a time — a cold archive query can exhaust RAM on a small machine.
 
 To view a generated deck without PowerPoint, LibreOffice can render it (its PNG export renders only the first slide; make copies with the leading slides removed).
 
