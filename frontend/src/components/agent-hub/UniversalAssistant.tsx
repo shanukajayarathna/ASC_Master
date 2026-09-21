@@ -13,7 +13,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AgentTag from "./AgentTag";
 import AgentUsageBadge from "./AgentUsageBadge";
@@ -111,7 +110,6 @@ export default function UniversalAssistant() {
         subtitle="Ask in plain words — I'll bring in the right specialist, and ask if I need to know more."
         actions={
           <>
-            <Chip size="small" variant="outlined" label={activeCatalogue ? activeCatalogue.sourceName : "No sale selected"} />
             <AgentUsageBadge agent="all" />
             <ProviderSelect chat={chat} />
             <span className="ws-mini-orb" title={orb}>
@@ -136,9 +134,6 @@ export default function UniversalAssistant() {
                 <AddCommentOutlinedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Button size="small" component={Link} href="/assistant/classic" sx={{ minHeight: 44 }}>
-              Classic chat
-            </Button>
           </>
         }
       />

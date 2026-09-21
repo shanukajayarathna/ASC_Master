@@ -98,10 +98,8 @@ describe("one conversation", () => {
   it("is a single chat — no agent to pick — with the essentials in the header", async () => {
     await open();
     expect(screen.getByRole("heading", { level: 1, name: "AI Assistant" })).toBeInTheDocument();
-    expect(screen.getByText("Sale 39 - 2026")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Report canvas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Library" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Classic chat" })).toHaveAttribute("href", "/assistant/classic");
     // no per-agent switcher any more
     expect(screen.queryByRole("navigation", { name: "Switch agent" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button").filter((b) => /Compare brokers over|top prices|default penalty|weekly broker report/.test(b.textContent ?? ""))).toHaveLength(4);
@@ -345,6 +343,7 @@ describe("sources, library and admin extras", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: "Stop scheduling Weekly broker prices" }));
     await waitFor(() => expect(api.deleteReportSpec).toHaveBeenCalledWith("s1"));
     expect(within(drawer).getByRole("link", { name: "Open Saved Reports" })).toHaveAttribute("href", "/saved-reports");
+    expect(within(drawer).getByRole("link", { name: "Open the classic chat" })).toHaveAttribute("href", "/assistant/classic");
   });
 
   it("stops at a full library instead of dropping an old pin", async () => {

@@ -27,7 +27,7 @@ interface LibraryDrawerProps {
 /** What you have kept: pinned insights, weekly scheduled reports, and the way to Saved Reports. Out of the way until asked for. */
 export default function LibraryDrawer({ open, onClose, pins, onUnpin, onAsk, busy }: LibraryDrawerProps) {
   return (
-    <Drawer anchor="right" open={open} onClose={onClose} slotProps={{ paper: { sx: { width: "min(100vw, 440px)" }, "aria-label": "Library" } }}>
+    <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "min(100vw, 440px)", maxWidth: "100vw" } }} slotProps={{ paper: { "aria-label": "Library" } }}>
       {open && <LibraryBody onClose={onClose} pins={pins} onUnpin={onUnpin} onAsk={(q) => { onAsk(q); onClose(); }} busy={busy} />}
     </Drawer>
   );
@@ -93,6 +93,9 @@ function LibraryBody({ onClose, pins, onUnpin, onAsk, busy }: Omit<LibraryDrawer
 
         <p className="ws-lots-note">
           <Link href="/saved-reports" className="ws-out-link">Open Saved Reports</Link> for every snapshot, deck and scheduled result.
+        </p>
+        <p className="ws-lots-note">
+          Prefer the original chat, with history and manual agent choice? <Link href="/assistant/classic" className="ws-out-link">Open the classic chat</Link>.
         </p>
       </div>
     </div>

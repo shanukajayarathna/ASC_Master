@@ -56,6 +56,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
   const reduced = useReducedMotion();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [clause, setClause] = useState<string | null>(null);
@@ -65,6 +66,22 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
     const el = scrollRef.current;
     if (el && (chat.messages.length > 0 || chat.sending)) el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
   }, [chat.messages, chat.sending, reduced]);
+
+  // Cards that load under an answer after it arrives (lots, charts) grow the log: stay at the bottom if the reader was there.
+  useEffect(() => {
+    const log = logRef.current;
+    const box = scrollRef.current;
+    if (!log || !box || typeof ResizeObserver === "undefined") return;
+    let last = log.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      const grew = log.scrollHeight - last;
+      last = log.scrollHeight;
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight - grew < 160;
+      if (grew > 0 && nearBottom) box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
+    });
+    observer.observe(log);
+    return () => observer.disconnect();
+  }, []);
 
   // A failed send (or a ?q= prefill) hands the text back to the composer.
   const { restoredText, clearRestoredText } = chat;
@@ -110,7 +127,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, placehold
           </div>
         )}
 
-        <div role="log" aria-live="polite" className="flex flex-col gap-4">
+        <div ref={logRef} role="log" aria-live="polite" className="flex flex-col gap-4">
           {chat.messages.map((m, i) => {
             const isUser = m.role === "user";
           const question = [...chat.messages.slice(0, i)].reverse().find((x) => x.role === "user")?.content ?? "";

@@ -25,7 +25,7 @@ interface ReportCanvasProps {
  */
 export default function ReportCanvas({ open, initial, onClose }: ReportCanvasProps) {
   return (
-    <Drawer anchor="right" open={open} onClose={onClose} slotProps={{ paper: { sx: { width: "min(100vw, 1120px)" }, "aria-label": "Report canvas" } }}>
+    <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "min(100vw, 1120px)", maxWidth: "100vw" } }} slotProps={{ paper: { "aria-label": "Report canvas" } }}>
       {open && <CanvasBody initial={initial} onClose={onClose} />}
     </Drawer>
   );
