@@ -25,8 +25,8 @@ public record SharedMarkCatalogueRow(
 
 /// <summary>MonthCalendar is every sale number in the target's own calendar month —
 /// including weeks that haven't happened yet — already in the report's own DISPLAY order
-/// (target sale first; see BuildMonthCalendar's own doc comment for exactly what that
-/// means). UnmatchedMarks lists the estate names (as shown in
+/// (descending by sale number, latest week of the month first; see BuildMonthCalendar's own
+/// doc comment for exactly what that means). UnmatchedMarks lists the estate names (as shown in
 /// the output) whose code had no elevation history anywhere on file — always empty for
 /// AggregateAsync (its lots already carry real elevation, nothing to look up), populated by
 /// AggregateFromUploadAsync for marks defaulted to "High & Medium Grown" with no way to
@@ -804,12 +804,12 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
     /// remaining not-yet-happened weeks 40/41/42 are included too, genuinely blank per
     /// explicit instruction: WriteQtyCell's own hasData check already renders a not-yet-
     /// happened week with no value and no fill, distinct from a real recorded zero) — already
-    /// in DISPLAY order: the target sale first, then this month's later weeks ascending, then
-    /// this month's earlier weeks descending. That reduces to plain ascending-then-reversed
-    /// for a month with no later weeks (Sale 38/2026, September's last sale: 38,37,36,35,34)
-    /// and to plain ascending for a month with no earlier weeks (Sale 39/2026: 39,40,41,42) —
-    /// the two cases actually confirmed live — and generalizes sensibly for a sale in the
-    /// middle of its month. The workbook builder uses this order as-is, no further reversal.
+    /// in DISPLAY order: descending by sale number, unconditionally, latest week of the month
+    /// first — per explicit instruction, even for a sale that's early in its own month (e.g.
+    /// Sale 39: 42, 41, 40, 39), which means blank not-yet-happened weeks can sit ahead of the
+    /// one real, populated column. An earlier version of this put the target sale first
+    /// instead specifically to avoid that; this reinstates plain descending order regardless.
+    /// The workbook builder uses this order as-is, no further reversal.
     ///
     /// SaleFileStore.SalesInMonth estimates each week's date from a once-a-year anchor
     /// formula for years with no explicit date table yet (e.g. 2026) — close, but it can
@@ -831,11 +831,6 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
                 if (no != saleNo) byNo[no] += offset;
         byNo[saleNo] = saleDate;
 
-        var after = byNo.Where(kv => kv.Key > saleNo).OrderBy(kv => kv.Key);
-        var before = byNo.Where(kv => kv.Key < saleNo).OrderByDescending(kv => kv.Key);
-        return new[] { (saleNo, byNo[saleNo]) }
-            .Concat(after.Select(kv => (kv.Key, kv.Value)))
-            .Concat(before.Select(kv => (kv.Key, kv.Value)))
-            .ToList();
+        return byNo.OrderByDescending(kv => kv.Key).Select(kv => (kv.Key, kv.Value)).ToList();
     }
 }
