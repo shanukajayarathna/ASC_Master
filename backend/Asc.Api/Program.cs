@@ -138,6 +138,7 @@ builder.Services.AddSingleton<MslWeeklyReportService>();
 // Plantation/Factory/Mark reference hierarchy + mined broker-history, built on top of the
 // Msl archive above — admin-triggered, not a background job, so scoped is enough.
 builder.Services.AddScoped<Asc.Api.Modules.MarkIntelligence.MarkIntelligenceMiningService>();
+builder.Services.AddSingleton<Asc.Api.Modules.FactoryGrademix.FactoryGrademixService>();
 
 // AI Assistant — three chat vendors behind the same IChatProvider seam (Modules/Assistant/AiGateway.cs):
 // OpenAI and Groq are OpenAI-wire-format (share OpenAiCompatibleChatProvider), Gemini has its own
@@ -359,6 +360,9 @@ builder.Services
             RoleClaimType = ClaimTypes.Role,
             NameClaimType = ClaimTypes.NameIdentifier,
         };
+        // A valid signature isn't enough: reject tokens of deleted accounts and take roles from
+        // the user record, so demotion/deletion doesn't wait out the 12h token lifetime.
+        opts.Events = new JwtBearerEvents { OnTokenValidated = TokenRevalidation.OnTokenValidated };
     })
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyScheme, _ => { });
 
@@ -399,6 +403,9 @@ const string LoginRateLimitPolicy = "login";
 // unbounded provider spend. Partitioned by user id (not IP) since the caller is always
 // authenticated by this point; the limit is generous enough for real back-and-forth chat.
 const string AssistantChatRateLimitPolicy = "assistantChat";
+// The public "Request Access" form gets its own bucket: sharing "login" meant form spam could
+// exhaust the login limit for the same client IP (and vice versa).
+const string AccessRequestRateLimitPolicy = "accessRequest";
 builder.Services.AddRateLimiter(opts =>
 {
     opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -409,6 +416,15 @@ builder.Services.AddRateLimiter(opts =>
             {
                 PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+    opts.AddPolicy(AccessRequestRateLimitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
                 QueueLimit = 0,
             }));
     opts.AddPolicy(AssistantChatRateLimitPolicy, httpContext =>
@@ -455,6 +471,25 @@ builder.Services.AddResponseCompression(opts =>
 });
 
 var app = builder.Build();
+
+// Behind Caddy (docker-compose.prod.yml) every request arrives from the proxy's address, so the
+// per-IP rate limits above would put ALL clients in one bucket — one attacker could lock
+// everyone out of login. Opt-in (ForwardedHeaders:Enabled) rather than default because
+// trusting X-Forwarded-For is only safe when the API is reachable solely through the proxy:
+// the compose files publish 8080 on loopback only. Never enable this on a directly exposed API.
+if (builder.Configuration.GetValue<bool>("ForwardedHeaders:Enabled"))
+{
+    var forwarded = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+    {
+        ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+            | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+        ForwardLimit = 1,
+    };
+    // The proxy's container IP is dynamic, so the default loopback-only allow-list would ignore it.
+    forwarded.KnownNetworks.Clear();
+    forwarded.KnownProxies.Clear();
+    app.UseForwardedHeaders(forwarded);
+}
 
 app.UseResponseCompression();
 

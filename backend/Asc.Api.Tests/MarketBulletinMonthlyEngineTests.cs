@@ -185,17 +185,18 @@ public class MarketBulletinMonthlyEngineTests
     }
 
     [Fact]
-    public void BuildTierMetricsForSale_BrokerMatchIsCaseAndPunctuationInsensitive()
+    public void BuildTierMetricsForSale_CountsEveryBrokersLots_NotJustAsiaSiyakas()
     {
-        var lots = new List<Lot> { Lot("a.s.c.", 100, 10), Lot("ASC", 90, 10), Lot("Forbes", 500, 10) };
+        var lots = new List<Lot> { Lot("a.s.c.", 100, 10), Lot("ASC", 90, 10), Lot("Forbes", 500, 10), Lot("Somerville", 300, 10) };
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
-        Assert.Equal(2, tiers.Sum(t => t.LotCount));
+        Assert.Equal(4, tiers.Sum(t => t.LotCount));
+        Assert.Equal(40m, tiers.Sum(t => t.QuantityKg));
     }
 
     [Fact]
-    public void BuildTierMetricsForSale_NoAscLots_ReturnsFourEmptyTiers()
+    public void BuildTierMetricsForSale_NoSoldLots_ReturnsFourEmptyTiers()
     {
-        var lots = new List<Lot> { Lot("Forbes", 500, 10), Lot("Somerville", 300, 10) };
+        var lots = new List<Lot> { Lot("Forbes", 500, 10, status: "Unsold"), Lot("Somerville", 300, 10, status: "Unsold") };
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
         Assert.All(tiers, t => Assert.Equal(0, t.LotCount));
         Assert.All(tiers, t => Assert.Null(t.QuantityKg));
@@ -209,6 +210,6 @@ public class MarketBulletinMonthlyEngineTests
         // check first.
         var lots = new List<Lot> { Lot("ASC", 500, 10), Lot("Forbes", 500, 10) };
         var tiers = MarketBulletinMonthlyEngine.BuildTierMetricsForSale(lots);
-        Assert.Equal(1, tiers.Single(t => t.Tier == "Select Best").LotCount);
+        Assert.Equal(2, tiers.Single(t => t.Tier == "Select Best").LotCount);
     }
 }

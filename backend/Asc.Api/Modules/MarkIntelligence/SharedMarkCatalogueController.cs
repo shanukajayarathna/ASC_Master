@@ -252,6 +252,17 @@ public class SharedMarkCatalogueController(
         return Ok(new DetectSaleInfoResponseDto(year, saleNo, date?.ToString("yyyy-MM-dd"), warnings));
     }
 
+    // The page uploads the same zip three times in a row (detect-sale-info when it's picked,
+    // the dry-run preview, then the real generate), and each call used to re-parse all 8
+    // Excel files from scratch. One remembered result — keyed by the zip's own content hash,
+    // so a different or edited zip can never match it — lets the 2nd and 3rd calls skip that
+    // work entirely. Callers only ever read the returned rows (BrokerCatalogueUploadParser
+    // never mutates them), so sharing the same instance is safe. Short-lived on purpose: it
+    // holds a few tens of MB of parsed rows.
+    private static readonly object ZipCacheLock = new();
+    private static (string Hash, DateTime At, (Dictionary<string, List<List<string>>> RowsByBroker, List<string> Unidentified, List<string> Duplicates) Result)? _zipCache;
+    private static readonly TimeSpan ZipCacheTtl = TimeSpan.FromMinutes(15);
+
     /// <summary>Shared by generate-from-zip and detect-sale-info: walks every entry in the
     /// zip, skipping directories and anything that isn't a spreadsheet (folder entries,
     /// __MACOSX resource-fork junk, .DS_Store — all routine zip-of-a-folder noise), and
@@ -260,6 +271,24 @@ public class SharedMarkCatalogueController(
     /// live: ASC's own file was "AScat362026xls.xls" for Sale 36 but "cat372026xls.xls" for
     /// Sale 37, with no "ASC" in the name at all).</summary>
     private async Task<(Dictionary<string, List<List<string>>> RowsByBroker, List<string> Unidentified, List<string> Duplicates)> ExtractZipEntriesAsync(
+        IFormFile zipFile, CancellationToken ct)
+    {
+        string hash;
+        await using (var hashStream = zipFile.OpenReadStream())
+            hash = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(hashStream, ct));
+
+        lock (ZipCacheLock)
+        {
+            if (_zipCache is { } cached && cached.Hash == hash && DateTime.UtcNow - cached.At < ZipCacheTtl)
+                return cached.Result;
+        }
+
+        var result = await ParseZipEntriesAsync(zipFile, ct);
+        lock (ZipCacheLock) _zipCache = (hash, DateTime.UtcNow, result);
+        return result;
+    }
+
+    private async Task<(Dictionary<string, List<List<string>>> RowsByBroker, List<string> Unidentified, List<string> Duplicates)> ParseZipEntriesAsync(
         IFormFile zipFile, CancellationToken ct)
     {
         var rowsByBroker = new Dictionary<string, List<List<string>>>();

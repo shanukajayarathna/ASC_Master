@@ -143,7 +143,7 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         foreach (var cat in yearCatalogues)
         {
             var isThisMonth = monthCatalogueIds.Contains(cat.Id);
-            foreach (var lot in catalogues.GetLots(cat.Id) ?? []) taggedLots.Add((lot, isThisMonth));
+            foreach (var lot in catalogues.GetReportLots(cat.Id) ?? []) taggedLots.Add((lot, isThisMonth));
         }
 
         var recentlySharedFactoryCodes = ComputeRecentlySharedFactoryCodes(saleDate);
@@ -199,7 +199,7 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
         foreach (var cat in historicalCatalogues)
         {
             var isThisMonth = monthCatalogueIds.Contains(cat.Id);
-            foreach (var lot in catalogues.GetLots(cat.Id) ?? []) historicalTagged.Add((lot, isThisMonth));
+            foreach (var lot in catalogues.GetReportLots(cat.Id) ?? []) historicalTagged.Add((lot, isThisMonth));
         }
 
         // First pass: whichever closed sale this year already has the exact same code. Free
@@ -255,7 +255,11 @@ public class SharedMarkCatalogueService(ICatalogueSource catalogues)
             .Where(l => !string.IsNullOrWhiteSpace(l.Elevation))
             .SelectMany(l => new[] { l.FactoryName, l.SellingMark })
             .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Select(n => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(n!.Trim().ToLowerInvariant()))
+            // Distinct first: ~450k lots share only a few thousand names, so title-casing each
+            // one individually was pure repeated work — the resulting set is identical.
+            .Select(n => n!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(n => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(n.ToLowerInvariant()))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // A dual-production factory's CTC row is labeled off its own Selling Mark (or a

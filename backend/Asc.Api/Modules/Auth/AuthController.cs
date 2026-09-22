@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
 
@@ -14,7 +15,7 @@ namespace Asc.Api.Modules.Auth;
 
 [ApiController]
 [Route("api/v1/auth")]
-public class AuthController(MongoContext db, IConfiguration config, IPasswordHasher<AppUser> hasher, IAuditLogger audit) : ControllerBase
+public class AuthController(MongoContext db, IConfiguration config, IPasswordHasher<AppUser> hasher, IAuditLogger audit, IMemoryCache cache) : ControllerBase
 {
     // A fixed hash of a value nobody could ever type in as a real password — verified
     // against on the "unknown email" path in Login so that path pays the same PBKDF2 cost
@@ -145,6 +146,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         var previousRoles = string.Join(", ", user.Roles);
         user.Roles = dto.Roles;
         await db.Users.ReplaceOneAsync(u => u.Id == id, user, cancellationToken: ct);
+        TokenRevalidation.Evict(cache, id);
         await audit.LogAsync(User, "user.role_changed", "User", user.Id.ToString(), $"{previousRoles} -> {string.Join(", ", dto.Roles)}", ct);
         return Ok(ToDto(user));
     }
@@ -201,6 +203,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         if (changes.Count == 0) return Ok(ToDto(user));
 
         await db.Users.ReplaceOneAsync(u => u.Id == id, user, cancellationToken: ct);
+        TokenRevalidation.Evict(cache, id);
         await audit.LogAsync(User, "user.credentials_updated", "User", user.Id.ToString(), string.Join(", ", changes), ct);
         return Ok(ToDto(user));
     }
@@ -216,6 +219,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
             return BadRequest("Can't delete the only remaining Admin.");
 
         await db.Users.DeleteOneAsync(u => u.Id == id, ct);
+        TokenRevalidation.Evict(cache, id);
         await audit.LogAsync(User, "user.deleted", "User", user.Id.ToString(), user.Email, ct);
         return NoContent();
     }

@@ -195,7 +195,11 @@ public class MslController(
         var root = importer.DataPath;
         if (root is null) return BadRequest("MSL data folder not found — set Msl:DataPath or create data/msl.");
 
-        var ext = Path.GetExtension(file.FileName);
+        // Client-supplied name: strip any directory part (e.g. "..\..\x.txt" or "a/b.txt") before it
+        // is ever combined into a filesystem path.
+        var safeName = SafeFileName(file.FileName);
+        if (safeName is null) return BadRequest("Invalid file name.");
+        var ext = Path.GetExtension(safeName);
         string targetPath;
         string relForAudit;
 
@@ -208,8 +212,8 @@ public class MslController(
                 if (saleNo is null or < 1 or > 60) return BadRequest("Enter a valid sale number (1-60).");
                 var auctionDir = Path.Combine(root, "auction", year.ToString()!, $"sale-{saleNo:00}");
                 Directory.CreateDirectory(auctionDir);
-                targetPath = Path.Combine(auctionDir, file.FileName);
-                relForAudit = $"auction/{year}/sale-{saleNo:00}/{file.FileName}";
+                targetPath = Path.Combine(auctionDir, safeName);
+                relForAudit = $"auction/{year}/sale-{saleNo:00}/{safeName}";
                 break;
 
             case "private":
@@ -217,8 +221,8 @@ public class MslController(
                     return BadRequest("Private-sale files are .TXT.");
                 var pvtDir = Path.Combine(root, "private-sales");
                 Directory.CreateDirectory(pvtDir);
-                targetPath = Path.Combine(pvtDir, file.FileName);
-                relForAudit = $"private-sales/{file.FileName}";
+                targetPath = Path.Combine(pvtDir, safeName);
+                relForAudit = $"private-sales/{safeName}";
                 break;
 
             case "teaboard":
@@ -303,7 +307,7 @@ public class MslController(
                         long total = 0;
                         foreach (var entry in archive.Entries)
                         {
-                            var name = entry.Name; // path-less; folder entries come through as ""
+                            var name = SafeFileName(entry.Name) ?? ""; // path-less; folder entries come through as ""
                             if (string.IsNullOrEmpty(name)) continue;
                             if (name.StartsWith("._", StringComparison.Ordinal) ||
                                 entry.FullName.Contains("__MACOSX", StringComparison.OrdinalIgnoreCase))
@@ -356,7 +360,7 @@ public class MslController(
             var tempPath = Path.Combine(stagingDir, $"{Guid.NewGuid():N}.txt");
             await using (var dest = System.IO.File.Create(tempPath))
                 await file.CopyToAsync(dest, ct);
-            candidates.Add((file.FileName, null, tempPath));
+            candidates.Add((SafeFileName(file.FileName) ?? $"{Guid.NewGuid():N}.txt", null, tempPath));
         }
 
         // Pass 2: a full parse (not just a first-line peek) — kind, year, sale number,
@@ -458,7 +462,10 @@ public class MslController(
         var results = new List<MslBatchFileResultDto>();
         foreach (var f in files.Where(f => keep.Contains(f.StagingId) && f.Error is null && f.TargetRelPath is not null))
         {
-            var targetPath = Path.Combine(root, f.TargetRelPath!.Replace('/', Path.DirectorySeparatorChar));
+            var targetPath = Path.GetFullPath(Path.Combine(root, f.TargetRelPath!.Replace('/', Path.DirectorySeparatorChar)));
+            var rootFull = Path.GetFullPath(root);
+            if (!targetPath.StartsWith(rootFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                continue; // never write outside the archive, whatever the staged name said
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             System.IO.File.Move(f.TempPath, targetPath, overwrite: true);
             results.Add(new MslBatchFileResultDto(f.FileName, f.SourceZip, f.Kind, f.Broker, f.Year, f.SaleNo, 0, null));
@@ -499,6 +506,16 @@ public class MslController(
     {
         staging.Discard(batchId);
         return NoContent();
+    }
+
+    /// <summary>Last path segment of a client-supplied file name (both separators, since the
+    /// server may be Windows or Linux), or null when nothing usable is left.</summary>
+    internal static string? SafeFileName(string? clientName)
+    {
+        if (string.IsNullOrWhiteSpace(clientName)) return null;
+        var name = clientName[(clientName.LastIndexOfAny(['/', '\\']) + 1)..].Trim();
+        if (name.Length == 0 || name is "." or ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+        return name;
     }
 
     private static readonly Regex AuctionPathRe = new(@"^auction/(\d{4})/sale-(\d+)/", RegexOptions.Compiled | RegexOptions.IgnoreCase);

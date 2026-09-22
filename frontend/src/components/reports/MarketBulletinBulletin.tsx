@@ -701,7 +701,7 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBul
       })}
 
       {/* Page 4 — month-over-month sale comparison, a deliberately different concept from pages
-          1-3's per-grade tables: Asia Siyaka's own book (not a market-wide snapshot — see
+          1-3's per-grade tables: the whole market, every broker (see
           MarketBulletinMonthlyEngine's own doc comment), two rows of pie charts — Last Month's
           sales above, This Month's below, one combined pie per ordinal sale position (wedges =
           quantity share, table underneath = real Kg and Rs/kg per tier). Its own masthead

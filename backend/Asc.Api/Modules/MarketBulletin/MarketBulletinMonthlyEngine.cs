@@ -28,11 +28,12 @@ namespace Asc.Api.Modules.MarketBulletin;
 /// always forces exactly 15% of that sale's lots into Poor by construction regardless of what
 /// the market actually did.
 ///
-/// Asia Siyaka's own sold lots (TopPriceEngine.IsOurBroker) are then classified into whichever
-/// of that same sale's own price bands each lot's own price actually falls into, and reduced to
-/// per-band totals: total quantity (kg) plus the literal min/max price among just ASC's own lots
-/// in that band, shown as a range rather than one averaged number — see MonthlyTierMetricsDto's
-/// own doc comment for why.
+/// Every broker's sold lots that sale (the whole market, per the user's own instruction — this
+/// page used to show Asia Siyaka's own lots only) are then classified into whichever of that
+/// same sale's own price bands each lot's own price actually falls into, and reduced to per-band
+/// totals: total quantity (kg) plus the literal min/max price among the lots in that band, shown
+/// as a range rather than one averaged number — see MonthlyTierMetricsDto's own doc comment for
+/// why.
 /// </summary>
 public static class MarketBulletinMonthlyEngine
 {
@@ -134,19 +135,18 @@ public static class MarketBulletinMonthlyEngine
     }
 
     /// <summary>Splits this one sale's own market (every broker's sold lots) into four price
-    /// bands by price-WIDTH proportions (see this class's own doc comment), then classifies
-    /// Asia Siyaka's own sold lots into whichever of those bands each lot's own price falls
-    /// into. A sale where the market has no sold lots at all (thresholds all null) or ASC simply
-    /// has no lots comes back as four empty tiers, same shape as a sale with no data at all —
-    /// MonthlyTierMetricsDto's LotCount: 0 case, which the frontend already renders as an empty
-    /// placeholder.</summary>
+    /// bands (see this class's own doc comment), then classifies EVERY broker's sold lots into
+    /// whichever of those bands each lot's own price falls into — the page shows the whole
+    /// market, not one broker's book. A sale with no sold lots at all comes back as four empty
+    /// tiers, same shape as a sale with no data at all — MonthlyTierMetricsDto's LotCount: 0
+    /// case, which the frontend already renders as an empty placeholder.</summary>
     internal static List<MonthlyTierMetricsDto> BuildTierMetricsForSale(IReadOnlyList<Lot> lots)
     {
         var marketSold = TopPriceEngine.ScopeToSold(lots).Sold;
         var thresholds = ComputeQuantityWeightedThresholds(marketSold);
 
         var buckets = new List<Lot>[] { [], [], [], [] };
-        foreach (var lot in marketSold.Where(TopPriceEngine.IsOurBroker))
+        foreach (var lot in marketSold.Where(l => l.PurchasedPrice.HasValue))
             buckets[ClassifyByMarketThreshold(lot.PurchasedPrice!.Value, thresholds)].Add(lot);
 
         return TierNames.Select((name, idx) => BuildTierMetrics(name, buckets[idx])).ToList();

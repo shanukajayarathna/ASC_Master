@@ -62,9 +62,11 @@ frontend is built with `PUBLIC_API_BASE_URL` set to that same origin, no CORS in
 
 1. **Provision** — Ubuntu LTS, 2 vCPU / 4GB, in the region closest to the users/Atlas.
    Install Docker (`curl -fsSL https://get.docker.com | sh`).
-2. **Firewall** — only SSH and the web ports; the base compose file's dev ports (5058/3000)
-   must not be reachable from outside:
-   `ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable`
+2. **Firewall** — only SSH and the web ports:
+   `ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable`.
+   The base compose file binds the dev ports (5058/3000) to `127.0.0.1` because Docker's
+   published ports bypass ufw — keep that binding; verify from another machine that
+   `http://<server-ip>:5058` and `:3000` refuse connections.
 3. **DNS** — point the domain (e.g. `hub.example.com`) at the server's IP before first
    start, so Caddy's certificate issuance succeeds immediately.
 4. **Atlas** — allow the server's IP in the Atlas cluster's network access list.

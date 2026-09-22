@@ -8,7 +8,10 @@ services:
       context: ./backend
       dockerfile: Asc.Api/Dockerfile
     ports:
-      - "5058:8080"
+      # Loopback only: Docker publishes ports through its own iptables rules, which bypass
+      # ufw/firewalld — a bare "5058:8080" would expose the API (no TLS, no Caddy headers)
+      # to the internet on a VPS. Caddy reaches the container over the compose network.
+      - "127.0.0.1:5058:8080"
     environment:
       ConnectionStrings__Mongo: ${MONGO_CONNECTION_STRING}
       MongoDatabaseName: ${MONGO_DATABASE_NAME:-asc_tea}
@@ -38,7 +41,7 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5058}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
     restart: unless-stopped

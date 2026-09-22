@@ -52,6 +52,10 @@ import type {
   UnresolvedMarkSighting,
   Plantation,
   FactoryMarkPerformanceSummary,
+  FactoryGrademixReport,
+  GrademixCompareFactory,
+  GrademixFactoryOption,
+  GrademixSaleOption,
   ForwardEstimateSummary,
   FactorySearchResult,
   MslAnalyticsFilter,
@@ -370,6 +374,29 @@ export const api = {
     request<ForwardEstimateSummary>(
       `/api/v1/mark-intelligence/factory-mark-performance/forward-estimate/${encodeURIComponent(code)}?isFactory=${isFactory}`,
     ),
+
+  // ---- factory grademix report (Reports > Factory Grademix) ---------------------------
+
+  listGrademixSales: () => request<GrademixSaleOption[]>("/api/v1/reports/factory-grademix/sales"),
+  searchGrademixFactories: (q: string) =>
+    request<GrademixFactoryOption[]>(`/api/v1/reports/factory-grademix/factories?q=${encodeURIComponent(q)}`),
+  getFactoryGrademix: (code: string, opts: { year?: number; saleNo?: number; months: number }) => {
+    const p = new URLSearchParams({ months: String(opts.months) });
+    if (opts.year && opts.saleNo) {
+      p.set("year", String(opts.year));
+      p.set("saleNo", String(opts.saleNo));
+    }
+    return request<FactoryGrademixReport>(`/api/v1/reports/factory-grademix/${encodeURIComponent(code)}?${p}`);
+  },
+  compareGrademixFactories: (codes: string[], opts: { year?: number; saleNo?: number; months: number }) => {
+    const p = new URLSearchParams({ months: String(opts.months) });
+    codes.forEach((c) => p.append("codes", c));
+    if (opts.year && opts.saleNo) {
+      p.set("year", String(opts.year));
+      p.set("saleNo", String(opts.saleNo));
+    }
+    return request<GrademixCompareFactory[]>(`/api/v1/reports/factory-grademix/compare?${p}`);
+  },
 
   // ---- audit log (who did what, for admin-mutating actions) --------------------------
 

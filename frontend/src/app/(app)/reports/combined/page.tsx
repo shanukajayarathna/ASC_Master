@@ -7,7 +7,6 @@ import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api } from "@/lib/api";
-import { exportCombinedReportExcel, exportCombinedReportPdf } from "@/lib/combinedReportExport";
 import type { AuctionReport, CombinedReport } from "@/types/api";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
@@ -40,7 +39,7 @@ function FamilyExportRow({ report, onError }: { report: AuctionReport; onError: 
     setExportingExcel(true);
     onError(null);
     try {
-      await exportCombinedReportExcel(report);
+      await (await loadExport()).exportCombinedReportExcel(report);
     } catch (e) {
       onError(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -52,7 +51,7 @@ function FamilyExportRow({ report, onError }: { report: AuctionReport; onError: 
     setExportingPdf(true);
     onError(null);
     try {
-      await exportCombinedReportPdf(report);
+      await (await loadExport()).exportCombinedReportPdf(report);
     } catch (e) {
       onError(e instanceof Error ? e.message : "PDF export failed");
     } finally {
@@ -89,6 +88,9 @@ function FamilyExportRow({ report, onError }: { report: AuctionReport; onError: 
     </div>
   );
 }
+
+// Loaded on first export click: keeps ExcelJS + jsPDF (~1 MB) out of this page's initial bundle.
+const loadExport = () => import("@/lib/combinedReportExport");
 
 export default function CombinedReportPage() {
   const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
@@ -161,8 +163,9 @@ export default function CombinedReportPage() {
       for (const r of nonEmptyReports) {
         // Sequential, not Promise.all — the original tool's own "Export all" awaits one file at
         // a time so a browser's popup/download-count limiter never silently drops one.
-        if (kind === "excel") await exportCombinedReportExcel(r);
-        else await exportCombinedReportPdf(r);
+        const mod = await loadExport();
+        if (kind === "excel") await mod.exportCombinedReportExcel(r);
+        else await mod.exportCombinedReportPdf(r);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");

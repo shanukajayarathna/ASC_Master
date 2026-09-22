@@ -4,11 +4,10 @@ Five photographs powering the landing page Hero's auto-rotating right-side image
 (`src/components/landing/HeroImageCarousel.tsx`), sourced from Wikimedia Commons with
 license metadata verified via the Commons file pages on **6 September 2026**. Downloaded
 via Commons' `Special:FilePath` thumbnail endpoint (server-side resized, not the full
-multi-megapixel original) and kept as JPEG — this set was added without local image-
-conversion tooling available (no cwebp/ImageMagick/sharp in this environment), unlike
-`public/tea/intro/` which pre-converts to WebP. Functionally fine either way since these
-render through `background-image` at a fixed aspect ratio, but a future pass could
-re-encode them to WebP for consistency/size if that tooling becomes available.
+multi-megapixel original). On **21 September 2026** the JPEGs were re-encoded with `sharp`
+to WebP (max 2400px wide, quality 72), cutting the set from ~10.4 MB to ~2.6 MB, matching
+`public/tea/intro/`. The photographs themselves are unchanged; the headings below name the
+current `.webp` files.
 
 Deliberately distinct subjects/regions from every image already in `public/tea/intro/`
 (Nuwara Eliya estates/leaves/plucking, Hatton mist, Damro factory) — this set adds

@@ -112,9 +112,12 @@ public class FactoryMarkPerformanceService(MongoContext db)
     public async Task<List<FactorySearchResultDto>> SearchFactoriesAsync(string q, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(q)) return [];
+        // Escaped: q is user input, and an unescaped pattern lets any signed-in user run a
+        // catastrophic-backtracking regex inside MongoDB.
+        var pattern = System.Text.RegularExpressions.Regex.Escape(q.Trim()[..Math.Min(q.Trim().Length, 100)]);
         var filter = Builders<Factory>.Filter.Or(
-            Builders<Factory>.Filter.Regex(f => f.Code, new BsonRegularExpression(q, "i")),
-            Builders<Factory>.Filter.Regex(f => f.Name, new BsonRegularExpression(q, "i")));
+            Builders<Factory>.Filter.Regex(f => f.Code, new BsonRegularExpression(pattern, "i")),
+            Builders<Factory>.Filter.Regex(f => f.Name, new BsonRegularExpression(pattern, "i")));
         // TODO: API migration — replace MongoDB access with remote API client once backend migration lands.
         var factories = await db.Factories.Find(filter).Limit(50).ToListAsync(ct);
         return factories.Select(f => new FactorySearchResultDto(f.Code, f.Name)).ToList();

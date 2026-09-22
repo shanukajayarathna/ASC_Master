@@ -28,7 +28,7 @@ public record MarketBulletinDto(
 
 /// <summary>One tier's whole-sale metrics for one sale slot — QuantityKg is that tier's total
 /// traded quantity (kg) across every sold lot that landed in it; MinPrice/MaxPrice are the
-/// literal lowest/highest price among ASC's own lots in that tier, shown as a range rather than
+/// literal lowest/highest price among the lots in that tier, shown as a range rather than
 /// a single quantity-weighted average per the user's own instruction — a range says something a
 /// single number can't (how wide the tier's own real spread was that sale), the same reasoning
 /// pages 1-3's Select Best/Best/Below Best/Poor rows already show a min-max range instead of one
