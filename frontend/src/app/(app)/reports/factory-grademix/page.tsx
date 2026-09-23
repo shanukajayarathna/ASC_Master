@@ -180,7 +180,8 @@ export default function FactoryGrademixPage() {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField select size="small" label="Months shown" value={months} onChange={(e) => setMonths(Number(e.target.value))} sx={{ width: 140 }}>
+            <TextField select size="small" label="Trend shown" value={months} onChange={(e) => setMonths(Number(e.target.value))} sx={{ width: 160 }}>
+              <MenuItem value={0}>This sale only</MenuItem>
               {[3, 6, 9, 12].map((m) => (
                 <MenuItem key={m} value={m}>{m} months</MenuItem>
               ))}

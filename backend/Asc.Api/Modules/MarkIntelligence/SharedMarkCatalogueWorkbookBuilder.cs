@@ -33,15 +33,18 @@ internal static class SharedMarkCatalogueWorkbookBuilder
     /// WrapText alone isn't enough (see estateNameStyle's own doc comment: LibreOffice's
     /// headless PDF conversion doesn't auto-grow a wrapped row's height the way Excel does
     /// when opened interactively, so an unset row height let a long name's second line
-    /// overlap the row below it in the real converted PDF). Uses 70% of the column's own
-    /// character width as the effective capacity per line — bold text renders wider than
-    /// plain per character, and this is a column-width estimate in the first place (Excel's
-    /// own "characters" unit is itself an approximation based on the default font's digit
-    /// width, not a literal count), so erring toward MORE estimated lines (extra blank space
-    /// in a row) is the safe direction to be wrong in — the alternative, underestimating,
-    /// is exactly the overlap bug this exists to fix.</summary>
+    /// overlap the row below it in the real converted PDF). Plain length-vs-column-width
+    /// ratio, no extra safety margin: an earlier version used 70% of the column's char width
+    /// as the effective per-line capacity to intentionally over-estimate, but that
+    /// overcorrected — found live converting a real Sale 38/2026 PDF, "Lantern Hill Upper Tea
+    /// Estate" (29 chars, well under the 34-char column and confirmed NOT wrapping in the
+    /// real render) still got flagged for 2 lines and rendered with a visibly oversized,
+    /// half-empty name row. The two real names that originally exposed the overlap bug
+    /// (Diggala Enterprises Tea Processing Center, 42 chars; Polkollagollawatta Tea
+    /// Processing Center, 41 chars) are both comfortably over LabelColumnChars either way, so
+    /// dropping the 0.7 factor still calls those two right.</summary>
     internal static int EstimateWrappedLines(string text) =>
-        Math.Max(1, (int)Math.Ceiling(text.Length / (LabelColumnChars * 0.7)));
+        Math.Max(1, (int)Math.Ceiling(text.Length / (double)LabelColumnChars));
 
     public static byte[] BuildBucket(SharedMarkCatalogueResult result, string bucketName, IReadOnlyList<SharedMarkCatalogueRow> rows)
     {
@@ -236,6 +239,13 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         // trusting caller order silently.
         var orderedRows = rows.OrderBy(x => SharedMarkCatalogueService.CodeSortKey(x.Code)).ThenBy(x => x.EstateName, StringComparer.OrdinalIgnoreCase).ToList();
 
+        // Tracks each top-level factory block's own row range (name row through its last
+        // broker row, including a paired CTC sub-block sharing that same header) so a page
+        // break can be inserted before whichever block wouldn't otherwise fit — see the page
+        // break pass below, after the loop.
+        var blockRanges = new List<(int Start, int End)>();
+        var blockStart = -1;
+
         var r = 3;
         SharedMarkCatalogueRow? previous = null;
         foreach (var row in orderedRows)
@@ -247,6 +257,9 @@ internal static class SharedMarkCatalogueWorkbookBuilder
                 string.Equals(previous.FactoryDisplayName, row.FactoryDisplayName, StringComparison.OrdinalIgnoreCase);
             if (!continuesPair)
             {
+                if (blockStart != -1) blockRanges.Add((blockStart, r - 1));
+                blockStart = r;
+
                 var displayName = row.FactoryDisplayName ?? row.EstateName;
                 var nameRow = ws.CreateRow(r++);
                 var nameCell = nameRow.CreateCell(labelCol);
@@ -293,6 +306,7 @@ internal static class SharedMarkCatalogueWorkbookBuilder
                     WriteQtyCell(dataRow.CreateCell(yearCol), row.YearQtyByBroker.GetValueOrDefault(broker), true, boldQtyStyle, boldZeroQtyStyle);
             }
         }
+        if (blockStart != -1) blockRanges.Add((blockStart, r - 1));
 
         // Widened from 22 — several real estate/factory names (see estateNameStyle's own
         // comment) were wider than that and clipping in both Excel and the PDF conversion.
@@ -319,5 +333,58 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         // for what the numbers mean. Repeating them as print titles puts the same title +
         // header rows at the top of every page, matching the original hand-built PDF.
         ws.RepeatingRows = new CellRangeAddress(0, 2, -1, -1);
+
+        InsertPageBreaksBetweenBlocks(ws, blockRanges, headerRowCount: 3);
+    }
+
+    /// <summary>Without this, a real conversion (LibreOffice headless, confirmed live on a
+    /// Sale 38/2026 PDF) paginates purely by how many rows fit on a page, with no regard for
+    /// a factory block's own boundaries — found live: "Rasagalla Estate"'s bold name row
+    /// landed as the very last line on page 1, while its ASC/CT broker rows (the numbers that
+    /// give that name meaning) printed at the top of page 2 with no name above them at all.
+    /// FitHeight=0 (see WriteSheet) leaves row-based pagination to whatever the converter's
+    /// own page geometry works out to, so the fix has to predict that geometry and insert an
+    /// explicit break of its own whenever a block wouldn't fully fit in what's left on the
+    /// current page — never splitting a block itself, only ever moving the whole thing to the
+    /// next page.</summary>
+    private static void InsertPageBreaksBetweenBlocks(ISheet ws, IReadOnlyList<(int Start, int End)> blockRanges, int headerRowCount)
+    {
+        // Page geometry mirrors WriteSheet's own PrintSetup: Landscape Letter — confirmed
+        // live (MediaBox of a real converted PDF) at 792x612pt, i.e. 612pt of vertical space
+        // per page once rotated landscape. Margins are NPOI's own defaults (0.75in top/bottom,
+        // unchanged from WriteSheet — nothing here sets them), read back rather than assumed
+        // so this can't silently drift out of sync if a margin is ever changed above.
+        const double pageHeightPts = 612d;
+        var topMarginPts = ws.GetMargin(MarginType.TopMargin) * 72;
+        var bottomMarginPts = ws.GetMargin(MarginType.BottomMargin) * 72;
+
+        double RowHeightPts(int rowIndex) => ws.GetRow(rowIndex)?.HeightInPoints ?? ws.DefaultRowHeightInPoints;
+
+        var headerHeightPts = 0d;
+        for (var i = 0; i < headerRowCount; i++) headerHeightPts += RowHeightPts(i);
+
+        // The repeating title/header rows (RepeatingRows above) reprint at the top of every
+        // page, first included or not — so every page's usable body height is the same figure,
+        // page 1 included, not just page 1 minus the others' repeated header.
+        var bodyCapacityPts = pageHeightPts - topMarginPts - bottomMarginPts - headerHeightPts;
+
+        var cumulativePts = 0d;
+        foreach (var (start, end) in blockRanges)
+        {
+            var blockHeightPts = 0d;
+            for (var i = start; i <= end; i++) blockHeightPts += RowHeightPts(i);
+
+            // cumulativePts > 0 guards against breaking before the very first block placed on
+            // a page — a block taller than an entire page's body capacity on its own (in
+            // practice: never, for this report) would otherwise never find a page it "fits"
+            // on and get pushed forever. Letting it overflow its own page is the correct
+            // fallback: still never split mid-block, just accept that one page runs long.
+            if (cumulativePts > 0 && cumulativePts + blockHeightPts > bodyCapacityPts)
+            {
+                ws.SetRowBreak(start - 1);
+                cumulativePts = 0;
+            }
+            cumulativePts += blockHeightPts;
+        }
     }
 }

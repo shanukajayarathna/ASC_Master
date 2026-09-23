@@ -99,6 +99,7 @@ export default function FactorySheet({ report }: { report: FactoryGrademixReport
       </Section>
 
       {/* ---------------- month by month ---------------- */}
+      {monthly.length > 0 && (
       <Section title="Month by month" sub="Factory average per calendar month against the Tea Board elevation average">
         <div className="border border-border rounded-[var(--radius-md)] p-4" style={{ background: "var(--surface)" }}>
           <Legend
@@ -143,6 +144,7 @@ export default function FactorySheet({ report }: { report: FactoryGrademixReport
           </div>
         </div>
       </Section>
+      )}
 
       {/* ---------------- next sale ---------------- */}
       {upcoming ? (
@@ -227,12 +229,12 @@ export default function FactorySheet({ report }: { report: FactoryGrademixReport
                 </div>
               ))}
             </div>
-            <p className="m-0 mt-2 text-[11px] text-text-muted">★ this factory's elevation.</p>
+            <p className="m-0 mt-2 text-[11px] text-text-muted">★ this factory&apos;s elevation.</p>
           </div>
         </Section>
       ) : (
         <Section tone="next" title="Next sale">
-          <p className="text-[13px] text-text-muted m-0">No upcoming catalogue is on file yet — it appears here as soon as the next sale's catalogue is added.</p>
+          <p className="text-[13px] text-text-muted m-0">No upcoming catalogue is on file yet — it appears here as soon as the next sale&apos;s catalogue is added.</p>
         </Section>
       )}
     </div>

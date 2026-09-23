@@ -25,6 +25,43 @@ function niceMax(v: number): { max: number; step: number } {
   return { max: Math.ceil(v / step) * step, step };
 }
 
+/** Wraps a bar's own label onto up to `maxLines` short lines that fit `maxChars` each, instead
+ *  of one line that gets clipped or overlaps its neighbours — a factory name reads across two
+ *  lines rather than turning into an ellipsis. Breaks on spaces; a single word longer than a
+ *  line is hyphen-broken as a last resort. */
+function wrapLabel(label: string, maxChars: number, maxLines = 2): string[] {
+  const words = label.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  const pushWord = (word: string) => {
+    let rest = word;
+    while (rest.length > maxChars) {
+      lines.push(`${rest.slice(0, Math.max(1, maxChars - 1))}-`);
+      rest = rest.slice(Math.max(1, maxChars - 1));
+    }
+    cur = rest;
+  };
+  for (const word of words) {
+    const candidate = cur ? `${cur} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      cur = candidate;
+    } else if (cur) {
+      lines.push(cur);
+      cur = "";
+      if (word.length > maxChars) pushWord(word);
+      else cur = word;
+    } else {
+      pushWord(word);
+    }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length <= maxLines) return lines.length ? lines : [label];
+  const kept = lines.slice(0, maxLines);
+  const last = kept[maxLines - 1];
+  kept[maxLines - 1] = last.length > maxChars - 1 ? `${last.slice(0, maxChars - 1)}…` : `${last}…`;
+  return kept;
+}
+
 export function Legend({ items }: { items: { name: string; color: string }[] }) {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 mb-1.5" role="list">
@@ -46,6 +83,7 @@ export function GroupedBarChart({
   height = 250,
   ariaLabel,
   colors,
+  nameOnBar = false,
 }: {
   labels: string[];
   series: BarSeries[];
@@ -55,20 +93,37 @@ export function GroupedBarChart({
   highlight?: number;
   height?: number;
   ariaLabel: string;
+  /** Writes each series' own name directly on its bar — for a multi-series chart where a bar's
+   *  colour alone (matched back to a legend above) isn't enough to tell it apart at a glance,
+   *  e.g. several factories side by side across months. Off by default: most charts here only
+   *  have 1-2 series, where the shared bottom axis label already says enough. */
+  nameOnBar?: boolean;
 }) {
   const W = 720;
-  const H = height;
   const m = { l: 48, r: 8, t: 18, b: 26 };
   const plotW = W - m.l - m.r;
-  const plotH = H - m.t - m.b;
   const values = series.flatMap((s) => s.values).filter((v): v is number => v != null);
   const { max, step } = niceMax(Math.max(0, ...values) * 1.05);
   const ticks: number[] = [];
   for (let t = 0; t <= max + 1e-9; t += step) ticks.push(t);
   const groupW = plotW / Math.max(1, labels.length);
   const barW = Math.min(34, (groupW * 0.78) / series.length);
-  const y = (v: number) => m.t + plotH - (v / max) * plotH;
   const dense = labels.length * series.length > 10;
+
+  // Labels wrap onto up to 2 lines that fit the group's own width, so a long factory name reads
+  // in full instead of being clipped or overlapping the group next to it — the chart's overall
+  // height grows to fit whichever label needs the most lines, everything else stays put.
+  const labelFontSize = 11;
+  const labelLineHeight = 12;
+  const charWidth = labelFontSize * 0.56;
+  const maxChars = Math.max(4, Math.floor((groupW - 6) / charWidth));
+  const wrappedLabels = labels.map((l) => wrapLabel(l, maxChars));
+  const labelLines = Math.max(1, ...wrappedLabels.map((l) => l.length));
+  const extraLines = labelLines - 1;
+  const H = height + extraLines * labelLineHeight;
+  const b = m.b + extraLines * labelLineHeight;
+  const plotH = H - m.t - b;
+  const y = (v: number) => m.t + plotH - (v / max) * plotH;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ariaLabel} className="w-full h-auto block">
@@ -91,11 +146,49 @@ export function GroupedBarChart({
               const v = s.values[gi];
               if (v == null) return null;
               const x = gx + si * barW;
+              const barCenterX = x + barW / 2;
+              const barH = y(0) - y(v);
+
+              // The series' own name, written vertically inside its own bar — sized to the
+              // bar's width and truncated to what its height can hold, so a factory's colour
+              // is never the only thing telling its bars apart. Skipped when there's genuinely
+              // no room (a very short or very narrow bar); the legend and hover title still
+              // carry the name then.
+              let barLabel: { text: string; fontSize: number } | null = null;
+              if (nameOnBar) {
+                const fontSize = Math.max(7, Math.min(11, Math.round(barW - 4)));
+                const avail = barH - 10;
+                const maxChars = Math.floor(avail / (fontSize * 0.56));
+                if (maxChars >= 2) {
+                  const text = s.name.length > maxChars ? `${s.name.slice(0, Math.max(1, maxChars - 1))}…` : s.name;
+                  barLabel = { text, fontSize };
+                }
+              }
+
               return (
                 <g key={s.name}>
-                  <rect x={x + 1} y={y(v)} width={Math.max(2, barW - 2)} height={y(0) - y(v)} rx={2} fill={colors && series.length === 1 ? colors[gi] : s.color} />
+                  <rect x={x + 1} y={y(v)} width={Math.max(2, barW - 2)} height={barH} rx={2} fill={colors && series.length === 1 ? colors[gi] : s.color}>
+                    <title>{`${s.name}: ${rs(v)}`}</title>
+                  </rect>
+                  {barLabel && (
+                    <text
+                      x={barCenterX}
+                      y={y(v) + barH / 2}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      transform={`rotate(-90 ${barCenterX} ${y(v) + barH / 2})`}
+                      fontSize={barLabel.fontSize}
+                      fontWeight={600}
+                      fill="#fff"
+                      stroke="rgba(0,0,0,0.35)"
+                      strokeWidth={2}
+                      paintOrder="stroke"
+                    >
+                      {barLabel.text}
+                    </text>
+                  )}
                   <text
-                    x={x + barW / 2}
+                    x={barCenterX}
                     y={y(v) - 4}
                     textAnchor="middle"
                     fontSize={dense ? 9 : 11}
@@ -107,15 +200,13 @@ export function GroupedBarChart({
                 </g>
               );
             })}
-            <text
-              x={m.l + gi * groupW + groupW / 2}
-              y={H - 8}
-              textAnchor="middle"
-              fontSize={11}
-              fontWeight={isHi ? 700 : 400}
-              fill="var(--text)"
-            >
-              {label}
+            <text x={m.l + gi * groupW + groupW / 2} textAnchor="middle" fontSize={labelFontSize} fontWeight={isHi ? 700 : 400} fill="var(--text)">
+              <title>{label}</title>
+              {wrappedLabels[gi].map((line, li) => (
+                <tspan key={li} x={m.l + gi * groupW + groupW / 2} y={H - 8 - (wrappedLabels[gi].length - 1 - li) * labelLineHeight}>
+                  {line}
+                </tspan>
+              ))}
             </text>
           </g>
         );

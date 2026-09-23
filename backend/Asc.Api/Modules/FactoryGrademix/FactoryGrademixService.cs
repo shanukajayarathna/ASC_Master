@@ -129,12 +129,16 @@ public class FactoryGrademixService(ICatalogueSource catalogues, MongoContext db
 
     private async Task<Context?> BuildContextAsync(int? year, int? saleNo, int months, CancellationToken ct)
     {
-        months = Math.Clamp(months, 1, MaxMonths);
+        // 0 means "this sale only" — no monthly trend at all, not even the present sale's own
+        // month. BuildMonthly reads ctx.Months (kept at 0) and returns no points for that case;
+        // everything below still needs a real window to gather the trailing sales an expected
+        // price is built from, so it works off at-least-one-month regardless.
+        months = Math.Clamp(months, 0, MaxMonths);
         var present = await ResolvePresentAsync(year, saleNo, ct);
         if (present is null) return null;
 
         var refs = ListSaleRefs().Where(r => (r.Year, r.SaleNo).CompareTo((present.Year, present.SaleNo)) <= 0).ToList();
-        var windowStart = new DateTime(present.Date.Year, present.Date.Month, 1).AddMonths(-(months - 1));
+        var windowStart = new DateTime(present.Date.Year, present.Date.Month, 1).AddMonths(-(Math.Max(months, 1) - 1));
 
         var history = new List<SaleAgg>();
         var trailing = new List<SaleAgg>();
@@ -194,6 +198,7 @@ public class FactoryGrademixService(ICatalogueSource catalogues, MongoContext db
 
     private List<MonthlyPointDto> BuildMonthly(Context ctx, string code, string section, string? elevName)
     {
+        if (ctx.Months <= 0) return []; // "this sale only" — caller asked for no monthly trend
         var start = new DateTime(ctx.Present.Date.Year, ctx.Present.Date.Month, 1).AddMonths(-(ctx.Months - 1));
         var points = new List<MonthlyPointDto>();
         for (var i = 0; i < ctx.Months; i++)

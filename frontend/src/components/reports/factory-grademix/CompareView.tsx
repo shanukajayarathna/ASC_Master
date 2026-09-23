@@ -6,9 +6,10 @@ import { DivergingBars, GroupedBarChart, Legend, StackedShare, pct, rs, rs2, sig
 const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)"];
 const GROUP_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-7)"];
 
+// Strips the generic "TEA FACTORY"/"ESTATE"/etc. suffix only — the chart itself wraps a long
+// name onto two lines, so this no longer hard-truncates it into an unreadable ellipsis.
 function shortName(n: string) {
-  const s = n.replace(/\s*(TEA\s+)?(FACTORY|PROCESSING CENTER|ESTATE)\b.*$/i, "").trim() || n;
-  return s.length > 16 ? `${s.slice(0, 15)}…` : s;
+  return n.replace(/\s*(TEA\s+)?(FACTORY|PROCESSING CENTER|ESTATE)\b.*$/i, "").trim() || n;
 }
 
 /** Factories the user picked, side by side, in the same visual language as the single-factory
@@ -60,7 +61,7 @@ export default function CompareView({ items, hidePeers }: { items: GrademixCompa
         </table>
         {mixedElevations && (
           <p className="m-0 mt-1.5 text-[11.5px] text-text-muted">
-            These factories sit in different elevations, so each is measured against its own elevation's Tea Board average.
+            These factories sit in different elevations, so each is measured against its own elevation&apos;s Tea Board average.
           </p>
         )}
       </div>
@@ -90,6 +91,7 @@ export default function CompareView({ items, hidePeers }: { items: GrademixCompa
         </div>
       </div>
 
+      {months.length > 0 && (
       <div className={`${card} mb-5`} style={cardStyle}>
         <h3 className="font-display text-[14px] font-semibold text-text-strong m-0 mb-0.5">Month by month</h3>
         <p className="m-0 mb-2 text-[12px] text-text-muted">Average price achieved per calendar month.</p>
@@ -97,10 +99,13 @@ export default function CompareView({ items, hidePeers }: { items: GrademixCompa
         <GroupedBarChart
           ariaLabel="Monthly average price per factory"
           labels={months.map((m) => (m.inProgress ? `${m.label}*` : m.label))}
-          series={items.map((it, i) => ({ name: name(i), color: SERIES[i], values: it.monthly.map((m) => m.avgRs) }))}
+          series={items.map((it, i) => ({ name: short(i), color: SERIES[i], values: it.monthly.map((m) => m.avgRs) }))}
+          nameOnBar
+          height={280}
         />
         <p className="m-0 mt-1 text-[11px] text-text-muted">* month to date</p>
       </div>
+      )}
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {items.map((it, i) => (

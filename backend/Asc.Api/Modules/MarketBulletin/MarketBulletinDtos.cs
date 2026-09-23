@@ -6,7 +6,10 @@ namespace Asc.Api.Modules.MarketBulletin;
 /// this week's Select Best lots carried 22% of this grade's total Kg this week. Null when the
 /// grade traded zero quantity that week (nothing to take a share of), never 0 in that case, so
 /// "no trade" isn't confused with "traded, but this tier got none."</summary>
-public record PriceRangeDto(decimal? Min, decimal? Max, int LotCount, decimal? QuantityPct);
+/// <summary>IsOverride is true only for a ThisWeek range the user has manually corrected and
+/// saved (see MarketBulletinRangeOverride) — LastWeek and every non-overridden ThisWeek range
+/// are always plain automatic-computation output, IsOverride false.</summary>
+public record PriceRangeDto(decimal? Min, decimal? Max, int LotCount, decimal? QuantityPct, bool IsOverride = false);
 
 public record BulletinRowDto(string Label, PriceRangeDto ThisWeek, PriceRangeDto LastWeek);
 

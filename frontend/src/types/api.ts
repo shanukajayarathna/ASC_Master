@@ -379,6 +379,10 @@ export interface PriceRange {
   min: number | null;
   max: number | null;
   lotCount: number;
+  /** True only for a ThisWeek range the user has manually corrected and saved — see
+   *  api.saveMarketBulletinRangeOverride. Always false for LastWeek and for any range no one
+   *  has overridden. */
+  isOverride?: boolean;
   /** This tier's share (0-100) of the grade's total traded quantity (Kg) that same week.
    *  Null when the grade traded zero quantity that week — never 0, so "no trade" isn't
    *  confused with "traded, but this tier got none." */

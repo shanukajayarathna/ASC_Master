@@ -42,6 +42,7 @@ import type {
   MarketPulsePagedResult,
   MarketPulseSource,
   MasterDataEntity,
+  PriceRange,
   DeactivatedInsteadOfDeleted,
   FactoryRecord,
   MarkRecord,
@@ -651,6 +652,26 @@ export const api = {
   // body) when the catalogue's SourceName doesn't match "Sale N - YYYY", which request() already
   // resolves to undefined.
   getMarketBulletinMonthly: (catalogueId: string) => request<MonthlyComparison | undefined>(`/api/v1/market-bulletin/${catalogueId}/monthly`),
+
+  // Recomputes one row's LotCount/Qty% for a hypothetical "This Week" [min, max] range, from
+  // the sale's own real lots — a pure, stateless calculation. Nothing is saved anywhere: the
+  // caller applies the returned PriceRange to its own local view only, so a page reload always
+  // shows the plain automatic figures again. See MarketBulletinController.PreviewRangeOverride.
+  previewMarketBulletinRangeOverride: (
+    catalogueId: string,
+    row: { section: string; groupLabel: string | null; tableTitle: string; rowLabel: string; min: number; max: number },
+  ) =>
+    request<PriceRange>(`/api/v1/market-bulletin/${catalogueId}/range-overrides/preview`, {
+      method: "POST",
+      body: JSON.stringify({
+        Section: row.section,
+        GroupLabel: row.groupLabel,
+        TableTitle: row.tableTitle,
+        RowLabel: row.rowLabel,
+        Min: row.min,
+        Max: row.max,
+      }),
+    }),
 
   // Combined Report from an uploaded workbook instead of an imported Catalogue — mirrors the
   // original standalone tool's own single-dropzone flow for a sale that isn't in the system yet.

@@ -1,5 +1,6 @@
 "use client";
 
+import { api } from "@/lib/api";
 import type { BulletinRow, BulletinSection, BulletinTable, MarketBulletin, MonthlyComparison, MonthlySaleSlot, PriceRange } from "@/types/api";
 import type { CSSProperties } from "react";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
@@ -245,7 +246,58 @@ function rowBand(label: string): string | null {
   return /^(Low|Medium|High)\s/.exec(label)?.[1] ?? null;
 }
 
-function RangeRow({ row, zebra, bandBreak, tierBreak }: { row: BulletinRow; zebra: boolean; bandBreak?: boolean; tierBreak?: boolean }) {
+/** rowKeyOf's own string form — matches MarketBulletinController's RangeOverrideDto field
+ *  shape (section/groupLabel/tableTitle/rowLabel), just joined into one string so it can be a
+ *  Map key for pending, not-yet-saved edits. */
+function rowKeyOf(section: string, groupLabel: string | null, tableTitle: string, rowLabel: string): string {
+  return `${section}\u0000${groupLabel ?? ""}\u0000${tableTitle}\u0000${rowLabel}`;
+}
+
+export interface PendingRangeEdit {
+  min: string;
+  max: string;
+}
+
+interface EditingProps {
+  /** Only pages 1-3's ThisWeek ranges are ever editable (per explicit instruction) — page 4's
+   *  own pie/table cards never receive this, so they're never affected. */
+  editable: boolean;
+  section: string;
+  groupLabel: string | null;
+  tableTitle: string;
+  pendingEdits: Map<string, PendingRangeEdit>;
+  onEditChange: (rowKey: string, edit: PendingRangeEdit) => void;
+  /** A row the user has clicked Save on: the server's recomputed range, applied to this view
+   *  only — see MarketBulletinBulletinProps' own editable doc comment on why this is never
+   *  persisted anywhere. */
+  appliedOverrides: Map<string, PriceRange>;
+  /** Purely local — clears BOTH a not-yet-saved typed edit and an already-applied one for this
+   *  row, falling back to the bulletin's own plain automatic figures on the next render. No
+   *  network call: there is nothing saved server-side to delete. */
+  onReset: (rowKey: string) => void;
+}
+
+function RangeRow({
+  row,
+  zebra,
+  bandBreak,
+  tierBreak,
+  editing,
+}: {
+  row: BulletinRow;
+  zebra: boolean;
+  bandBreak?: boolean;
+  tierBreak?: boolean;
+  editing?: EditingProps;
+}) {
+  const rowKey = editing ? rowKeyOf(editing.section, editing.groupLabel, editing.tableTitle, row.label) : null;
+  const pending = rowKey ? editing?.pendingEdits.get(rowKey) : undefined;
+  const applied = rowKey ? editing?.appliedOverrides.get(rowKey) : undefined;
+  // What actually shows for ThisWeek: this row's own applied-and-saved-for-this-view figure if
+  // there is one, else the bulletin's own plain automatic figure. Never anything persisted.
+  const displayedThisWeek = applied ?? row.thisWeek;
+  const canReset = rowKey !== null && (pending !== undefined || applied !== undefined);
+
   return (
     <div
       className={styles.row}
@@ -257,9 +309,40 @@ function RangeRow({ row, zebra, bandBreak, tierBreak }: { row: BulletinRow; zebr
         {row.label}
       </span>
       <span className={styles.rowValGroup}>
-        <span className={`${styles.rowVal} ${styles.rowValThis}`}>{formatRange(row.thisWeek)}</span>
+        {editing?.editable ? (
+          <span className={styles.rowValEdit}>
+            <input
+              type="number"
+              inputMode="decimal"
+              className={styles.rowEditInput}
+              aria-label={`${row.label} this week minimum`}
+              value={pending?.min ?? (displayedThisWeek.min ?? "")}
+              onChange={(e) => editing.onEditChange(rowKey!, { min: e.target.value, max: pending?.max ?? String(displayedThisWeek.max ?? "") })}
+            />
+            <span className={styles.rowEditDash} aria-hidden="true">
+              –
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              className={styles.rowEditInput}
+              aria-label={`${row.label} this week maximum`}
+              value={pending?.max ?? (displayedThisWeek.max ?? "")}
+              onChange={(e) => editing.onEditChange(rowKey!, { min: pending?.min ?? String(displayedThisWeek.min ?? ""), max: e.target.value })}
+            />
+            {canReset && (
+              <button type="button" className={styles.rowResetBtn} title="Reset to the automatic figure" onClick={() => editing.onReset(rowKey!)}>
+                ↺
+              </button>
+            )}
+          </span>
+        ) : (
+          <span className={`${styles.rowVal} ${styles.rowValThis}`} data-override={applied ? "true" : undefined}>
+            {formatRange(displayedThisWeek)}
+          </span>
+        )}
         <span className={styles.rowPct} title="Share of this grade's total traded quantity this week">
-          {formatPct(row.thisWeek.quantityPct)}
+          {formatPct(displayedThisWeek.quantityPct)}
         </span>
       </span>
       <span className={styles.rowValGroup}>
@@ -272,7 +355,8 @@ function RangeRow({ row, zebra, bandBreak, tierBreak }: { row: BulletinRow; zebr
   );
 }
 
-function TableCard({ table }: { table: BulletinTable }) {
+function TableCard({ table, section, editing }: { table: BulletinTable; section: string; editing?: Omit<EditingProps, "section" | "groupLabel" | "tableTitle"> }) {
+  const rowEditing: EditingProps | undefined = editing && { ...editing, section, groupLabel: table.groupLabel, tableTitle: table.gradeLabel };
   return (
     <div className={styles.table}>
       <div className={styles.tableHead}>
@@ -294,13 +378,13 @@ function TableCard({ table }: { table: BulletinTable }) {
         const band = rowBand(r.label);
         const bandBreak = i > 0 && band !== null && band !== rowBand(table.rows[i - 1].label);
         const tierBreak = i > 0 && tierAccent(r.label) !== tierAccent(table.rows[i - 1].label);
-        return <RangeRow key={i} row={r} zebra={i % 2 === 1} bandBreak={bandBreak} tierBreak={tierBreak} />;
+        return <RangeRow key={i} row={r} zebra={i % 2 === 1} bandBreak={bandBreak} tierBreak={tierBreak} editing={rowEditing} />;
       })}
     </div>
   );
 }
 
-function SectionCard({ section }: { section: BulletinSection }) {
+function SectionCard({ section, editing }: { section: BulletinSection; editing?: Omit<EditingProps, "section" | "groupLabel" | "tableTitle"> }) {
   const minWidth = SECTION_MIN_WIDTH[section.title] ?? 480;
   return (
     <div className={styles.section}>
@@ -310,7 +394,7 @@ function SectionCard({ section }: { section: BulletinSection }) {
       ) : (
         <div className={styles.tableGrid} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))` }}>
           {section.tables.map((t, ti) => (
-            <TableCard key={ti} table={t} />
+            <TableCard key={ti} table={t} section={section.title} editing={editing} />
           ))}
         </div>
       )}
@@ -570,7 +654,7 @@ function MonthlyComparisonSection({ comparison }: { comparison: MonthlyCompariso
   return (
     <div className={styles.section} data-mb-flow="grow">
       <div className={styles.sectionHead}>
-        Month-to-Month Comparison of Quality <span className={styles.monthlyUnit}>wedge = Kg share per tier</span>
+        Month to Month Sales Comparison of Sold Quantity &amp; Quality - All Brokers <span className={styles.monthlyUnit}>wedge = Kg share per tier</span>
       </div>
       <div className={styles.monthlyBody}>
         <div className={styles.monthlyLegend}>
@@ -648,9 +732,19 @@ export interface MarketBulletinBulletinProps {
    *  this (rather than just "data has loaded") before telling Playwright the page is ready to
    *  snapshot, so a PDF export can never capture a mid-measurement frame. */
   onReady?: () => void;
+  /** The sale being viewed — required only when editable is true (a preview recompute needs to
+   *  know which sale's real lots to read). Omitted entirely on the print route, which never
+   *  sets editable, so a PDF export is never affected by any of this. */
+  catalogueId?: string;
+  /** Pages 1-3's ThisWeek ranges become editable, with a floating Save bar, only when true —
+   *  per explicit instruction. Never set by print/market-bulletin/page.tsx. Per explicit
+   *  instruction (reversing an earlier version of this feature), nothing here is ever
+   *  persisted: a saved edit only updates THIS component's own local view, for as long as the
+   *  page stays open — a reload always comes back to the plain automatic figures. */
+  editable?: boolean;
 }
 
-function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBulletinBulletinProps) {
+function MarketBulletinBulletinContent({ bulletin, monthly, onReady, catalogueId, editable = false }: MarketBulletinBulletinProps) {
   const byTitle = new Map(bulletin.sections.map((s) => [s.title, s]));
   const saleNo = extractSaleNumber(bulletin.sourceName);
   const prevSaleNo = bulletin.previousSourceName ? extractSaleNumber(bulletin.previousSourceName) : null;
@@ -659,6 +753,81 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBul
   const rootRef = useRef<HTMLDivElement>(null);
   const [rung, setRung] = useState(0);
   const [settled, setSettled] = useState(false);
+
+  // ---- pages 1-3 range editing (session-local only — see MarketBulletinBulletinProps'
+  // editable doc comment) ------------------------------------------------------------------
+  const [pendingEdits, setPendingEdits] = useState<Map<string, PendingRangeEdit>>(new Map());
+  // A row the user has Saved: the server's recomputed PriceRange, applied to THIS view only —
+  // never sent anywhere else, gone the moment the page is left or reloaded.
+  const [appliedOverrides, setAppliedOverrides] = useState<Map<string, PriceRange>>(new Map());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleEditChange = (rowKey: string, edit: PendingRangeEdit) => {
+    setPendingEdits((prev) => new Map(prev).set(rowKey, edit));
+  };
+
+  // Purely local — there is nothing saved on the server to delete, so this just forgets
+  // whatever this view was showing for the row and falls back to the bulletin prop's own
+  // (always-automatic) figures on the very next render.
+  const handleReset = (rowKey: string) => {
+    setPendingEdits((prev) => {
+      if (!prev.has(rowKey)) return prev;
+      const next = new Map(prev);
+      next.delete(rowKey);
+      return next;
+    });
+    setAppliedOverrides((prev) => {
+      if (!prev.has(rowKey)) return prev;
+      const next = new Map(prev);
+      next.delete(rowKey);
+      return next;
+    });
+  };
+
+  const pendingCount = pendingEdits.size;
+
+  const handleSaveAll = async () => {
+    if (!catalogueId || pendingCount === 0) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const entries = [...pendingEdits.entries()];
+      const results = new Map<string, PriceRange>();
+      for (const [rowKey, edit] of entries) {
+        const [section, groupLabelRaw, tableTitle, rowLabel] = rowKey.split("\u0000");
+        const min = Number(edit.min);
+        const max = Number(edit.max);
+        if (!Number.isFinite(min) || !Number.isFinite(max)) throw new Error(`"${rowLabel}" needs both a Min and a Max`);
+        if (min > max) throw new Error(`"${rowLabel}": Min can't be greater than Max`);
+        // eslint-disable-next-line no-await-in-loop -- deliberately sequential: one row failing
+        // (e.g. a bad number) should leave every row before it applied and stop before the rest.
+        const computed = await api.previewMarketBulletinRangeOverride(catalogueId, {
+          section,
+          groupLabel: groupLabelRaw === "" ? null : groupLabelRaw,
+          tableTitle,
+          rowLabel,
+          min,
+          max,
+        });
+        results.set(rowKey, computed);
+      }
+      setAppliedOverrides((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of results) next.set(k, v);
+        return next;
+      });
+      setPendingEdits(new Map());
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Couldn't apply one or more rows");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editingProps = editable
+    ? { editable: true as const, pendingEdits, onEditChange: handleEditChange, appliedOverrides, onReset: handleReset }
+    : undefined;
 
   // Runs synchronously after each render, before the browser paints — measuring here (rather
   // than in a plain useEffect) is what keeps a downgrade from ROOMY invisible: React commits the
@@ -692,7 +861,7 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBul
             <Masthead bulletin={bulletin} saleNo={saleNo} prevSaleNo={prevSaleNo} />
             <div className={styles.sections}>
               {sections.map((s, si) => (
-                <SectionCard key={si} section={s} />
+                <SectionCard key={si} section={s} editing={editingProps} />
               ))}
             </div>
             <Footer saleNo={saleNo} pageNumber={pi + 1} totalPages={totalPages} />
@@ -721,6 +890,34 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady }: MarketBul
             <MonthlyComparisonSection comparison={monthly} />
           </div>
           <Footer saleNo={saleNo} pageNumber={totalPages} totalPages={totalPages} />
+        </div>
+      )}
+
+      {/* print:hidden — this bar (and every input it controls) must never appear in the PDF
+          export/browser print, only in the on-screen editable view. */}
+      {editable && (pendingCount > 0 || saveError) && (
+        <div className={styles.editSaveBar}>
+          {saveError ? (
+            <span className={styles.editSaveError}>{saveError}</span>
+          ) : (
+            <span>
+              {pendingCount} row{pendingCount === 1 ? "" : "s"} changed
+            </span>
+          )}
+          <button type="button" className={styles.editSaveBtn} onClick={handleSaveAll} disabled={saving || pendingCount === 0}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            className={styles.editDiscardBtn}
+            onClick={() => {
+              setPendingEdits(new Map());
+              setSaveError(null);
+            }}
+            disabled={saving}
+          >
+            Discard
+          </button>
         </div>
       )}
     </div>
