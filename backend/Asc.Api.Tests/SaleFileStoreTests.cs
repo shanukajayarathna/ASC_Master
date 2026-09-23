@@ -76,17 +76,24 @@ public class SaleFileStoreTests
     {
         public SaleFileStore Store { get; }
         public string SalesDir { get; }
+        public string CacheDir { get; }
         private readonly string _root;
+        private readonly string _contentRoot;
 
         public TempStore()
         {
             _root = Path.Combine(Path.GetTempPath(), "asc-salefilestore-tests-" + Guid.NewGuid());
-            var contentRoot = Path.Combine(_root, "backend", "Asc.Api");
+            _contentRoot = Path.Combine(_root, "backend", "Asc.Api");
             SalesDir = Path.Combine(_root, "data", "sales");
-            Directory.CreateDirectory(contentRoot);
+            CacheDir = Path.Combine(_root, "data", ".cache");
+            Directory.CreateDirectory(_contentRoot);
             Directory.CreateDirectory(SalesDir);
-            Store = new SaleFileStore(new CatalogueImportService(), new FakeEnv { ContentRootPath = contentRoot });
+            Store = NewStore();
         }
+
+        /// <summary>A second store over the same folders — stands in for a backend restart.</summary>
+        public SaleFileStore NewStore() =>
+            new(new CatalogueImportService(), new FakeEnv { ContentRootPath = _contentRoot });
 
         public void Dispose()
         {
@@ -113,6 +120,73 @@ public class SaleFileStoreTests
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var fs = File.Create(path);
         wb.Write(fs);
+    }
+
+    /// <summary>A sale file shaped like the real "General Report" sheet (the headers the Sharing
+    /// Mark report actually depends on), two lots — one of them a reprint.</summary>
+    private static void WriteReportShapedSaleFile(string path)
+    {
+        var headers = new[]
+        {
+            "Broker", "Lot No", "Selling Mark", "Grade", "Invoice No", "Sub Elevation", "Sale Code", "Category",
+            "RP", "Trade Mark", "Bags", "Net Weight", "Total Weight", "Factory Name", "Factory",
+        };
+        string[][] rows =
+        [
+            ["ASC", "1", "GREEN RIDGE", "BOP", "INV1", "L", "S1", "Low Grown", "No", "MF0344B", "10", "30", "300", "MATALE WEST TEA FACTORY", "MF0344"],
+            ["CT", "2", "GREEN RIDGE CTC", "BOP", "INV2", "L", "S1", "Low Grown", "Yes", "MF0344C", "8", "25", "200", "MATALE WEST TEA FACTORY", "MF0344"],
+        ];
+
+        var wb = new XSSFWorkbook();
+        var sheet = wb.CreateSheet("General Report");
+        var headerRow = sheet.CreateRow(0);
+        for (var i = 0; i < headers.Length; i++) headerRow.CreateCell(i).SetCellValue(headers[i]);
+        for (var r = 0; r < rows.Length; r++)
+        {
+            var dataRow = sheet.CreateRow(r + 1);
+            for (var i = 0; i < headers.Length; i++) dataRow.CreateCell(i).SetCellValue(rows[r][i]);
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var fs = File.Create(path);
+        wb.Write(fs);
+    }
+
+    [Fact]
+    public void GetReportLots_CarriesTheSameReportFieldsAsGetLots_WithoutRawData_AndSurvivesARestart()
+    {
+        using var t = new TempStore();
+        WriteReportShapedSaleFile(Path.Combine(t.SalesDir, "05.xlsx"));
+        var id = SaleFileStore.CatalogueIdFor(2026, 5);
+
+        var full = t.Store.GetLots(id)!;
+        var slim = t.Store.GetReportLots(id)!;
+
+        Assert.Equal(2, full.Count);
+        AssertSameReportFields(full, slim);
+        Assert.All(slim, l => Assert.Empty(l.RawData));
+        Assert.Contains(slim, l => l.IsReprint);
+        Assert.NotEmpty(Directory.GetFiles(t.CacheDir, "report-lots-*"));
+
+        // "Restart": a brand-new store reads the compact file it left behind, same values.
+        var afterRestart = t.NewStore().GetReportLots(id)!;
+        AssertSameReportFields(full, afterRestart);
+    }
+
+    private static void AssertSameReportFields(IReadOnlyList<Asc.Api.Models.Lot> expected, IReadOnlyList<Asc.Api.Models.Lot> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Broker, actual[i].Broker);
+            Assert.Equal(expected[i].Mark, actual[i].Mark);
+            Assert.Equal(expected[i].SellingMark, actual[i].SellingMark);
+            Assert.Equal(expected[i].Factory, actual[i].Factory);
+            Assert.Equal(expected[i].FactoryName, actual[i].FactoryName);
+            Assert.Equal(expected[i].Elevation, actual[i].Elevation);
+            Assert.Equal(expected[i].SaleNo, actual[i].SaleNo);
+            Assert.Equal(expected[i].NetWeight, actual[i].NetWeight);
+            Assert.Equal(expected[i].IsReprint, actual[i].IsReprint);
+        }
     }
 
     [Fact]

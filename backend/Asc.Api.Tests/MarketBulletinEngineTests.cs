@@ -243,6 +243,70 @@ public class MarketBulletinEngineTests
         Assert.Equal(["BOP", "PEK"], exEstate.Tables.Select(t => t.GradeLabel));
     }
 
+    // ---- saved range overrides -----------------------------------------------------------
+
+    [Fact]
+    public void Build_AppliesSavedRangeOverride_RecomputesLotCountAndQuantityPctFromRealLots()
+    {
+        // 5 lots, 100kg each (500kg total for the grade). Un-overridden, TierSplitter cuts this
+        // into Select Best={500}, Best={400}, Below Best={300,200}, Poor={100}.
+        var thisWeek = new List<Lot>
+        {
+            new() { Grade = "OP1", Elevation = "L", PurchasedPrice = 500m, NetWeight = 100m, Status = "Sold" },
+            new() { Grade = "OP1", Elevation = "L", PurchasedPrice = 400m, NetWeight = 100m, Status = "Sold" },
+            new() { Grade = "OP1", Elevation = "L", PurchasedPrice = 300m, NetWeight = 100m, Status = "Sold" },
+            new() { Grade = "OP1", Elevation = "L", PurchasedPrice = 200m, NetWeight = 100m, Status = "Sold" },
+            new() { Grade = "OP1", Elevation = "L", PurchasedPrice = 100m, NetWeight = 100m, Status = "Sold" },
+        };
+
+        // OP1 is also one of "High and Medium"'s own grade list (same grades, high/medium
+        // elevation only — see BuildHighAndMedium), so it appears there too as an all-empty
+        // table (these lots are all Elevation "L") — scoped to "Low Grown" to get the one
+        // table that actually has this test's lots.
+        var baseline = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
+        var lowGrown = baseline.Sections.Single(s => s.Title == "Low Grown");
+        var table = lowGrown.Tables.Single(t => t.GradeLabel == "OP1");
+        var section = lowGrown;
+        var bestBaseline = table.Rows.Single(r => r.Label == "Best");
+        Assert.Equal(400m, bestBaseline.ThisWeek.Max);
+        Assert.Equal(1, bestBaseline.ThisWeek.LotCount);
+        Assert.Equal(20m, bestBaseline.ThisWeek.QuantityPct); // 100/500 * 100
+        Assert.False(bestBaseline.ThisWeek.IsOverride);
+
+        // Save a wider [250, 450] window for "Best" — two real lots (400 and 300) actually sold
+        // inside it, not just the one TierSplitter's own percentile cut would have picked.
+        var key = new MarketBulletinEngine.RowKey(section.Title, table.GroupLabel, "OP1", "Best");
+        var overrides = new Dictionary<MarketBulletinEngine.RowKey, (decimal Min, decimal Max)> { [key] = (250m, 450m) };
+
+        var overridden = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null, overrides);
+        var overriddenTable = overridden.Sections.Single(s => s.Title == "Low Grown").Tables.Single(t => t.GradeLabel == "OP1");
+        var best = overriddenTable.Rows.Single(r => r.Label == "Best");
+
+        // The range shown is exactly what was saved...
+        Assert.Equal(250m, best.ThisWeek.Min);
+        Assert.Equal(450m, best.ThisWeek.Max);
+        Assert.True(best.ThisWeek.IsOverride);
+        // ...but LotCount/QuantityPct are recomputed from the real lots that fall inside it, not
+        // hand-entered: 2 lots (400, 300), 200kg of the grade's 500kg total = 40%.
+        Assert.Equal(2, best.ThisWeek.LotCount);
+        Assert.Equal(40m, best.ThisWeek.QuantityPct);
+
+        // A different row on the same table is completely untouched by this one row's override.
+        var selectBest = overriddenTable.Rows.Single(r => r.Label == "Select Best");
+        Assert.Equal(500m, selectBest.ThisWeek.Max);
+        Assert.Equal(1, selectBest.ThisWeek.LotCount);
+        Assert.False(selectBest.ThisWeek.IsOverride);
+    }
+
+    [Fact]
+    public void Build_WithNoSavedOverrides_EveryRowComputesAutomatically_IsOverrideFalse()
+    {
+        var thisWeek = Enumerable.Range(1, 20).Select(i => Lot(i)).ToList();
+        var dto = MarketBulletinEngine.Build(thisWeek, null, "This Sale", null);
+        var allRows = dto.Sections.SelectMany(s => s.Tables).SelectMany(t => t.Rows);
+        Assert.All(allRows, r => Assert.False(r.ThisWeek.IsOverride));
+    }
+
     [Fact]
     public void LastWeekComparison_PairsRowsBySection_TableAndLabel()
     {

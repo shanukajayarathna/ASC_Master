@@ -7,11 +7,11 @@ import { useEffect, useState, type CSSProperties } from "react";
 // elsewhere on the landing page/login intro — see public/tea/hero-carousel/ATTRIBUTION.md for
 // source/author/license per file.
 const IMAGES = [
-  "/tea/hero-carousel/haputale-estate.jpg",
-  "/tea/hero-carousel/wewalthalawa-mist.jpg",
-  "/tea/hero-carousel/ceylon-black-tea-macro-2.jpg",
-  "/tea/hero-carousel/tea-estate-workers.jpg",
-  "/tea/hero-carousel/loolkandura-first-estate.jpg",
+  "/tea/hero-carousel/haputale-estate.webp",
+  "/tea/hero-carousel/wewalthalawa-mist.webp",
+  "/tea/hero-carousel/ceylon-black-tea-macro-2.webp",
+  "/tea/hero-carousel/tea-estate-workers.webp",
+  "/tea/hero-carousel/loolkandura-first-estate.webp",
 ];
 
 const INTERVAL_MS = 5000;

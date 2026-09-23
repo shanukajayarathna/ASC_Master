@@ -8,6 +8,7 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, AUTH_TOKEN_STORAGE_KEY } from "@/lib/api";
 import type { MarketBulletin, MonthlyComparison } from "@/types/api";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import Button from "@mui/material/Button";
@@ -23,6 +24,7 @@ export default function MarketBulletinPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [editingRanges, setEditingRanges] = useState(false);
 
   useLeaveConfirmation(exportingPdf, "The Market Bulletin PDF is still exporting. Leaving now will cancel it — continue?");
 
@@ -165,6 +167,13 @@ export default function MarketBulletinPage() {
               {bulletin.sourceName} vs. {bulletin.previousSourceName ?? "no prior sale found"}
             </p>
             <div className="flex gap-2 flex-wrap">
+              <Button
+                variant={editingRanges ? "contained" : "outlined"}
+                startIcon={<EditOutlinedIcon fontSize="small" />}
+                onClick={() => setEditingRanges((v) => !v)}
+              >
+                {editingRanges ? "Done editing" : "Edit ranges"}
+              </Button>
               <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()}>
                 Print
               </Button>
@@ -174,7 +183,12 @@ export default function MarketBulletinPage() {
             </div>
           </div>
 
-          <MarketBulletinBulletin bulletin={bulletin} monthly={monthly} />
+          <MarketBulletinBulletin
+            bulletin={bulletin}
+            monthly={monthly}
+            catalogueId={activeCatalogueId ?? undefined}
+            editable={editingRanges}
+          />
         </div>
       )}
     </div>

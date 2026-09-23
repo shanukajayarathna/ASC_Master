@@ -80,9 +80,12 @@ public class MarkIntelligenceController(MongoContext db, IAuditLogger audit, Mar
     public async Task<ActionResult<List<MarkDto>>> Search([FromQuery] string q, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(q)) return Ok(new List<MarkDto>());
+        // Escaped: q is user input, and an unescaped pattern lets any signed-in user run a
+        // catastrophic-backtracking regex inside MongoDB.
+        var pattern = System.Text.RegularExpressions.Regex.Escape(q.Trim()[..Math.Min(q.Trim().Length, 100)]);
         var filter = Builders<Mark>.Filter.Or(
-            Builders<Mark>.Filter.Regex(m => m.Code, new MongoDB.Bson.BsonRegularExpression(q, "i")),
-            Builders<Mark>.Filter.Regex(m => m.Name, new MongoDB.Bson.BsonRegularExpression(q, "i")));
+            Builders<Mark>.Filter.Regex(m => m.Code, new MongoDB.Bson.BsonRegularExpression(pattern, "i")),
+            Builders<Mark>.Filter.Regex(m => m.Name, new MongoDB.Bson.BsonRegularExpression(pattern, "i")));
         // TODO(remote-api-migration): replace MongoDB repository call with remote API client once backend migration lands.
         var marks = await db.Marks.Find(filter).Limit(50).ToListAsync(ct);
         return Ok(await ToMarkDtosAsync(marks, ct));

@@ -19,21 +19,30 @@ namespace Asc.Api.Modules.MarketBulletin;
 /// </summary>
 public static class MarketBulletinEngine
 {
+    /// <summary>Identifies one bulletin row uniquely across the whole report — Section.Title +
+    /// Table.GroupLabel (nullable) + Table.GradeLabel + Row.Label — the same shape
+    /// MarketBulletinRangeOverride persists a saved correction under. Used ONLY to look a row
+    /// up in the overrides dictionary passed into Build; never part of the row's own identity
+    /// otherwise.</summary>
+    public readonly record struct RowKey(string Section, string? GroupLabel, string TableTitle, string RowLabel);
+
     public static MarketBulletinDto Build(
-        List<Lot> thisWeekLots, List<Lot>? lastWeekLots, string sourceName, string? previousSourceName)
+        List<Lot> thisWeekLots, List<Lot>? lastWeekLots, string sourceName, string? previousSourceName,
+        IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)>? overrides = null)
     {
+        overrides ??= new Dictionary<RowKey, (decimal, decimal)>();
         var thisWeek = TopPriceEngine.ScopeToSold(thisWeekLots).Sold;
         var lastWeek = lastWeekLots is null ? [] : TopPriceEngine.ScopeToSold(lastWeekLots).Sold;
 
         var sections = new List<BulletinSectionDto>
         {
-            BuildLowGrown(thisWeek, lastWeek),
-            BuildFlatFourRowSection("Premium Flowery", MarketBulletinGrades.PremiumFloweryGrades, thisWeek, lastWeek, null),
-            BuildFlatFourRowSection("Off Grade", MarketBulletinGrades.OffGradeGrades, thisWeek, lastWeek, null),
-            BuildDust(thisWeek, lastWeek),
-            BuildHighAndMedium(thisWeek, lastWeek),
-            BuildUnorthodox(thisWeek, lastWeek),
-            BuildExEstate(thisWeek, lastWeek),
+            BuildLowGrown(thisWeek, lastWeek, overrides),
+            BuildFlatFourRowSection("Premium Flowery", MarketBulletinGrades.PremiumFloweryGrades, thisWeek, lastWeek, null, overrides),
+            BuildFlatFourRowSection("Off Grade", MarketBulletinGrades.OffGradeGrades, thisWeek, lastWeek, null, overrides),
+            BuildDust(thisWeek, lastWeek, overrides),
+            BuildHighAndMedium(thisWeek, lastWeek, overrides),
+            BuildUnorthodox(thisWeek, lastWeek, overrides),
+            BuildExEstate(thisWeek, lastWeek, overrides),
         };
 
         return new MarketBulletinDto(sourceName, previousSourceName, DateTime.UtcNow, sections);
@@ -64,11 +73,34 @@ public static class MarketBulletinEngine
     private static decimal TotalQuantityKg(List<Lot> lots) =>
         lots.Where(l => l.PurchasedPrice.HasValue).Sum(l => l.NetWeight ?? 0m);
 
-    private static BulletinRowDto BuildRow(string label, List<Lot> thisWeek, List<Lot> lastWeek, int[] tierIndices)
+    /// <summary>rowKey is null for a caller with no override support wired up (there is none
+    /// today — every builder below passes a real key); kept nullable rather than required so a
+    /// future ad-hoc caller (tests, another report reusing this engine) isn't forced to invent
+    /// one just to get a row.</summary>
+    private static BulletinRowDto BuildRow(
+        string label, List<Lot> thisWeek, List<Lot> lastWeek, int[] tierIndices,
+        RowKey? rowKey = null, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)>? overrides = null)
     {
-        var tw = TierSplitter.Merge(TierSplitter.ComputeFourTiers(thisWeek), tierIndices);
         var lw = TierSplitter.Merge(TierSplitter.ComputeFourTiers(lastWeek), tierIndices);
-        return new BulletinRowDto(label, ToDto(tw, TotalQuantityKg(thisWeek)), ToDto(lw, TotalQuantityKg(lastWeek)));
+
+        PriceRangeDto twDto;
+        if (rowKey is { } key && overrides is not null && overrides.TryGetValue(key, out var o))
+        {
+            // The saved [Min, Max] window replaces the automatic tier cut for ThisWeek only —
+            // LotCount/QuantityPct are still real, recomputed from this week's own lots (never
+            // hand-entered), so they reflect what genuinely sold within the corrected range.
+            var totalKg = TotalQuantityKg(thisWeek);
+            var inRange = thisWeek.Where(l => l.PurchasedPrice is { } p && p >= o.Min && p <= o.Max).ToList();
+            var kg = inRange.Sum(l => l.NetWeight ?? 0m);
+            twDto = new PriceRangeDto(o.Min, o.Max, inRange.Count, totalKg > 0 ? Math.Round(kg / totalKg * 100m, 1) : null, IsOverride: true);
+        }
+        else
+        {
+            var tw = TierSplitter.Merge(TierSplitter.ComputeFourTiers(thisWeek), tierIndices);
+            twDto = ToDto(tw, TotalQuantityKg(thisWeek));
+        }
+
+        return new BulletinRowDto(label, twDto, ToDto(lw, TotalQuantityKg(lastWeek)));
     }
 
     private static readonly int[] TopTwoTiers = [TierSplitter.SelectBest, TierSplitter.Best];
@@ -81,13 +113,16 @@ public static class MarketBulletinEngine
     /// this report, so the prefix was redundant. Leafy/Semi Leafy/Tippy are now sub-group
     /// labels on the tables themselves (see BulletinTableDto's own doc comment) within a single
     /// "Low Grown" section, in that order.</summary>
-    private static BulletinSectionDto BuildLowGrown(List<Lot> thisWeek, List<Lot> lastWeek)
+    private const string LowGrownSection = "Low Grown";
+
+    private static BulletinSectionDto BuildLowGrown(
+        List<Lot> thisWeek, List<Lot> lastWeek, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         var tables = new List<BulletinTableDto>();
-        AddFlatFourRowTables(tables, "Leafy", MarketBulletinGrades.LeafyGrades, thisWeek, lastWeek, IsLowElevation);
-        AddFlatFourRowTables(tables, "Semi Leafy", MarketBulletinGrades.SemiLeafyGrades, thisWeek, lastWeek, IsLowElevation);
-        AddFlatFourRowTables(tables, "Tippy", MarketBulletinGrades.TippyGrades, thisWeek, lastWeek, IsLowElevation);
-        return new BulletinSectionDto("Low Grown", tables);
+        AddFlatFourRowTables(tables, LowGrownSection, "Leafy", MarketBulletinGrades.LeafyGrades, thisWeek, lastWeek, IsLowElevation, overrides);
+        AddFlatFourRowTables(tables, LowGrownSection, "Semi Leafy", MarketBulletinGrades.SemiLeafyGrades, thisWeek, lastWeek, IsLowElevation, overrides);
+        AddFlatFourRowTables(tables, LowGrownSection, "Tippy", MarketBulletinGrades.TippyGrades, thisWeek, lastWeek, IsLowElevation, overrides);
+        return new BulletinSectionDto(LowGrownSection, tables);
     }
 
     /// <summary>One table per grade, the classic Select Best/Best/Below Best/Poor 4-row shape
@@ -95,15 +130,17 @@ public static class MarketBulletinEngine
     /// IsLowElevation), Premium Flowery, and Off Grade (elevationFilter = null, no elevation
     /// restriction — real data shows both span every elevation band).</summary>
     private static BulletinSectionDto BuildFlatFourRowSection(
-        string title, string[] grades, List<Lot> thisWeek, List<Lot> lastWeek, Func<Lot, bool>? elevationFilter)
+        string title, string[] grades, List<Lot> thisWeek, List<Lot> lastWeek, Func<Lot, bool>? elevationFilter,
+        IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         var tables = new List<BulletinTableDto>();
-        AddFlatFourRowTables(tables, null, grades, thisWeek, lastWeek, elevationFilter);
+        AddFlatFourRowTables(tables, title, null, grades, thisWeek, lastWeek, elevationFilter, overrides);
         return new BulletinSectionDto(title, tables);
     }
 
     private static void AddFlatFourRowTables(
-        List<BulletinTableDto> tables, string? groupLabel, string[] grades, List<Lot> thisWeek, List<Lot> lastWeek, Func<Lot, bool>? elevationFilter)
+        List<BulletinTableDto> tables, string section, string? groupLabel, string[] grades, List<Lot> thisWeek, List<Lot> lastWeek,
+        Func<Lot, bool>? elevationFilter, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         foreach (var grade in grades)
         {
@@ -114,12 +151,13 @@ public static class MarketBulletinEngine
                 tw = tw.Where(elevationFilter).ToList();
                 lw = lw.Where(elevationFilter).ToList();
             }
+            RowKey Key(string rowLabel) => new(section, groupLabel, grade, rowLabel);
             var rows = new List<BulletinRowDto>
             {
-                BuildRow("Select Best", tw, lw, [TierSplitter.SelectBest]),
-                BuildRow("Best", tw, lw, [TierSplitter.Best]),
-                BuildRow("Below Best", tw, lw, [TierSplitter.BelowBest]),
-                BuildRow("Poor", tw, lw, [TierSplitter.Poor]),
+                BuildRow("Select Best", tw, lw, [TierSplitter.SelectBest], Key("Select Best"), overrides),
+                BuildRow("Best", tw, lw, [TierSplitter.Best], Key("Best"), overrides),
+                BuildRow("Below Best", tw, lw, [TierSplitter.BelowBest], Key("Below Best"), overrides),
+                BuildRow("Poor", tw, lw, [TierSplitter.Poor], Key("Poor"), overrides),
             };
             tables.Add(new BulletinTableDto(grade, rows, groupLabel));
         }
@@ -139,7 +177,10 @@ public static class MarketBulletinEngine
     /// each band showing the full 4-tier breakdown — 12 rows per table. Plain elevation-
     /// prefixed row labels (e.g. "Low Select Best") are the same convention this report
     /// already used for elevation rows before this restructure — no new DTO field needed.</summary>
-    private static BulletinSectionDto BuildDust(List<Lot> thisWeek, List<Lot> lastWeek)
+    private const string DustSection = "Dust";
+
+    private static BulletinSectionDto BuildDust(
+        List<Lot> thisWeek, List<Lot> lastWeek, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         var tables = new List<BulletinTableDto>();
         foreach (var grade in MarketBulletinGrades.DustGrades)
@@ -151,14 +192,15 @@ public static class MarketBulletinEngine
             {
                 var twBand = tw.Where(filter).ToList();
                 var lwBand = lw.Where(filter).ToList();
-                rows.Add(BuildRow($"{bandLabel} Select Best", twBand, lwBand, [TierSplitter.SelectBest]));
-                rows.Add(BuildRow($"{bandLabel} Best", twBand, lwBand, [TierSplitter.Best]));
-                rows.Add(BuildRow($"{bandLabel} Below Best", twBand, lwBand, [TierSplitter.BelowBest]));
-                rows.Add(BuildRow($"{bandLabel} Poor", twBand, lwBand, [TierSplitter.Poor]));
+                RowKey Key(string rowLabel) => new(DustSection, null, grade, rowLabel);
+                rows.Add(BuildRow($"{bandLabel} Select Best", twBand, lwBand, [TierSplitter.SelectBest], Key($"{bandLabel} Select Best"), overrides));
+                rows.Add(BuildRow($"{bandLabel} Best", twBand, lwBand, [TierSplitter.Best], Key($"{bandLabel} Best"), overrides));
+                rows.Add(BuildRow($"{bandLabel} Below Best", twBand, lwBand, [TierSplitter.BelowBest], Key($"{bandLabel} Below Best"), overrides));
+                rows.Add(BuildRow($"{bandLabel} Poor", twBand, lwBand, [TierSplitter.Poor], Key($"{bandLabel} Poor"), overrides));
             }
             tables.Add(new BulletinTableDto(grade, rows));
         }
-        return new BulletinSectionDto("Dust", tables);
+        return new BulletinSectionDto(DustSection, tables);
     }
 
     // ---- High and Medium: same 15 grades/order as Low Grown, flat 4-row — no mark/elevation split ----
@@ -175,7 +217,10 @@ public static class MarketBulletinEngine
     /// distinction here, just the same 4 classifications every other flat section uses. Not
     /// split into Leafy/Semi Leafy/Tippy sub-groups either (GroupLabel stays null for every
     /// table here — see BulletinTableDto's own doc comment).</summary>
-    private static BulletinSectionDto BuildHighAndMedium(List<Lot> thisWeek, List<Lot> lastWeek)
+    private const string HighAndMediumSection = "High and Medium";
+
+    private static BulletinSectionDto BuildHighAndMedium(
+        List<Lot> thisWeek, List<Lot> lastWeek, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         var grades = MarketBulletinGrades.LeafyGrades
             .Concat(MarketBulletinGrades.SemiLeafyGrades)
@@ -183,8 +228,8 @@ public static class MarketBulletinEngine
             .ToArray();
 
         var tables = new List<BulletinTableDto>();
-        AddFlatFourRowTables(tables, null, grades, thisWeek, lastWeek, IsHighOrMediumElevation);
-        return new BulletinSectionDto("High and Medium", tables);
+        AddFlatFourRowTables(tables, HighAndMediumSection, null, grades, thisWeek, lastWeek, IsHighOrMediumElevation, overrides);
+        return new BulletinSectionDto(HighAndMediumSection, tables);
     }
 
     // ---- Unorthodox (CTC): flat 2-row per grade, no elevation restriction -----------------
@@ -192,7 +237,10 @@ public static class MarketBulletinEngine
     /// <summary>BP1/PF1 plus BPS/OF — the CTC-ish grades that real data otherwise tags under
     /// "High and Medium" or "Ex-estate" alongside genuinely Orthodox grades (see
     /// MarketBulletinGrades.UnorthodoxGrades) — shown here once instead of duplicated.</summary>
-    private static BulletinSectionDto BuildUnorthodox(List<Lot> thisWeek, List<Lot> lastWeek)
+    private const string UnorthodoxSection = "Unorthodox";
+
+    private static BulletinSectionDto BuildUnorthodox(
+        List<Lot> thisWeek, List<Lot> lastWeek, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         var tables = new List<BulletinTableDto>();
         foreach (var grade in MarketBulletinGrades.UnorthodoxGrades)
@@ -201,12 +249,12 @@ public static class MarketBulletinEngine
             var lw = LotsForFamily(lastWeek, [grade]);
             var rows = new List<BulletinRowDto>
             {
-                BuildRow($"Best {grade}", tw, lw, TopTwoTiers),
-                BuildRow($"Other {grade}", tw, lw, BottomTwoTiers),
+                BuildRow($"Best {grade}", tw, lw, TopTwoTiers, new RowKey(UnorthodoxSection, null, grade, $"Best {grade}"), overrides),
+                BuildRow($"Other {grade}", tw, lw, BottomTwoTiers, new RowKey(UnorthodoxSection, null, grade, $"Other {grade}"), overrides),
             };
             tables.Add(new BulletinTableDto(grade, rows));
         }
-        return new BulletinSectionDto("Unorthodox", tables);
+        return new BulletinSectionDto(UnorthodoxSection, tables);
     }
 
     // ---- Ex-estate: grouped live by Lot.Category, alphabetical, no elevation restriction ----
@@ -216,7 +264,10 @@ public static class MarketBulletinEngine
     /// and Ex-estate (unlike every other category) has no elevation split to worry about.
     /// Excludes the Unorthodox grade set so BP1/BPS/OF/PF1 lots tagged Category="Ex-estate"
     /// in real data don't show up here as well as under Unorthodox.</summary>
-    private static BulletinSectionDto BuildExEstate(List<Lot> thisWeek, List<Lot> lastWeek)
+    private const string ExEstateSection = "Ex-estate";
+
+    private static BulletinSectionDto BuildExEstate(
+        List<Lot> thisWeek, List<Lot> lastWeek, IReadOnlyDictionary<RowKey, (decimal Min, decimal Max)> overrides)
     {
         var excluded = new HashSet<string>(MarketBulletinGrades.UnorthodoxGrades.Select(NormGrade));
         bool IsExEstate(Lot l) =>
@@ -238,15 +289,16 @@ public static class MarketBulletinEngine
         {
             var tw = LotsForFamily(twPool, [grade]);
             var lw = LotsForFamily(lwPool, [grade]);
+            RowKey Key(string rowLabel) => new(ExEstateSection, null, grade, rowLabel);
             var rows = new List<BulletinRowDto>
             {
-                BuildRow("Select Best", tw, lw, [TierSplitter.SelectBest]),
-                BuildRow("Best", tw, lw, [TierSplitter.Best]),
-                BuildRow("Below Best", tw, lw, [TierSplitter.BelowBest]),
-                BuildRow("Poor", tw, lw, [TierSplitter.Poor]),
+                BuildRow("Select Best", tw, lw, [TierSplitter.SelectBest], Key("Select Best"), overrides),
+                BuildRow("Best", tw, lw, [TierSplitter.Best], Key("Best"), overrides),
+                BuildRow("Below Best", tw, lw, [TierSplitter.BelowBest], Key("Below Best"), overrides),
+                BuildRow("Poor", tw, lw, [TierSplitter.Poor], Key("Poor"), overrides),
             };
             tables.Add(new BulletinTableDto(grade, rows));
         }
-        return new BulletinSectionDto("Ex-estate", tables);
+        return new BulletinSectionDto(ExEstateSection, tables);
     }
 }

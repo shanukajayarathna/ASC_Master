@@ -42,6 +42,7 @@ import type {
   MarketPulsePagedResult,
   MarketPulseSource,
   MasterDataEntity,
+  PriceRange,
   DeactivatedInsteadOfDeleted,
   FactoryRecord,
   MarkRecord,
@@ -52,6 +53,10 @@ import type {
   UnresolvedMarkSighting,
   Plantation,
   FactoryMarkPerformanceSummary,
+  FactoryGrademixReport,
+  GrademixCompareFactory,
+  GrademixFactoryOption,
+  GrademixSaleOption,
   ForwardEstimateSummary,
   FactorySearchResult,
   MslAnalyticsFilter,
@@ -371,6 +376,29 @@ export const api = {
       `/api/v1/mark-intelligence/factory-mark-performance/forward-estimate/${encodeURIComponent(code)}?isFactory=${isFactory}`,
     ),
 
+  // ---- factory grademix report (Reports > Factory Grademix) ---------------------------
+
+  listGrademixSales: () => request<GrademixSaleOption[]>("/api/v1/reports/factory-grademix/sales"),
+  searchGrademixFactories: (q: string) =>
+    request<GrademixFactoryOption[]>(`/api/v1/reports/factory-grademix/factories?q=${encodeURIComponent(q)}`),
+  getFactoryGrademix: (code: string, opts: { year?: number; saleNo?: number; months: number }) => {
+    const p = new URLSearchParams({ months: String(opts.months) });
+    if (opts.year && opts.saleNo) {
+      p.set("year", String(opts.year));
+      p.set("saleNo", String(opts.saleNo));
+    }
+    return request<FactoryGrademixReport>(`/api/v1/reports/factory-grademix/${encodeURIComponent(code)}?${p}`);
+  },
+  compareGrademixFactories: (codes: string[], opts: { year?: number; saleNo?: number; months: number }) => {
+    const p = new URLSearchParams({ months: String(opts.months) });
+    codes.forEach((c) => p.append("codes", c));
+    if (opts.year && opts.saleNo) {
+      p.set("year", String(opts.year));
+      p.set("saleNo", String(opts.saleNo));
+    }
+    return request<GrademixCompareFactory[]>(`/api/v1/reports/factory-grademix/compare?${p}`);
+  },
+
   // ---- audit log (who did what, for admin-mutating actions) --------------------------
 
   listAuditLog: (skip: number, take: number) =>
@@ -624,6 +652,26 @@ export const api = {
   // body) when the catalogue's SourceName doesn't match "Sale N - YYYY", which request() already
   // resolves to undefined.
   getMarketBulletinMonthly: (catalogueId: string) => request<MonthlyComparison | undefined>(`/api/v1/market-bulletin/${catalogueId}/monthly`),
+
+  // Recomputes one row's LotCount/Qty% for a hypothetical "This Week" [min, max] range, from
+  // the sale's own real lots — a pure, stateless calculation. Nothing is saved anywhere: the
+  // caller applies the returned PriceRange to its own local view only, so a page reload always
+  // shows the plain automatic figures again. See MarketBulletinController.PreviewRangeOverride.
+  previewMarketBulletinRangeOverride: (
+    catalogueId: string,
+    row: { section: string; groupLabel: string | null; tableTitle: string; rowLabel: string; min: number; max: number },
+  ) =>
+    request<PriceRange>(`/api/v1/market-bulletin/${catalogueId}/range-overrides/preview`, {
+      method: "POST",
+      body: JSON.stringify({
+        Section: row.section,
+        GroupLabel: row.groupLabel,
+        TableTitle: row.tableTitle,
+        RowLabel: row.rowLabel,
+        Min: row.min,
+        Max: row.max,
+      }),
+    }),
 
   // Combined Report from an uploaded workbook instead of an imported Catalogue — mirrors the
   // original standalone tool's own single-dropzone flow for a sale that isn't in the system yet.

@@ -17,6 +17,7 @@ import NewspaperOutlinedIcon from "@mui/icons-material/NewspaperOutlined";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
 import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
+import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
 
 // Sub-destinations of Reports, not top-level modules — a local tile array rather than
 // NAV_ITEMS/nav.ts (which is the global launchpad). No `image` on the not-yet-built tiles:
@@ -92,6 +93,15 @@ const MODERN_REPORT_TILES: NavItem[] = [
     description: "Estate-wise and Owner/Plantation-group-wise QTY, AVG and unsold breakdown across every broker in a sale.",
     icon: Inventory2OutlinedIcon,
     gradient: 5,
+  },
+  {
+    href: "/reports/factory-grademix",
+    label: "Factory Grademix",
+    section: "Reports",
+    status: "live",
+    description: "Show a factory its last sale in the company grademix layout, month by month vs the Tea Board average, and the expected next sale — or compare factories with bar charts.",
+    icon: BarChartOutlinedIcon,
+    gradient: 4,
   },
   {
     href: "/reports/category-analysis",

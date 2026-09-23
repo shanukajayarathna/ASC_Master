@@ -379,6 +379,10 @@ export interface PriceRange {
   min: number | null;
   max: number | null;
   lotCount: number;
+  /** True only for a ThisWeek range the user has manually corrected and saved — see
+   *  api.saveMarketBulletinRangeOverride. Always false for LastWeek and for any range no one
+   *  has overridden. */
+  isOverride?: boolean;
   /** This tier's share (0-100) of the grade's total traded quantity (Kg) that same week.
    *  Null when the grade traded zero quantity that week — never 0, so "no trade" isn't
    *  confused with "traded, but this tier got none." */
@@ -1509,4 +1513,148 @@ export interface AnalyticsPinDto {
 export interface CreatePinResult {
   status: "added" | "exists" | "full";
   pin: AnalyticsPinDto | null;
+}
+
+// ---- Factory Grademix report (Reports > Factory Grademix) — see docs/13_Reports.md --------
+
+export interface GrademixGradeRow {
+  grade: string;
+  qty: number;
+  avgRs: number | null;
+  qtyPct: number | null;
+  /** The previous sale's offered mix for this grade — only on the expected (next-sale) table. */
+  prevQtyPct: number | null;
+  /** "factory" | "elevation" | "none" — where an expected price came from. */
+  priceBasis: string | null;
+}
+
+export interface GrademixGroupRow {
+  name: string;
+  qty: number;
+  qtyPct: number;
+  avgRs: number | null;
+  contriValue: number;
+}
+
+export interface GrademixTable {
+  main: GrademixGradeRow[];
+  off: GrademixGradeRow[];
+  totalMain: GrademixGroupRow;
+  totalOff: GrademixGroupRow;
+  all: GrademixGroupRow;
+  leafy: GrademixGroupRow[];
+  totalLeafy: GrademixGroupRow;
+  smallLeafy: GrademixGroupRow;
+  offGrade: GrademixGroupRow;
+  totalContri: number;
+  factoryAvgRs: number | null;
+  nationalAvgRs: number;
+  unpricedKg: number;
+}
+
+export interface GrademixSaleRef {
+  year: number;
+  saleNo: number;
+  date: string | null;
+}
+
+export interface GrademixFactoryInfo {
+  code: string;
+  name: string;
+  elevation: string | null;
+  elevationLabel: string | null;
+  section: string;
+  marks: string[];
+}
+
+export interface GrademixNationalRef {
+  avgRs: number;
+  /** "tea-board" | "sale-elevation" | "sale-all" */
+  basis: string;
+  label: string;
+  isStale: boolean;
+  saleElevationAvgRs: number | null;
+}
+
+export interface GrademixMonthlyPoint {
+  year: number;
+  month: number;
+  label: string;
+  sales: number;
+  soldKg: number;
+  avgRs: number | null;
+  teaBoardAvgRs: number | null;
+  inProgress: boolean;
+}
+
+export interface GrademixPresentSale {
+  sale: GrademixSaleRef;
+  offeredKg: number;
+  soldKg: number;
+  unsoldKg: number;
+  table: GrademixTable;
+}
+
+export interface GrademixElevationOutlook {
+  elevation: string;
+  label: string;
+  kg: number;
+  sharePct: number;
+  expectedAvgRs: number | null;
+  teaBoardAvgRs: number | null;
+  isFactoryElevation: boolean;
+}
+
+export interface GrademixWholeSale {
+  totalKg: number;
+  lots: number;
+  factories: number;
+  elevations: GrademixElevationOutlook[];
+  factoryShareOfSalePct: number;
+}
+
+export interface GrademixUpcomingSale {
+  sale: GrademixSaleRef;
+  catalogueKg: number;
+  table: GrademixTable | null;
+  wholeSale: GrademixWholeSale;
+  priceBasisSales: GrademixSaleRef[];
+  expectedVsPresentRs: number | null;
+}
+
+export interface FactoryGrademixReport {
+  factory: GrademixFactoryInfo;
+  national: GrademixNationalRef;
+  present: GrademixPresentSale;
+  monthly: GrademixMonthlyPoint[];
+  upcoming: GrademixUpcomingSale | null;
+  generatedAt: string;
+}
+
+export interface GrademixCompareGroup {
+  name: string;
+  qtyPct: number;
+  contriValue: number;
+}
+
+export interface GrademixCompareFactory {
+  factory: GrademixFactoryInfo;
+  soldKg: number;
+  avgRs: number | null;
+  nationalAvgRs: number;
+  groups: GrademixCompareGroup[];
+  monthly: GrademixMonthlyPoint[];
+  expectedAvgRs: number | null;
+}
+
+export interface GrademixSaleOption {
+  year: number;
+  saleNo: number;
+  date: string | null;
+}
+
+export interface GrademixFactoryOption {
+  code: string;
+  name: string;
+  elevationLabel: string | null;
 }

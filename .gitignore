@@ -25,3 +25,8 @@ Thumbs.db
 
 # Unrelated local scratch content, not part of the ASC product
 /Rishan IT/
+
+# Local run logs and verification build output
+/backend_run.log
+/frontend_run.log
+backend/Asc.Api.Tests/bin_verify/

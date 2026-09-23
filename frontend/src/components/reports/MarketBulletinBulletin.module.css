@@ -537,7 +537,15 @@
 .pieLegendTable {
   width: var(--mb-donut-size);
   display: grid;
-  grid-template-columns: 10px auto 1px 36px 1px 1fr;
+  /* Kg column was a fixed 36px, sized for the smaller volumes this report first shipped with —
+     real month-to-month totals run to 7 digits ("1,313,888"), which simply doesn't fit in 36px
+     at this font size. .pieLegendQty already sets white-space:nowrap and min-width:0 (so it CAN
+     shrink below its own content when the grid needs it to), but a fixed track never grows to
+     let it fit either — the number just overflowed straight past its cell into the Rs/Kg column
+     next to it, unreadable. `auto` matches the tier-name column (2nd track), which was never a
+     problem for the same reason: it sizes the track to whatever this card's own Kg figures
+     actually need, no more, no less, so it never re-breaks the next time volumes grow. */
+  grid-template-columns: 10px auto 1px auto 1px 1fr;
   /* Widened from 6px — per the user's own instruction, text was sitting right up against the
      vertical rules with no breathing room. Uniform column-gap keeps the same small space on
      BOTH sides of each line (it's centered in its own 1px track either way), rather than
@@ -618,7 +626,119 @@
   white-space: nowrap;
 }
 
+/* An overridden ThisWeek value gets a small dot after it — the print/export route never sets
+   editable, so a saved override still reads correctly there (just the corrected range, same as
+   any other value), but the on-screen editable view can tell you which figures are manual
+   corrections at a glance without needing to click into edit mode first. */
+.rowVal[data-override="true"]::after {
+  content: " •";
+  color: #b8860b;
+}
+
+/* Replaces .rowVal's plain text with two live number inputs, only when editable is true (see
+   MarketBulletinBulletinProps' own doc comment) — this whole span, and everything in it, is
+   never present in the print/export route. */
+.rowValEdit {
+  flex: 0 0 80px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rowEditInput {
+  width: 32px;
+  min-width: 0;
+  font: inherit;
+  font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  text-align: right;
+  border: 1px solid #c9c4b0;
+  border-radius: 2px;
+  padding: 1px 2px;
+  color: #124734;
+  background: #fff;
+  /* Hides the browser's native up/down spinner — at this width it would crowd out the digits
+     themselves for a 4-digit price. */
+  appearance: textfield;
+}
+.rowEditInput::-webkit-outer-spin-button,
+.rowEditInput::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.rowEditDash {
+  color: #97998c;
+  font-size: 10px;
+}
+.rowResetBtn {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  color: #6b7a72;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.rowResetBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Fixed to the viewport rather than flowing with the report — it needs to stay reachable no
+   matter how far the user has scrolled down a bulletin that's several printed pages tall.
+   print:hidden equivalent — @media print below hides it outright, since it (and every input it
+   governs) must never appear in an export. */
+.editSaveBar {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #124734;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+.editSaveError {
+  color: #ffd8d8;
+}
+.editSaveBtn {
+  padding: 5px 16px;
+  border-radius: 999px;
+  border: none;
+  background: #e8c468;
+  color: #124734;
+  font-weight: 700;
+  cursor: pointer;
+}
+.editSaveBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.editDiscardBtn {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.editDiscardBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 @media print {
+  .editSaveBar {
+    display: none;
+  }
   .bulletin {
     gap: 0;
     padding: 0;

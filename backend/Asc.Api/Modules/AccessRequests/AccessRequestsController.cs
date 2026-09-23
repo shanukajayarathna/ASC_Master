@@ -19,7 +19,7 @@ public class AccessRequestsController(MongoContext db) : ControllerBase
 {
     [HttpPost]
     [AllowAnonymous]
-    [EnableRateLimiting("login")]
+    [EnableRateLimiting("accessRequest")]
     public async Task<ActionResult<AccessRequestDto>> Submit(SubmitAccessRequestDto dto, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Company))

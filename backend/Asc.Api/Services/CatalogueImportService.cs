@@ -97,7 +97,11 @@ public class CatalogueImportService
             var cells = new List<string>(maxCols);
             for (int c = 0; c < maxCols; c++)
             {
-                var cell = row?.GetCell(c, MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                // Default policy (null for a never-written cell) rather than CREATE_NULL_AS_BLANK:
+                // CellToString already maps a null cell and a Blank cell both to "", and creating
+                // a real blank cell for every gap just allocates ~rows x columns extra objects
+                // inside the workbook for nothing.
+                var cell = row?.GetCell(c);
                 cells.Add(CellToString(cell, evaluator).Trim());
             }
             result.Add(cells);

@@ -24,6 +24,15 @@ public interface ICatalogueSource
     /// <summary>Every lot of a sale, or null for an unknown catalogue. Loads on demand.</summary>
     IReadOnlyList<Lot>? GetLots(Guid catalogueId);
 
+    /// <summary>Same lots as GetLots, but each one reduced to the handful of typed fields the
+    /// Sharing Mark Catalogued Summary machinery reads (broker, mark codes/names, elevation,
+    /// sale number, net weight, reprint flag) — RawData (every original Excel column, ~60 per
+    /// lot) and Valuation are left empty. For a report that walks a whole year's sales at
+    /// once, holding every column of ~450k lots is what balloons the process to gigabytes;
+    /// callers must treat the result as read-only and must not need RawData/Valuation.
+    /// Default: just GetLots, for sources with no cheaper representation.</summary>
+    IReadOnlyList<Lot>? GetReportLots(Guid catalogueId) => GetLots(catalogueId);
+
     /// <summary>Resolve a lot id back to its lot + catalogue (loads its sale on demand).</summary>
     (Lot Lot, Catalogue Catalogue)? FindLot(Guid lotId);
 
@@ -376,7 +385,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             {
                 foreach (var cat in newCatalogues)
                 {
-                    foreach (var lot in GetLots(cat.Id) ?? [])
+                    foreach (var lot in GetReportLots(cat.Id) ?? [])
                     {
                         if (string.IsNullOrWhiteSpace(lot.Elevation)) continue;
                         var factoryCode = !string.IsNullOrWhiteSpace(lot.Factory) ? NormalizeMarkCode(lot.Factory)
@@ -527,7 +536,7 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             {
                 foreach (var cat in newCatalogues)
                 {
-                    foreach (var code in FindSharedFactoryCodesForSale(GetLots(cat.Id) ?? []))
+                    foreach (var code in FindSharedFactoryCodesForSale(GetReportLots(cat.Id) ?? []))
                     {
                         if (!dates.TryGetValue(code, out var existing) || cat.ImportedAt.Date > existing.Date)
                             dates[code] = cat.ImportedAt.Date;
@@ -673,6 +682,94 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     public Catalogue? GetCatalogue(Guid id) => LoadByCatalogueId(id)?.Catalogue;
 
     public IReadOnlyList<Lot>? GetLots(Guid catalogueId) => LoadByCatalogueId(catalogueId)?.Lots;
+
+    // ---- report lots (slim) ------------------------------------------------------------
+
+    private readonly Dictionary<(int Year, int SaleNo), (Signature Sig, List<Lot> Lots)> _reportLots = new();
+
+    /// <summary>On-disk shape of one slim lot: only the fields the Sharing Mark report reads.
+    /// Short JSON names keep the per-sale file small.</summary>
+    private sealed class ReportLotRow
+    {
+        public string? B { get; set; }   // Broker
+        public string? M { get; set; }   // Mark (Trade Mark code)
+        public string? S { get; set; }   // SellingMark
+        public string? F { get; set; }   // Factory
+        public string? N { get; set; }   // FactoryName
+        public string? E { get; set; }   // Elevation
+        public string? No { get; set; }  // SaleNo
+        public decimal? W { get; set; }  // NetWeight
+        public bool R { get; set; }      // IsReprint
+    }
+
+    private static ReportLotRow ToReportRow(Lot l) => new()
+    {
+        B = l.Broker, M = l.Mark, S = l.SellingMark, F = l.Factory, N = l.FactoryName,
+        E = l.Elevation, No = l.SaleNo, W = l.NetWeight, R = l.IsReprint,
+    };
+
+    // string.Intern: a handful of distinct brokers/marks/factories repeat across ~450k lots, so
+    // sharing one instance of each is what makes the slim copy genuinely small.
+    private static string? Intern(string? s) => s is null ? null : string.Intern(s);
+
+    private static Lot FromReportRow(ReportLotRow r, Guid catalogueId) => new()
+    {
+        CatalogueId = catalogueId,
+        Broker = Intern(r.B), Mark = Intern(r.M), SellingMark = Intern(r.S), Factory = Intern(r.F),
+        FactoryName = Intern(r.N), Elevation = Intern(r.E), SaleNo = Intern(r.No),
+        NetWeight = r.W, IsReprint = r.R,
+    };
+
+    // Versioned with CacheSchemaVersion so a re-parse-worthy change to how lots are read also
+    // invalidates every slim copy derived from them; "r1" is this slim shape's own revision.
+    private string ReportLotsCachePath(int year, int saleNo) =>
+        Path.Combine(CacheDir, $"report-lots-{CacheSchemaVersion}-r1-{year}-{saleNo}.json.gz");
+
+    /// <summary>See ICatalogueSource.GetReportLots. First call for a sale builds a compact
+    /// copy from the existing full-sale cache (never inserting the full sale into the LRU, so
+    /// scanning a whole year no longer holds every sale's ~60 columns per lot in memory) and
+    /// persists it; every later call — this process or a future one — reads that small file,
+    /// or the in-memory copy. Invalidated by the same size+mtime signature as the full cache,
+    /// so an edited or replaced sale file refreshes automatically.</summary>
+    public IReadOnlyList<Lot>? GetReportLots(Guid catalogueId)
+    {
+        var file = ScanFiles().FirstOrDefault(f => CatalogueIdFor(f.Year, f.SaleNo) == catalogueId);
+        if (file is null) return null;
+        var key = (file.Year, file.SaleNo);
+
+        lock (_mapLock)
+        {
+            if (_reportLots.TryGetValue(key, out var hit) && hit.Sig == file.Sig) return hit.Lots;
+        }
+
+        object saleLock;
+        lock (_mapLock) saleLock = _saleLocks.TryGetValue(key, out var l) ? l : _saleLocks[key] = new object();
+
+        lock (saleLock)
+        {
+            lock (_mapLock)
+            {
+                if (_reportLots.TryGetValue(key, out var hit) && hit.Sig == file.Sig) return hit.Lots;
+            }
+
+            var path = ReportLotsCachePath(file.Year, file.SaleNo);
+            var rows = ReadCache<List<ReportLotRow>>(path, file.Sig);
+            if (rows is null)
+            {
+                List<Lot>? full;
+                lock (_mapLock)
+                    full = _loaded.TryGetValue(key, out var loaded) && loaded.Sig == file.Sig ? loaded.Lots : null;
+                full ??= ReadCache<CachedSale>(SaleCachePath(file.Year, file.SaleNo), file.Sig)?.Lots
+                    ?? LoadSale(file).Lots; // no cache at all yet: parses the Excel once, as before
+                rows = full.Select(ToReportRow).ToList();
+                WriteCache(path, file.Sig, rows);
+            }
+
+            var lots = rows.Select(r => FromReportRow(r, catalogueId)).ToList();
+            lock (_mapLock) _reportLots[key] = (file.Sig, lots);
+            return lots;
+        }
+    }
 
     public (Lot Lot, Catalogue Catalogue)? FindLot(Guid lotId)
     {
