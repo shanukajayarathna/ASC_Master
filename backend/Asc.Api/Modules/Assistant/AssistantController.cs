@@ -90,8 +90,28 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
             {
                 // The universal chat: choose the agent (or ask one short question first) — see IntentRouter.
                 var replies = priorMessages.Where(m => m.Role == "assistant").TakeLast(IntentRouter.MaxClarifications).Select(m => m.Content);
+
+                // "Sale data" with no sale named: narrow it as a dialogue (year, then a sale number that exists), then answer on exactly that sale.
+                var lastReply = priorMessages.LastOrDefault(m => m.Role == "assistant")?.Content;
+                if (scope is null && SalePicker.Involved(dto.Message, lastReply))
+                {
+                    var available = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0).Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
+                    if (SalePicker.Next(dto.Message, lastReply, [.. available.Select(x => (x.Year, x.SaleNo)).Distinct()]) is { } pick)
+                    {
+                        if (pick.Ask is { } pickQuestion)
+                        {
+                            var pickAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(pickQuestion), Provider = "router" };
+                            await db.ConversationMessages.InsertOneAsync(pickAsk, cancellationToken: ct);
+                            return Ok(new ChatResponseDto(conversation.Id, pickAsk.Content, "router", null, "analytics"));
+                        }
+                        scope = pick.Chosen;
+                    }
+                }
+
                 var lastUser = priorMessages.LastOrDefault(m => m.Role == "user")?.Content;
-                var decision = IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser, hasScope: scope is not null);
+                var decision = scope is not null && SaleScopeChosenThisTurn(lastReply)
+                    ? new RouteDecision("analytics", null, "sale chosen in the dialogue")
+                    : IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser, hasScope: scope is not null);
                 answeredBy = decision.Agent;
                 if (decision.Clarify is { } question)
                 {
@@ -123,6 +143,10 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
         return Ok(new ChatResponseDto(conversation.Id, response.Reply, response.ProviderKey, response.Sources, answeredBy));
     }
+
+    /// <summary>The previous message was the picker's "which sale" question, so this turn's scope came from the dialogue.</summary>
+    private static bool SaleScopeChosenThisTurn(string? lastReply) =>
+        lastReply is not null && (lastReply.StartsWith(SalePicker.SaleQuestionPrefix, StringComparison.Ordinal) || lastReply.StartsWith(SalePicker.YearQuestion, StringComparison.Ordinal));
 
     [HttpGet("providers")]
     public ActionResult<List<ProviderStatusDto>> GetProviders() => Ok(gateway.GetStatuses());
