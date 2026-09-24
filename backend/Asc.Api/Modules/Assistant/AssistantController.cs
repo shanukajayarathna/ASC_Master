@@ -163,6 +163,11 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         {
             return BadRequest(new { error = ex.Message });
         }
+        catch (Exception ex) when (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested)
+        {
+            // The model provider didn't answer in time (a local CPU model on a busy machine can take many minutes).
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "The AI model took too long to answer. Try again, narrow the question, or pick a faster provider (the Local model is for testing only)." });
+        }
 
         var assistantMessage = new ConversationMessage
         {
