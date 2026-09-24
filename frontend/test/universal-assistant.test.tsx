@@ -513,8 +513,8 @@ describe("personalised for the reader", () => {
   it("welcomes the reader by name and offers their own recent questions first, padded with the usual ones", async () => {
     api.getForYou.mockResolvedValue(forYou);
     await open();
-    expect(await screen.findByRole("heading", { name: "Welcome back, Shanuka" })).toBeInTheDocument();
-    expect(screen.getByText(/You have 2 pinned insights in your Library/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^(Good morning|Good afternoon|Good evening|Hello), Shanuka$/ })).toBeInTheDocument();
+    expect(screen.getByText(/Last time you asked: “Compare off-grade share by broker”..*You have 2 pinned insights in your Library/)).toBeInTheDocument();
     const cards = screen.getAllByRole("button").filter((b) => /off-grade share by broker|top prices this sale|Compare brokers over|default penalty/i.test(b.textContent ?? ""));
     expect(cards.map((b) => b.textContent)).toEqual([expect.stringContaining("Compare off-grade share by broker"), expect.stringContaining("Top prices this sale"), expect.stringContaining("Compare brokers over"), expect.stringContaining("Show the top prices this sale")]);
   });
@@ -522,7 +522,7 @@ describe("personalised for the reader", () => {
   it("stays generic for a new reader or when personalisation is off", async () => {
     await open();
     expect(await screen.findByRole("heading", { name: "What would you like to know?" })).toBeInTheDocument();
-    expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last time you asked/)).not.toBeInTheDocument();
   });
 
   it("sends the reader's local hour with a message, so a greeting can say good morning", async () => {

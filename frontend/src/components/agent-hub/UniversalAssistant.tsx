@@ -42,6 +42,8 @@ const STARTERS = [
   "What is the default penalty for a late buyer?",
   "Build a weekly broker report",
 ];
+/** Good morning / afternoon / evening from the reader's own clock (same bands as the server's greeting). */
+export const salutation = (hour: number) => (hour >= 5 && hour <= 11 ? "Good morning" : hour >= 12 && hour <= 16 ? "Good afternoon" : hour >= 17 && hour <= 21 ? "Good evening" : "Hello");
 const CHART_MARKER = /```asc-chart\n[\s\S]*?\n```/g;
 
 /** The builder settings a request implies (group, period, measure…), so the report canvas opens already set up for it. */
@@ -131,9 +133,11 @@ export default function UniversalAssistant() {
   const recent = forYou?.personalise ? forYou.recent : [];
   const starters = [...recent, ...STARTERS.filter((g) => !recent.some((r) => r.toLowerCase() === g.toLowerCase()))].slice(0, 4);
   const personal = !!forYou?.personalise && !!forYou.firstName;
+  const pinNote = forYou && forYou.pinCount > 0 ? ` You have ${forYou.pinCount} pinned insight${forYou.pinCount === 1 ? "" : "s"} in your Library.` : "";
+  // A new conversation opens with the greeting already in place, so nobody has to type "hi".
   const hint = recent.length > 0
-    ? `Pick up where you left off, or ask something new.${forYou && forYou.pinCount > 0 ? ` You have ${forYou.pinCount} pinned insight${forYou.pinCount === 1 ? "" : "s"} in your Library.` : ""}`
-    : "Ask about prices, brokers, lots, by-laws or reports — in English, සිංහල or தமிழ்.";
+    ? `Last time you asked: “${recent[0]}”.${pinNote} Where would you like to start?`
+    : personal ? `What would you like to look at?${pinNote}` : "Ask about prices, brokers, lots, by-laws or reports — in English, සිංහල or தமிழ்.";
 
   const micLevel = useMicLevel(listening);
   const orb: OrbState = listening ? "listening" : chat.sending ? "thinking" : speech.speaking ? "speaking" : "idle";
@@ -185,7 +189,7 @@ export default function UniversalAssistant() {
           chat={chat}
           speech={speech}
           prompts={starters}
-          emptyTitle={personal ? `Welcome back, ${forYou?.firstName}` : "What would you like to know?"}
+          emptyTitle={personal ? `${salutation(new Date().getHours())}, ${forYou?.firstName}` : "What would you like to know?"}
           emptyHint={hint}
           aboveComposer={
             <div className="ws-scopebar">
