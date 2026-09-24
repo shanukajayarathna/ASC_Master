@@ -58,6 +58,28 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
         var isAdmin = (await authorizationService.AuthorizeAsync(User, Policies.UseAdminAiTools)).Succeeded;
         var scope = dto.Scope?.ToScope();
+
+        // Who is asking — only when the user has personalisation on (the default). Everything below uses just this user's own data.
+        var prefs = await PersonalisationController.LoadAsync(db, userId, ct);
+        var firstName = UserContext.FirstNameOf(User.FindFirstValue(ClaimTypes.Name));
+        var profile = prefs.Personalise && firstName is not null
+            ? new UserContext(firstName, User.FindFirstValue(ClaimTypes.Role), prefs.MyBroker)
+            : null;
+
+        // Greetings, thanks and "what can you do" are answered right here, instantly, with no language model.
+        if (string.Equals(dto.Agent, IntentRouter.Auto, StringComparison.OrdinalIgnoreCase) && SmallTalk.Match(dto.Message) is { } talk)
+        {
+            var (recent, pinCount) = prefs.Personalise
+                ? await PersonalisationController.ActivityAsync(db, userId, User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "", ct)
+                : ((IReadOnlyList<string>)[], 0);
+            var talkReply = new ConversationMessage
+            {
+                ConversationId = conversation.Id, Role = "assistant", Provider = "router",
+                Content = SmallTalk.Reply(talk, prefs.Personalise ? firstName : null, dto.LocalHour, recent, pinCount),
+            };
+            await db.ConversationMessages.InsertOneAsync(talkReply, cancellationToken: ct);
+            return Ok(new ChatResponseDto(conversation.Id, talkReply.Content, "router", null, dto.PreviousAgent));
+        }
         if (scope?.Validate() is { } scopeProblem) return BadRequest(new { error = scopeProblem });
         AgentResponse response;
         string? answeredBy = dto.Agent;
@@ -82,7 +104,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
             var agent = agentRouter.Resolve(requested);
             using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
-            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId, scope), ct);
+            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId, scope, profile), ct);
         }
         catch (UnknownAgentException ex)
         {

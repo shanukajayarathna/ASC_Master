@@ -281,6 +281,7 @@ public class MongoContext
     public IMongoCollection<ActualPrice> ActualPrices => Database.GetCollection<ActualPrice>("actualPrices");
     public IMongoCollection<SavedReport> SavedReports => Database.GetCollection<SavedReport>("savedReports");
     public IMongoCollection<CustomReportSpec> CustomReportSpecs => Database.GetCollection<CustomReportSpec>("customReportSpecs");
+    public IMongoCollection<Asc.Api.Modules.Assistant.AssistantPreferences> AssistantPreferences => Database.GetCollection<Asc.Api.Modules.Assistant.AssistantPreferences>("assistantPreferences");
     public IMongoCollection<Asc.Api.Modules.Assistant.AnalyticsPin> AnalyticsPins => Database.GetCollection<Asc.Api.Modules.Assistant.AnalyticsPin>("analyticsPins");
 
     // Legacy collections from the pre-file-store era — kept addressable only so the purge

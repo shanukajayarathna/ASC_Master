@@ -7,7 +7,7 @@ namespace Asc.Api.Modules.Agents;
 /// that wants the latest turn without re-deriving it from History. ActiveCatalogueId is the
 /// sale currently selected in the app's Topbar (null for clients that don't send one) — see
 /// AgentContext.ActiveSaleLine for how agents ground "the current sale" with it.</summary>
-public record AgentRequest(string Message, IReadOnlyList<(string Role, string Content)> History, string? ProviderKey, bool IsAdmin, Guid? ActiveCatalogueId = null, ArchiveScope? Scope = null);
+public record AgentRequest(string Message, IReadOnlyList<(string Role, string Content)> History, string? ProviderKey, bool IsAdmin, Guid? ActiveCatalogueId = null, ArchiveScope? Scope = null, Asc.Api.Modules.Assistant.UserContext? User = null);
 
 /// <summary>
 /// Shared request-context lines agents append to their system prompts.

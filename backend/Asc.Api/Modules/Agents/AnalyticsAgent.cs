@@ -119,7 +119,7 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
             .ToList();
         var forcedBroker = mentioned.Count == 1 ? mentioned[0] : null;
 
-        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + ArchiveScope.PromptLine(request.Scope) +
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + ArchiveScope.PromptLine(request.Scope) + Asc.Api.Modules.Assistant.UserContext.PromptLine(request.User) +
             (forcedBroker is not null
                 ? $"\n(The user's message references broker {forcedBroker} — breakdowns must be scoped to it.)"
                 : "");

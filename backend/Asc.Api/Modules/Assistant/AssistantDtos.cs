@@ -8,7 +8,7 @@ namespace Asc.Api.Modules.Assistant;
 /// ground "the current sale" without a tool round-trip (see AgentContext.ActiveSaleLine).
 /// Optional — older clients that never send it lose nothing but that grounding.</summary>
 /// <summary>Agent "auto" lets the assistant choose (see IntentRouter); PreviousAgent is the agent that answered the last turn, so short follow-ups stay with it.</summary>
-public record ChatRequestDto(Guid? ConversationId, string Message, string? Provider = null, string? Agent = null, Guid? CatalogueId = null, string? PreviousAgent = null, ChatScopeDto? Scope = null);
+public record ChatRequestDto(Guid? ConversationId, string Message, string? Provider = null, string? Agent = null, Guid? CatalogueId = null, string? PreviousAgent = null, ChatScopeDto? Scope = null, int? LocalHour = null);
 
 /// <summary>The stretch of the archive the user chose (one sale, a range, or whole years). Omitted = not restricted.</summary>
 public record ChatScopeDto(int FromYear, int? FromSale, int ToYear, int? ToSale)
