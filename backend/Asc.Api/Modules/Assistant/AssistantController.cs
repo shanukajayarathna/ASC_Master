@@ -19,7 +19,7 @@ namespace Asc.Api.Modules.Assistant;
 [ApiController]
 [Route("api/v1/assistant")]
 [Authorize]
-public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService) : ControllerBase
+public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService, Asc.Api.Services.ICatalogueSource catalogueSource) : ControllerBase
 {
     // A real chat turn is a sentence or two; this just keeps one request from being an
     // unbounded token-cost bomb (or exceeding a provider's own input limit ungracefully) —
@@ -82,6 +82,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         }
         if (scope?.Validate() is { } scopeProblem) return BadRequest(new { error = scopeProblem });
         AgentResponse response;
+        Guid? lotSale = null;
         string? answeredBy = dto.Agent;
         try
         {
@@ -108,8 +109,26 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                     }
                 }
 
+                // A lot question with no sale on screen: ask which sale's catalogue (only ones that exist), then answer from that one.
+                if (dto.CatalogueId is null && scope is null && LotSalePicker.Involved(dto.Message, lastReply))
+                {
+                    var known = catalogueSource.ListCatalogues().Select(x => (x.Id, x.SourceName)).ToList();
+                    if (LotSalePicker.Next(dto.Message, lastReply, known) is { } lotPick)
+                    {
+                        if (lotPick.Ask is { } lotQuestion)
+                        {
+                            var lotAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(lotQuestion), Provider = "router" };
+                            await db.ConversationMessages.InsertOneAsync(lotAsk, cancellationToken: ct);
+                            return Ok(new ChatResponseDto(conversation.Id, lotAsk.Content, "router", null, "auction"));
+                        }
+                        lotSale = lotPick.Chosen;
+                    }
+                }
+
                 var lastUser = priorMessages.LastOrDefault(m => m.Role == "user")?.Content;
-                var decision = scope is not null && SaleScopeChosenThisTurn(lastReply)
+                var decision = lotSale is not null
+                    ? new RouteDecision("auction", null, "sale chosen for a lot question")
+                    : scope is not null && SaleScopeChosenThisTurn(lastReply)
                     ? new RouteDecision("analytics", null, "sale chosen in the dialogue")
                     : IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser, hasScope: scope is not null);
                 answeredBy = decision.Agent;
@@ -124,7 +143,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
             var agent = agentRouter.Resolve(requested);
             using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
-            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, dto.CatalogueId, scope, profile), ct);
+            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, lotSale ?? dto.CatalogueId, scope, profile), ct);
         }
         catch (UnknownAgentException ex)
         {

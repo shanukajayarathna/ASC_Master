@@ -60,7 +60,6 @@ public class SalePickerTests
     }
 
     [Theory]
-    [InlineData("show sale data for sale 32")]
     [InlineData("sale results for 2026")]
     [InlineData("summary of the latest sale")]
     [InlineData("sale data over the last 12 sales")]
@@ -74,4 +73,40 @@ public class SalePickerTests
 
     [Fact]
     public void DoesNothingWithoutAnyArchiveSales() => Assert.Null(SalePicker.Next("sale data", null, []));
+}
+
+public class SalePickerFollowUpTests
+{
+    private static readonly (int, int)[] Sales = [(2026, 32), (2026, 31), (2025, 32), (2025, 31)];
+
+    [Fact]
+    public void ASaleNumberWithoutAYear_AsksWhichYear_OnlyAmongYearsThatHaveIt()
+    {
+        var pick = SalePicker.Next("show me sale 32", null, Sales)!;
+        Assert.Equal("Which year was sale 32?", pick.Ask!.Question);
+        Assert.Equal(["2026", "2025"], pick.Ask.Options);
+
+        Assert.Equal(new ArchiveScope(2025, 32, 2025, 32), SalePicker.Next("2025", "Which year was sale 32?\nCLARIFY: {}", Sales)!.Chosen);
+        Assert.Null(SalePicker.Next("show me sale 32", null, [(2026, 32), (2026, 31)])); // only one year has it: nothing to ask
+        Assert.Null(SalePicker.Next("compare sale 32 with sale 31", null, Sales));        // two numbers: left to the normal routing
+    }
+
+    private static readonly Guid A = Guid.NewGuid(), B = Guid.NewGuid();
+
+    [Fact]
+    public void ALotQuestion_AsksWhichSale_ThenUsesThatCatalogue()
+    {
+        (Guid, string)[] cats = [(A, "Sale 39 - 2026"), (B, "Sale 38 - 2026")];
+        var ask = LotSalePicker.Next("valuation of lot 1204", null, cats)!.Value;
+        Assert.Equal(LotSalePicker.Question, ask.Ask!.Question);
+        Assert.Equal(["Sale 39 - 2026", "Sale 38 - 2026"], ask.Ask.Options);
+        Assert.Equal(B, LotSalePicker.Next("Sale 38 - 2026", LotSalePicker.Question, cats)!.Value.Chosen);
+        Assert.Equal(A, LotSalePicker.Next("valuation of lot 5", null, [(A, "Sale 39 - 2026")])!.Value.Chosen); // one sale: no question
+    }
+
+    [Theory]
+    [InlineData("valuation of lot 1204 in sale 39")]
+    [InlineData("valuation of lot 1204 this sale")]
+    [InlineData("which garden had the top prices")]
+    public void ALotQuestion_ThatNamesASale_OrHasNoLot_IsLeftAlone(string message) => Assert.False(LotSalePicker.Involved(message, null));
 }
