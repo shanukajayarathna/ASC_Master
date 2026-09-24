@@ -98,7 +98,7 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined), scopeRef.current);
+        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined), scopeRef.current, new Date().getHours());
         const answeredBy = override ?? res.agent ?? null;
         if (answeredBy) lastAgent.current = answeredBy;
         conversationId.current = res.conversationId;

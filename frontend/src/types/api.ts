@@ -1658,3 +1658,18 @@ export interface GrademixFactoryOption {
   name: string;
   elevationLabel: string | null;
 }
+
+/** The user's own assistant settings: which broker "we / our / my" means, and whether personalisation is on. */
+export interface AssistantPreferences {
+  myBroker: string;
+  personalise: boolean;
+}
+
+/** What the empty assistant screen shows for this reader (their own recent questions; no name when personalisation is off). */
+export interface ForYou {
+  firstName: string | null;
+  personalise: boolean;
+  myBroker: string;
+  recent: string[];
+  pinCount: number;
+}

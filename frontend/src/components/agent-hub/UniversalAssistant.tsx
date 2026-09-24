@@ -3,7 +3,8 @@
 import PageHeader from "@/components/shared/PageHeader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
-import type { ChatScope, Lot } from "@/types/api";
+import { api } from "@/lib/api";
+import type { ChatScope, ForYou, Lot } from "@/types/api";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 import InsertChartOutlinedIcon from "@mui/icons-material/InsertChartOutlined";
@@ -106,10 +107,33 @@ export default function UniversalAssistant() {
   });
   const { pins, pin, unpin, isPinned } = usePins();
 
+  // "For you": the reader's own recent questions, refreshed whenever the conversation is empty (start, new chat).
+  const [forYou, setForYou] = useState<ForYou | null>(null);
+  const emptyChat = chat.messages.length === 0;
+  const refreshForYou = () => {
+    api.getForYou().then(setForYou).catch(() => {});
+  };
+  useEffect(() => {
+    if (!emptyChat) return;
+    let cancelled = false;
+    api.getForYou().then((f) => !cancelled && setForYou(f)).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [emptyChat]);
+
   const [listening, setListening] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [canvas, setCanvas] = useState<{ open: boolean; initial: BuilderState }>({ open: false, initial: DEFAULT_STATE });
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Personal cards first (your own recent questions), padded with the generic ones; new users see just the generic ones.
+  const recent = forYou?.personalise ? forYou.recent : [];
+  const starters = [...recent, ...STARTERS.filter((g) => !recent.some((r) => r.toLowerCase() === g.toLowerCase()))].slice(0, 4);
+  const personal = !!forYou?.personalise && !!forYou.firstName;
+  const hint = recent.length > 0
+    ? `Pick up where you left off, or ask something new.${forYou && forYou.pinCount > 0 ? ` You have ${forYou.pinCount} pinned insight${forYou.pinCount === 1 ? "" : "s"} in your Library.` : ""}`
+    : "Ask about prices, brokers, lots, by-laws or reports — in English, සිංහල or தமிழ்.";
 
   const micLevel = useMicLevel(listening);
   const orb: OrbState = listening ? "listening" : chat.sending ? "thinking" : speech.speaking ? "speaking" : "idle";
@@ -160,9 +184,9 @@ export default function UniversalAssistant() {
         <ChatPanel
           chat={chat}
           speech={speech}
-          prompts={STARTERS}
-          emptyTitle="What would you like to know?"
-          emptyHint="Ask about prices, brokers, lots, by-laws or reports — in English, සිංහල or தமிழ்."
+          prompts={starters}
+          emptyTitle={personal ? `Welcome back, ${forYou?.firstName}` : "What would you like to know?"}
+          emptyHint={hint}
           aboveComposer={
             <div className="ws-scopebar">
               <ScopeControl scope={scope} onChange={setScope} />
@@ -216,7 +240,7 @@ export default function UniversalAssistant() {
         <p className="ws-lots-note m-0" role="status" aria-live="polite">{notice}</p>
       </div>
 
-      <LibraryDrawer open={libraryOpen} onClose={() => setLibraryOpen(false)} pins={pins} onUnpin={unpin} onAsk={ask} busy={chat.sending} />
+      <LibraryDrawer open={libraryOpen} onClose={() => setLibraryOpen(false)} pins={pins} onUnpin={unpin} onAsk={ask} busy={chat.sending} onPersonalisationChanged={refreshForYou} />
       <ReportCanvas open={canvas.open} initial={canvas.initial} onClose={() => setCanvas((c) => ({ ...c, open: false }))} />
     </div>
   );

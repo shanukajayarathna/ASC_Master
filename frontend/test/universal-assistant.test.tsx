@@ -22,6 +22,10 @@ const api = vi.hoisted(() => ({
   getLots: vi.fn(),
   getBylawsClause: vi.fn(),
   getAgentUsage: vi.fn(),
+  getForYou: vi.fn(),
+  getAssistantPreferences: vi.fn(),
+  putAssistantPreferences: vi.fn(),
+  clearAssistantHistory: vi.fn(),
 }));
 const auth = vi.hoisted(() => ({ roles: [] as string[] }));
 /** An in-memory stand-in for the pins endpoints. */
@@ -82,6 +86,10 @@ beforeEach(() => {
   api.getLots.mockReset().mockResolvedValue({ rows: [lot()], total: 1, page: 1, pageSize: 3 });
   api.getBylawsClause.mockReset().mockResolvedValue({ title: "Default penalties", text: "1% per day for days 1-3.", lastVerified: "2026-01-01", caveat: "The original PDF is authoritative." });
   api.getAgentUsage.mockReset().mockResolvedValue([]);
+  api.getForYou.mockReset().mockResolvedValue({ firstName: null, personalise: false, myBroker: "ASC", recent: [], pinCount: 0 });
+  api.getAssistantPreferences.mockReset().mockResolvedValue({ myBroker: "ASC", personalise: true });
+  api.putAssistantPreferences.mockReset().mockImplementation(async (p: unknown) => p);
+  api.clearAssistantHistory.mockReset().mockResolvedValue(undefined);
 });
 
 const open = async () => {
@@ -496,6 +504,68 @@ describe("scope: not limited to one sale", () => {
       groupBy: "broker", metric: "share_of_own_volume_pct", gradeTypes: ["Off Grade"], fromYear: 2026, fromSale: 28, toYear: 2026, toSale: 32,
     });
     expect(api.previewCustomReport.mock.calls[0][0].lastNSales).toBeUndefined();
+  });
+});
+
+describe("personalised for the reader", () => {
+  const forYou = { firstName: "Shanuka", personalise: true, myBroker: "ASC", recent: ["Compare off-grade share by broker", "Top prices this sale"], pinCount: 2 };
+
+  it("welcomes the reader by name and offers their own recent questions first, padded with the usual ones", async () => {
+    api.getForYou.mockResolvedValue(forYou);
+    await open();
+    expect(await screen.findByRole("heading", { name: "Welcome back, Shanuka" })).toBeInTheDocument();
+    expect(screen.getByText(/You have 2 pinned insights in your Library/)).toBeInTheDocument();
+    const cards = screen.getAllByRole("button").filter((b) => /off-grade share by broker|top prices this sale|Compare brokers over|default penalty/i.test(b.textContent ?? ""));
+    expect(cards.map((b) => b.textContent)).toEqual([expect.stringContaining("Compare off-grade share by broker"), expect.stringContaining("Top prices this sale"), expect.stringContaining("Compare brokers over"), expect.stringContaining("Show the top prices this sale")]);
+  });
+
+  it("stays generic for a new reader or when personalisation is off", async () => {
+    await open();
+    expect(await screen.findByRole("heading", { name: "What would you like to know?" })).toBeInTheDocument();
+    expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument();
+  });
+
+  it("sends the reader's local hour with a message, so a greeting can say good morning", async () => {
+    await open();
+    await send("hi");
+    await screen.findByText("Plain answer.");
+    expect(api.sendAgentChatMessage.mock.calls[0][8]).toBe(new Date().getHours());
+  });
+
+  it("changes the broker and the switch from the library, and refreshes the empty screen", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    const drawer = await screen.findByRole("dialog", { name: "Library" });
+    const section = await within(drawer).findByRole("region", { name: "Personalisation" });
+    await waitFor(() => expect(within(section).getByRole("switch", { name: "Personalise the assistant for me" })).toBeEnabled());
+
+    fireEvent.click(within(section).getByRole("switch", { name: "Personalise the assistant for me" }));
+    await waitFor(() => expect(api.putAssistantPreferences).toHaveBeenCalledWith({ myBroker: "ASC", personalise: false }));
+    fireEvent.mouseDown(within(section).getByRole("combobox", { name: "My broker" }));
+    fireEvent.click(await screen.findByRole("option", { name: "FW" }));
+    await waitFor(() => expect(api.putAssistantPreferences).toHaveBeenLastCalledWith({ myBroker: "FW", personalise: false }));
+    expect(api.getForYou.mock.calls.length).toBeGreaterThan(1); // the empty screen was refreshed
+  });
+
+  it("clears the reader's history only after they confirm, and says when it fails", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    const drawer = await screen.findByRole("dialog", { name: "Library" });
+    const clear = await within(drawer).findByRole("button", { name: "Clear my conversation history" });
+
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    fireEvent.click(clear);
+    expect(api.clearAssistantHistory).not.toHaveBeenCalled();
+
+    confirm.mockReturnValueOnce(true);
+    fireEvent.click(clear);
+    expect(await within(drawer).findByText("Your conversation history was deleted.")).toBeInTheDocument();
+
+    api.clearAssistantHistory.mockRejectedValueOnce(new Error("down"));
+    confirm.mockReturnValueOnce(true);
+    fireEvent.click(clear);
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent("down");
+    confirm.mockRestore();
   });
 });
 

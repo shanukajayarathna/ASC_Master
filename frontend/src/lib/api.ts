@@ -83,6 +83,8 @@ import type {
   BylawsClause,
   ReportSpec,
   ChatScope,
+  AssistantPreferences,
+  ForYou,
   AnalyticsPinDto,
   CreatePinResult,
   AgentUsageRow,
@@ -555,6 +557,13 @@ export const api = {
   createReportSpec: (title: string, req: CustomPreviewRequest, visual: string) =>
     request<ReportSpec>("/api/v1/reports/custom/specs", { method: "POST", body: JSON.stringify({ title, request: req, visual }) }),
   deleteReportSpec: (id: string) => request<void>(`/api/v1/reports/custom/specs/${id}`, { method: "DELETE" }),
+
+  /** The signed-in user's own assistant settings, the shortcuts for their empty screen, and clearing their history. */
+  getAssistantPreferences: () => request<AssistantPreferences>("/api/v1/assistant/preferences"),
+  putAssistantPreferences: (p: AssistantPreferences) =>
+    request<AssistantPreferences>("/api/v1/assistant/preferences", { method: "PUT", body: JSON.stringify(p) }),
+  getForYou: () => request<ForYou>("/api/v1/assistant/for-you"),
+  clearAssistantHistory: () => request<void>("/api/v1/assistant/history", { method: "DELETE" }),
 
   /** One CTTA By-Laws section, for opening a cited clause. */
   getBylawsClause: (title: string) =>
@@ -1044,10 +1053,10 @@ export const api = {
    *  configured provider key — see getProviderStatuses(). `catalogueId` is the
    *  Topbar's active sale — AuctionAgent reads it to know what "the current sale"
    *  means without a tool round-trip, same reasoning as sendChatMessage's own. */
-  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string, signal?: AbortSignal, previousAgent?: string, scope?: ChatScope | null) =>
+  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string, signal?: AbortSignal, previousAgent?: string, scope?: ChatScope | null, localHour?: number) =>
     request<ChatResponse>("/api/v1/assistant/chat", {
       method: "POST",
-      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null, previousAgent: previousAgent ?? null, scope: scope ?? null }),
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null, previousAgent: previousAgent ?? null, scope: scope ?? null, localHour: localHour ?? null }),
       signal,
     }),
 
