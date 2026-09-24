@@ -26,6 +26,12 @@ public static class SalePicker
     private static readonly Regex YearAnswer = new(@"^\s*(20\d\d)\s*$", RegexOptions.Compiled);
     private static readonly Regex SaleAnswer = new(@"^\s*sale\s*(\d+)\s*/\s*(20\d\d)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex NameNo = new(@"sale\s*#?\s*(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>The sale number in a catalogue name such as "Sale 37 - 2026", or null.</summary>
+    public static int? SaleNoOf(string? sourceName) =>
+        NameNo.Match(sourceName ?? "") is { Success: true } m && int.Parse(m.Groups[1].Value) is > 0 and var n ? n : null;
+
     /// <summary>True when this turn might belong to the picker, so the caller knows to load the list of sales.</summary>
     public static bool Involved(string message, string? lastAssistantReply) =>
         IsPickerQuestion(lastAssistantReply) || (Wants.IsMatch(message ?? "") && !Named.IsMatch(message ?? "")) || SaleNumberWithoutYear(message ?? "") is not null;

@@ -96,8 +96,14 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                 var lastReply = priorMessages.LastOrDefault(m => m.Role == "assistant")?.Content;
                 if (scope is null && SalePicker.Involved(dto.Message, lastReply))
                 {
+                    // Sales that exist = the archive plus the sale catalogues (which run ahead of the archive, e.g. the current sale).
                     var available = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0).Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
-                    if (SalePicker.Next(dto.Message, lastReply, [.. available.Select(x => (x.Year, x.SaleNo)).Distinct()]) is { } pick)
+                    var archived = available.Select(x => (x.Year, x.SaleNo)).ToHashSet();
+                    var fromCatalogues = catalogueSource.ListCatalogues()
+                        .Select(x => (Cat: x, No: SalePicker.SaleNoOf(x.SourceName))).Where(x => x.No is not null)
+                        .ToList();
+                    var everything = archived.Concat(fromCatalogues.Select(x => (x.Cat.Year, x.No!.Value))).Distinct().ToList();
+                    if (SalePicker.Next(dto.Message, lastReply, everything) is { } pick)
                     {
                         if (pick.Ask is { } pickQuestion)
                         {
@@ -105,7 +111,11 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                             await db.ConversationMessages.InsertOneAsync(pickAsk, cancellationToken: ct);
                             return Ok(new ChatResponseDto(conversation.Id, pickAsk.Content, "router", null, "analytics"));
                         }
-                        scope = pick.Chosen;
+                        // A sale the archive doesn't have yet is answered from its catalogue (lots and valuations) instead.
+                        if (pick.Chosen is { FromYear: var cy, FromSale: { } cs } && !archived.Contains((cy, cs)))
+                            lotSale = fromCatalogues.FirstOrDefault(x => x.Cat.Year == cy && x.No == cs).Cat?.Id;
+                        else
+                            scope = pick.Chosen;
                     }
                 }
 

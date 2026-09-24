@@ -110,3 +110,26 @@ public class SalePickerFollowUpTests
     [InlineData("which garden had the top prices")]
     public void ALotQuestion_ThatNamesASale_OrHasNoLot_IsLeftAlone(string message) => Assert.False(LotSalePicker.Involved(message, null));
 }
+
+public class SaleNumberFromCatalogueNameTests
+{
+    [Theory]
+    [InlineData("Sale 37 - 2026", 37)]
+    [InlineData("sale 5", 5)]
+    [InlineData("Sale #12 2025", 12)]
+    public void ReadsTheSaleNumber(string name, int expected) => Assert.Equal(expected, SalePicker.SaleNoOf(name));
+
+    [Theory]
+    [InlineData("Private sales")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void NoNumberMeansNull(string? name) => Assert.Null(SalePicker.SaleNoOf(name));
+
+    [Fact]
+    public void ACatalogueOnlySaleShowsUpAsAYearOption()
+    {
+        // the archive stops at 2025; sale 37 of 2026 exists only as a catalogue, and must still be offered
+        (int, int)[] merged = [(2025, 37), (2025, 36), (2026, 37)];
+        Assert.Equal(["2026", "2025"], SalePicker.Next("best selling grade for sale 37", null, merged)!.Ask!.Options);
+    }
+}
