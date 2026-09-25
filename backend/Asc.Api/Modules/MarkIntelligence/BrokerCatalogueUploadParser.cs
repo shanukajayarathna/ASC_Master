@@ -98,9 +98,17 @@ public static class BrokerCatalogueUploadParser
         };
     }
 
-    /// <summary>Row 0 is a blank spacer in every raw broker file sampled; real data starts at
-    /// row 1 for all of them.</summary>
-    private const int FirstDataRow = 1;
+    /// <summary>Row 0 is a blank spacer or header in some broker files (Sales 36-39) but the
+    /// first real lot in others (found live on Sale 40: BC, FW, MB, JK and CT all start
+    /// data on row 0, so a hardcoded skip silently dropped each one's lot 1). Scanning from
+    /// row 0 is safe because BuildLot rejects any row without a mark, selling mark and a
+    /// positive numeric net weight, so blank/header rows just count as skipped.</summary>
+    private const int FirstDataRow = 0;
+
+    /// <summary>A row-0 spacer/header that isn't a lot is expected, not a data problem, so it
+    /// must not add a "row(s) skipped" warning — files with a blank or header row 0 keep the
+    /// same skipped count they had when scanning started at row 1.</summary>
+    private static int UnparsedRowCost(int rowIndex) => rowIndex > FirstDataRow ? 1 : 0;
 
     public static BrokerParseResult ParseAeb(List<List<string>> rows, int saleNo)
     {
@@ -110,9 +118,9 @@ public static class BrokerCatalogueUploadParser
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 11) { skipped++; continue; }
+            if (row.Count < 11) { skipped += UnparsedRowCost(r); continue; }
             var lot = BuildLot(BrokerCode.Aeb, saleNo, row[4], row[5], row[7], row[8], row[9], row[10]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }
@@ -125,9 +133,9 @@ public static class BrokerCatalogueUploadParser
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) { skipped++; continue; }
+            if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
             var lot = BuildLot(BrokerCode.Bc, saleNo, row[4], row[5], row[8], row[9], row[10], row[11]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }
@@ -140,9 +148,9 @@ public static class BrokerCatalogueUploadParser
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) { skipped++; continue; }
+            if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
             var lot = BuildLot(BrokerCode.Jk, saleNo, row[1], row[2], row[6], row[7], row[8], row[11]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }
@@ -160,7 +168,7 @@ public static class BrokerCatalogueUploadParser
             var row = rows[r];
             if (row.Count < 11 || !int.TryParse(row[0].Trim(), out _)) continue;
             var lot = BuildLot(BrokerCode.Lcbl, saleNo, row[1], row[2], row[4], row[5], row[7], row[10]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }
@@ -173,9 +181,9 @@ public static class BrokerCatalogueUploadParser
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) { skipped++; continue; }
+            if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
             var lot = BuildLot(BrokerCode.Mb, saleNo, row[4], row[5], row[7], row[8], row[10], row[11]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }
@@ -188,9 +196,9 @@ public static class BrokerCatalogueUploadParser
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 12) { skipped++; continue; }
+            if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
             var lot = BuildLot(BrokerCode.Fw, saleNo, row[4], row[5], row[7], row[8], row[10], row[11]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }
@@ -203,9 +211,9 @@ public static class BrokerCatalogueUploadParser
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
-            if (row.Count < 13) { skipped++; continue; }
+            if (row.Count < 13) { skipped += UnparsedRowCost(r); continue; }
             var lot = BuildLot(BrokerCode.Ctb, saleNo, row[3], row[4], row[6], row[7], row[9], row[12]);
-            if (lot is not null) lots.Add(lot); else skipped++;
+            if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
     }

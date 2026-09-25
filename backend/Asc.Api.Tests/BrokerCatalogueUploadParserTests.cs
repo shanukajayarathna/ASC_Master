@@ -54,6 +54,44 @@ public class BrokerCatalogueUploadParserTests
     }
 
     [Fact]
+    public void Parse_ReadsLot1_WhenRow0IsRealData_NotASpacer()
+    {
+        // Real Sale 40/2026 case: BC, FW, MB, JK and CT files start lot 1 on row 0 with no
+        // spacer — a hardcoded skip of row 0 silently dropped each one's first lot (JK's
+        // footer said 1074 lots / 620,272 kg; 1073 / 619,822 kg were read, the gap being
+        // exactly Kenilworth's 450 kg lot 0001).
+        var jk = new List<List<string>>
+        {
+            Row("0001", "MF0548", "KENILWORTH", "", "0420", "RA", "BOPSp", "10", "45", "B", "0", "450", "450"),
+            Row("0002", "MF0548", "KENILWORTH", "", "0431", "RA", "BOPSp", "10", "42", "B", "0", "420", "420"),
+        };
+        var result = BrokerCatalogueUploadParser.ParseJk(jk, 40);
+
+        Assert.Equal(2, result.Lots.Count);
+        Assert.Equal(870m, result.Lots.Sum(l => l.NetWeight));
+        Assert.Equal(0, result.SkippedRows);
+
+        var bc = new List<List<string>>
+        {
+            Row("BC", "2026", "040", "0001", "BF0170B", "KANDY HILLS", "", "0375", "BOPF", "20", "58", "1160", "1160"),
+        };
+        Assert.Equal(1160m, Assert.Single(BrokerCatalogueUploadParser.ParseBc(bc, 40).Lots).NetWeight);
+    }
+
+    [Fact]
+    public void Parse_HeaderOrBlankRow0_IsNotCountedAsSkipped()
+    {
+        var withHeader = new List<List<string>>
+        {
+            Row("Broker", "Year", "Sale No", "LotNo", "MF Code", "Selling Mark", "InvoiceNo", "GradeDesc", "Chests", "ChestWght.", "Nett Wght", "Gross Wght"),
+            Row("EB", "2026", "40B", "1", "MF0034", "STRATHSPEY", "0305R", "BOP", "10", "50", "500", "500"),
+        };
+        var result = BrokerCatalogueUploadParser.ParseAeb(withHeader, 40);
+        Assert.Single(result.Lots);
+        Assert.Equal(0, result.SkippedRows);
+    }
+
+    [Fact]
     public void ParseBc_ReadsRealSample36Row()
     {
         var rows = Blank(Row("BC", "2026", "037", "0001", "MF0864A", "AULTMORE CTC", "", "0252", "PF1", "10", "52", "520", "520", "EX", " Ex-estate Basis"));
