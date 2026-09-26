@@ -7,6 +7,7 @@ import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, ApiError } from "@/lib/api";
 import { dateStamp } from "@/lib/worksheetPdf";
 import {
+  buildCombinedReportPdf,
   buildMarketShareComparePdf,
   buildMarketSharePdf,
   type MarketShareCompareTablePdfData,
@@ -104,6 +105,9 @@ type WesSource =
   | { kind: "database"; saleYear: number; saleNo: number; saleDate: string; report: WesReport; categoryCounts: [string, number][] };
 
 const pdfNameOf = (xlsxName: string) => xlsxName.replace(/\.xlsx$/i, ".pdf");
+
+/** Matches the client's own file name for the combined report ("SALE NO36 ALL ELEVATIONS.pdf"). */
+const combinedPdfName = (saleNumber: number | null) => `SALE NO${saleNumber ?? "X"} ALL ELEVATIONS.pdf`;
 
 interface FileState {
   fileName: string;
@@ -254,8 +258,9 @@ function ResultCard({
   ok: boolean;
   description: ReactNode;
   hasBuffer: boolean;
-  downloadLabel: string;
-  onDownload: () => void;
+  /** Omit both for a PDF-only card (the combined report has no single workbook to download). */
+  downloadLabel?: string;
+  onDownload?: () => void;
   pdfName: string | null;
   pdfLabel: string;
   pdfBusy: string | null;
@@ -271,17 +276,19 @@ function ResultCard({
       <div className="font-display text-2xl font-bold text-text-strong">{count}</div>
       <div className="text-[11px] text-text-muted mb-2.5">{countLabel}</div>
       <div className="text-[12.5px] leading-relaxed text-text-strong">{description}</div>
-      <Button
-        fullWidth
-        variant="outlined"
-        size="small"
-        startIcon={<DownloadOutlinedIcon fontSize="small" />}
-        sx={{ mt: 1.75, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
-        disabled={!hasBuffer}
-        onClick={onDownload}
-      >
-        {hasBuffer ? downloadLabel : "Not generated"}
-      </Button>
+      {onDownload && (
+        <Button
+          fullWidth
+          variant="outlined"
+          size="small"
+          startIcon={<DownloadOutlinedIcon fontSize="small" />}
+          sx={{ mt: 1.75, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}
+          disabled={!hasBuffer}
+          onClick={onDownload}
+        >
+          {hasBuffer ? downloadLabel : "Not generated"}
+        </Button>
+      )}
       <Button
         fullWidth
         variant="outlined"
@@ -625,6 +632,20 @@ export default function WeeklyFactReportsPage() {
     }
   };
 
+  const downloadCombinedPdf = async () => {
+    if (!job || pdfBusy) return;
+    const name = combinedPdfName(job.saleNumber);
+    setPdfBusy(name);
+    setError(null);
+    try {
+      triggerDownload(await buildCombinedReportPdf(job, api.convertWeeklyFactPdf), name, "application/pdf");
+    } catch (e) {
+      setError(e instanceof Error ? `Failed to build the combined PDF: ${e.message}` : "Failed to build the combined PDF.");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   const downloadLowPdf = async (variant: "rank" | "mark") => {
     const wbk = variant === "rank" ? job?.lowRankWorkbook : job?.lowMarkWorkbook;
     if (!job || !wbk?.filename || !wbk.buffer || pdfBusy) return;
@@ -710,6 +731,13 @@ export default function WeeklyFactReportsPage() {
         }
         if (job.lowMarkWorkbook?.buffer && job.lowMarkWorkbook.filename) {
           zip.file(pdfNameOf(job.lowMarkWorkbook.filename), await api.convertWeeklyFactPdf(job.lowMarkWorkbook.buffer, job.lowMarkWorkbook.filename));
+        }
+      }
+      if (job) {
+        try {
+          zip.file(combinedPdfName(job.saleNumber), await buildCombinedReportPdf(job, api.convertWeeklyFactPdf));
+        } catch {
+          // The individual PDFs above are already in the ZIP — don't fail the whole download.
         }
       }
       if (marketShareResult) {
@@ -1031,6 +1059,23 @@ export default function WeeklyFactReportsPage() {
                 }
               />
             ))}
+          </div>
+
+          <SectionLabel>Combined report (all elevations)</SectionLabel>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+            <ResultCard
+              eyebrow="ALL ELEVATIONS"
+              count={job.outcomes.filter((o) => o.buffer).length + job.rankTabs.length + (job.lowMarkWorkbook?.buffer ? 1 : 0) + (job.lowRankWorkbook?.buffer ? 1 : 0)}
+              countLabel="parts merged into one PDF"
+              ok={job.outcomes.every((o) => o.ok)}
+              hasBuffer={job.outcomes.some((o) => o.buffer)}
+              pdfName={combinedPdfName(job.saleNumber)}
+              pdfLabel={`PDF — ${combinedPdfName(job.saleNumber)}`}
+              pdfBusy={pdfBusy}
+              onPdf={downloadCombinedPdf}
+              warnings={[]}
+              description="Uva High, Western High, Uva Medium, Western Medium — each FACT ranking followed by its weekly & todate RANK page — then LOW MARK WISE and LOW RANK WISE, in one PDF."
+            />
           </div>
 
           {job.rankWorkbook && (

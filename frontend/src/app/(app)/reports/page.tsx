@@ -113,6 +113,15 @@ const MODERN_REPORT_TILES: NavItem[] = [
     gradient: 6,
   },
   {
+    href: "/reports/category-average-trend",
+    label: "Category Average Trend",
+    section: "Reports",
+    status: "live",
+    description: "Leafy, Semi Leafy, Tippy, Premium Flowery, Off Grade and Dust — average price per grade over the last five sales with the rise or drop, as PDF or Excel.",
+    icon: TrendingUpOutlinedIcon,
+    gradient: 5,
+  },
+  {
     href: "/reports/market-bulletin",
     label: "Weekly Market Grade Classification/Quotation",
     section: "Reports",

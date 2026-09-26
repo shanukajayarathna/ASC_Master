@@ -17,6 +17,9 @@ Frontend: `frontend/src/app/(app)/reports/` and `frontend/src/app/(app)/saved-re
 ## UI behaviour
 Choose a report type → optionally filter/scope it → generate → view and/or export to Excel → optionally save for later (surfaces under Saved Reports, a Library-section module — see [04_Navigation_Architecture.md](04_Navigation_Architecture.md)).
 
+## Category Average Trend
+`/reports/category-average-trend` (backend `Modules/CategoryAverageTrend`, `GET /api/v1/reports/category-average-trend/{catalogueId}?broker=`). Pick a sale (defaults to the newest with results) and optionally a broker; the report shows that sale and the four before it, with the average price per grade for Leafy, Semi Leafy, Tippy, Premium Flowery (low grown only, Sub Elevation `L`), Off Grade and Dust (all elevations), and a green ▲ / red ▼ change against the previous sale. One earlier sale is read purely as the comparison base for the first column. Average = Σ(Final Price × Total Weight) ÷ Σ Total Weight over Sold + Outsold lots (Final Price, not Purchased Price — they differ on some outsold lots). Computed live, never stored; exports to Excel and to a one-page landscape PDF (same workbook through the shared LibreOffice route).
+
 ## Business rules
 - Every figure in a generated report must match the equivalent figure shown live elsewhere in the app (dashboard, Analysis, Broker/Market Intelligence) for the same filter set — this is the practical test of the "one number, one source" principle. Once [07_Metrics_Registry.md](07_Metrics_Registry.md) exists, reports should be built by requesting registry metrics, not by independent calculation.
 - A saved report should capture enough context (filter set, generation timestamp, sale/catalogue reference) to be meaningfully reopened later, even after the underlying data has changed.

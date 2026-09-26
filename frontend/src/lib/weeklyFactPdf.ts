@@ -21,7 +21,7 @@
 import { jsPDF } from "jspdf";
 import autoTable, { type RowInput } from "jspdf-autotable";
 import { loadImage } from "@/lib/worksheetPdf";
-import type { MarketShareCompareRow } from "@/lib/weeklyFactReport";
+import type { MarketShareCompareRow, WeeklyJobResult } from "@/lib/weeklyFactReport";
 
 // Letterhead lines exactly as they appear in the FACT/RANK templates (rows 1-4 / 2-7).
 const COMPANY_NAME = "ASIA SIYAKA COMMODITIES  PLC";
@@ -234,4 +234,33 @@ export async function buildMarketShareComparePdf(
   });
 
   return doc.output("blob");
+}
+
+
+/** The COMBINED weekly report — one PDF, in the order the client's own hand-assembled file uses:
+ *  for each of UVA HIGH, WESTERN HIGH, UVA MEDIUM, WESTERN MEDIUM the FACT ranking pages followed
+ *  by that category's RANK tab (weekly & todate), then LOW MARK WISE, then LOW RANK WISE.
+ *  Every part is the same LibreOffice conversion its own card's PDF button produces, merged
+ *  page-for-page, so the combined file can never disagree with the individual ones. */
+export async function buildCombinedReportPdf(job: WeeklyJobResult, convert: (buffer: ArrayBuffer, filename: string, sheets?: string[]) => Promise<Blob>): Promise<Blob> {
+  const { PDFDocument } = await import("pdf-lib");
+  const parts: { buffer: ArrayBuffer; filename: string; sheets?: string[] }[] = [];
+  for (const category of ["UVA HIGH", "WESTERN HIGH", "UVA MEDIUM", "WESTERN MEDIUM"]) {
+    const fact = job.outcomes.find((o) => o.category === category);
+    if (fact?.buffer) parts.push({ buffer: fact.buffer, filename: fact.filename });
+    const tab = job.rankTabs.find((t) => t.category === category);
+    if (job.rankWorkbook?.buffer && tab) parts.push({ buffer: job.rankWorkbook.buffer, filename: job.rankWorkbook.filename ?? "RANK.xlsx", sheets: [tab.tabName] });
+  }
+  if (job.lowMarkWorkbook?.buffer) parts.push({ buffer: job.lowMarkWorkbook.buffer, filename: job.lowMarkWorkbook.filename ?? "MARK WISE.xlsx" });
+  if (job.lowRankWorkbook?.buffer) parts.push({ buffer: job.lowRankWorkbook.buffer, filename: job.lowRankWorkbook.filename ?? "RANK WISE.xlsx" });
+  if (!parts.length) throw new Error("No generated workbooks to combine.");
+
+  const merged = await PDFDocument.create();
+  for (const part of parts) {
+    const blob = await convert(part.buffer.slice(0), part.filename, part.sheets);
+    const src = await PDFDocument.load(await blob.arrayBuffer());
+    for (const page of await merged.copyPages(src, src.getPageIndices())) merged.addPage(page);
+  }
+  const bytes = await merged.save();
+  return new Blob([bytes as BlobPart], { type: "application/pdf" });
 }
