@@ -12,6 +12,15 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Body values are client-controlled: keep only filename-safe characters before one goes into a
+ *  Content-Disposition header (a quote or control character there would break out of the
+ *  filename token). */
+function safeFilenamePart(value: unknown): string {
+  return typeof value === "string" ? value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20) : "";
+}
+
 function dateStamp(): string {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
@@ -25,23 +34,33 @@ export async function POST(request: Request) {
 
   let catalogueId: string | undefined;
   let auctionNumber: string | undefined;
+  let format: string | undefined;
   try {
     const body = await request.json();
-    catalogueId = body.catalogueId;
-    auctionNumber = body.auctionNumber;
+    catalogueId = typeof body.catalogueId === "string" ? body.catalogueId : undefined;
+    auctionNumber = safeFilenamePart(body.auctionNumber);
+    format = body.format === "simple" ? "simple" : "detailed";
   } catch {
     // fall through to the missing-catalogueId check below
   }
   if (!catalogueId) {
     return NextResponse.json({ error: "catalogueId is required." }, { status: 400 });
   }
+  if (!GUID.test(catalogueId)) {
+    return NextResponse.json({ error: "catalogueId is not valid." }, { status: 400 });
+  }
 
   try {
-    const pdfBytes = await renderPrintRouteToPdf(request.url, "/print/top-price-page", { catalogueId }, token);
+    const pdfBytes = await renderPrintRouteToPdf(
+      request.url,
+      "/print/top-price-page",
+      format === "simple" ? { catalogueId, format: "simple" } : { catalogueId },
+      token
+    );
     return new NextResponse(new Uint8Array(pdfBytes), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="top-price-page-sale-${auctionNumber || "draft"}-${dateStamp()}.pdf"`,
+        "Content-Disposition": `attachment; filename="top-price-page${format === "simple" ? "-simple" : ""}-sale-${auctionNumber || "draft"}-${dateStamp()}.pdf"`,
       },
     });
   } catch (err) {

@@ -5,10 +5,12 @@ import SalePicker from "@/components/shared/SalePicker";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import TopPriceBulletin from "@/components/reports/TopPriceBulletin";
+import TopPriceSimple from "@/components/reports/TopPriceSimple";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
 import { api, AUTH_HEADERS } from "@/lib/api";
 import {
+  buildRegionEntries,
   buildTppMeta,
   exportTopPricePageExcel,
   planTppBulletinAutoFit,
@@ -22,6 +24,8 @@ import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import Button from "@mui/material/Button";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { useEffect, useMemo, useState } from "react";
 
 export default function TopPricePagePage() {
@@ -32,6 +36,7 @@ export default function TopPricePagePage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [format, setFormat] = useState<"detailed" | "simple">("detailed");
 
   useLeaveConfirmation(
     exporting || exportingPdf,
@@ -57,6 +62,7 @@ export default function TopPricePagePage() {
     () => (combined ? planTppBulletinAutoFit(combined) : null),
     [combined]
   );
+  const simpleEntries = useMemo(() => (combined ? buildRegionEntries(combined) : null), [combined]);
   const activeCatalogue = useMemo(() => catalogues.find((c) => c.id === activeCatalogueId) ?? null, [catalogues, activeCatalogueId]);
   const meta: TppMeta | null = useMemo(
     () => (combined ? buildTppMeta(combined, undefined, activeCatalogue?.saleDateStart, activeCatalogue?.saleDateEnd) : null),
@@ -95,7 +101,7 @@ export default function TopPricePagePage() {
           "Content-Type": "application/json",
           ...AUTH_HEADERS,
         },
-        body: JSON.stringify({ catalogueId: activeCatalogueId, auctionNumber: meta.auctionNumber }),
+        body: JSON.stringify({ catalogueId: activeCatalogueId, auctionNumber: meta.auctionNumber, format }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -105,7 +111,7 @@ export default function TopPricePagePage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `top-price-page-sale-${meta.auctionNumber || "draft"}.pdf`;
+      a.download = `top-price-page${format === "simple" ? "-simple" : ""}-sale-${meta.auctionNumber || "draft"}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -123,7 +129,7 @@ export default function TopPricePagePage() {
       {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Top Price Page"
-        subtitle="Every ranked region — Low Grown through CTC Teas — combined into one executive bulletin, auto-densified to always fit within 2 pages."
+        subtitle="Every ranked region — Low Grown through CTC Teas — in two formats: a detailed bulletin (up to 2 pages) or a simple one-page sheet. Preview, print or download either."
         backTo={{ href: "/reports", label: "Reports" }}
         actions={
           <SalePicker />
@@ -152,23 +158,47 @@ export default function TopPricePagePage() {
         <div className="report-print-area">
           <div className="border-b border-border pb-4 mb-5 flex items-center justify-between flex-wrap gap-3 print:hidden">
             <p className="text-[12.5px] text-text-muted m-0">
-              {combined.sourceName} · {layout.pages.length} page{layout.pages.length === 1 ? "" : "s"} at {layout.density.name} density ·{" "}
-              {totalRows} ranked row{totalRows === 1 ? "" : "s"}
+              {format === "simple" ? (
+                <>
+                  {combined.sourceName} · 1 page · simple format · {totalRows} ranked row{totalRows === 1 ? "" : "s"}
+                </>
+              ) : (
+                <>
+                  {combined.sourceName} · {layout.pages.length} page{layout.pages.length === 1 ? "" : "s"} at {layout.density.name} density ·{" "}
+                  {totalRows} ranked row{totalRows === 1 ? "" : "s"}
+                </>
+              )}
             </p>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap items-center">
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={format}
+                onChange={(_, v) => v && setFormat(v)}
+                aria-label="Top Price Page format"
+              >
+                <ToggleButton value="detailed">Detailed</ToggleButton>
+                <ToggleButton value="simple">Simple</ToggleButton>
+              </ToggleButtonGroup>
               <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()}>
                 Print
               </Button>
               <Button variant="outlined" startIcon={<PictureAsPdfOutlinedIcon fontSize="small" />} onClick={exportPdf} disabled={exportingPdf}>
                 {exportingPdf ? "Exporting…" : "Export PDF"}
               </Button>
-              <Button variant="outlined" startIcon={<DownloadOutlinedIcon fontSize="small" />} onClick={exportExcel} disabled={exporting}>
-                {exporting ? "Exporting…" : "Export to Excel"}
-              </Button>
+              {format === "detailed" && (
+                <Button variant="outlined" startIcon={<DownloadOutlinedIcon fontSize="small" />} onClick={exportExcel} disabled={exporting}>
+                  {exporting ? "Exporting…" : "Export to Excel"}
+                </Button>
+              )}
             </div>
           </div>
 
-          <TopPriceBulletin pages={layout.pages} density={layout.density} meta={meta} />
+          {format === "simple" && simpleEntries ? (
+            <TopPriceSimple entries={simpleEntries} meta={meta} />
+          ) : (
+            <TopPriceBulletin pages={layout.pages} density={layout.density} meta={meta} />
+          )}
         </div>
       )}
     </div>

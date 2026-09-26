@@ -1,9 +1,17 @@
 "use client";
 
 import TopPriceBulletin from "@/components/reports/TopPriceBulletin";
+import TopPriceSimple from "@/components/reports/TopPriceSimple";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
-import { buildTppMeta, planTppBulletinAutoFit, type TppBulletinPage, type TppDensity, type TppMeta } from "@/lib/topPricePageExport";
+import {
+  buildRegionEntries,
+  buildTppMeta,
+  planTppBulletinAutoFit,
+  type TppBulletinPage,
+  type TppDensity,
+  type TppMeta,
+} from "@/lib/topPricePageExport";
 import type { CatalogueDetail, CombinedReport } from "@/types/api";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -34,6 +42,7 @@ function TopPricePagePrintContent() {
   const { loading: authLoading } = useAuth();
   const params = useSearchParams();
   const catalogueId = params.get("catalogueId");
+  const isSimple = params.get("format") === "simple";
 
   const [combined, setCombined] = useState<CombinedReport | null>(null);
   const [catalogue, setCatalogue] = useState<CatalogueDetail | null>(null);
@@ -62,6 +71,7 @@ function TopPricePagePrintContent() {
     () => (combined ? planTppBulletinAutoFit(combined) : null),
     [combined]
   );
+  const simpleEntries = useMemo(() => (combined && isSimple ? buildRegionEntries(combined) : null), [combined, isSimple]);
   const meta: TppMeta | null = useMemo(
     () => (combined ? buildTppMeta(combined, undefined, catalogue?.saleDateStart, catalogue?.saleDateEnd) : null),
     [combined, catalogue]
@@ -72,7 +82,11 @@ function TopPricePagePrintContent() {
 
   return (
     <div className="print-root" data-ready="true">
-      <TopPriceBulletin pages={layout.pages} density={layout.density} meta={meta} />
+      {isSimple && simpleEntries ? (
+        <TopPriceSimple entries={simpleEntries} meta={meta} />
+      ) : (
+        <TopPriceBulletin pages={layout.pages} density={layout.density} meta={meta} />
+      )}
     </div>
   );
 }

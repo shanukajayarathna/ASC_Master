@@ -1,0 +1,195 @@
+/* Simple-format Top Price Page — one landscape A4 sheet, region blocks flowing across 6-7
+   columns (see TopPriceSimple.tsx's fit logic), ASC lots shaded from the mark name onwards.
+   System fonts on purpose (no webfont): the fit routine measures real rendered heights, so a
+   font that swaps in late would invalidate its result and could clip rows on the printed page. */
+
+.wrap {
+  overflow-x: auto;
+  padding: 4px;
+}
+
+.page {
+  position: relative;
+  width: 297mm;
+  height: 210mm;
+  flex: 0 0 auto;
+  margin: 0 auto;
+  padding: 8mm 9mm 14mm 9mm;
+  display: flex;
+  flex-direction: column;
+  background: #fcfbf8;
+  color: #124734;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  /* Pinned: the app's global line-height would otherwise make every row taller and force a smaller font. */
+  line-height: 1.2;
+  overflow: hidden;
+  box-sizing: border-box;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 2px solid #2f7d52;
+  padding-bottom: 2.2mm;
+}
+.title {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 22pt;
+  font-weight: 700;
+  color: #2f7d52;
+  letter-spacing: 0.2px;
+}
+.meta {
+  font-size: 9.5pt;
+  color: #124734;
+}
+.meta b {
+  font-weight: 700;
+}
+.sub {
+  color: #b68c2a;
+  font-size: 8pt;
+  margin-left: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Takes exactly the room between the header and the footer band (the page reserves 14mm of
+   bottom padding for it) — the fit routine reads this box's own clientHeight as the budget every
+   column must stay within, so it's the real space, never an estimate of header height. */
+.cols {
+  display: flex;
+  gap: 3.2mm;
+  margin-top: 3.2mm;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.col {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rh {
+  background: #2f7d52;
+  color: #fff;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1.1mm 1.8mm;
+  margin-top: 1.6mm;
+}
+.col > .rh:first-child {
+  margin-top: 0;
+}
+.rh small {
+  font-weight: 400;
+  text-transform: none;
+  opacity: 0.85;
+  letter-spacing: 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 1.2mm;
+  padding: 0.5mm 1.2mm;
+}
+/* The only rule line: above a grade's first row (a grade group boundary). */
+.gs {
+  border-top: 0.3mm solid #b9b199;
+}
+.col > .gs:first-child,
+.rh + .gs {
+  border-top: none;
+}
+.g {
+  flex: 0 0 auto;
+  width: 15.5mm;
+  font-weight: 700;
+  color: #124734;
+}
+.g small {
+  display: block;
+  font-weight: 400;
+  color: #8b929e;
+  font-size: 0.72em;
+  line-height: 1.05;
+}
+.deal {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 1.2mm;
+  padding: 0 0.8mm;
+}
+.m {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.p {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Same "ours" treatment as the detailed bulletin: fill + green bar from the mark onwards, never
+   across the grade cell. */
+.ours .deal {
+  background: #f3cf6b;
+  border-left: 0.8mm solid #1f7a4d;
+  padding-left: 1mm;
+  color: #1f7a4d;
+}
+.ours .m {
+  font-weight: 700;
+}
+
+.empty {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  text-align: center;
+  font-style: italic;
+  color: #8b929e;
+}
+
+.foot {
+  position: absolute;
+  left: 9mm;
+  right: 9mm;
+  bottom: 5mm;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 7.5pt;
+  color: #b68c2a;
+  border-top: 0.3mm solid #b68c2a;
+  padding-top: 1.6mm;
+}
+.foot span:first-child {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+@media print {
+  .wrap {
+    overflow: visible;
+    padding: 0;
+  }
+  .page {
+    margin: 0;
+    break-after: auto;
+    break-inside: avoid;
+  }
+  @page {
+    size: 297mm 210mm;
+    margin: 0;
+  }
+}
