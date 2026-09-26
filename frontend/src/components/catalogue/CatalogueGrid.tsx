@@ -115,7 +115,7 @@ export default function CatalogueGrid({
         // field stays wired for edits (they write back into rawData as text, same as
         // before); valueGetter overrides what sort/filter/display actually read.
         valueGetter: meta?.numeric ? (p) => parseNumericCell(p.data?.[h]) : undefined,
-        minWidth: isSale ? 120 : 100,
+        minWidth: isSale ? 120 : 80,
         maxWidth: 260,
         tooltipField: h,
         editable: !isSale,
@@ -127,7 +127,10 @@ export default function CatalogueGrid({
       headerName: "Valuation",
       colId: "valuation",
       pinned: "right",
-      width: 130,
+      width: 140,
+      // Fixed width: sizeColumnsToFit must not squeeze these (their header/pills/buttons got clipped).
+      suppressSizeToFit: true,
+      wrapHeaderText: false,
       type: "numericColumn",
       valueGetter: (p) => effectiveValuation((p.data as { __lot: Lot }).__lot),
       valueFormatter: (p) => formatCurrency(p.value as number | null),
@@ -139,6 +142,9 @@ export default function CatalogueGrid({
       colId: "classification",
       pinned: "right",
       width: 160,
+      // Fixed width: sizeColumnsToFit must not squeeze these (their header/pills/buttons got clipped).
+      suppressSizeToFit: true,
+      wrapHeaderText: false,
       cellRenderer: (p: ICellRendererParams) => {
         const lot = (p.data as { __lot: Lot }).__lot;
         const cls = lot.valuation?.classification ?? "Unclassified";
@@ -158,7 +164,10 @@ export default function CatalogueGrid({
       headerName: "",
       colId: "actions",
       pinned: "right",
-      width: 84,
+      width: 96,
+      // Fixed width: sizeColumnsToFit must not squeeze these (their header/pills/buttons got clipped).
+      suppressSizeToFit: true,
+      wrapHeaderText: false,
       sortable: false,
       filter: false,
       cellRenderer: (p: ICellRendererParams) => {
