@@ -1,3 +1,4 @@
+import { requestBefore } from "@/components/agent-hub/ChatPanel";
 import UniversalAssistant from "@/components/agent-hub/UniversalAssistant";
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import type { CustomPreview, Lot } from "@/types/api";
@@ -566,6 +567,154 @@ describe("personalised for the reader", () => {
     fireEvent.click(clear);
     expect(await within(drawer).findByRole("alert")).toHaveTextContent("down");
     confirm.mockRestore();
+  });
+});
+
+describe("guided dialogue in the chat", () => {
+  const ROUTER = { provider: "router", agent: "analytics" };
+  const ask = (question: string, options: string[]) => `Lead-in.\nCLARIFY: ${JSON.stringify({ question, options })}`;
+
+  it("shows every guided option, plus an 'Other…' button that puts the cursor in the composer", async () => {
+    const options = ["Check prices", "Compare brokers", "Best-selling grades", "Look up a lot", "Build a report", "Ask about the by-laws"];
+    api.sendAgentChatMessage.mockResolvedValueOnce(reply({ ...ROUTER, reply: ask("What would you like to do?", options) }));
+    await open();
+    await send("tea data");
+    for (const name of options) expect(await screen.findByRole("button", { name })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Type your own answer" }));
+    expect(box()).toHaveFocus();
+  });
+
+  it("offers 'Other…' only on the newest question", async () => {
+    api.sendAgentChatMessage
+      .mockResolvedValueOnce(reply({ ...ROUTER, reply: ask("By what measure?", ["Quantity sold", "Average price"]) }))
+      .mockResolvedValueOnce(reply({ ...ROUTER, reply: ask("Which period?", ["Last 4 sales", "Last 12 sales"]) }));
+    await open();
+    await send("best selling grade");
+    fireEvent.click(await screen.findByRole("button", { name: "Quantity sold" }));
+    await screen.findByRole("button", { name: "Last 4 sales" });
+    expect(screen.getAllByRole("button", { name: "Type your own answer" })).toHaveLength(1);
+  });
+
+  it("carries the whole request — not just the tapped option — into the report canvas", async () => {
+    api.sendAgentChatMessage
+      .mockResolvedValueOnce(reply({ ...ROUTER, reply: ask("By what measure?", ["Quantity sold", "Average price"]) }))
+      .mockResolvedValueOnce(reply({ ...ROUTER, reply: ask("Which period?", ["Latest sale (32/2026)", "Last 12 sales"]) }))
+      .mockResolvedValueOnce(reply({ agent: "analytics", reply: chartReply }));
+    await open();
+    await send("best selling grade");
+    fireEvent.click(await screen.findByRole("button", { name: "Quantity sold" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Last 12 sales" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit in report canvas" }));
+    await screen.findByRole("dialog", { name: "Report canvas" });
+    await waitFor(() => expect(api.previewCustomReport).toHaveBeenCalled());
+    expect(api.previewCustomReport.mock.calls[0][0]).toMatchObject({ groupBy: "grade", metric: "sold_quantity_kg", lastNSales: 12 });
+  });
+
+  it("joins the turns since the last real answer into one request", () => {
+    const messages = [
+      { role: "user", content: "old question" }, { role: "assistant", content: "answer", provider: "local" },
+      { role: "user", content: "best selling grade" }, { role: "assistant", content: "By what measure?", provider: "router" },
+      { role: "user", content: "Quantity sold" }, { role: "assistant", content: "the answer", provider: "local" },
+    ];
+    expect(requestBefore(messages, 5)).toBe("best selling grade, Quantity sold");
+    expect(requestBefore(messages, 1)).toBe("old question");
+  });
+
+  it("suggests next steps under a real answer, and each is a follow-up question", async () => {
+    api.sendAgentChatMessage.mockResolvedValue(reply({ agent: "analytics", reply: "BOPF led with 1,200 kg." }));
+    await open();
+    await send("compare brokers by price over the last 12 sales");
+    await screen.findByText("BOPF led with 1,200 kg.");
+    const steps = screen.getByRole("group", { name: "Next steps" });
+    expect(within(steps).getAllByRole("button").map((b) => b.textContent)).toEqual(["Show this answer as a chart", "Export this to Excel", "Explain this answer in simple words"]);
+
+    fireEvent.click(within(steps).getByRole("button", { name: "Export this to Excel" }));
+    await waitFor(() => expect(api.sendAgentChatMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendAgentChatMessage.mock.calls[1][1]).toBe("Export this to Excel");
+  });
+
+  it("offers no next steps after a chart's own actions, a general answer, or a question", async () => {
+    api.sendAgentChatMessage.mockResolvedValueOnce(reply({ agent: "analytics", reply: chartReply }));
+    await open();
+    await send("compare brokers by price over the last 12 sales");
+    await screen.findByRole("button", { name: "Explain this chart" });
+    expect(within(screen.getByRole("group", { name: "Next steps" })).queryByRole("button", { name: "Show this answer as a chart" })).not.toBeInTheDocument();
+
+    api.sendAgentChatMessage.mockResolvedValueOnce(reply({ agent: "general", reply: "Plain general answer." }));
+    await send("what is the deposit rule");
+    await screen.findByText("Plain general answer.");
+    expect(screen.queryByRole("group", { name: "Next steps" })).not.toBeInTheDocument();
+
+    api.sendAgentChatMessage.mockResolvedValueOnce(reply({ ...ROUTER, reply: ask("Which period?", ["Last 4 sales", "Last 12 sales"]) }));
+    await send("average price");
+    await screen.findByRole("button", { name: "Last 4 sales" });
+    expect(screen.queryByRole("group", { name: "Next steps" })).not.toBeInTheDocument();
+  });
+});
+
+describe("report canvas: every way to say what you want", () => {
+  const openCanvas = async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Report canvas" }));
+    const canvas = await screen.findByRole("dialog", { name: "Report canvas" });
+    await waitFor(() => expect(api.previewCustomReport).toHaveBeenCalled());
+    return canvas;
+  };
+  const lastRequest = () => api.previewCustomReport.mock.calls.at(-1)![0];
+
+  it("filters by elevation with one tap, and back to all", async () => {
+    const canvas = await openCanvas();
+    fireEvent.click(within(canvas).getByRole("button", { name: "High" }));
+    await waitFor(() => expect(lastRequest().elevations).toEqual(["UVA HIGH", "WESTERN HIGH"]));
+    fireEvent.click(within(canvas).getByRole("button", { name: "Low" }));
+    await waitFor(() => expect(lastRequest().elevations).toEqual(["LOW"]));
+    fireEvent.click(within(canvas).getByRole("group", { name: "Elevation" }).querySelector("button[value=all]")!);
+    await waitFor(() => expect(lastRequest().elevations).toBeUndefined());
+  });
+
+  it("breaks down by buyer and by mark as well as broker, grade, sale and origin", async () => {
+    const canvas = await openCanvas();
+    const groups = within(within(canvas).getByRole("group", { name: "Group by" })).getAllByRole("button").map((b) => b.textContent);
+    expect(groups).toEqual(["Broker", "Grade", "Sale", "Origin", "Buyer", "Mark"]);
+    fireEvent.click(within(canvas).getByRole("button", { name: "Buyer" }));
+    await waitFor(() => expect(lastRequest().groupBy).toBe("buyer"));
+  });
+
+  it("picks any single sale from inside the canvas, and the period follows", async () => {
+    const canvas = await openCanvas();
+    fireEvent.click(within(canvas).getByRole("button", { name: /^Scope: All sales/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Scope" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "One sale" }));
+    fireEvent.mouseDown(within(dialog).getByRole("combobox", { name: "Sale" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Sale 32/2026" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(lastRequest()).toMatchObject({ fromYear: 2026, fromSale: 32, toYear: 2026, toSale: 32 }));
+    expect(lastRequest().lastNSales).toBeUndefined();
+  });
+
+  it("says plainly when a selection has no figures, instead of drawing an empty chart", async () => {
+    api.previewCustomReport.mockResolvedValue({ ...preview, categories: [], series: [{ name: "m", values: [] }] });
+    const canvas = await openCanvas();
+    expect(await within(canvas).findByText(/No figures for this selection/)).toBeInTheDocument();
+    expect(within(canvas).queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("shows why it can't load, and recovers when the selection changes", async () => {
+    api.previewCustomReport.mockRejectedValueOnce(new Error("The archive is busy."));
+    const canvas = await openCanvas();
+    expect(await within(canvas).findByRole("alert")).toHaveTextContent("The archive is busy.");
+    fireEvent.click(within(canvas).getByRole("button", { name: "Qty sold" }));
+    expect(await within(canvas).findByRole("heading", { name: "Average price (Rs/kg) by broker" })).toBeInTheDocument();
+  });
+
+  it("reads a named sale and elevation from the request when the canvas opens from the chat", async () => {
+    api.sendAgentChatMessage.mockResolvedValue(reply({ agent: "analytics", reply: chartReply }));
+    await open();
+    await send("average price for high grown tea by broker for sale 31 of 2026");
+    fireEvent.click(await screen.findByRole("button", { name: "Edit in report canvas" }));
+    await screen.findByRole("dialog", { name: "Report canvas" });
+    await waitFor(() => expect(api.previewCustomReport).toHaveBeenCalled());
+    expect(api.previewCustomReport.mock.calls[0][0]).toMatchObject({ groupBy: "broker", elevations: ["UVA HIGH", "WESTERN HIGH"], fromYear: 2026, fromSale: 31, toYear: 2026, toSale: 31 });
   });
 });
 

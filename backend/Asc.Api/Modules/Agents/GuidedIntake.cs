@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Asc.Api.Modules.Agents;
 
-public enum IntakeTopic { None, Menu, LotMenu, BylawsMenu, Ranking, Prices, Volume, Compare, Trend, Report, SaleSummary }
+public enum IntakeTopic { None, Menu, LotMenu, BylawsMenu, Ranking, Prices, Volume, Compare, Trend, Report, SaleSummary, TeaBoard }
 
 /// <summary>What exists to choose from. Plain lists, so the source (archive, sale catalogues, OKLO feed) can change freely.</summary>
 public record IntakeData(
@@ -11,7 +11,8 @@ public record IntakeData(
     IReadOnlyCollection<(int Year, int SaleNo)> Catalogued,
     IReadOnlyList<string> AllGrades,
     IReadOnlyList<string> TopGrades,
-    string MyBroker = "ASC");
+    string MyBroker = "ASC",
+    DateTime? Today = null);
 
 /// <summary>What to do with this turn: say something (with or without buttons), or hand the fully-specified request to an agent.</summary>
 public record IntakeOutcome(string? Lead, ClarifyQuestion? Ask, ResolvedRequest? Resolved);
@@ -20,7 +21,7 @@ public record IntakeOutcome(string? Lead, ClarifyQuestion? Ask, ResolvedRequest?
 public record ResolvedRequest(
     IntakeTopic Topic, ArchiveScope? Scope, (int Year, int SaleNo)? CatalogueSale, string? GroupBy, string? Metric,
     IReadOnlyList<string> Grades, IReadOnlyList<string> Elevations, IReadOnlyList<string> Brokers, IReadOnlyList<string> GradeTypes,
-    string? Format, IReadOnlyList<string> Assumed)
+    string? Format, IReadOnlyList<string> Assumed, string? Note = null)
 {
     public string AgentKey => CatalogueSale is not null ? "auction" : Topic == IntakeTopic.Report ? "reports" : "analytics";
 
@@ -37,6 +38,7 @@ public record ResolvedRequest(
         if (Brokers.Count > 0) parts.Add($"broker {string.Join("/", Brokers)}");
         if (GradeTypes.Count > 0) parts.Add(string.Join("/", GradeTypes).ToLowerInvariant());
         if (Format is not null) parts.Add($"deliver as {Format}");
+        if (Note is not null) parts.Add(Note);
         return string.Join("; ", parts);
     }
 
@@ -54,6 +56,7 @@ public record ResolvedRequest(
         if (r.Brokers.Count > 0) parts.Add($"broker={string.Join("/", r.Brokers)}");
         if (r.GradeTypes.Count > 0) parts.Add($"grade_type={string.Join("/", r.GradeTypes)}");
         if (r.Format is not null) parts.Add($"format={r.Format}");
+        if (r.Note is not null) parts.Add(r.Note);
         var line = " RESOLVED REQUEST (the user chose these through guided questions — do not ask about them again; answer exactly this): " + string.Join("; ", parts) + ".";
         if (r.CatalogueSale is not null)
             line += " That sale is not in the results archive yet: answer from its catalogue (lots and valuations) and say that valuations are estimates, not sold prices.";
@@ -104,7 +107,7 @@ public static class GuidedIntake
     {
         "Check prices", "Compare brokers", "Best-selling grades", "Look up a lot", "Build a report", "Ask about the by-laws",
         "Quantity sold", "Average price", "Total value (proceeds)", "Prices by broker", "Quantity by grade", "Off-grade share by broker",
-        "Best-selling grades this year", "Excel", "PDF", "PowerPoint", "On screen (chart and table)", "All tea (overall)", "One grade", "One elevation", "One broker", "Break down by grade",
+        "Best-selling grades this year", "Tea Board averages", "Whole year", "Latest available month", "Excel", "PDF", "PowerPoint", "On screen (chart and table)", "All tea (overall)", "One grade", "One elevation", "One broker", "Break down by grade",
         YouChoose, "Yes, show valuations", "Choose another sale", "A specific sale", "Sales over time",
     };
 
@@ -115,6 +118,11 @@ public static class GuidedIntake
     private static readonly Regex LotOrValuation = new(@"(\blots?\s*#?\s*\d+|\bvaluations?\b|\bvalued\b|\bgardens?\b|\bliquor\b|\bcatalogue\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ThisSale = new(@"\b(this|current) sale\b|\btop (lots?|prices?)\b|\bhighest price\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Deictic = new(@"\b(this (chart|table|report|answer|data|result|one|graph)|that (chart|table|report|answer|one)|the (above|chart|table) |above|same (thing|data)|export (this|it)|it)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TeaBoardWords = new(@"\b(tea ?board|national averages?|official averages?)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex MonthWords = new(@"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex WholeYear = new(@"\b(whole|full|entire|all) year\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex LatestMonth = new(@"\b(latest|last|most recent) (available )?month\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SectionWords = new(@"\b(orthodox|ctc|combined|green|organic|special|refuse|composite)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ReportWords = new(@"\b(report|deck|powerpoint|power point|pptx|slides?|presentation|excel|spreadsheet|pdf)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex TrendWords = new(@"\b(trend|trends|over time|week by week|weekly|month by month|history of|progress)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex CompareWords = new(@"\b(compare|comparison|compared|versus|vs\.?|difference between)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -194,6 +202,7 @@ public static class GuidedIntake
         public readonly HashSet<string> WantFilter = new(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> Grades = [], Elevations = [], Brokers = [], GradeTypes = [];
         public string? Format; public bool FormatChosen;
+        public int? Month, NamedYear; public bool WholeYear, LatestMonth; public string? Section;
         public bool ChooseForMe;
         public int Asked;
     }
@@ -234,6 +243,7 @@ public static class GuidedIntake
         if (Bylaws.IsMatch(g) || LotOrValuation.IsMatch(g) || ThisSale.IsMatch(g) || Deictic.IsMatch(g)) return IntakeTopic.None;
         var dim = Nouns.IsMatch(OffGrade.Replace(MainGrade.Replace(Specific.Replace(t, " "), " "), " "));
         var entity = dim || Ours.IsMatch(t) || BrokerTable.Any(b => b.Re.IsMatch(t)) || AnyYear.IsMatch(t) || LastN.IsMatch(t);
+        if (TeaBoardWords.IsMatch(t)) return IntakeTopic.TeaBoard;
         if (ReportWords.IsMatch(t)) return IntakeTopic.Report;
         if (TrendWords.IsMatch(t)) return IntakeTopic.Trend;
         if (CompareWords.IsMatch(t)) return IntakeTopic.Compare;
@@ -289,6 +299,18 @@ public static class GuidedIntake
 
             if (Regex.IsMatch(t, @"show valuations", RegexOptions.IgnoreCase)) f.CatalogueConfirmed = true;
 
+            // Tea Board: year, month, whole year, section
+            if (f.Topic == IntakeTopic.TeaBoard)
+            {
+                if (AnyYear.Match(t) is { Success: true } tby) f.NamedYear = int.Parse(tby.Groups[1].Value);
+                else if (ThisYear.IsMatch(t)) f.NamedYear = latestYear;
+                else if (LastYear.IsMatch(t)) f.NamedYear = latestYear - 1;
+                if (WholeYear.IsMatch(t)) { f.WholeYear = true; f.Month = null; f.LatestMonth = false; }
+                else if (LatestMonth.IsMatch(t)) { f.LatestMonth = true; f.WholeYear = false; f.Month = null; }
+                else if (MonthWords.Match(t) is { Success: true } mm) { f.Month = MonthNumber(mm.Value); f.WholeYear = false; f.LatestMonth = false; }
+                if (SectionWords.Match(t) is { Success: true } sw) f.Section = sw.Value.ToUpperInvariant();
+            }
+
             // what to look at
             if (OffGrade.IsMatch(t) && !f.GradeTypes.Contains("Off Grade")) f.GradeTypes.Add("Off Grade");
             if (MainGrade.IsMatch(t) && !f.GradeTypes.Contains("Main Grade")) f.GradeTypes.Add("Main Grade");
@@ -326,6 +348,10 @@ public static class GuidedIntake
         return f;
     }
 
+    private static int MonthNumber(string word) => Array.FindIndex(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], m => word.StartsWith(m, StringComparison.OrdinalIgnoreCase)) + 1;
+
+    private static readonly string[] MonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
     private static int NumberOf(string s) => s.ToLowerInvariant() switch { "four" => 4, "five" => 5, "six" => 6, "eight" => 8, "ten" => 10, "twelve" => 12, var n => int.TryParse(n, out var v) ? v : 4 };
 
     private static string NounToDimension(string noun) => noun.ToLowerInvariant() switch
@@ -355,8 +381,10 @@ public static class GuidedIntake
                     ["What is the default penalty for a late buyer?", "What is the buyer's deposit and when is it due?", "When is the Buyer's Prompt Day?", "How long do I have to file a complaint?"]), null);
             case IntakeTopic.Menu:
                 return new IntakeOutcome("Happy to help — pick where to start, or just type what you need.", new ClarifyQuestion(MenuQuestion,
-                    ["Check prices", "Compare brokers", "Best-selling grades", "Look up a lot", "Build a report", "Ask about the by-laws"]), null);
+                    ["Check prices", "Compare brokers", "Best-selling grades", "Tea Board averages", "Look up a lot", "Build a report", "Ask about the by-laws"]), null);
         }
+
+        if (f.Topic == IntakeTopic.TeaBoard) return NextTeaBoard(f, data);
 
         var assumed = new List<string>();
         var defaults = f.ChooseForMe || f.Asked >= MaxAsks;
@@ -479,6 +507,36 @@ public static class GuidedIntake
         var grades2 = Unless(f.AllGrades, f.Grades);
         var elevs = Unless(f.AllElevations, f.Elevations);
         return new IntakeOutcome(null, null, new ResolvedRequest(f.Topic, scope, catalogueSale, groupBy, metric, grades2, elevs, brokers, f.GradeTypes, f.Format, assumed));
+    }
+
+    /// <summary>Tea Board national averages: a year, then a month (or the whole year); the section defaults to COMBINED.</summary>
+    private static IntakeOutcome? NextTeaBoard(Frame f, IntakeData data)
+    {
+        var today = data.Today ?? DateTime.UtcNow;
+        var defaults = f.ChooseForMe || f.Asked >= MaxAsks;
+        IntakeOutcome Ask(string question, IEnumerable<string> options)
+        {
+            var opts = options.ToList();
+            if (f.Asked >= 1 && !defaults) opts.Add(YouChoose);
+            return new IntakeOutcome(null, new ClarifyQuestion(question, opts), null);
+        }
+
+        int? year = f.NamedYear;
+        if (year is null && !defaults) return Ask("Which year?", Enumerable.Range(0, 4).Select(i => (today.Year - i).ToString()));
+        year ??= today.Year;
+
+        var lastMonth = year == today.Year ? Math.Max(1, today.Month - 1) : 12;
+        if (f.Month is null && !f.WholeYear && !f.LatestMonth && !defaults)
+            return Ask("Which month?", new[] { "Whole year" }.Concat(Enumerable.Range(0, 5).Select(i => lastMonth - i).Where(m => m >= 1).Select(m => MonthNames[m - 1])));
+
+        if (f.Asked == 0 && !f.ChooseForMe) return null;
+        var assumed = new List<string>();
+        int? month = f.WholeYear ? null : f.LatestMonth ? lastMonth : f.Month;
+        if (f.Month is null && !f.WholeYear && !f.LatestMonth) { month = lastMonth; assumed.Add("the latest complete month"); }
+        var section = f.Section ?? "COMBINED";
+        if (f.Section is null) assumed.Add("the COMBINED section");
+        var note = $"Tea Board: get_teaboard_averages year={year}, month={(month is null ? "whole year" : month.ToString())}, section={section}";
+        return new IntakeOutcome(null, null, new ResolvedRequest(IntakeTopic.TeaBoard, null, null, null, null, [], [], [], [], null, assumed, note));
     }
 
     private static ClarifyQuestion PeriodQuestion(IReadOnlyList<(int Year, int SaleNo)> latestArchived, Frame f)

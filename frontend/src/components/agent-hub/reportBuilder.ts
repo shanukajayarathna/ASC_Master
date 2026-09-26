@@ -7,6 +7,8 @@ export const GROUPS = [
   { key: "grade", label: "Grade" },
   { key: "sale", label: "Sale" },
   { key: "elevation", label: "Origin" },
+  { key: "buyer", label: "Buyer" },
+  { key: "mark", label: "Mark" },
 ] as const;
 export const METRICS = [
   { key: "avg_price_rs", label: "Avg price" },
@@ -43,12 +45,28 @@ export interface BuilderState {
   grades: string[];
   /** "Off Grade" and/or "Main Grade"; empty = both. */
   gradeTypes: string[];
+  /** Elevation names (UVA HIGH, …); empty = all elevations. */
+  elevations: string[];
   /** The scope chosen in the assistant (a sale, range or years). The "Chosen scope" period uses it. */
   range: ChatScope | null;
   visual: VisualKey;
 }
 
-export const DEFAULT_STATE: BuilderState = { group: "broker", metric: "avg_price_rs", period: "12", brokers: [], grades: [], gradeTypes: [], range: null, visual: "bar" };
+export const DEFAULT_STATE: BuilderState = { group: "broker", metric: "avg_price_rs", period: "12", brokers: [], grades: [], gradeTypes: [], elevations: [], range: null, visual: "bar" };
+
+/** The elevation choices the builder offers, each a set of the archive's elevation names. */
+export const ELEVATION_SETS = {
+  high: ["UVA HIGH", "WESTERN HIGH"],
+  medium: ["UVA MEDIUM", "WESTERN MEDIUM"],
+  low: ["LOW"],
+} as const;
+export type ElevationChoice = "all" | keyof typeof ELEVATION_SETS;
+
+export function elevationChoice(elevations: readonly string[]): ElevationChoice {
+  for (const key of Object.keys(ELEVATION_SETS) as (keyof typeof ELEVATION_SETS)[])
+    if (elevations.length === ELEVATION_SETS[key].length && ELEVATION_SETS[key].every((e) => elevations.includes(e))) return key;
+  return "all";
+}
 
 /** The eight brokers with their permanent colours (light-theme value; the chart itself themes them). */
 export const BROKER_CHIPS = Object.values(BROKERS).map((b) => ({ code: b.code, name: b.name, color: b.color }));
@@ -70,6 +88,7 @@ export function toRequest(state: BuilderState, now = new Date()): CustomPreviewR
   if (state.brokers.length > 0) req.brokers = state.brokers;
   if (state.grades.length > 0) req.grades = state.grades;
   if (state.gradeTypes.length > 0) req.gradeTypes = state.gradeTypes;
+  if (state.elevations.length > 0) req.elevations = state.elevations;
   // A per-sale breakdown wants every sale shown, not just the biggest few.
   if (state.group === "sale") req.topN = 12;
   return req;

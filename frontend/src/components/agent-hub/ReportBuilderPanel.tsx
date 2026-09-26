@@ -6,7 +6,8 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { useState } from "react";
 import { REPORT_TEMPLATES } from "./reportTemplates";
-import { BROKER_CHIPS, GROUPS, METRICS, PERIODS, VISUALS, type BuilderState } from "./reportBuilder";
+import ScopeControl from "./ScopeControl";
+import { BROKER_CHIPS, ELEVATION_SETS, GROUPS, METRICS, PERIODS, VISUALS, elevationChoice, type BuilderState } from "./reportBuilder";
 
 interface Option<T extends string> {
   key: T;
@@ -14,7 +15,7 @@ interface Option<T extends string> {
 }
 
 function Segment<T extends string>({ name, value, options, onChange }: { name: string; value: T; options: readonly Option<T>[]; onChange: (v: T) => void }) {
-  const id = `rb-${name}`;
+  const id = `rb-${name.replace(/\s+/g, "-")}`;
   return (
     <div className="ws-seg">
       <span className="ws-seg-label" id={id}>{name}</span>
@@ -129,8 +130,22 @@ export default function ReportBuilderPanel({ state, onChange, onDescribe, descri
         onChange={(v) => set("gradeTypes", v === "off" ? ["Off Grade"] : v === "main" ? ["Main Grade"] : [])}
       />
 
+      <Segment
+        name="Elevation"
+        value={elevationChoice(state.elevations)}
+        options={[{ key: "all", label: "All" }, { key: "high", label: "High" }, { key: "medium", label: "Medium" }, { key: "low", label: "Low" }]}
+        onChange={(v) => set("elevations", v === "all" ? [] : [...ELEVATION_SETS[v]])}
+      />
+
       <Segment name="Measure" value={state.metric} options={METRICS} onChange={(v) => set("metric", v)} />
       <Segment name="Period" value={state.period} options={PERIODS.filter((p) => p.key !== "scope" || state.range !== null)} onChange={(v) => set("period", v)} />
+      <div className="ws-seg">
+        <span className="ws-seg-label" id="rb-pick">Any sale, range or year</span>
+        <ScopeControl
+          scope={state.range}
+          onChange={(range) => onChange({ ...state, range, period: range ? "scope" : state.period === "scope" ? "12" : state.period })}
+        />
+      </div>
       <Segment name="Visual" value={state.visual} options={VISUALS} onChange={(v) => set("visual", v)} />
     </aside>
   );

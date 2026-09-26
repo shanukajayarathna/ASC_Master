@@ -100,7 +100,7 @@ public class GuidedIntakeTests
         var c = new Chat();
         c.Say(text);
         Assert.Equal(GuidedIntake.MenuQuestion, c.Question);
-        Assert.Equal(["Check prices", "Compare brokers", "Best-selling grades", "Look up a lot", "Build a report", "Ask about the by-laws"], c.Options);
+        Assert.Equal(["Check prices", "Compare brokers", "Best-selling grades", "Tea Board averages", "Look up a lot", "Build a report", "Ask about the by-laws"], c.Options);
     }
 
     [Fact]
@@ -379,5 +379,73 @@ public class GuidedIntakeTests
         Assert.Single(GuidedIntake.OpenTurns(prior, "compare brokers"));            // after a real answer: a fresh start
         prior[3] = ("assistant", "Which period?\nCLARIFY: {}", "router");
         Assert.Equal(5, GuidedIntake.OpenTurns(prior, "Last 12 sales").Count);      // still answering the same request
+    }
+}
+
+public class GuidedIntakeTeaBoardTests
+{
+    private static readonly IntakeData Data = new([(2026, 32)], [], ["BOP"], ["BOP"], "ASC", new DateTime(2026, 9, 27));
+
+    private static IntakeOutcome? Say(params string[] userTurns)
+    {
+        var open = new List<(string Role, string Content)>();
+        IntakeOutcome? last = null;
+        foreach (var turn in userTurns)
+        {
+            open.Add(("user", turn));
+            last = GuidedIntake.Next(open, Data, false);
+            if (last?.Ask is { } q) open.Add(("assistant", IntentRouter.ClarifyReply(q)));
+        }
+        return last;
+    }
+
+    [Fact]
+    public void AsksTheYear_ThenTheMonth_WithRecentMonthsOfThatYear_ThenAnswersWithTheToolArguments()
+    {
+        var y = Say("tea board national average");
+        Assert.Equal("Which year?", y!.Ask!.Question);
+        Assert.Equal(["2026", "2025", "2024", "2023"], y.Ask.Options);
+
+        var m = Say("tea board national average", "2026");
+        Assert.Equal("Which month?", m!.Ask!.Question);
+        Assert.Equal(["Whole year", "August", "July", "June", "May", "April", GuidedIntake.YouChoose], m.Ask.Options); // this year: complete months only
+
+        var past = Say("tea board national average", "2024");
+        Assert.Contains("December", Say("tea board national average", "2024")!.Ask!.Options);
+        Assert.NotNull(past);
+
+        var done = Say("tea board national average", "2026", "June");
+        Assert.Contains("year=2026, month=6, section=COMBINED", done!.Resolved!.Note);
+        Assert.Equal("analytics", done.Resolved.AgentKey);
+    }
+
+    [Fact]
+    public void WholeYear_LatestMonth_AndASection_AreUnderstood()
+    {
+        Assert.Contains("month=whole year", Say("tea board averages", "2025", "Whole year")!.Resolved!.Note);
+        Assert.Contains("month=8", Say("tea board averages", "2026", "Latest available month")!.Resolved!.Note);
+        Assert.Contains("section=ORTHODOX", Say("tea board orthodox averages", "2025", "March")!.Resolved!.Note);
+    }
+
+    [Fact]
+    public void AFullySpecifiedTeaBoardQuestion_IsNotInterrupted() => Assert.Null(Say("tea board average for June 2025"));
+
+    [Fact]
+    public void YouChooseForMe_UsesTheLatestCompleteMonth_AndSaysSo()
+    {
+        var done = Say("tea board averages", "2026", GuidedIntake.YouChoose)!.Resolved!;
+        Assert.Contains("month=8", done.Note);
+        Assert.Contains("the latest complete month", done.Assumed);
+    }
+}
+
+public class ReportPreviewElevationTests
+{
+    [Fact]
+    public void TheElevationFilterReachesTheQueryTool()
+    {
+        var args = Asc.Api.Modules.Reports.CustomReportsController.ToArgs(new Asc.Api.Modules.Reports.CustomPreviewRequest("grade", "avg_price_rs", false, null, null, null, null, 8, null, Elevations: ["UVA HIGH", "WESTERN HIGH"]));
+        Assert.Equal(["UVA HIGH", "WESTERN HIGH"], args["elevations"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.Null(Asc.Api.Modules.Reports.CustomReportsController.ToArgs(new Asc.Api.Modules.Reports.CustomPreviewRequest("grade", null, false, null, null, null, null, null, null))["elevations"]);
     }
 }

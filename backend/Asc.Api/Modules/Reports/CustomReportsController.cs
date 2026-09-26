@@ -32,7 +32,8 @@ public record CustomPreviewRequest(
     int? FromSale = null,
     int? ToYear = null,
     int? ToSale = null,
-    List<string>? GradeTypes = null);
+    List<string>? GradeTypes = null,
+    List<string>? Elevations = null);
 
 /// <summary>
 /// Live preview for the Reports workspace's builder: the same archive query the Reports Agent's query_data tool
@@ -159,6 +160,7 @@ public class CustomReportsController(CustomReportTools tools, MongoContext db, I
         if (r.FromSale is { } fs) args["from_sale"] = fs;
         if (r.ToYear is { } ty) args["to_year"] = ty;
         if (r.ToSale is { } ts) args["to_sale"] = ts;
+        if (r.Elevations is { Count: > 0 }) args["elevations"] = new JsonArray([.. r.Elevations.Select(e => (JsonNode)JsonValue.Create(e)!)]);
         if (r.GradeTypes is { Count: > 0 }) args["grade_types"] = new JsonArray([.. r.GradeTypes.Select(g => (JsonNode)JsonValue.Create(g)!)]);
         return args;
     }

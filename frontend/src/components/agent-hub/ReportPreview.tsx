@@ -56,7 +56,11 @@ export default function ReportPreview({ preview, loading, error, visual }: Repor
           </header>
 
           <div className="ws-paper-body" style={{ opacity: loading ? 0.55 : 1 }}>
-            {spec ? <ChartBlock spec={spec} /> : <ChatTable rows={tableRows(preview).map((r) => r.map((c) => (typeof c === "number" ? c.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (c ?? "—"))))} />}
+            {preview.categories.length === 0 ? (
+              <p className="ws-ph-note" role="status">
+                No figures for this selection. The sale may not have results in the archive yet — try a wider period, another sale, or fewer filters.
+              </p>
+            ) : spec ? <ChartBlock spec={spec} /> : <ChatTable rows={tableRows(preview).map((r) => r.map((c) => (typeof c === "number" ? c.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (c ?? "—"))))} />}
           </div>
 
           {summary.length > 0 && (

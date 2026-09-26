@@ -51,7 +51,7 @@ export function canvasStateFor(question: string, scope: ChatScope | null = null)
   const cmd = parseVoiceCommand(question);
   const state = applyVoiceCommand(DEFAULT_STATE, cmd);
   // A period chosen in the scope control is the default; a period named in the question itself wins.
-  return scope ? { ...state, range: scope, period: cmd.patch.period ?? "scope" } : state;
+  return scope && !cmd.patch.range ? { ...state, range: scope, period: cmd.patch.period ?? "scope" } : state;
 }
 
 /** Lot cards under an answer about a lot: looked up from the lot number in the question, shown only if the sale has it. */
@@ -238,6 +238,11 @@ export default function UniversalAssistant() {
                 )}
               </>
             );
+          }}
+          nextSteps={({ text, agent }) => {
+            if (agent !== "analytics" && agent !== "auction" && agent !== "reports") return [];
+            const steps = ["Export this to Excel", "Explain this answer in simple words"];
+            return text.includes("```asc-chart") ? steps : ["Show this answer as a chart", ...steps];
           }}
           belowMessage={({ agent, question }) => (agent === "auction" ? <LotsUnder question={question} onAsk={ask} busy={chat.sending} /> : null)}
         />

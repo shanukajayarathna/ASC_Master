@@ -16,7 +16,7 @@ export function parseClarify(reply: string): { text: string; clarify?: { questio
     if (typeof parsed.question === "string" && Array.isArray(parsed.options) && parsed.options.length >= 2) {
       return {
         text: reply.replace(m[0], "").trimEnd(),
-        clarify: { question: parsed.question, options: parsed.options.slice(0, 4).map(String) },
+        clarify: { question: parsed.question, options: parsed.options.slice(0, 10).map(String) },
       };
     }
   } catch {

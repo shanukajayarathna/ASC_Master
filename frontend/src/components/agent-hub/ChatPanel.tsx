@@ -17,6 +17,17 @@ import type { useSpeech } from "./voice";
 
 const MAX_MESSAGE_LENGTH = 8000;
 
+/** The user's turns since the previous real answer, joined — so a tapped option ("2026") still carries the request it answers. */
+export function requestBefore(messages: readonly { role: string; content: string; provider?: string | null }[], index: number): string {
+  const parts: string[] = [];
+  for (let j = index - 1; j >= 0; j--) {
+    const x = messages[j];
+    if (x.role === "assistant" && x.provider !== "router") break;
+    if (x.role === "user") parts.unshift(x.content);
+  }
+  return parts.join(", ");
+}
+
 const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /** What a workspace may want to know about the answer it is decorating. */
@@ -47,6 +58,8 @@ interface ChatPanelProps {
   belowMessage?: (message: { id: string; text: string } & MessageContext) => ReactNode;
   /** Shown between the conversation and the composer (e.g. a hand-off suggestion). */
   aboveComposer?: ReactNode;
+  /** Follow-up suggestions shown as buttons under the newest answer (only for a real answer, not a question). */
+  nextSteps?: (message: { text: string } & MessageContext) => readonly string[];
 }
 
 /**
@@ -54,7 +67,7 @@ interface ChatPanelProps {
  * chips), suggested prompts, read-aloud and copy on each answer, and a composer with the mic. The workspace
  * owns the chat state (so it can also send from elsewhere, e.g. a lot card) and passes it in.
  */
-export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint, placeholder, onListeningChange, chartExtra, messageExtra, belowMessage, aboveComposer }: ChatPanelProps) {
+export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint, placeholder, onListeningChange, chartExtra, messageExtra, belowMessage, aboveComposer, nextSteps }: ChatPanelProps) {
   const reduced = useReducedMotion();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,6 +115,8 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
     inputRef.current?.focus();
   };
 
+  const focusComposer = () => inputRef.current?.focus();
+
   const copy = async (id: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -135,9 +150,11 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
         <div ref={logRef} role="log" aria-live="polite" className="flex flex-col gap-4">
           {chat.messages.map((m, i) => {
             const isUser = m.role === "user";
-          const question = [...chat.messages.slice(0, i)].reverse().find((x) => x.role === "user")?.content ?? "";
+            const question = requestBefore(chat.messages, i);
             const { text, clarify } = isUser ? { text: m.content, clarify: undefined } : parseClarify(m.content);
             const hasChart = !isUser && text.includes("```asc-chart");
+            const showSteps = !isUser && !clarify && i === lastAssistantIdx && !chat.sending && m.provider !== "router";
+            const steps = showSteps ? (nextSteps?.({ text, question, agent: m.agent ?? null, fromRouter: false }) ?? []) : [];
             return (
               <div key={m.id} className={`flex flex-col ${isUser ? "items-end" : "items-start"} gap-1`}>
                 <div
@@ -154,6 +171,9 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
                       {clarify.options.map((opt) => (
                         <Chip key={opt} label={opt} size="small" variant="outlined" clickable disabled={chat.sending || i !== lastAssistantIdx} onClick={() => submit(opt)} />
                       ))}
+                      {i === lastAssistantIdx && (
+                        <Chip label="Other…" aria-label="Type your own answer" size="small" variant="outlined" clickable disabled={chat.sending} onClick={focusComposer} sx={{ borderStyle: "dashed" }} />
+                      )}
                     </div>
                   </div>
                 )}
@@ -198,6 +218,14 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
                   )}
                   {!isUser && messageExtra?.({ id: m.id, text, question, agent: m.agent ?? null, fromRouter: m.provider === "router" })}
                 </div>
+                {steps.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 px-1" role="group" aria-label="Next steps">
+                    <span className="text-[12px] text-text-muted">Next:</span>
+                    {steps.map((step) => (
+                      <Chip key={step} label={step} size="small" variant="outlined" clickable onClick={() => void submit(step)} />
+                    ))}
+                  </div>
+                )}
                 {!isUser && belowMessage?.({ id: m.id, text, question, agent: m.agent ?? null, fromRouter: m.provider === "router" })}
               </div>
             );

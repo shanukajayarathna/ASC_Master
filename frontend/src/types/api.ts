@@ -1502,6 +1502,8 @@ export interface CustomPreviewRequest {
   toYear?: number;
   toSale?: number | null;
   gradeTypes?: string[];
+  /** Elevation names (UVA HIGH, WESTERN HIGH, UVA MEDIUM, WESTERN MEDIUM, LOW). */
+  elevations?: string[];
 }
 
 /** A computed dataset for the live preview — every number comes from the archive. */

@@ -71,3 +71,45 @@ describe("parseVoiceCommand", () => {
     expect(toRequest({ ...DEFAULT_STATE, period: "scope", range: null }).fromYear).toBeUndefined();
   });
 });
+
+describe("named periods, elevations and more breakdowns", () => {
+  const now = new Date("2026-09-27");
+
+  it("reads a named sale with its year, in any of the usual wordings", () => {
+    for (const said of ["best selling grade for sale 37 of 2026", "grades sale 37/2026", "sale 37, 2026, quantity sold"]) {
+      const c = parseVoiceCommand(said, now);
+      expect(c.patch).toMatchObject({ period: "scope", range: { fromYear: 2026, fromSale: 37, toYear: 2026, toSale: 37 } });
+      expect(c.understood).toContain("Period: sale 37/2026");
+    }
+  });
+
+  it("does not guess the year of a bare sale number, and says so", () => {
+    const c = parseVoiceCommand("average price for sale 32", now);
+    expect(c.patch.range).toBeUndefined();
+    expect(c.notes[0]).toContain("needs a year");
+  });
+
+  it("reads a year, and 'last year' from today's date", () => {
+    expect(parseVoiceCommand("average price by broker in 2025", now).patch.range).toEqual({ fromYear: 2025, fromSale: null, toYear: 2025, toSale: null });
+    expect(parseVoiceCommand("quantity by grade last year", now).patch.range).toEqual({ fromYear: 2025, fromSale: null, toYear: 2025, toSale: null });
+  });
+
+  it("reads an elevation, as one of the archive's names or a whole grown class", () => {
+    expect(parseVoiceCommand("average price for uva high", now).patch.elevations).toEqual(["UVA HIGH"]);
+    expect(parseVoiceCommand("compare brokers for high grown tea", now).patch.elevations).toEqual(["UVA HIGH", "WESTERN HIGH"]);
+    expect(parseVoiceCommand("low grown volume", now).patch.elevations).toEqual(["LOW"]);
+    expect(toRequest({ ...DEFAULT_STATE, elevations: ["LOW"] }).elevations).toEqual(["LOW"]);
+    expect(toRequest(DEFAULT_STATE).elevations).toBeUndefined();
+  });
+
+  it("groups by buyer or mark when asked", () => {
+    expect(parseVoiceCommand("top buyers by quantity", now).patch.group).toBe("buyer");
+    expect(parseVoiceCommand("compare marks by average price", now).patch.group).toBe("mark");
+  });
+
+  it("a new subject clears an old elevation filter unless one was spoken", () => {
+    const withElevation = { ...DEFAULT_STATE, elevations: ["LOW"] };
+    expect(applyVoiceCommand(withElevation, parseVoiceCommand("compare grades by proceeds", now)).elevations).toEqual([]);
+    expect(applyVoiceCommand(withElevation, parseVoiceCommand("last 4 sales", now)).elevations).toEqual(["LOW"]);
+  });
+});
