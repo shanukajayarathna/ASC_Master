@@ -23,7 +23,8 @@ interface SimpleRegion {
   rows: SimpleRow[];
 }
 
-/** "MULATIYANA HILLS" -> "Mulatiyana Hills", "MISTY-UVA" -> "Misty-Uva", "DEMODERA 'S'" keeps 'S'. */
+/** "MULATIYANA HILLS" -> "Mulatiyana Hills", "MISTY-UVA" -> "Misty-Uva", "DEMODERA 'S'" keeps 'S',
+ *  and CTC (the tea type, an acronym) always stays fully capitalised: "KALUBOWITIYANA CTC". */
 function titleCase(s: string): string {
   return s
     .split(" ")
@@ -34,7 +35,8 @@ function titleCase(s: string): string {
         .join("-")
     )
     .join(" ")
-    .replace(/'s'/g, "'S'");
+    .replace(/'s'/g, "'S'")
+    .replace(/\bctc\b/gi, "CTC");
 }
 
 /** Flattens the same ranked regions the detailed bulletin renders (buildRegionEntries already
