@@ -19,7 +19,7 @@ namespace Asc.Api.Modules.Assistant;
 [ApiController]
 [Route("api/v1/assistant")]
 [Authorize]
-public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService, Asc.Api.Services.ICatalogueSource catalogueSource) : ControllerBase
+public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService, Asc.Api.Services.ICatalogueSource catalogueSource, Asc.Api.Modules.Msl.MslFilteredAnalyticsEngine analyticsEngine) : ControllerBase
 {
     // A real chat turn is a sentence or two; this just keeps one request from being an
     // unbounded token-cost bomb (or exceeding a provider's own input limit ungracefully) —
@@ -83,6 +83,8 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         if (scope?.Validate() is { } scopeProblem) return BadRequest(new { error = scopeProblem });
         AgentResponse response;
         Guid? lotSale = null;
+        ResolvedRequest? resolved = null;
+        var effectiveHistory = history;
         string? answeredBy = dto.Agent;
         try
         {
@@ -94,7 +96,34 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
                 // "Sale data" with no sale named: narrow it as a dialogue (year, then a sale number that exists), then answer on exactly that sale.
                 var lastReply = priorMessages.LastOrDefault(m => m.Role == "assistant")?.Content;
-                if (scope is null && SalePicker.Involved(dto.Message, lastReply))
+
+                // The guided dialogue: an open-ended request is narrowed with buttons built from data that exists, then answered exactly as chosen.
+                var openTurns = GuidedIntake.OpenTurns([.. priorMessages.Select(m => (m.Role, m.Content, (string?)m.Provider))], dto.Message);
+                if (GuidedIntake.Involved(openTurns))
+                {
+                    var (intakeData, catalogueIds) = await LoadIntakeDataAsync(prefs.MyBroker, ct);
+                    if (GuidedIntake.Next(openTurns, intakeData, hasScope: scope is not null) is { } outcome)
+                    {
+                        if (outcome.Ask is { } intakeQuestion || outcome.Lead is not null)
+                        {
+                            var text = outcome.Ask is { } q2 ? IntentRouter.ClarifyReply(q2, outcome.Lead) : outcome.Lead!;
+                            var intakeAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = text, Provider = "router" };
+                            await db.ConversationMessages.InsertOneAsync(intakeAsk, cancellationToken: ct);
+                            return Ok(new ChatResponseDto(conversation.Id, text, "router", null, "analytics"));
+                        }
+                        if (outcome.Resolved is { } done)
+                        {
+                            resolved = done;
+                            if (done.Scope is not null) scope = done.Scope;
+                            if (done.CatalogueSale is { } cat) lotSale = catalogueIds.GetValueOrDefault(cat);
+                            // one clear request for the model, instead of the button-tapping turns (fewer tokens, no confusion)
+                            var first = openTurns.First(m => m.Role == "user").Content;
+                            effectiveHistory = [.. history.Take(history.Count - openTurns.Count), ("user", $"{first} — {done.Summary()}")];
+                        }
+                    }
+                }
+
+                if (resolved is null && scope is null && SalePicker.Involved(dto.Message, lastReply))
                 {
                     // Sales that exist = the archive plus the sale catalogues (which run ahead of the archive, e.g. the current sale).
                     var available = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0).Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
@@ -120,7 +149,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                 }
 
                 // A lot question with no sale on screen: ask which sale's catalogue (only ones that exist), then answer from that one.
-                if (dto.CatalogueId is null && scope is null && LotSalePicker.Involved(dto.Message, lastReply))
+                if (resolved is null && dto.CatalogueId is null && scope is null && LotSalePicker.Involved(dto.Message, lastReply))
                 {
                     var known = catalogueSource.ListCatalogues().Select(x => (x.Id, x.SourceName)).ToList();
                     if (LotSalePicker.Next(dto.Message, lastReply, known) is { } lotPick)
@@ -136,7 +165,9 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                 }
 
                 var lastUser = priorMessages.LastOrDefault(m => m.Role == "user")?.Content;
-                var decision = lotSale is not null
+                var decision = resolved is not null
+                    ? new RouteDecision(resolved.AgentKey, null, "guided request resolved")
+                    : lotSale is not null
                     ? new RouteDecision("auction", null, "sale chosen for a lot question")
                     : scope is not null && SaleScopeChosenThisTurn(lastReply)
                     ? new RouteDecision("analytics", null, "sale chosen in the dialogue")
@@ -153,7 +184,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
             var agent = agentRouter.Resolve(requested);
             using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
-            response = await agent.HandleAsync(new AgentRequest(dto.Message, history, dto.Provider, isAdmin, lotSale ?? dto.CatalogueId, scope, profile), ct);
+            response = await agent.HandleAsync(new AgentRequest(dto.Message, effectiveHistory, dto.Provider, isAdmin, lotSale ?? dto.CatalogueId, scope, profile, resolved), ct);
         }
         catch (UnknownAgentException ex)
         {
@@ -176,6 +207,26 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         await db.ConversationMessages.InsertOneAsync(assistantMessage, cancellationToken: ct);
 
         return Ok(new ChatResponseDto(conversation.Id, response.Reply, response.ProviderKey, response.Sources, answeredBy));
+    }
+
+    /// <summary>What exists to choose from: archive sales, catalogue sales (with their ids), every grade, and the top grades of the latest archive sale.</summary>
+    private async Task<(IntakeData Data, Dictionary<(int Year, int SaleNo), Guid> CatalogueIds)> LoadIntakeDataAsync(string myBroker, CancellationToken ct)
+    {
+        var stats = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0).Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
+        var archived = stats.Select(x => (x.Year, x.SaleNo)).Distinct().ToList();
+        var ids = new Dictionary<(int Year, int SaleNo), Guid>();
+        foreach (var c in catalogueSource.ListCatalogues())
+            if (SalePicker.SaleNoOf(c.SourceName) is { } no) ids[(c.Year, no)] = c.Id;
+
+        var allGrades = (await analyticsEngine.LightweightOptionsAsync(ct)).Grades;
+        var top = new List<string>();
+        if (archived.Count > 0)
+        {
+            var (y, n) = archived.OrderByDescending(a => a.Year).ThenByDescending(a => a.SaleNo).First();
+            top = await db.MslSaleStats.Find(x => x.Dimension == "grade" && x.Year == y && x.SaleNo == n)
+                .SortByDescending(x => x.SoldQtyKg).Limit(8).Project(x => x.Key).ToListAsync(ct);
+        }
+        return (new IntakeData(archived, [.. ids.Keys], allGrades, top, myBroker), ids);
     }
 
     /// <summary>The previous message was the picker's "which sale" question, so this turn's scope came from the dialogue.</summary>

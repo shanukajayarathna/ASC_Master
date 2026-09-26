@@ -94,6 +94,10 @@ public static class IntentRouter
     }
 
     /// <summary>The assistant message that carries a clarifying question: a short lead-in plus the machine line the chat turns into buttons.</summary>
+    /// <summary>Same, with a lead-in sentence instead of repeating the question as the message text.</summary>
+    public static string ClarifyReply(ClarifyQuestion q, string? lead) =>
+        lead is null ? ClarifyReply(q) : $"{lead}\nCLARIFY: {JsonSerializer.Serialize(new { question = q.Question, options = q.Options })}";
+
     public static string ClarifyReply(ClarifyQuestion q) =>
         $"{q.Question}\nCLARIFY: {JsonSerializer.Serialize(new { question = q.Question, options = q.Options })}";
 }

@@ -67,7 +67,7 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
     {
         // Same multilingual contract as GeneralAgent — language behavior must not depend on
         // which capability answered (docs/29 "multi-language orchestration").
-        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "") + ArchiveScope.PromptLine(request.Scope) + Asc.Api.Modules.Assistant.UserContext.PromptLine(request.User);
+        var systemPrompt = SystemPrompt + GeneralAgent.LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "") + ArchiveScope.PromptLine(request.Scope) + Asc.Api.Modules.Assistant.UserContext.PromptLine(request.User) + AgentGuidance.Common + ResolvedRequest.PromptLine(request.Resolved);
         var madeCharts = new List<string>();
         var sources = new SourceTracker();
         var (reply, providerKey) = await gateway.CompleteAsync(
@@ -75,7 +75,7 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
             CttaBylawsTool.WithDefinition(bylaws, ReportsToolExecutor.DefinitionsFor(request.IsAdmin)),
             sources.Wrap(CttaBylawsTool.Dispatch(bylaws, async (name, args) =>
             {
-                var result = await tools.ExecuteAsync(name, ArchiveScope.ApplyToToolCall(name, args, request.Scope), request.IsAdmin, ct);
+                var result = await tools.ExecuteAsync(name, ResolvedRequest.ApplyToToolCall(name, ArchiveScope.ApplyToToolCall(name, args, request.Scope), request.Resolved), request.IsAdmin, ct);
                 if (ReportsToolExecutor.TryGetChartId(name, result) is { } chartId) madeCharts.Add(chartId);
                 return result;
             })), ct);
