@@ -40,6 +40,9 @@ export default function ExportShareMenu({
   availableColumns,
   defaultColumnIds,
   dark,
+  label = "Export",
+  hideShare,
+  large,
 }: {
   lots: Lot[];
   reportTitle: string;
@@ -47,6 +50,12 @@ export default function ExportShareMenu({
   availableColumns: ExportColumn[];
   defaultColumnIds: string[];
   dark?: boolean;
+  /** Button text ("Download" on the Catalogue Manager). */
+  label?: string;
+  /** Offer only the Excel / PDF downloads, no Share entry. */
+  hideShare?: boolean;
+  /** Full-size (40px) button, to sit level with the filter panel's Search button. */
+  large?: boolean;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState<"excel" | "share" | null>(null);
@@ -160,39 +169,41 @@ export default function ExportShareMenu({
     <>
       <Button
         variant="outlined"
-        size="small"
+        size={large ? "medium" : "small"}
         disabled={disabled}
         startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
         onClick={(e) => setAnchor(e.currentTarget)}
-        sx={dark ? { color: "#fff", borderColor: "rgba(255,255,255,0.3)" } : undefined}
+        sx={dark ? { color: "#fff", borderColor: "rgba(255,255,255,0.3)" } : large ? { height: 40 } : undefined}
       >
-        Export
+        {label}
       </Button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
         <MenuItem onClick={openPicker}>
           <ListItemIcon>
             <ViewColumnIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Export as Excel — choose columns…" secondary={`${lots.length.toLocaleString()} lot(s)`} />
+          <ListItemText primary={hideShare ? "Excel — choose columns…" : "Export as Excel — choose columns…"} secondary={`${lots.length.toLocaleString()} lot(s)`} />
         </MenuItem>
         <MenuItem onClick={handlePdf}>
           <ListItemIcon>
             <PictureAsPdfOutlinedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Export as PDF" secondary="Opens print dialog — choose Save as PDF" />
+          <ListItemText primary={hideShare ? "PDF" : "Export as PDF"} secondary="Opens print dialog — choose Save as PDF" />
         </MenuItem>
+        {!hideShare && (
         <MenuItem onClick={handleShare} disabled={busy !== null} aria-busy={busy === "share"}>
-          <ListItemIcon>
-            {busy === "share" ? (
-              <TeaLoader size={16} />
-            ) : typeof navigator !== "undefined" && "share" in navigator ? (
-              <ShareOutlinedIcon fontSize="small" />
-            ) : (
-              <WhatsAppIcon fontSize="small" />
-            )}
-          </ListItemIcon>
-          <ListItemText primary="Share…" secondary="WhatsApp, email, or any app on this device" />
-        </MenuItem>
+            <ListItemIcon>
+              {busy === "share" ? (
+                <TeaLoader size={16} />
+              ) : typeof navigator !== "undefined" && "share" in navigator ? (
+                <ShareOutlinedIcon fontSize="small" />
+              ) : (
+                <WhatsAppIcon fontSize="small" />
+              )}
+            </ListItemIcon>
+            <ListItemText primary="Share…" secondary="WhatsApp, email, or any app on this device" />
+          </MenuItem>
+        )}
       </Menu>
 
       <Dialog open={pickerOpen} onClose={() => (busy ? null : setPickerOpen(false))} maxWidth="xs" fullWidth>

@@ -7,6 +7,7 @@
  * print/top-price-page/page.tsx for why the print target is a bare, chrome-free route.
  */
 import { isAuthorized, renderPrintRouteToPdf } from "@/lib/server/pdfRender";
+import { getSessionToken } from "@/lib/server/session";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -17,11 +18,10 @@ function dateStamp(): string {
 }
 
 export async function POST(request: Request) {
-  const auth = request.headers.get("authorization");
-  if (!auth || !(await isAuthorized(request))) {
+  const token = getSessionToken(request);
+  if (!token || !(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-  const token = auth.replace(/^Bearer\s+/i, "");
 
   let catalogueId: string | undefined;
   let auctionNumber: string | undefined;

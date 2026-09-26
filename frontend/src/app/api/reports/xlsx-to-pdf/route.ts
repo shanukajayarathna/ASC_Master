@@ -20,24 +20,13 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
+import { isAuthorized } from "@/lib/server/session";
 
 /** LIBREOFFICE_PATH overrides for a non-default install; otherwise the winget/apt default for
  *  the platform this process is running on. */
 function sofficePath(): string {
   if (process.env.LIBREOFFICE_PATH) return process.env.LIBREOFFICE_PATH;
   return process.platform === "win32" ? "C:\\Program Files\\LibreOffice\\program\\soffice.exe" : "soffice";
-}
-
-async function isAuthorized(request: Request): Promise<boolean> {
-  const auth = request.headers.get("authorization");
-  if (!auth) return false;
-  try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/me`, { headers: { Authorization: auth } });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 /** The download's file name only — never used as a path component (the xlsx is written under

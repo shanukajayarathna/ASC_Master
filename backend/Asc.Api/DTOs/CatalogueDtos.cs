@@ -81,7 +81,17 @@ public record ValuationUpdateDto(
 /// actually stands now, so a client can show it without a separate re-fetch.</summary>
 public record ValuationConflictDto(string Message, LotDto Lot);
 
-public record PagedLotsDto(List<LotDto> Rows, int Total, int Page, int PageSize);
+/// <summary>Progress of a sale being loaded live from OKLO: how much of the sale has arrived so far.
+/// <paramref name="Unchanged"/> answers a "knownVersion" poll: the sale hasn't been refreshed since the client last read it.</summary>
+public record LiveLoadDto(int SaleTotal, int Loaded, bool Complete, DateTime? FetchedAtUtc, bool Refreshing, string? Error, bool Unchanged = false);
+
+/// <summary>The distinct values of the requested columns of a sale, for the filter dropdowns. While a live sale is
+/// still arriving they cover what has loaded so far (<paramref name="Live"/>.Complete = false).</summary>
+public record FilterOptionsDto(Dictionary<string, List<string>> Options, int SaleTotal, LiveLoadDto? Live);
+
+/// <summary>A page of lots. <paramref name="Live"/> is set when the sale is served live from OKLO and
+/// tells the client whether more rows are still arriving (Complete = false).</summary>
+public record PagedLotsDto(List<LotDto> Rows, int Total, int Page, int PageSize, LiveLoadDto? Live = null);
 
 public record BulkClassifyDto(List<Guid> LotIds, string Classification);
 public record BulkDeleteNotesDto(List<Guid> LotIds);

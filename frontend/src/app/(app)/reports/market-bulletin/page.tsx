@@ -6,7 +6,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
-import { api, AUTH_TOKEN_STORAGE_KEY } from "@/lib/api";
+import { api, AUTH_HEADERS } from "@/lib/api";
 import type { MarketBulletin, MonthlyComparison } from "@/types/api";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
@@ -88,12 +88,11 @@ export default function MarketBulletinPage() {
     setExportingPdf(true);
     setError(null);
     try {
-      const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
       const res = await fetch("/api/reports/market-bulletin-pdf", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...AUTH_HEADERS,
         },
         body: JSON.stringify({ catalogueId: activeCatalogueId, sourceName: bulletin.sourceName }),
       });

@@ -7,19 +7,7 @@
  */
 import { chromium } from "playwright";
 
-/** Checks the caller's own bearer token against the .NET backend, same pattern every
- *  PDF-conversion route in this app already uses (see xlsx-to-pdf/route.ts). */
-export async function isAuthorized(request: Request): Promise<boolean> {
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
-  const auth = request.headers.get("authorization");
-  if (!auth) return false;
-  try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/me`, { headers: { Authorization: auth } });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
+export { isAuthorized } from "@/lib/server/session";
 
 /** Launches headless Chromium, signs the print page in as the calling user (so it only ever
  *  sees what they're already allowed to), navigates to it, waits for the report to actually
@@ -39,10 +27,10 @@ export async function renderPrintRouteToPdf(requestUrl: string, printPath: strin
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext();
-    // Same localStorage key AuthContext persists the bearer token under (lib/api.ts's
-    // AUTH_TOKEN_STORAGE_KEY) — set via addInitScript so it exists before the print page's
-    // own AuthProvider mounts and hydrates from it.
-    await context.addInitScript((t) => window.localStorage.setItem("asc_auth_token", t), token);
+    // Sign the print page in as the caller: the session cookie the API would have set (host-wide, so it reaches both this
+    // Next server and the API), plus the non-secret hint AuthProvider looks for before it asks the API who is signed in.
+    await context.addCookies([{ name: "asc_session", value: token, url: localOrigin, httpOnly: true, sameSite: "Lax" }]);
+    await context.addInitScript(() => window.localStorage.setItem("asc_session_hint", "1"));
     const page = await context.newPage();
 
     await page.goto(printUrl.toString(), { waitUntil: "load", timeout: 30000 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useFillHeight } from "@/components/shared/useFillHeight";
 import "./agGridSetup";
 import { CLASSIFICATION_COLOR, CLASSIFICATION_LABEL } from "@/lib/classificationBadge";
 import { formatCurrency } from "@/lib/format";
@@ -28,6 +29,10 @@ const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: stri
  *  Parsing it to a real number here fixes sort, the built-in number filter, and any
  *  min/max comparison in one place; commas are stripped the same way the server's own
  *  decimal parsing does. */
+/** The grid never gets shorter than this, however little room is left below the filters. */
+const MIN_GRID_HEIGHT = 240;
+/** Space kept between the grid's bottom edge (its scrollbar) and the bottom of the window. */
+
 function parseNumericCell(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === "") return null;
   const num = parseFloat(String(raw).replace(/,/g, ""));
@@ -88,7 +93,7 @@ export default function CatalogueGrid({
   // in the search box re-renders the whole page), and AG Grid treats a new `defaultColDef`
   // reference as "the column configuration changed" — reprocessing every column even though
   // nothing in it actually did. Memoized once since these three flags never change.
-  const defaultColDef = useMemo<ColDef>(() => ({ sortable: true, filter: true, resizable: true }), []);
+  const defaultColDef = useMemo<ColDef>(() => ({ sortable: true, filter: true, resizable: true, wrapHeaderText: true, autoHeaderHeight: true }), []);
 
   const columnDefs = useMemo<ColDef[]>(() => {
     const cols: ColDef[] = [];
@@ -133,7 +138,7 @@ export default function CatalogueGrid({
       headerName: "Classification",
       colId: "classification",
       pinned: "right",
-      width: 130,
+      width: 160,
       cellRenderer: (p: ICellRendererParams) => {
         const lot = (p.data as { __lot: Lot }).__lot;
         const cls = lot.valuation?.classification ?? "Unclassified";
@@ -214,8 +219,11 @@ export default function CatalogueGrid({
 
   useEffect(fitColumns, [columnDefs]);
 
+  // Fill exactly the rest of the window, so the grid's own scrollbars are on screen and the page never scrolls.
+  const { ref: wrapRef, height } = useFillHeight<HTMLDivElement>(MIN_GRID_HEIGHT);
+
   return (
-    <div style={{ height: "64vh", width: "100%" }}>
+    <div ref={wrapRef} style={{ height: height ?? "64vh", width: "100%" }}>
       <AgGridReact
         ref={gridRef}
         theme={ascGridTheme}

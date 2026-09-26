@@ -1,12 +1,13 @@
 "use client";
 
 import BusyOverlay from "@/components/shared/BusyOverlay";
+import SalePicker from "@/components/shared/SalePicker";
 import PageHeader from "@/components/shared/PageHeader";
 import TeaLoader from "@/components/shared/TeaLoader";
 import TopPriceBulletin from "@/components/reports/TopPriceBulletin";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { useLeaveConfirmation } from "@/hooks/useLeaveConfirmation";
-import { api, AUTH_TOKEN_STORAGE_KEY } from "@/lib/api";
+import { api, AUTH_HEADERS } from "@/lib/api";
 import {
   buildTppMeta,
   exportTopPricePageExcel,
@@ -20,13 +21,11 @@ import type { CombinedReport } from "@/types/api";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import Button from "@mui/material/Button";
 import { useEffect, useMemo, useState } from "react";
 
 export default function TopPricePagePage() {
-  const { catalogues, activeCatalogueId, selectCatalogue } = useCatalogue();
+  const { catalogues, activeCatalogueId } = useCatalogue();
 
   const [combined, setCombined] = useState<CombinedReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -90,12 +89,11 @@ export default function TopPricePagePage() {
     setExportingPdf(true);
     setError(null);
     try {
-      const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
       const res = await fetch("/api/reports/top-price-page-pdf", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...AUTH_HEADERS,
         },
         body: JSON.stringify({ catalogueId: activeCatalogueId, auctionNumber: meta.auctionNumber }),
       });
@@ -128,24 +126,7 @@ export default function TopPricePagePage() {
         subtitle="Every ranked region — Low Grown through CTC Teas — combined into one executive bulletin, auto-densified to always fit within 2 pages."
         backTo={{ href: "/reports", label: "Reports" }}
         actions={
-          <Select
-            size="small"
-            value={activeCatalogueId ?? ""}
-            onChange={(e) => selectCatalogue(e.target.value || null)}
-            displayEmpty
-            sx={{ minWidth: 180, fontSize: 13 }}
-            renderValue={(v) => {
-              if (!v) return <span className="text-text-muted">No catalogue</span>;
-              const c = catalogues.find((x) => x.id === v);
-              return c?.sourceName ?? "…";
-            }}
-          >
-            {catalogues.map((c) => (
-              <MenuItem key={c.id} value={c.id}>
-                {c.sourceName}
-              </MenuItem>
-            ))}
-          </Select>
+          <SalePicker />
         }
       />
 

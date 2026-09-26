@@ -1,6 +1,7 @@
 using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
+using Asc.Api.Modules.Oklo;
 using Asc.Api.Modules.Webhooks;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -24,7 +25,7 @@ namespace Asc.Api.Controllers;
 [ApiController]
 [Route("api/catalogues")]
 [Authorize]
-public class CataloguesController(ICatalogueSource source, SaleFileStore fileStore, MongoContext db, CatalogueImportService importer, IWebhookSender webhooks) : ControllerBase
+public class CataloguesController(ICatalogueSource source, ILiveCatalogueSource liveSource, SaleFileStore fileStore, MongoContext db, CatalogueImportService importer, IWebhookSender webhooks) : ControllerBase
 {
     [HttpGet]
     public ActionResult<List<CatalogueSummaryDto>> List()
@@ -38,9 +39,14 @@ public class CataloguesController(ICatalogueSource source, SaleFileStore fileSto
     }
 
     [HttpGet("{id:guid}")]
-    public ActionResult<CatalogueDetailDto> Get(Guid id)
+    public async Task<ActionResult<CatalogueDetailDto>> Get(Guid id)
     {
-        var c = source.GetCatalogue(id);
+        // An OKLO sale's detail (headers, column options) comes from the live load — first rows are
+        // enough to answer; the client re-reads it once the whole sale has arrived so the filter
+        // options cover every lot.
+        var c = await liveSource.IsLiveAsync(id)
+            ? (await liveSource.GetSnapshotAsync(id, HttpContext.RequestAborted))?.Catalogue
+            : source.GetCatalogue(id);
         if (c is null) return NotFound();
         var columnMeta = importer.RefreshDefaultVisibility(c.ColumnMeta);
         return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt, c.Year, c.SaleDateStart, c.SaleDateEnd));

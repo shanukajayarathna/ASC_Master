@@ -3,7 +3,6 @@
 import BrandLogo from "@/components/shell/BrandLogo";
 import ThemeMenu from "@/components/shell/ThemeMenu";
 import { useAuth } from "@/context/AuthContext";
-import { useCatalogue } from "@/context/CatalogueContext";
 import { useThemeMode } from "@/context/ThemeModeContext";
 import { api } from "@/lib/api";
 import type { AppNotification } from "@/types/api";
@@ -14,17 +13,17 @@ import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNone
 import SearchIcon from "@mui/icons-material/Search";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
+import SalePicker from "@/components/shared/SalePicker";
 import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
-import Select from "@mui/material/Select";
 import Avatar from "@mui/material/Avatar";
 import Badge from "@mui/material/Badge";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 function timeAgo(iso: string): string {
   const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -100,6 +99,45 @@ function UserMenu() {
         </MenuItem>
       </Menu>
     </>
+  );
+}
+
+/** "Sale data updated 3m ago" — how fresh the OKLO-fed sale data is (see Modules/Oklo). Polled
+ *  every 30s; renders nothing when the live sync is off, so it never implies freshness it can't
+ *  vouch for. The stamp is when the newest sale was last checked against OKLO, not when a lot
+ *  last changed. */
+function DataFreshness() {
+  const [checkedUtc, setCheckedUtc] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    const load = () =>
+      api
+        .getOkloFreshness()
+        .then((f) => {
+          setEnabled(f.enabled);
+          setCheckedUtc(f.newestCheckedUtc);
+        })
+        .catch(() => {});
+    load();
+    const poll = setInterval(load, 30_000);
+    const rerender = setInterval(() => tick((n) => n + 1), 30_000); // keeps "Xm ago" honest between polls
+    return () => {
+      clearInterval(poll);
+      clearInterval(rerender);
+    };
+  }, []);
+
+  if (!enabled) return null;
+  // The API serialises UTC without a zone suffix on some fields — treat a bare timestamp as UTC.
+  const iso = checkedUtc && !/[zZ]|[+-]\d\d:\d\d$/.test(checkedUtc) ? `${checkedUtc}Z` : checkedUtc;
+  return (
+    <Tooltip title="Sale data is pulled live from OKLO SmartAuction and refreshed while you use the system.">
+      <span className="hidden lg:inline text-[11.5px] font-mono" style={{ color: "var(--text-muted)" }}>
+        {iso ? `Sale data · ${timeAgo(iso)}` : "Sale data · syncing…"}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -222,10 +260,15 @@ interface TopbarProps {
   onSearchClick: () => void;
 }
 
+const PAGES_WITH_OWN_SALE_PICKER = ["/catalogue", "/reports/top-price-page"];
+
 export default function Topbar({ onSearchClick }: TopbarProps) {
   const { mode } = useThemeMode();
+  // These pages carry their own sale picker (the Catalogue Manager's Year + Sale dropdowns in its filter panel, the Top Price
+  // Page's select in its header - both drive the same active sale), so the header pair is hidden there rather than shown twice.
+  const pathname = usePathname();
+  const showSalePicker = !PAGES_WITH_OWN_SALE_PICKER.some((p) => (pathname ?? "").startsWith(p));
   const { user } = useAuth();
-  const { catalogues, activeCatalogueId, selectCatalogue, refreshList } = useCatalogue();
   const isAdmin = user?.roles.includes("Admin") ?? false;
 
   // Published as --topbar-height so sticky page headers (PageHeader) know exactly how far
@@ -241,22 +284,6 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-
-  const activeCatalogue = catalogues.find((c) => c.id === activeCatalogueId) ?? null;
-  // Every year that actually has a sale on file, newest first — drives the year step of the
-  // picker below. Independent of which sale is active so browsing a different year never
-  // needs a sale selected first.
-  const years = useMemo(
-    () => Array.from(new Set(catalogues.map((c) => c.year))).sort((a, b) => b - a),
-    [catalogues]
-  );
-  // The year currently being browsed in the picker. Defaults to the active sale's year (or
-  // the most recent year on file); overridden while the user is browsing a year that doesn't
-  // match the active sale yet, and reset once they pick a sale so it goes back to following
-  // the active sale automatically.
-  const [browsingYear, setBrowsingYear] = useState<number | null>(null);
-  const pickerYear = browsingYear ?? activeCatalogue?.year ?? years[0] ?? null;
-  const salesForYear = catalogues.filter((c) => c.year === pickerYear);
 
   return (
     <header
@@ -295,60 +322,9 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
           one long flat list of every sale ever imported. On phones it drops to its own
           full-width row (order-last + wrap) rather than disappearing — switching the active
           sale must stay possible on every device. */}
-      <div className="order-last w-full sm:order-none flex gap-1.5 sm:w-[220px] lg:w-[280px] min-w-0">
-        <Select
-          size="small"
-          value={pickerYear ?? ""}
-          onChange={(e) => setBrowsingYear(Number(e.target.value))}
-          // Sales are file-backed and rescanned on every listing (see SaleFileStore) — a
-          // week's file dropped into data/sales while this tab was already open otherwise
-          // wouldn't show up until a full page reload. Rescanning right as the user opens
-          // the picker (rather than polling) picks it up exactly when it'd matter.
-          onOpen={() => refreshList()}
-          displayEmpty
-          disabled={years.length === 0}
-          sx={{ width: 92, fontSize: 13, flexShrink: 0 }}
-        >
-          {years.length === 0 && (
-            <MenuItem value="" disabled>
-              No years
-            </MenuItem>
-          )}
-          {years.map((y) => (
-            <MenuItem key={y} value={y}>
-              {y}
-            </MenuItem>
-          ))}
-        </Select>
-        <Select
-          size="small"
-          value={activeCatalogue?.year === pickerYear ? activeCatalogueId ?? "" : ""}
-          onChange={(e) => {
-            selectCatalogue(e.target.value || null);
-            setBrowsingYear(null);
-          }}
-          onOpen={() => refreshList()}
-          displayEmpty
-          disabled={salesForYear.length === 0}
-          sx={{ width: "100%", fontSize: 13, minWidth: 0 }}
-          renderValue={(v) => {
-            if (!v) return <span className="text-text-muted">Choose a sale</span>;
-            const c = catalogues.find((x) => x.id === v);
-            return c ? `${c.sourceName} · ${c.rowCount.toLocaleString()} lots` : "…";
-          }}
-        >
-          {salesForYear.length === 0 && (
-            <MenuItem value="" disabled>
-              No sales for this year
-            </MenuItem>
-          )}
-          {salesForYear.map((c) => (
-            <MenuItem key={c.id} value={c.id}>
-              {c.sourceName} · {c.rowCount.toLocaleString()} lots
-            </MenuItem>
-          ))}
-        </Select>
-      </div>
+      {showSalePicker && (
+      <SalePicker className="order-last w-full sm:order-none flex gap-1.5 sm:w-[220px] lg:w-[280px] min-w-0" />
+      )}
 
       <div className="flex items-center gap-1 ml-auto">
         <Tooltip title="Ask ASC AI">
@@ -357,6 +333,7 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
           </IconButton>
         </Tooltip>
 
+        <DataFreshness />
         <NotificationsMenu />
 
         {isAdmin && (

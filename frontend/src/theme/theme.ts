@@ -1,4 +1,5 @@
 import { createTheme } from "@mui/material/styles";
+import { DROPDOWN_MAX_ROWS, DROPDOWN_ROW_PX, SELECT_ROW_PX } from "@/components/shared/DropdownList";
 import { darkTokens, lightTokens } from "./tokens";
 
 export function buildTheme(mode: "light" | "dark") {
@@ -33,6 +34,28 @@ export function buildTheme(mode: "light" | "dark") {
       MuiButton: { styleOverrides: { root: { borderRadius: 999 } } },
       MuiPaper: {
         styleOverrides: { root: { backgroundImage: "none" } },
+      },
+      // Dropdowns, everywhere (see components/shared/DropdownList.tsx): they open below their field, show
+      // every option, and cap at DROPDOWN_MAX_ROWS rows with a scrollbar for the rest. A component that
+      // passes its own MenuProps / slotProps still wins.
+      MuiSelect: {
+        defaultProps: {
+          MenuProps: {
+            anchorOrigin: { vertical: "bottom", horizontal: "left" },
+            transformOrigin: { vertical: "top", horizontal: "left" },
+            // By class, because Select supplies its own paper props which a paper override would lose to.
+            // 16 = the list's own top/bottom padding.
+            sx: { "& .MuiMenu-paper": { maxHeight: SELECT_ROW_PX * DROPDOWN_MAX_ROWS + 16, marginTop: "4px" } },
+          },
+        },
+      },
+      MuiAutocomplete: {
+        defaultProps: {
+          // Fixed below the field: no flip to the top of it.
+          slotProps: { popper: { placement: "bottom-start", modifiers: [{ name: "flip", enabled: false }] } },
+        },
+        // Six rows in view, the rest by scrolling. (Very long lists opt in to a virtual list - see PickAutocomplete.)
+        styleOverrides: { listbox: { maxHeight: DROPDOWN_ROW_PX * DROPDOWN_MAX_ROWS + 8 } },
       },
     },
   });

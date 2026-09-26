@@ -43,6 +43,14 @@ export interface FilterOptions {
   year?: string;
 }
 
+/** What the Catalogue Manager sends to search a sale on the server: the filter panel's state plus a window of results. */
+export interface LotSearchBody extends FilterOptions {
+  status: TicketStatus | "";
+  year: string;
+  offset: number;
+  limit: number;
+}
+
 /** The shape saved into a FilterPreset's FiltersJson — a required-year FilterOptions, since a
  *  saved preset always captures a concrete value ("" included) rather than an optional one. */
 export type StoredFilterState = FilterOptions & { year: string };

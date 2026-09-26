@@ -33,6 +33,29 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],
   },
+  // Baseline browser hardening for every page: no framing (clickjacking), no MIME sniffing, no referrer leakage,
+  // no camera/mic/location, and HTTPS-only once served over TLS (browsers ignore HSTS on plain http://localhost).
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // Report-only: browsers log (never block) anything a stricter policy would stop, so it can be tightened safely
+          // from real traffic before being enforced. Scripts/styles stay 'unsafe-inline' because Next and MUI inject some.
+          {
+            key: "Content-Security-Policy-Report-Only",
+            value:
+              "default-src 'self'; img-src 'self' data: blob: https://images.unsplash.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:* https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+          },
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -76,7 +76,23 @@ builder.Services.AddSingleton<CatalogueImportService>();
 // Catalogue data is served straight from the weekly-sale Excel files (data/sales) via
 // this seam — swap the implementation to move catalogues into a database (e.g. Azure).
 builder.Services.AddSingleton<SaleFileStore>();
-builder.Services.AddSingleton<ICatalogueSource>(sp => sp.GetRequiredService<SaleFileStore>());
+// The app's catalogue source: OKLO live first (Modules/Oklo/LiveCatalogueSource), files as cache + fallback.
+builder.Services.AddHttpContextAccessor(); // lets LiveCatalogueSource tell a web request from a background job
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.LiveCatalogueSource>();
+builder.Services.AddSingleton<ICatalogueSource>(sp => sp.GetRequiredService<Asc.Api.Modules.Oklo.LiveCatalogueSource>());
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.ILiveCatalogueSource>(sp => sp.GetRequiredService<Asc.Api.Modules.Oklo.LiveCatalogueSource>());
+// Live sale data from the OKLO SmartAuction API: pulled into data/sales as API-built workbooks
+// so SaleFileStore stays the single reader. Background refresh only runs with Oklo:AutoSync=true.
+builder.Services.Configure<Asc.Api.Modules.Oklo.OkloOptions>(builder.Configuration.GetSection("Oklo"));
+builder.Services.AddHttpClient<Asc.Api.Modules.Oklo.OkloClient>(c => c.Timeout = TimeSpan.FromMinutes(3));
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.IOkloFeed>(sp => sp.GetRequiredService<Asc.Api.Modules.Oklo.OkloClient>());
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.ISaleSnapshotStore, Asc.Api.Modules.Oklo.MongoSaleSnapshotStore>();
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.OkloLiveSales>();
+builder.Services.AddHostedService<Asc.Api.Modules.Oklo.OkloBackfillService>();
+builder.Services.AddHostedService<Asc.Api.Modules.Oklo.OkloLiveWarmService>();
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.OkloSyncService>();
+builder.Services.AddSingleton<Asc.Api.Modules.Oklo.OkloSyncBackgroundService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Asc.Api.Modules.Oklo.OkloSyncBackgroundService>());
 // Per-lot photos and voice notes — disk-backed for now (data/media) behind a seam that a
 // database/blob store can take over later without touching the media controller.
 builder.Services.AddSingleton<ILotMediaStore, LocalLotMediaStore>();
@@ -362,7 +378,7 @@ builder.Services
         };
         // A valid signature isn't enough: reject tokens of deleted accounts and take roles from
         // the user record, so demotion/deletion doesn't wait out the 12h token lifetime.
-        opts.Events = new JwtBearerEvents { OnTokenValidated = TokenRevalidation.OnTokenValidated };
+        opts.Events = new JwtBearerEvents { OnMessageReceived = AuthCookie.ReadFromCookie, OnTokenValidated = TokenRevalidation.OnTokenValidated };
     })
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyScheme, _ => { });
 
@@ -427,6 +443,13 @@ builder.Services.AddRateLimiter(opts =>
                 Window = TimeSpan.FromMinutes(10),
                 QueueLimit = 0,
             }));
+    // Sale searches and dropdown lists scan a whole sale in memory: generous for a person clicking around, but a script
+    // hammering them is cut off. Per signed-in user (or per IP when there is none).
+    opts.AddPolicy("saleSearch", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     opts.AddPolicy(AssistantChatRateLimitPolicy, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
@@ -453,6 +476,9 @@ builder.Services.AddCors(opts =>
         policy.WithOrigins(corsOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
+              // The session cookie rides on cross-origin requests from the app (dev: :3000 -> :5058); allowed only for the
+              // explicit origins above (a wildcard origin is rejected by the framework when credentials are on).
+              .AllowCredentials()
               // Without this, ScheduledReportsController's saved-report download response
               // carries its real filename in Content-Disposition, but the browser's fetch API
               // hides that header cross-origin unless it's explicitly exposed — the Admin
@@ -507,6 +533,10 @@ catch (MongoException ex)
 // MasterDataResolver. MasterDataController refreshes it again after every admin write.
 await app.Services.GetRequiredService<MasterDataResolver>().RefreshAsync();
 
+// A production API must never run on a missing or guessable signing key: refuse to start rather than warn.
+if (app.Environment.IsProduction() && (builder.Configuration["Jwt:Key"]?.Length ?? 0) < 32)
+    throw new InvalidOperationException("Jwt:Key must be set to a random value of at least 32 characters in Production.");
+
 if (string.IsNullOrEmpty(builder.Configuration["Jwt:Key"]))
 {
     app.Logger.LogWarning(
@@ -527,7 +557,30 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Baseline response hardening for the API: JSON must never be sniffed as anything else, nothing here is meant to be framed,
+// and no referrer is sent. HSTS only outside Development (localhost runs over plain http).
+app.Use(async (ctx, next) =>
+{
+    var h = ctx.Response.Headers;
+    h["X-Content-Type-Options"] = "nosniff";
+    h["X-Frame-Options"] = "DENY";
+    h["Referrer-Policy"] = "no-referrer";
+    if (!app.Environment.IsDevelopment()) h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    await next();
+});
+
 app.UseCors(CorsPolicy);
+// CSRF guard for cookie sessions: see AuthCookie.IsForgeable.
+app.Use(async (ctx, next) =>
+{
+    if (AuthCookie.IsForgeable(ctx.Request))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await ctx.Response.WriteAsync("Missing " + AuthCookie.CsrfHeader + " header.");
+        return;
+    }
+    await next();
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

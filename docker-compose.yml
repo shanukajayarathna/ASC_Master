@@ -27,6 +27,18 @@ services:
       # host's Ollama via host.docker.internal.
       Local__Model: ${LOCAL_MODEL:-}
       Local__BaseUrl: ${LOCAL_BASE_URL:-}
+      # OKLO SmartAuction API — live sale data (see docs/31_OKLO_Live_Data.md). Empty = the
+      # integration stays unconfigured; OKLO_AUTO_SYNC=true turns the background refresh on.
+      Oklo__TokenUrl: ${OKLO_TOKEN_URL:-}
+      Oklo__BaseUrl: ${OKLO_BASE_URL:-https://smartauctionreports.okloapps.com}
+      Oklo__Scope: ${OKLO_SCOPE:-}
+      Oklo__ClientId: ${OKLO_CLIENT_ID:-}
+      Oklo__ClientSecret: ${OKLO_CLIENT_SECRET:-}
+      Oklo__Username: ${OKLO_USERNAME:-}
+      Oklo__Password: ${OKLO_PASSWORD:-}
+      Oklo__AutoSync: ${OKLO_AUTO_SYNC:-false}
+      # Stores every OKLO sale once in MongoDB (snapshots). Run it on ONE instance if you scale out.
+      Oklo__SnapshotBackfill: ${OKLO_SNAPSHOT_BACKFILL:-true}
     volumes:
       # Sale-import Excel files, uploaded knowledge-base documents, and lot media all live
       # here (see Dockerfile's comment on the ContentRootPath/../../data convention) — a

@@ -717,6 +717,49 @@ export interface CatalogueSummary {
   saleDateEnd?: string | null;
 }
 
+// ---- Category Average Trend (last five sales, average price per grade) — see backend/Modules/CategoryAverageTrend ----
+
+export interface TrendSale {
+  saleNo: number;
+  saleYear: number;
+  label: string;
+}
+
+/** One sale's average price (Rs/kg) for a row and its change from the sale before; either is null when
+ *  there is nothing to show (no sold lots that sale, or no earlier sale to compare with). */
+export interface TrendCell {
+  average: number | null;
+  change: number | null;
+}
+
+export interface TrendGradeRow {
+  grade: string;
+  cells: TrendCell[];
+}
+
+export interface TrendCategory {
+  name: string;
+  lowGrownOnly: boolean;
+  cells: TrendCell[];
+  grades: TrendGradeRow[];
+}
+
+export interface CategoryAverageTrend {
+  selectedSale: string;
+  /** Oldest to newest; every row's `cells` line up with these one-to-one. */
+  sales: TrendSale[];
+  baseSale: string | null;
+  broker: string | null;
+  availableBrokers: string[];
+  hasResults: boolean;
+  categories: TrendCategory[];
+}
+
+export interface LatestSaleWithResults {
+  catalogueId: string;
+  sourceName: string;
+}
+
 // ---- Category Analysis (Price & Classification — Sale x Broker) — see backend/Modules/CategoryReports ----
 
 export interface CategoryOption {
@@ -916,11 +959,35 @@ export interface Lot {
   valuation: Valuation | null;
 }
 
+/** Progress of a sale served live from OKLO — present only for those sales. */
+export interface LiveLoad {
+  /** The sale's real size, known from the first page. */
+  saleTotal: number;
+  /** Lots the backend holds so far (a partial sale only ever grows at the end). */
+  loaded: number;
+  complete: boolean;
+  /** When the backend last finished pulling the whole sale — also the version for cheap change polls. */
+  fetchedAtUtc: string | null;
+  /** The backend is re-pulling the sale in the background (the rows shown are the previous pull). */
+  refreshing: boolean;
+  error: string | null;
+  /** Answer to a `knownVersion` poll: nothing changed since the client's copy. */
+  unchanged: boolean;
+}
+
+/** Distinct values of the requested columns of a sale, for the filter dropdowns (most frequent first). */
+export interface FilterOptionsResponse {
+  options: Record<string, string[]>;
+  saleTotal: number;
+  live?: LiveLoad | null;
+}
+
 export interface PagedLots {
   rows: Lot[];
   total: number;
   page: number;
   pageSize: number;
+  live?: LiveLoad | null;
 }
 
 export interface DashboardStats {

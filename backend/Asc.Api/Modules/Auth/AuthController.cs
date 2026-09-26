@@ -58,7 +58,10 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         user.PasswordHash = hasher.HashPassword(user, dto.Password);
         await db.Users.InsertOneAsync(user);
 
-        return Ok(new AuthResponseDto(IssueToken(user), ToDto(user)));
+        // Only the very first (bootstrap) account is signed in by registering; an Admin creating someone else's account
+        // must stay signed in as themselves.
+        if (isFirstUser) AuthCookie.Set(HttpContext, IssueToken(user));
+        return Ok(new AuthResponseDto("", ToDto(user)));
     }
 
     [HttpPost("login")]
@@ -80,7 +83,17 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
         if (result == PasswordVerificationResult.Failed)
             return Unauthorized("Invalid email or password.");
 
-        return Ok(new AuthResponseDto(IssueToken(user), ToDto(user)));
+        // The session token goes in an HttpOnly cookie, never in the response body where page scripts could read it.
+        AuthCookie.Set(HttpContext, IssueToken(user));
+        return Ok(new AuthResponseDto("", ToDto(user)));
+    }
+
+    /// <summary>Ends the browser session: the HttpOnly cookie cannot be removed by page scripts, so the server clears it.</summary>
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        AuthCookie.Clear(HttpContext);
+        return NoContent();
     }
 
     /// <summary>Round-trip check the frontend calls on load to rehydrate the logged-in user
@@ -116,7 +129,7 @@ public class AuthController(MongoContext db, IConfiguration config, IPasswordHas
             issuer: config["Jwt:Issuer"],
             audience: config["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(12),
+            expires: DateTime.UtcNow.Add(AuthCookie.Lifetime),
             signingCredentials: creds);
 
         return new JwtSecurityTokenHandler().WriteToken(token);

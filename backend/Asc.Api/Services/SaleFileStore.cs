@@ -98,6 +98,13 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     /// of whether its files sit flat in data/sales or under data/sales/2026/.</summary>
     public const int LegacyYear = 2026;
 
+    /// <summary>Optional trailing column of sale files built from the OKLO API (see
+    /// Modules/Oklo/OkloSaleMapper): OKLO's own lot key. When present it IS the lot's row key,
+    /// so a live refresh that changes a lot's price/status/buyer keeps its id — the legacy
+    /// content-hash row key would change with every edit and orphan the stored valuation.
+    /// Files without the column (the hand-downloaded exports) keep the legacy hash unchanged.</summary>
+    public const string AuctionItemIdHeader = "Auction Item Id";
+
     /// <summary>One anchor date per year — every other sale in that year is a week apart
     /// from its anchor's sale number. Only needed for a year with no <see cref="YearSaleDates"/>
     /// entries; this is deliberately not config-driven since it changes maybe once a year.</summary>
@@ -230,13 +237,13 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         return new Guid(hash);
     }
 
-    private static int SaleNoOfLotId(Guid lotId)
+    internal static int SaleNoOfLotId(Guid lotId)
     {
         var b = lotId.ToByteArray();
         return b[0] | (b[1] << 8);
     }
 
-    private static int YearHintOfLotId(Guid lotId)
+    internal static int YearHintOfLotId(Guid lotId)
     {
         var b = lotId.ToByteArray();
         return b[2] | (b[3] << 8);
@@ -374,18 +381,25 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     /// catalogue already sale-cached on disk is cheap) — after the first call in this
     /// process (or the first call ever, if the persisted file already covers everything),
     /// this is a dictionary lookup, not a multi-year scan.</summary>
-    public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex()
+    public IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex() => GetMarkCodeIndex(this);
+
+    /// <summary>Same index, built from whichever source the app actually reads sales through (live OKLO data and
+    /// stored snapshots as well as files) — so it keeps growing after the sale files are gone. A sale the source
+    /// cannot supply right now is left un-indexed and picked up on a later call, never marked done.</summary>
+    internal IReadOnlyDictionary<string, (string Name, string Elevation)> GetMarkCodeIndex(ICatalogueSource source)
     {
         lock (_markCodeIndexLock)
         {
             var (indexedIds, index) = _markCodeIndex ??= LoadMarkCodeIndexFromDisk();
 
-            var newCatalogues = ListCatalogues().Where(c => !indexedIds.Contains(c.Id)).ToList();
+            var newCatalogues = source.ListCatalogues().Where(c => !indexedIds.Contains(c.Id)).ToList();
             if (newCatalogues.Count > 0)
             {
                 foreach (var cat in newCatalogues)
                 {
-                    foreach (var lot in GetReportLots(cat.Id) ?? [])
+                    var catLots = source.GetReportLots(cat.Id);
+                    if (catLots is null) continue; // not available right now - try again next time
+                    foreach (var lot in catLots)
                     {
                         if (string.IsNullOrWhiteSpace(lot.Elevation)) continue;
                         var factoryCode = !string.IsNullOrWhiteSpace(lot.Factory) ? NormalizeMarkCode(lot.Factory)
@@ -515,11 +529,14 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     /// sale appeared), the cache starts over clean for that new year rather than carrying the
     /// previous year's entries forward — a new year's early sales genuinely have no
     /// same-year lookback history yet, and that's correct, not a regression.</summary>
-    public IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates()
+    public IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates() => GetRecentlySharedFactoryCodeDates(this);
+
+    /// <summary>Same map, built from whichever source the app reads sales through (see GetMarkCodeIndex).</summary>
+    internal IReadOnlyDictionary<string, DateTime> GetRecentlySharedFactoryCodeDates(ICatalogueSource source)
     {
         lock (_sharedFactoryDatesLock)
         {
-            var allCatalogues = ListCatalogues();
+            var allCatalogues = source.ListCatalogues();
             if (allCatalogues.Count == 0) return new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
             var latestYear = allCatalogues.Max(c => c.Year);
 
@@ -536,7 +553,9 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
             {
                 foreach (var cat in newCatalogues)
                 {
-                    foreach (var code in FindSharedFactoryCodesForSale(GetReportLots(cat.Id) ?? []))
+                    var catLots = source.GetReportLots(cat.Id);
+                    if (catLots is null) continue; // not available right now - try again next time
+                    foreach (var code in FindSharedFactoryCodesForSale(catLots))
                     {
                         if (!dates.TryGetValue(code, out var existing) || cat.ImportedAt.Date > existing.Date)
                             dates[code] = cat.ImportedAt.Date;
@@ -678,6 +697,9 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         var files = ScanFiles().Where(f => f.Year == year).ToList();
         return files.Count == 0 ? 1 : files.Max(f => f.SaleNo) + 1;
     }
+
+    /// <summary>True when a sale file for this catalogue is on disk — a cheap folder check, no parsing.</summary>
+    public bool HasFile(Guid catalogueId) => ScanFiles().Any(f => CatalogueIdFor(f.Year, f.SaleNo) == catalogueId);
 
     public Catalogue? GetCatalogue(Guid id) => LoadByCatalogueId(id)?.Catalogue;
 
@@ -923,16 +945,24 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
     {
         using var stream = File.OpenRead(file.Path);
         var parsed = importer.ParseFile(stream, Path.GetFileName(file.Path));
+        var importedAt = SaleDateFor(file.Year, file.SaleNo, new DateTime(file.Sig.MTimeTicks, DateTimeKind.Utc));
+        return BuildSale(file.Year, file.SaleNo, parsed, importedAt);
+    }
+
+    /// <summary>The one place a sale's parsed table becomes a catalogue + lots — shared by the
+    /// file path (ParseSale) and the live OKLO path (Modules/Oklo/OkloLiveSales), so both yield
+    /// byte-identical lots: same ids, same valuation parsing, same classification backfill.</summary>
+    internal (Catalogue Catalogue, List<Lot> Lots) BuildSale(int year, int saleNo, ParsedCatalogue parsed, DateTime importedAt)
+    {
         var rows = parsed.Rows.Where(r => !string.IsNullOrWhiteSpace(r.GetValueOrDefault("Lot No"))).ToList();
 
-        var importedAt = SaleDateFor(file.Year, file.SaleNo, new DateTime(file.Sig.MTimeTicks, DateTimeKind.Utc));
         var (saleDateStart, saleDateEnd) = SellingEndTimeRange(rows);
-        var catalogueId = CatalogueIdFor(file.Year, file.SaleNo);
+        var catalogueId = CatalogueIdFor(year, saleNo);
         var catalogue = new Catalogue
         {
             Id = catalogueId,
-            Year = file.Year,
-            SourceName = $"Sale {file.SaleNo} - {file.Year}",
+            Year = year,
+            SourceName = $"Sale {saleNo} - {year}",
             Headers = parsed.Headers,
             RowCount = rows.Count,
             ColumnMeta = importer.BuildColumnMeta(parsed.Headers, rows),
@@ -945,6 +975,8 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         var lots = rows.Select(row =>
         {
             var lot = importer.BuildLot(catalogueId, parsed.Headers, row);
+            if (row.GetValueOrDefault(AuctionItemIdHeader) is { Length: > 0 } itemId)
+                lot.RowKey = $"a_{itemId}";
             // Duplicate identical rows share a row key — suffix repeats so every lot id is
             // unique yet stable for the same file content.
             if (seenKeys.TryGetValue(lot.RowKey, out var n))
@@ -953,9 +985,9 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
                 lot.RowKey = $"{lot.RowKey}#{n + 1}";
             }
             else seenKeys[lot.RowKey] = 0;
-            lot.Id = LotIdFor(file.Year, file.SaleNo, lot.RowKey);
-            lot.SaleNo = file.SaleNo.ToString();
-            lot.SaleYear = file.Year.ToString();
+            lot.Id = LotIdFor(year, saleNo, lot.RowKey);
+            lot.SaleNo = saleNo.ToString();
+            lot.SaleYear = year.ToString();
             lot.Valuation = ParseValuation(row.GetValueOrDefault("Valuation", ""), importedAt);
             return lot;
         }).ToList();
@@ -963,6 +995,11 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         BackfillClassifications(lots);
         return (catalogue, lots);
     }
+
+    /// <summary>The date a sale is listed under when OKLO gives its auction date but no file
+    /// exists to take an mtime from — the hand-kept calendar wins, else OKLO's own date.</summary>
+    internal static DateTime LiveSaleDate(int year, int saleNo, DateTime? auctionDate) =>
+        EstimateSaleDate(year, saleNo) ?? auctionDate ?? new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static ValuedLotSlim[] BuildSlim(List<Lot> lots) =>
         lots.Where(l => l.Valuation is not null)

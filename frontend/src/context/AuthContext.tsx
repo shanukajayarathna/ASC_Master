@@ -1,14 +1,16 @@
 "use client";
 
-import { AUTH_TOKEN_STORAGE_KEY, api, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
+import { SESSION_HINT_KEY, api, setSessionActive, setUnauthorizedHandler } from "@/lib/api";
 import type { AuthUser } from "@/types/api";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-const TOKEN_KEY = AUTH_TOKEN_STORAGE_KEY;
+// The login token itself is an HttpOnly cookie the browser manages; the only thing kept in localStorage is a non-secret
+// hint that a session probably exists. An older build kept the real token here - remove any left over.
+const LEGACY_TOKEN_KEY = "asc_auth_token";
 
 interface AuthCtx {
   user: AuthUser | null;
-  /** True only while the stored token (if any) is being validated on first load — lets
+  /** True only while the session (if any) is being validated on first load — lets
    *  callers avoid flashing a "logged out" state before that check has finished. */
   loading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
@@ -22,20 +24,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(TOKEN_KEY);
-    if (!stored) {
+    try {
+      window.localStorage.removeItem(LEGACY_TOKEN_KEY);
+    } catch {
+      // Storage unavailable - nothing to clean.
+    }
+    if (window.localStorage.getItem(SESSION_HINT_KEY) !== "1") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
-    setAuthToken(stored);
     (async () => {
       try {
-        setUser(await api.me());
+        const me = await api.me();
+        setSessionActive(true);
+        setUser(me);
       } catch {
-        // Stored token is expired/invalid — drop it rather than keep retrying every render.
-        window.localStorage.removeItem(TOKEN_KEY);
-        setAuthToken(null);
+        // The session cookie is expired/invalid/missing - forget the hint rather than retry on every load.
+        window.localStorage.removeItem(SESSION_HINT_KEY);
       } finally {
         setLoading(false);
       }
@@ -43,42 +49,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.login(email, password);
-    window.localStorage.setItem(TOKEN_KEY, res.token);
-    setAuthToken(res.token);
+    const res = await api.login(email, password); // the API sets the HttpOnly session cookie
+    window.localStorage.setItem(SESSION_HINT_KEY, "1");
+    setSessionActive(true);
     setUser(res.user);
     return res.user;
   }, []);
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(TOKEN_KEY);
-    setAuthToken(null);
+    // Only the server can remove an HttpOnly cookie. Local state is cleared at once; the call is best-effort.
+    window.localStorage.removeItem(SESSION_HINT_KEY);
+    setSessionActive(false);
     setUser(null);
+    api.logout().catch(() => {});
   }, []);
 
-  // A 401 anywhere in the app (lib/api.ts) means the server has already invalidated this
-  // token — clear our own state to match rather than let `user` keep claiming a session the
-  // backend no longer honors.
+  // A 401 anywhere in the app (lib/api.ts) means the server has already invalidated this session - clear our own state
+  // to match rather than let `user` keep claiming a session the backend no longer honors.
   useEffect(() => {
     setUnauthorizedHandler(logout);
     return () => setUnauthorizedHandler(null);
   }, [logout]);
 
-  // Browsers can restore a fully-rendered previous page from the back/forward cache instead
-  // of re-running this provider's mount effect — `pageshow` with `persisted: true` is the one
-  // reliable signal that happened. Re-validating the token on that signal is defense in depth
-  // alongside the public-pages' own force-logout-on-entry check (useForceLogoutOnPublicPage):
-  // that check only covers landing/login specifically, this covers a bfcache restore of *any*
-  // page, including one that never went through those.
+  // Browsers can restore a fully-rendered previous page from the back/forward cache instead of re-running this
+  // provider's mount effect - `pageshow` with `persisted: true` is the one reliable signal that happened. Re-validating
+  // the session on that signal is defense in depth alongside the public pages' own force-logout-on-entry check.
   useEffect(() => {
     const onPageShow = (e: PageTransitionEvent) => {
       if (!e.persisted) return;
-      const stored = window.localStorage.getItem(TOKEN_KEY);
-      if (!stored) {
+      if (window.localStorage.getItem(SESSION_HINT_KEY) !== "1") {
         setUser(null);
         return;
       }
-      setAuthToken(stored);
       api.me().then(setUser).catch(logout);
     };
     window.addEventListener("pageshow", onPageShow);

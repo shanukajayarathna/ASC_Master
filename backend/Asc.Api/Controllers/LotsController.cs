@@ -1,6 +1,7 @@
 using Asc.Api.Data;
 using Asc.Api.DTOs;
 using Asc.Api.Models;
+using Asc.Api.Modules.Oklo;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,7 +19,7 @@ namespace Asc.Api.Controllers;
 [ApiController]
 [Route("api")]
 [Authorize]
-public class LotsController(ICatalogueSource source, MongoContext db) : ControllerBase
+public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSource, MongoContext db) : ControllerBase
 {
     [HttpGet("catalogues/{catalogueId:guid}/lots")]
     public async Task<ActionResult<PagedLotsDto>> GetLots(
@@ -32,11 +33,27 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         [FromQuery] string sortKey = "LotNumber",
         [FromQuery] int sortDir = 1,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50)
+        [FromQuery] int pageSize = 50,
+        [FromQuery] int? after = null,
+        [FromQuery] string? knownVersion = null)
     {
-        var lots = source.GetLots(catalogueId);
+        var (lots, snap) = await ResolveLotsAsync(catalogueId);
         if (lots is null) return NotFound();
+
+        // Cheap freshness poll: the client says which version it holds; if the sale hasn't been
+        // refreshed since, answer without sending a single lot.
+        if (snap is { Complete: true, FetchedAtUtc: { } fetched } && knownVersion == fetched.ToString("O"))
+            return Ok(new PagedLotsDto([], 0, page, pageSize, LiveDto(snap) with { Unchanged = true }));
+
         var overrides = await OverridesFor(catalogueId);
+
+        // Progressive load: a partial sale only ever grows at the end, so the client asks for just the
+        // rows past what it already has (raw order — no filtering or sorting).
+        if (snap is { Complete: false } && after is >= 0)
+        {
+            var fresh = lots.Skip(after.Value).Select(l => ToDto(l, Merged(l, overrides))).ToList();
+            return Ok(new PagedLotsDto(fresh, lots.Count, 1, fresh.Count, LiveDto(snap)));
+        }
 
         IEnumerable<(Lot Lot, Valuation? Val)> matched = lots.Select(l => (l, Merged(l, overrides)));
 
@@ -67,10 +84,58 @@ public class LotsController(ICatalogueSource source, MongoContext db) : Controll
         };
 
         var rows = sorted.Skip((page - 1) * pageSize).Take(pageSize).Select(x => ToDto(x.Lot, x.Val)).ToList();
-        return Ok(new PagedLotsDto(rows, list.Count, page, pageSize));
+        return Ok(new PagedLotsDto(rows, list.Count, page, pageSize, snap is null ? null : LiveDto(snap)));
     }
 
-    private static string TicketStatus(Valuation? v)
+    /// <summary>An OKLO sale is read live: whatever has arrived so far (the client polls until Live.Complete), with the last
+    /// synced file as the fallback. Anything else comes from the source as before.</summary>
+    private async Task<(IReadOnlyList<Lot>? Lots, LiveSnapshot? Snap)> ResolveLotsAsync(Guid catalogueId)
+    {
+        LiveSnapshot? snap = null;
+        if (await liveSource.IsLiveAsync(catalogueId)) snap = await liveSource.GetSnapshotAsync(catalogueId, HttpContext.RequestAborted);
+        return (snap?.Lots ?? source.GetLots(catalogueId), snap);
+    }
+
+    /// <summary>
+    /// Search one sale WITHOUT the browser downloading it: the filter panel's state goes up, and only the matching rows
+    /// (a window of <c>limit</c> starting at <c>offset</c>) come back, with the total number of matches. The sale itself
+    /// stays in the backend (memory / stored snapshot), where filtering ~11,000 lots takes milliseconds.
+    /// </summary>
+    [HttpPost("catalogues/{catalogueId:guid}/lots/search")]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("saleSearch")]
+    public async Task<ActionResult<PagedLotsDto>> Search(Guid catalogueId, [FromBody] LotSearchRequest request)
+    {
+        if (!LotSearch.IsReasonable(request)) return BadRequest("The search is too large.");
+        var (lots, snap) = await ResolveLotsAsync(catalogueId);
+        if (lots is null) return NotFound();
+        var overrides = await OverridesFor(catalogueId);
+
+        var limit = Math.Clamp(request.Limit, 1, 20000);
+        var offset = Math.Max(0, request.Offset);
+        // Same default order as the lot list (by lot number), so a search and a plain listing agree.
+        var matched = LotSearch.Filter(lots.Select(l => (l, Merged(l, overrides))), request)
+            .OrderBy(x => x.Lot.LotNumber).ToList();
+        var rows = matched.Skip(offset).Take(limit).Select(x => ToDto(x.Lot, x.Val)).ToList();
+        return Ok(new PagedLotsDto(rows, matched.Count, offset / limit + 1, limit, snap is null ? null : LiveDto(snap)));
+    }
+
+    /// <summary>The dropdown option lists (distinct values, most frequent first) for the columns the filter panel asks
+    /// about — computed where the sale lives, so the browser needs no lots to fill its filters.</summary>
+    [HttpPost("catalogues/{catalogueId:guid}/filter-options")]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("saleSearch")]
+    public async Task<ActionResult<FilterOptionsDto>> FilterOptions(Guid catalogueId, [FromBody] FilterOptionsRequest request)
+    {
+        if ((request.Headers?.Count ?? 0) > 100) return BadRequest("Too many columns requested.");
+        var (lots, snap) = await ResolveLotsAsync(catalogueId);
+        if (lots is null) return NotFound();
+        var options = LotSearch.BuildOptions(lots, request.Headers ?? []);
+        return Ok(new FilterOptionsDto(options, snap?.Total ?? lots.Count, snap is null ? null : LiveDto(snap)));
+    }
+
+    private static LiveLoadDto LiveDto(LiveSnapshot snap) =>
+        new(snap.Total, snap.Lots.Count, snap.Complete, snap.FetchedAtUtc, snap.Refreshing, snap.Error);
+
+    internal static string TicketStatus(Valuation? v)
     {
         if (v is null) return "empty";
         var hasValue = v.ValuationSingle != null || v.ValuationFrom != null;

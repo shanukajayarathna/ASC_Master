@@ -20,24 +20,13 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
+import { isAuthorized } from "@/lib/server/session";
 
 /** LIBREOFFICE_PATH overrides for a non-default install; otherwise the winget/apt default for
  *  the platform this process is running on. */
 function sofficePath(): string {
   if (process.env.LIBREOFFICE_PATH) return process.env.LIBREOFFICE_PATH;
   return process.platform === "win32" ? "C:\\Program Files\\LibreOffice\\program\\soffice.exe" : "soffice";
-}
-
-async function isAuthorized(request: Request): Promise<boolean> {
-  const auth = request.headers.get("authorization");
-  if (!auth) return false;
-  try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/me`, { headers: { Authorization: auth } });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 /** The download's file name only — never used as a path component (the xlsx is written under
@@ -98,6 +87,17 @@ async function stripWorkingCopySheet(bytes: Buffer): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/** Keeps only the named tabs — used by the combined report, which prints one RANK tab at a time
+ *  so the four category pages can be interleaved with the FACT pages in the client's own order. */
+async function keepOnlySheets(bytes: Buffer, names: string[]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  const missing = names.filter((n) => !wb.getWorksheet(n));
+  if (missing.length) throw new Error(`Tab not found in workbook: ${missing.join(", ")}`);
+  for (const ws of [...wb.worksheets]) if (!names.includes(ws.name)) wb.removeWorksheet(ws.id);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
 export async function POST(request: Request) {
   if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -113,7 +113,10 @@ export async function POST(request: Request) {
   const profileDir = await mkdtemp(path.join(tmpdir(), "weekly-fact-lo-"));
 
   try {
-    const bytes = await stripWorkingCopySheet(rawBytes);
+    const sheetsHeader = request.headers.get("x-sheets");
+    const bytes = sheetsHeader
+      ? await keepOnlySheets(rawBytes, JSON.parse(decodeURIComponent(sheetsHeader)) as string[])
+      : await stripWorkingCopySheet(rawBytes);
     const xlsxPath = path.join(workDir, `${randomUUID()}.xlsx`);
     await writeFile(xlsxPath, bytes);
     await convertToPdf(xlsxPath, workDir, profileDir);

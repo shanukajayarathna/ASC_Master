@@ -28,6 +28,17 @@ Login is required to use the app (commit `ec96746`, "Gate the app behind login, 
 ## Dependencies
 [17_User_Management.md](17_User_Management.md), [23_Backend_Architecture.md](23_Backend_Architecture.md), [24_API_Guidelines.md](24_API_Guidelines.md) (new-endpoint checklist should reference this doc).
 
+## Browser session (HttpOnly cookie)
+
+The login token is a signed JWT (12 h) held in the **`asc_session` HttpOnly cookie**, set by `POST /api/v1/auth/login` (and the first-account bootstrap register) and cleared by `POST /api/v1/auth/logout`. Page scripts cannot read it, so an injected script cannot steal it (it previously lived in `localStorage`). The login response body no longer contains the token.
+
+- `Secure` when the request is HTTPS (behind the TLS proxy: enable `ForwardedHeaders:Enabled` so the API sees HTTPS), `SameSite=Lax`, `Path=/`. Cookies are per host, not per port, so the dev setup (`:3000` app, `:5058` API) shares it; production is same-origin behind Caddy. An app and API on *different sites* would need `SameSite=None; Secure` — do not deploy that way without revisiting this.
+- The API still accepts `Authorization: Bearer <jwt>` (scripts, tools) and `X-Api-Key` unchanged; the cookie is only the fallback (`AuthCookie.ReadFromCookie`).
+- **CSRF:** a state-changing request (anything but GET/HEAD/OPTIONS) that authenticates by the cookie alone must carry `X-Requested-With` (the app adds it to every call — `AUTH_HEADERS` in `frontend/src/lib/api.ts`); otherwise the API answers 403 (`AuthCookie.IsForgeable`). CORS allows credentials only for the configured `Cors:AllowedOrigins`.
+- The frontend keeps only a non-secret `asc_session_hint` flag in localStorage (so signed-out visitors are not sent to `/auth/me` on every load); a leftover `asc_auth_token` from older builds is deleted on start.
+- The Next route handlers that render PDFs read the same cookie (`frontend/src/lib/server/session.ts`) and require the same header; the headless print browser is signed in by injecting the cookie.
+- Production refuses to start without a `Jwt:Key` of at least 32 characters.
+
 ## Future expansion
 Audit logging for Admin actions (role changes, API key/webhook management — see [17_User_Management.md](17_User_Management.md)'s open question); formal security review cadence (this platform has a `security-review` capability available in-repo tooling — use it periodically, not just at redesign milestones).
 

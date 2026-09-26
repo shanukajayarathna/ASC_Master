@@ -1,3 +1,4 @@
+import type { LotSearchBody } from "@/lib/lotFilters";
 import type {
   AccessRequest,
   AccuracyBucket,
@@ -14,6 +15,7 @@ import type {
   CatalogueDetail,
   CatalogueSummary,
   CategoryAnalysis,
+  CategoryAverageTrend,
   CategoryOption,
   ChatMessage,
   ChatResponse,
@@ -27,6 +29,7 @@ import type {
   ImportActualsResult,
   ImportStatus,
   KnowledgeDocument,
+  LatestSaleWithResults,
   LandingPageContent,
   LearningContentCategory,
   LearningContentItem,
@@ -68,6 +71,7 @@ import type {
   MslTrackedFile,
   OverviewStats,
   PagedLots,
+  FilterOptionsResponse,
   PerformanceInsight,
   PreviousGradeStats,
   PublicMarketPulseItem,
@@ -107,18 +111,21 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
 
-// Set by AuthContext on login/logout/hydrate. Module-level rather than passed per-call
-// since `request()` isn't a component — every existing call site stays untouched, and the
-// header gets added in exactly the one place all of them already funnel through.
-let authToken: string | null = null;
-export function setAuthToken(token: string | null) {
-  authToken = token;
+// The login token is an HttpOnly cookie set by the API: page scripts can neither read nor steal it, so there is no token
+// here at all. Every request just asks the browser to include cookies, and adds the header the API requires on writes
+// that ride on the cookie (a cross-site page cannot send it - see AuthCookie.IsForgeable in the backend).
+export const AUTH_HEADERS: Record<string, string> = { "X-Requested-With": "ASC" };
+const apiFetch = (input: string, init?: RequestInit) => fetch(input, { ...init, credentials: "include" });
+
+// True once this browser has a signed-in session (set by AuthContext), so a 401 can be told apart from an anonymous
+// visitor simply not being signed in.
+let sessionActive = false;
+export function setSessionActive(active: boolean) {
+  sessionActive = active;
 }
 
-/** The localStorage key AuthContext persists the bearer token under — owned here (not
- *  AuthContext) since `request()` needs it too, to clear a token the server has just told us
- *  is no longer valid (see the 401 handling below). */
-export const AUTH_TOKEN_STORAGE_KEY = "asc_auth_token";
+/** Non-secret marker (not the token) that a session probably exists, so a signed-out visitor is not sent to /auth/me on every load. */
+export const SESSION_HINT_KEY = "asc_session_hint";
 
 // AuthContext registers itself here on mount so a 401 anywhere in the app — not just the one
 // request that happened to hit it — immediately clears the session everywhere: `user` drops
@@ -187,11 +194,11 @@ function trackInFlight(delta: 1 | -1) {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   trackInFlight(1);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await apiFetch(`${API_BASE}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
         ...(init?.headers ?? {}),
       },
     });
@@ -209,9 +216,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // revoked, or a role change that invalidated it. Only fires when a token was actually
       // sent: an anonymous request 401ing (e.g. an admin-only endpoint called by a signed-out
       // visitor) is normal and not a session that needs tearing down.
-      if (res.status === 401 && authToken) {
-        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-        authToken = null;
+      if (res.status === 401 && sessionActive) {
+        sessionActive = false;
         onUnauthorized?.();
       }
       throw new ApiError(message, res.status, body);
@@ -225,11 +231,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   // ---- auth -----------------------------------------------------------------------
+  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
+
   login: (email: string, password: string) =>
     request<AuthResponse>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
 
   /** Only succeeds while no account exists yet (bootstrap), or when called by an
-   *  already-authenticated Admin (the token must already be set via setAuthToken). */
+   *  already-authenticated Admin (a session must already exist). */
   register: (email: string, password: string, displayName: string) =>
     request<AuthResponse>("/api/v1/auth/register", {
       method: "POST",
@@ -418,9 +426,9 @@ export const api = {
   uploadAdminAsset: async (slotId: string, file: File): Promise<AdminAssetStatus> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_BASE}/api/v1/admin/assets/${slotId}`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/admin/assets/${slotId}`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -435,8 +443,8 @@ export const api = {
   /** Fetches the current override for a slot as raw bytes, or null when the slot has no
    *  override (the caller should fall back to its own bundled default in that case). */
   fetchAssetOverride: async (slotId: string): Promise<ArrayBuffer | null> => {
-    const res = await fetch(`${API_BASE}/api/v1/assets/${slotId}`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/v1/assets/${slotId}`, {
+      headers: AUTH_HEADERS,
     });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Could not load asset override '${slotId}' (HTTP ${res.status}).`);
@@ -461,9 +469,9 @@ export const api = {
     if (effectiveDate) form.append("effectiveDate", effectiveDate);
     if (expiryDate) form.append("expiryDate", expiryDate);
     if (supersedesDocumentId) form.append("supersedesDocumentId", supersedesDocumentId);
-    const res = await fetch(`${API_BASE}/api/v1/documents`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/documents`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -508,16 +516,16 @@ export const api = {
   generateReport: (catalogueId: string, type: string) => request<Report>(`/api/v1/reports/${catalogueId}/${type}`),
 
   exportReportExcel: async (catalogueId: string, type: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/excel`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/excel`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Export failed");
     return res.blob();
   },
 
   exportReportPptx: async (catalogueId: string, type: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/pptx`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/${catalogueId}/${type}/pptx`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Export failed");
     return res.blob();
@@ -579,8 +587,8 @@ export const api = {
   deleteSavedReport: (id: string) => request<void>(`/api/v1/reports/saved/${id}`, { method: "DELETE" }),
 
   downloadSavedReport: async (id: string): Promise<{ blob: Blob; fileName: string | null }> => {
-    const res = await fetch(`${API_BASE}/api/v1/reports/saved/${id}/download`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/saved/${id}/download`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Download failed");
     // The backend names the file (e.g. "factory-sale-summary_sale34_2026.xlsx") via
@@ -599,13 +607,14 @@ export const api = {
    *  headless conversion run by this app's own Next.js server (frontend/src/app/api/weekly-fact
    *  /pdf/route.ts) — a relative path, not API_BASE, since that route lives here, not on the
    *  .NET backend. */
-  convertWeeklyFactPdf: async (buffer: ArrayBuffer, filename: string): Promise<Blob> => {
-    const res = await fetch("/api/weekly-fact/pdf", {
+  convertWeeklyFactPdf: async (buffer: ArrayBuffer, filename: string, sheets?: string[]): Promise<Blob> => {
+    const res = await apiFetch("/api/weekly-fact/pdf", {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
         "x-filename": encodeURIComponent(filename),
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(sheets ? { "x-sheets": encodeURIComponent(JSON.stringify(sheets)) } : {}),
+        ...AUTH_HEADERS,
       },
       body: buffer,
     });
@@ -626,12 +635,12 @@ export const api = {
    *  the same headless-LibreOffice mechanism as convertWeeklyFactPdf above, for any other
    *  report's already-built workbook rather than a Weekly-FACT-specific one. */
   convertXlsxToPdf: async (buffer: ArrayBuffer, filename: string): Promise<Blob> => {
-    const res = await fetch("/api/reports/xlsx-to-pdf", {
+    const res = await apiFetch("/api/reports/xlsx-to-pdf", {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
         "x-filename": encodeURIComponent(filename),
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
       },
       body: buffer,
     });
@@ -688,9 +697,9 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     if (saleNo) form.append("saleNo", saleNo);
-    const res = await fetch(`${API_BASE}/api/v1/auction-reports/from-upload/combined`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/auction-reports/from-upload/combined`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -714,9 +723,9 @@ export const api = {
   importWorksheetFile: async (file: File): Promise<WorksheetImportResult> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_BASE}/api/v1/worksheet/import`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/worksheet/import`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -736,11 +745,11 @@ export const api = {
     // same export endpoint/builder) passes "Asking Price"/"Total Value"/"Asking Price Report".
     labels?: { valuationLabel?: string; proceedsLabel?: string; sheetName?: string }
   ): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/v1/worksheet/export/excel`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/worksheet/export/excel`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
       },
       body: JSON.stringify({
         title,
@@ -758,8 +767,8 @@ export const api = {
   },
 
   downloadWorksheetTemplate: async (priceLabel: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/v1/worksheet/template?priceLabel=${encodeURIComponent(priceLabel)}`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/v1/worksheet/template?priceLabel=${encodeURIComponent(priceLabel)}`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Could not download the template");
     return res.blob();
@@ -800,9 +809,9 @@ export const api = {
   importActuals: async (catalogueId: string, file: File): Promise<ImportActualsResult> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_BASE}/api/v1/market/${catalogueId}/import`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/market/${catalogueId}/import`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -841,6 +850,31 @@ export const api = {
   markAllNotificationsRead: () => request<void>("/api/v1/notifications/read-all", { method: "POST" }),
 
   listCatalogues: () => request<CatalogueSummary[]>("/api/catalogues"),
+  /**
+   * Search ONE sale on the server: the filter panel's state goes up and only the matching rows (a window of `limit`
+   * from `offset`) come back, with the total number of matches. The browser never downloads the whole sale.
+   */
+  searchLots: (catalogueId: string, body: LotSearchBody) =>
+    request<PagedLots>(`/api/catalogues/${catalogueId}/lots/search`, { method: "POST", body: JSON.stringify(body) }),
+
+  /** Dropdown option lists (distinct values, most frequent first) for the given columns of a sale. */
+  getFilterOptions: (catalogueId: string, headers: string[]) =>
+    request<FilterOptionsResponse>(`/api/catalogues/${catalogueId}/filter-options`, {
+      method: "POST",
+      body: JSON.stringify({ headers }),
+    }),
+
+  /**
+   * A page was (re)loaded: re-pull the sales in use from OKLO right now instead of waiting for the refresh window. The
+   * backend rate-limits it (per sale, once a minute) and leaves finished sales alone. Returns immediately.
+   */
+  refreshOkloNow: (catalogueIds?: string[]) =>
+    request<{ started: number }>("/api/oklo/refresh-now", { method: "POST", body: JSON.stringify({ catalogueIds: catalogueIds ?? [] }) }),
+
+  /** Asks the backend to re-pull stale recent/live sales from OKLO in the background. Returns immediately. */
+  refreshOkloData: () => request<{ started: boolean }>("/api/oklo/refresh", { method: "POST" }),
+  /** When the newest OKLO sale data was checked (null until the first pull); `enabled` is false when the sync is off. */
+  getOkloFreshness: () => request<{ enabled: boolean; newestCheckedUtc: string | null }>("/api/oklo/freshness"),
 
   getCatalogue: (id: string) => request<CatalogueDetail>(`/api/catalogues/${id}`),
 
@@ -851,9 +885,9 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     if (year) form.append("year", String(year));
-    const res = await fetch(`${API_BASE}/api/catalogues/import`, {
+    const res = await apiFetch(`${API_BASE}/api/catalogues/import`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -876,6 +910,10 @@ export const api = {
       sortDir?: number;
       page?: number;
       pageSize?: number;
+      /** Live sales only: return just the rows past this raw index (progressive load). */
+      after?: number;
+      /** Live sales only: the `live.fetchedAtUtc` the caller holds — the reply is empty + `unchanged` if still current. */
+      knownVersion?: string;
     } = {}
   ) => {
     const qs = new URLSearchParams();
@@ -924,19 +962,19 @@ export const api = {
    *  without cross-origin taint. Media endpoints require login, so — unlike a bare <img src>,
    *  which can't carry a bearer token — every read goes through this authenticated fetch. */
   fetchPhotoBlob: async (lotId: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/lots/${lotId}/photo`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Could not load the photo.");
     return res.blob();
   },
 
   uploadPhoto: async (lotId: string, blob: Blob): Promise<LotMedia> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
+    const res = await apiFetch(`${API_BASE}/api/lots/${lotId}/photo`, {
       method: "PUT",
       headers: {
         "Content-Type": blob.type || "image/jpeg",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
       },
       body: blob,
     });
@@ -945,9 +983,9 @@ export const api = {
   },
 
   deletePhoto: async (lotId: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/photo`, {
+    const res = await apiFetch(`${API_BASE}/api/lots/${lotId}/photo`, {
       method: "DELETE",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Could not delete the photo.");
   },
@@ -956,19 +994,19 @@ export const api = {
    *  reliable across browsers than a cross-origin <audio src> with range requests, and (like
    *  fetchPhotoBlob) the only way to carry auth to this now-login-required endpoint. */
   fetchVoiceBlob: async (lotId: string, field: string): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Could not load the voice note.");
     return res.blob();
   },
 
   uploadVoice: async (lotId: string, field: string, blob: Blob): Promise<LotMedia> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
+    const res = await apiFetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
       method: "PUT",
       headers: {
         "Content-Type": blob.type || "audio/webm",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
       },
       body: blob,
     });
@@ -977,9 +1015,9 @@ export const api = {
   },
 
   deleteVoice: async (lotId: string, field: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
+    const res = await apiFetch(`${API_BASE}/api/lots/${lotId}/voice/${field}`, {
       method: "DELETE",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new Error("Could not delete the voice note.");
   },
@@ -1009,11 +1047,11 @@ export const api = {
 
   /** Turns a chat-rendered table into a real .xlsx download (server-built via NPOI). */
   downloadTableAsExcel: async (headers: string[], rows: string[][], fileName: string, title?: string) => {
-    const res = await fetch(`${API_BASE}/api/v1/msl/analytics/export/table`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/msl/analytics/export/table`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
       },
       body: JSON.stringify({ fileName, title: title ?? null, headers, rows }),
     });
@@ -1029,8 +1067,8 @@ export const api = {
 
   /** Downloads an authenticated file (e.g. an agent-generated Excel) via blob + save. */
   downloadAuthedFile: async (path: string, filename: string) => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    const res = await apiFetch(`${API_BASE}${path}`, {
+      headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new ApiError(await res.text().catch(() => "Download failed"), res.status);
     const blob = await res.blob();
@@ -1082,9 +1120,9 @@ export const api = {
     if (fields.year != null) form.append("year", String(fields.year));
     if (fields.saleNo != null) form.append("saleNo", String(fields.saleNo));
     if (fields.month != null) form.append("month", String(fields.month));
-    const res = await fetch(`${API_BASE}/api/v1/msl/upload`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/msl/upload`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -1102,9 +1140,9 @@ export const api = {
   stageMslFilesBatch: async (files: File[]): Promise<MslStageBatchResult> => {
     const form = new FormData();
     for (const f of files) form.append("files", f);
-    const res = await fetch(`${API_BASE}/api/v1/msl/upload-batch/stage`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/msl/upload-batch/stage`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -1256,9 +1294,9 @@ export const api = {
     form.append("saleNo", String(saleNo));
     form.append("saleDate", saleDate);
     for (const [broker, file] of Object.entries(files)) form.append(`file_${broker}`, file);
-    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-upload`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-upload`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -1283,9 +1321,9 @@ export const api = {
     form.append("saleNo", String(saleNo));
     form.append("saleDate", saleDate);
     form.append("zipFile", zipFile);
-    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-zip`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-zip`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -1308,9 +1346,9 @@ export const api = {
     form.append("saleYear", String(saleYear));
     form.append("saleNo", String(saleNo));
     for (const [broker, file] of Object.entries(files)) form.append(`file_${broker}`, file);
-    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-upload/preview`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-upload/preview`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -1326,9 +1364,9 @@ export const api = {
     form.append("saleYear", String(saleYear));
     form.append("saleNo", String(saleNo));
     form.append("zipFile", zipFile);
-    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-zip/preview`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/generate-from-zip/preview`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) {
@@ -1354,9 +1392,9 @@ export const api = {
     } else {
       for (const [broker, file] of Object.entries(filesOrZip.files)) if (file) form.append(`file_${broker}`, file);
     }
-    const res = await fetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/detect-sale-info`, {
+    const res = await apiFetch(`${API_BASE}/api/v1/reports/shared-mark-catalogue-summary/detect-sale-info`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: AUTH_HEADERS,
       body: form,
     });
     if (!res.ok) return { saleYear: null, saleNo: null, saleDate: null, warnings: [] };
@@ -1384,6 +1422,16 @@ export const api = {
 
   listCategoryAnalysisOutputs: () => request<ScheduledReportOutput[]>("/api/v1/reports/category-analysis/outputs"),
 
+  // Last five sales up to the selected one — average price per grade and the change from the sale before.
+  // Live, never stored. `broker` narrows every figure to one broker code; omit it for every broker.
+  getCategoryAverageTrend: (catalogueId: string, broker?: string) =>
+    request<CategoryAverageTrend>(
+      `/api/v1/reports/category-average-trend/${catalogueId}${broker ? `?broker=${encodeURIComponent(broker)}` : ""}`,
+    ),
+
+  // Newest sale with sold results — where the trend report opens (a 404 means no sale has results yet).
+  getLatestSaleWithResults: () => request<LatestSaleWithResults>("/api/v1/reports/category-average-trend/latest"),
+
   /**
    * Excel export. Lots are (catalogue, lot) pairs so one workbook can span several sales
    * at once; `columns` is the ordered set of columns to include (raw catalogue columns or
@@ -1393,11 +1441,11 @@ export const api = {
     lots: { catalogueId: string; lotId: string }[],
     columns: { kind: string; key: string; label: string }[]
   ): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/api/export/excel`, {
+    const res = await apiFetch(`${API_BASE}/api/export/excel`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...AUTH_HEADERS,
       },
       body: JSON.stringify({ lots, columns }),
     });
