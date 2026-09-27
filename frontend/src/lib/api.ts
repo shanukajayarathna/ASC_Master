@@ -229,6 +229,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+/** Re-run a request while the API answers 503 "still loading" (an OKLO sale whose first rows have not arrived), every 4 s for up to ~2 minutes. */
+async function retryWhileLoading<T>(run: () => Promise<T>, attempts = 30): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await run();
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 503 || i >= attempts) throw e;
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+    }
+  }
+}
+
 export const api = {
   // ---- auth -----------------------------------------------------------------------
   logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
@@ -855,14 +867,16 @@ export const api = {
    * from `offset`) come back, with the total number of matches. The browser never downloads the whole sale.
    */
   searchLots: (catalogueId: string, body: LotSearchBody) =>
-    request<PagedLots>(`/api/catalogues/${catalogueId}/lots/search`, { method: "POST", body: JSON.stringify(body) }),
+    retryWhileLoading(() => request<PagedLots>(`/api/catalogues/${catalogueId}/lots/search`, { method: "POST", body: JSON.stringify(body) })),
 
   /** Dropdown option lists (distinct values, most frequent first) for the given columns of a sale. */
   getFilterOptions: (catalogueId: string, headers: string[]) =>
-    request<FilterOptionsResponse>(`/api/catalogues/${catalogueId}/filter-options`, {
-      method: "POST",
-      body: JSON.stringify({ headers }),
-    }),
+    retryWhileLoading(() =>
+      request<FilterOptionsResponse>(`/api/catalogues/${catalogueId}/filter-options`, {
+        method: "POST",
+        body: JSON.stringify({ headers }),
+      })
+    ),
 
   /**
    * A page was (re)loaded: re-pull the sales in use from OKLO right now instead of waiting for the refresh window. The
@@ -876,7 +890,8 @@ export const api = {
   /** When the newest OKLO sale data was checked (null until the first pull); `enabled` is false when the sync is off. */
   getOkloFreshness: () => request<{ enabled: boolean; newestCheckedUtc: string | null }>("/api/oklo/freshness"),
 
-  getCatalogue: (id: string) => request<CatalogueDetail>(`/api/catalogues/${id}`),
+  // A sale still loading from OKLO answers 503 ("try again"): wait and retry quietly (up to ~2 minutes) instead of surfacing an error.
+  getCatalogue: (id: string) => retryWhileLoading(() => request<CatalogueDetail>(`/api/catalogues/${id}`)),
 
   deleteCatalogue: (id: string) =>
     request<void>(`/api/catalogues/${id}`, { method: "DELETE" }),

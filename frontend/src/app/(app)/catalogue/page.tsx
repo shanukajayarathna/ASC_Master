@@ -475,7 +475,15 @@ export default function CataloguePage() {
       if (document.visibilityState !== "visible") return;
       for (let i = 0; i < selectedSaleIds.length; i++) {
         const st = statusesRef.current[i];
-        if (!st?.live || !st.complete || !st.fetchedAtUtc) continue;
+        if (!st?.live) continue;
+        // Still arriving from OKLO: a search made while the sale was 0% (or partly) loaded would otherwise stay stuck at
+        // whatever it found back then (an old search response has no version to compare against) - keep re-running it as
+        // more rows land, the same as the "a newer pull arrived" case below does once the sale finishes.
+        if (!st.complete) {
+          void loadCombinedRef.current(false);
+          return;
+        }
+        if (!st.fetchedAtUtc) continue;
         try {
           const probe = await api.getLots(selectedSaleIds[i], { pageSize: 1, knownVersion: st.fetchedAtUtc });
           if (probe.live && !probe.live.unchanged) {

@@ -260,7 +260,7 @@ interface TopbarProps {
   onSearchClick: () => void;
 }
 
-const PAGES_WITH_OWN_SALE_PICKER = ["/catalogue", "/reports/top-price-page"];
+const PAGES_WITH_OWN_SALE_PICKER = ["/catalogue", "/reports/top-price-page", "/reports/worksheet"];
 
 export default function Topbar({ onSearchClick }: TopbarProps) {
   const { mode } = useThemeMode();

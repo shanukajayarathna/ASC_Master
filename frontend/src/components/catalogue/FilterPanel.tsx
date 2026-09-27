@@ -308,7 +308,13 @@ export default function FilterPanel({
           ? { def, header, options: serverOptions ? (serverOptions[header] ?? []) : columnOptions(lotsFor(header), header) }
           : null;
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null && x.options.length > 0);
+      // A column genuinely absent from the sale is hidden (nothing to filter by, ever) - but only once that is actually
+      // known. In server mode, an empty options list usually just means the still-streaming sale hasn't reached a row with
+      // that value YET, not that the column is empty: hiding the field then showing it once its first value arrives made
+      // filters pop in one at a time as the sale loaded, reflowing the whole panel. The column list itself (`headers`)
+      // already reflects the real sale, so a header that resolved at all is shown from the start; its own dropdown just
+      // grows richer as more of the sale arrives, same as any of the others.
+      .filter((x): x is NonNullable<typeof x> => x !== null && (serverOptions ? true : x.options.length > 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headers, lots, isValuation, dColumnFilters, dStatus, dClassification, dYear, serverOptions]);
 
