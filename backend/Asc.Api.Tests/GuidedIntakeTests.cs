@@ -8,7 +8,7 @@ public class GuidedIntakeTests
     private static readonly IntakeData Data = new(
         Archived: [.. Enumerable.Range(30, 22).Select(n => (2025, n)), .. Enumerable.Range(1, 32).Select(n => (2026, n))],
         Catalogued: [.. Enumerable.Range(33, 8).Select(n => (2026, n)), (2025, 37)],
-        AllGrades: ["BOP", "BOPF", "OP", "PEKOE", "FBOP", "OPA", "BP"],
+        AllGrades: ["BOP", "BOPF", "OP", "PEKOE", "FBOP", "OPA", "BP", "BOP1A"],
         TopGrades: ["BOP", "BOPF", "OP", "PEKOE", "FBOP", "OPA"],
         MyBroker: "ASC");
 
@@ -379,6 +379,73 @@ public class GuidedIntakeTests
         Assert.Single(GuidedIntake.OpenTurns(prior, "compare brokers"));            // after a real answer: a fresh start
         prior[3] = ("assistant", "Which period?\nCLARIFY: {}", "router");
         Assert.Equal(5, GuidedIntake.OpenTurns(prior, "Last 12 sales").Count);      // still answering the same request
+    }
+}
+
+public class GuidedIntakeTopPriceTests
+{
+    private static readonly IntakeData Data = new(
+        [.. Enumerable.Range(1, 32).Select(n => (2026, n))], [.. Enumerable.Range(33, 8).Select(n => (2026, n))],
+        ["BOP", "BOPF", "OP", "BOP1A"], ["BOP", "BOPF", "OP"], "ASC", new DateTime(2026, 9, 27));
+
+    private static IntakeOutcome? Say(params string[] turns)
+    {
+        var open = new List<(string Role, string Content)>();
+        IntakeOutcome? last = null;
+        foreach (var turn in turns)
+        {
+            open.Add(("user", turn));
+            last = GuidedIntake.Involved(open) ? GuidedIntake.Next(open, Data, false) : null;
+            if (last?.Ask is { } q) open.Add(("assistant", IntentRouter.ClarifyReply(q)));
+        }
+        return last;
+    }
+
+    [Fact]
+    public void TheTopPriceForAGrade_AsksWhichSale_ThenAnswersFromTheArchiveWithTheHighestPriceMeasure()
+    {
+        var ask = Say("tell me the top price for bop1a")!;
+        Assert.Equal("Which period?", ask.Ask!.Question);   // not silently the active sale
+        Assert.Equal("Latest sale (32/2026)", ask.Ask.Options[0]);
+
+        var r = Say("tell me the top price for bop1a", "Latest sale (32/2026)")!.Resolved!;
+        Assert.Equal(["BOP1A"], r.Grades);
+        Assert.Equal("max_price_rs", r.Metric);
+        Assert.Equal("sale", r.GroupBy);
+        Assert.Equal(new ArchiveScope(2026, 32, 2026, 32), r.Scope);
+        Assert.Equal("analytics", r.AgentKey);
+    }
+
+    [Fact]
+    public void ANamedSale_IsHonoured_NotReplacedByTheActiveSale()
+    {
+        var r = Say("highest price for bop1a in sale 20 of 2026")!.Resolved!;
+        Assert.Equal(new ArchiveScope(2026, 20, 2026, 20), r.Scope);
+        Assert.Equal("max_price_rs", r.Metric);
+    }
+
+    [Fact]
+    public void ForABrokerOrABreakdown_ItAsksThePeriodToo()
+    {
+        Assert.Equal("Which period?", Say("what was ASC's top price")!.Ask!.Question);
+        Assert.Equal("Which period?", Say("highest price by grade")!.Ask!.Question);
+    }
+
+    [Theory]
+    [InlineData("show the top prices this sale")]
+    [InlineData("top price")]
+    [InlineData("what is the top price for the sale")]
+    [InlineData("which garden had the top price")]
+    [InlineData("show me the top lots")]
+    public void WithNothingNamedToLookAt_TheAuctionAgentsOwnTopPriceReportKeepsIt(string text) => Assert.Null(Say(text));
+
+    [Fact]
+    public void TheMetricExistsAndIsTheMaximum()
+    {
+        var metric = CustomReportLogic.Metrics["max_price_rs"];
+        Assert.Equal("Rs/kg", metric.Unit);
+        Assert.False(metric.Additive);
+        Assert.Equal(4321m, metric.Value(new Asc.Api.Modules.Msl.FilteredSectionRow("BOP1A", null, 5, 4, 100, 90, 1000, 11, 4321)));
     }
 }
 

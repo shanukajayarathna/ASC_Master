@@ -113,3 +113,10 @@ describe("named periods, elevations and more breakdowns", () => {
     expect(applyVoiceCommand(withElevation, parseVoiceCommand("last 4 sales", now)).elevations).toEqual(["LOW"]);
   });
 });
+
+describe("top price", () => {
+  it("reads a top-price request as the highest price, not the average", () => {
+    expect(parseVoiceCommand("top price for bop1a by sale").patch.metric).toBe("max_price_rs");
+    expect(parseVoiceCommand("average price by broker").patch.metric).toBe("avg_price_rs");
+  });
+});

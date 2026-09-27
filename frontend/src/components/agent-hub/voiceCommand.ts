@@ -29,7 +29,7 @@ const BROKER_WORDS: [RegExp, string][] = [
 const GRADES = ["FBOPF1", "FBOPF", "FBOP", "BOPF1", "BOPF", "BOP1", "BOPSM", "BOP", "OP1", "OPA", "OP", "PEKOE", "PEK", "BP1", "BPF", "BP", "FNGS1", "FNGS", "DUST1", "DUST", "FGS", "FF1", "FF"];
 
 const GROUP_LABEL: Record<GroupKey, string> = { broker: "brokers", grade: "grades", sale: "sales (trend)", elevation: "origins", buyer: "buyers", mark: "marks" };
-const METRIC_LABEL: Record<MetricKey, string> = { avg_price_rs: "average price", sold_quantity_kg: "quantity sold", proceeds_rs: "proceeds", sold_lots: "lots sold", share_of_own_volume_pct: "share of own volume" };
+const METRIC_LABEL: Record<MetricKey, string> = { avg_price_rs: "average price", max_price_rs: "top price", sold_quantity_kg: "quantity sold", proceeds_rs: "proceeds", sold_lots: "lots sold", share_of_own_volume_pct: "share of own volume" };
 const PERIOD_LABEL: Record<PeriodKey, string> = { "4": "last 4 sales", "12": "last 12 sales", year: "this year", latest: "the latest sale", scope: "the chosen scope" };
 const VISUAL_LABEL: Record<VisualKey, string> = { bar: "bar chart", line: "line chart", table: "table" };
 
@@ -126,7 +126,9 @@ export function parseVoiceCommand(input: string, now: Date = new Date()): VoiceC
   }
 
   const share = /\b(share of (their|its|our|each broker'?s?|the broker'?s?) own|of (their|its|our) own (volume|quantity|offering)|own volume|% of (their |its |our )?own|percentage of (their |its |our )?own)\b/.test(t);
-  const m: MetricKey | null = share ? "share_of_own_volume_pct" : /\b(average price|avg price|avg|price|prices)\b/.test(t)
+  const m: MetricKey | null = share ? "share_of_own_volume_pct" : /\b(top price|highest price|maximum price|max price|best price)\b/.test(t)
+    ? "max_price_rs"
+    : /\b(average price|avg price|avg|price|prices)\b/.test(t)
     ? "avg_price_rs"
     : /\b(proceeds|revenue|value)\b/.test(t)
       ? "proceeds_rs"

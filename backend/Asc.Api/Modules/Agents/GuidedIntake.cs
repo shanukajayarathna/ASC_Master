@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Asc.Api.Modules.Agents;
 
-public enum IntakeTopic { None, Menu, LotMenu, BylawsMenu, Ranking, Prices, Volume, Compare, Trend, Report, SaleSummary, TeaBoard }
+public enum IntakeTopic { None, Menu, LotMenu, BylawsMenu, Ranking, Prices, Volume, Compare, Trend, Report, SaleSummary, TeaBoard, TopPrice }
 
 /// <summary>What exists to choose from. Plain lists, so the source (archive, sale catalogues, OKLO feed) can change freely.</summary>
 public record IntakeData(
@@ -116,7 +116,9 @@ public static class GuidedIntake
     private static readonly Regex LotMenu = new(@"^\s*look up a lot\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
     private static readonly Regex Bylaws = new(@"\b(by-?laws?|ctta|deposit|penalt(y|ies)|prompt day|debar\w*|claims?|storage charges?|objection)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex LotOrValuation = new(@"(\blots?\s*#?\s*\d+|\bvaluations?\b|\bvalued\b|\bgardens?\b|\bliquor\b|\bcatalogue\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex ThisSale = new(@"\b(this|current) sale\b|\btop (lots?|prices?)\b|\bhighest price\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ThisSale = new(@"\b(this|current) sale\b|\btop lots?\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TopPriceWords = new(@"\b((top|highest|maximum|max|best) (price|prices|rate)|highest (paid|selling))\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ForSomething = new(@"\b(for|of)\s+(?!the\b|all\b|a\b|an\b|this\b|that\b|each\b|every\b|sale\b|last\b|latest\b|20\d\d\b)[a-z0-9]{2,12}\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Deictic = new(@"\b(this (chart|table|report|answer|data|result|one|graph)|that (chart|table|report|answer|one)|the (above|chart|table) |above|same (thing|data)|export (this|it)|it)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex TeaBoardWords = new(@"\b(tea ?board|national averages?|official averages?)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex MonthWords = new(@"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -244,6 +246,8 @@ public static class GuidedIntake
         var dim = Nouns.IsMatch(OffGrade.Replace(MainGrade.Replace(Specific.Replace(t, " "), " "), " "));
         var entity = dim || Ours.IsMatch(t) || BrokerTable.Any(b => b.Re.IsMatch(t)) || AnyYear.IsMatch(t) || LastN.IsMatch(t);
         if (TeaBoardWords.IsMatch(t)) return IntakeTopic.TeaBoard;
+        if (TopPriceWords.IsMatch(t) && !RankWords.IsMatch(TopPriceWords.Replace(t, " ")) && (dim || ForSomething.IsMatch(t) || BrokerTable.Any(b => b.Re.IsMatch(t)))) return IntakeTopic.TopPrice;
+        if (TopPriceWords.IsMatch(t)) return IntakeTopic.None; // "top prices this sale": the Auction agent's own top-price report
         if (ReportWords.IsMatch(t)) return IntakeTopic.Report;
         if (TrendWords.IsMatch(t)) return IntakeTopic.Trend;
         if (CompareWords.IsMatch(t)) return IntakeTopic.Compare;
@@ -344,6 +348,7 @@ public static class GuidedIntake
             else if (FormatPpt.IsMatch(t)) { f.Format = "powerpoint"; f.FormatChosen = true; }
             else if (FormatScreen.IsMatch(t)) { f.Format = null; f.FormatChosen = true; }
         }
+        if (f.Topic == IntakeTopic.TopPrice) f.Metric = "max_price_rs";
         if (f.Metric is not null) f.SellingWord = false;
         return f;
     }
@@ -385,6 +390,8 @@ public static class GuidedIntake
         }
 
         if (f.Topic == IntakeTopic.TeaBoard) return NextTeaBoard(f, data);
+
+        if (f.Topic == IntakeTopic.TopPrice && f.Dimension is null && f.Grades.Count == 0 && f.Brokers.Count == 0 && f.Elevations.Count == 0 && f.Asked == 0) return null;
 
         var assumed = new List<string>();
         var defaults = f.ChooseForMe || f.Asked >= MaxAsks;
@@ -490,12 +497,13 @@ public static class GuidedIntake
             return Ask("Which format?", ["On screen (chart and table)", "Excel", "PDF", "PowerPoint"]);
 
         // nothing was asked and nothing needs to be: the normal routing answers a fully-specified request itself
-        if (f.Asked == 0 && !f.ChooseForMe) return null;
+        if (f.Asked == 0 && !f.ChooseForMe && f.Topic != IntakeTopic.TopPrice) return null;
 
         // 5. defaults for whatever is still open
         var groupBy = f.Dimension;
         var metric = f.Metric;
         if (f.SplitBySale && groupBy is null && f.Topic != IntakeTopic.Trend) groupBy = "sale";
+        if (f.Topic == IntakeTopic.TopPrice && groupBy is null) groupBy = "sale"; // the highest price in each sale of the period
         if (groupBy is null && !hasFilter && f.Topic is IntakeTopic.Ranking or IntakeTopic.Compare) { groupBy = f.Topic == IntakeTopic.Compare ? "broker" : "grade"; assumed.Add($"breakdown by {groupBy}"); }
         if (metric is null)
         {

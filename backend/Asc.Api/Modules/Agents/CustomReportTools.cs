@@ -41,6 +41,8 @@ public static class CustomReportLogic
         ["sold_quantity_kg"] = new("sold_quantity_kg", "Quantity sold (kg)", "kg", true, r => r.SoldQtyKg),
         ["proceeds_rs"] = new("proceeds_rs", "Proceeds (Rs)", "Rs", true, r => r.ProceedsRs),
         ["avg_price_rs"] = new("avg_price_rs", "Average price (Rs/kg)", "Rs/kg", false, r => r.AvgPriceRs),
+        // The single highest price any lot in the group fetched (kept as the maximum when sales are added up).
+        ["max_price_rs"] = new("max_price_rs", "Highest price (Rs/kg)", "Rs/kg", false, r => r.MaxPriceRs),
         ["lots"] = new("lots", "Lots offered", "lots", true, r => r.Lots),
         // Only with group_by=broker: the filtered quantity as a percentage of that broker's own offered quantity in the same
         // sales (the rows are rewritten by ShareRows so TotalQtyKg carries the percentage).

@@ -12,6 +12,7 @@ export const GROUPS = [
 ] as const;
 export const METRICS = [
   { key: "avg_price_rs", label: "Avg price" },
+  { key: "max_price_rs", label: "Top price" },
   { key: "sold_quantity_kg", label: "Qty sold" },
   { key: "proceeds_rs", label: "Proceeds" },
   { key: "sold_lots", label: "Lots sold" },
