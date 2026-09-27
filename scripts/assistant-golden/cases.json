@@ -1,0 +1,168 @@
+[
+  {
+    "name": "Best-selling grade by quantity in the latest sale",
+    "turns": [
+      "best selling grade",
+      "Quantity sold",
+      "Latest sale ({latest})"
+    ],
+    "asks": [
+      {
+        "question": "By what measure?",
+        "options": [
+          "Quantity sold",
+          "Average price",
+          "Total value (proceeds)"
+        ]
+      },
+      {
+        "question": "Which period?",
+        "options": [
+          "Latest sale ({latest})",
+          "Last 4 sales",
+          "Last 12 sales"
+        ]
+      }
+    ],
+    "final": {
+      "provider": "direct",
+      "contains": [
+        "Top grade by quantity sold"
+      ]
+    },
+    "check": {
+      "filter": {
+        "Years": [
+          "{year}"
+        ],
+        "SaleNos": [
+          "{no}"
+        ]
+      },
+      "section": "byGrade",
+      "field": "soldQtyKg",
+      "unit": "qty",
+      "name": true
+    }
+  },
+  {
+    "name": "Top price for the leading grade in the latest sale",
+    "turns": [
+      "top price for {topGrade}",
+      "Latest sale ({latest})"
+    ],
+    "asks": [
+      {
+        "question": "Which period?"
+      }
+    ],
+    "final": {
+      "provider": "direct",
+      "contains": [
+        "The highest price for {topGrade}"
+      ]
+    },
+    "check": {
+      "filter": {
+        "Years": [
+          "{year}"
+        ],
+        "SaleNos": [
+          "{no}"
+        ],
+        "Grades": [
+          "{topGrade}"
+        ]
+      },
+      "section": "bySale",
+      "field": "maxPriceRs",
+      "unit": "price"
+    }
+  },
+  {
+    "name": "Menu path: prices for one grade",
+    "turns": [
+      "tea data",
+      "Check prices",
+      "One grade",
+      "{topGrade}",
+      "Latest sale ({latest})"
+    ],
+    "asks": [
+      {
+        "question": "What would you like to do?"
+      },
+      {
+        "question": "What should I look at?"
+      },
+      {
+        "question": "Which grade?",
+        "options": [
+          "{topGrade}",
+          "All grades"
+        ]
+      },
+      {
+        "question": "Which period?"
+      }
+    ],
+    "final": {
+      "provider": "direct",
+      "contains": [
+        "Average price for {topGrade}"
+      ]
+    },
+    "check": {
+      "filter": {
+        "Years": [
+          "{year}"
+        ],
+        "SaleNos": [
+          "{no}"
+        ],
+        "Grades": [
+          "{topGrade}"
+        ]
+      },
+      "section": "bySale",
+      "field": "avgPriceRs",
+      "unit": "price"
+    }
+  },
+  {
+    "name": "Compare brokers by average price, last 4 sales",
+    "turns": [
+      "compare brokers",
+      "Average price",
+      "Last 4 sales"
+    ],
+    "asks": [
+      {
+        "question": "By what measure?"
+      },
+      {
+        "question": "Which period?"
+      }
+    ],
+    "final": {
+      "provider": "direct",
+      "contains": [
+        "Highest average price"
+      ]
+    }
+  },
+  {
+    "name": "You choose for me resolves with defaults and says so",
+    "turns": [
+      "best selling grade",
+      "Average price",
+      "You choose for me"
+    ],
+    "final": {
+      "provider": "direct",
+      "contains": [
+        "You let me choose: the latest sale"
+      ]
+    }
+  }
+]

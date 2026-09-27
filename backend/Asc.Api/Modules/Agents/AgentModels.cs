@@ -57,7 +57,7 @@ public static class AgentContext
 }
 
 /// <summary>Sources lists where the answer's figures came from (see SourceTracker); empty when no tool was used.</summary>
-public record AgentResponse(string Reply, string ProviderKey, IReadOnlyList<ChatSource>? Sources = null);
+public record AgentResponse(string Reply, string ProviderKey, IReadOnlyList<ChatSource>? Sources = null, IReadOnlyList<string>? ToolOutputs = null);
 
 /// <summary>
 /// User Request → AgentRouter → IAgentRegistry → Selected Agent → Knowledge Service → LLM →

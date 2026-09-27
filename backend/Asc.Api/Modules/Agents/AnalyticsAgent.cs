@@ -157,6 +157,6 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
                 return result;
             })), ct);
         // The model only handles a short [[chart:id]] placeholder, never the chart's numbers.
-        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey, sources.ToSources());
+        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey, sources.ToSources(), sources.ToolResults());
     }
 }

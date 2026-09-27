@@ -25,6 +25,12 @@ public sealed class SourceTracker
         return result;
     };
 
+    /// <summary>What the successful tool calls returned — the data a reply's figures can be checked against.</summary>
+    public IReadOnlyList<string> ToolResults()
+    {
+        lock (_gate) return [.. _calls.Where(c => !IsError(c.Result)).Select(c => c.Result)];
+    }
+
     public IReadOnlyList<ChatSource> ToSources()
     {
         lock (_gate) return SourcesFor(_calls);

@@ -63,6 +63,6 @@ public class AuctionAgent(AiGateway gateway, AuctionToolExecutor tools, Asc.Api.
             request.ProviderKey, systemPrompt, request.History,
             CttaBylawsTool.WithDefinition(bylaws, AuctionToolExecutor.DefinitionsFor(request.IsAdmin)),
             sources.Wrap(CttaBylawsTool.Dispatch(bylaws, (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct))), ct);
-        return new AgentResponse(reply, providerKey, sources.ToSources());
+        return new AgentResponse(reply, providerKey, sources.ToSources(), sources.ToolResults());
     }
 }

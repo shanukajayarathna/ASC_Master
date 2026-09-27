@@ -74,6 +74,6 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
             request.ProviderKey, systemPrompt, request.History,
             CttaBylawsTool.WithDefinition(bylaws, AssistantToolExecutor.DefinitionsFor(request.IsAdmin)),
             sources.Wrap(CttaBylawsTool.Dispatch(bylaws, (name, args) => tools.ExecuteAsync(name, args, request.IsAdmin, ct))), ct);
-        return new AgentResponse(reply, providerKey, sources.ToSources());
+        return new AgentResponse(reply, providerKey, sources.ToSources(), sources.ToolResults());
     }
 }

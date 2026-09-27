@@ -19,7 +19,7 @@ namespace Asc.Api.Modules.Assistant;
 [ApiController]
 [Route("api/v1/assistant")]
 [Authorize]
-public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService, Asc.Api.Services.ICatalogueSource catalogueSource, Asc.Api.Modules.Msl.MslFilteredAnalyticsEngine analyticsEngine) : ControllerBase
+public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGateway gateway, IAuthorizationService authorizationService, Asc.Api.Services.ICatalogueSource catalogueSource, Asc.Api.Modules.Msl.MslFilteredAnalyticsEngine analyticsEngine, CustomReportTools customTools) : ControllerBase
 {
     // A real chat turn is a sentence or two; this just keeps one request from being an
     // unbounded token-cost bomb (or exceeding a provider's own input limit ungracefully) —
@@ -119,6 +119,18 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                             // one clear request for the model, instead of the button-tapping turns (fewer tokens, no confusion)
                             var first = openTurns.First(m => m.Role == "user").Content;
                             effectiveHistory = [.. history.Take(history.Count - openTurns.Count), ("user", $"{first} — {done.Summary()}")];
+
+                            // Everything is chosen and the archive can answer it: the server answers itself — exact, instant, no model, no tokens.
+                            if (DirectAnswer.CanAnswer(done, scope))
+                            {
+                                var (preview, _) = await customTools.PreviewAsync(DirectAnswer.ToArgs(done, scope!), ct);
+                                if (preview is not null && DirectAnswer.Reply(done, preview) is { } direct)
+                                {
+                                    var directMessage = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = direct, Provider = "direct" };
+                                    await db.ConversationMessages.InsertOneAsync(directMessage, cancellationToken: ct);
+                                    return Ok(new ChatResponseDto(conversation.Id, direct, "direct", [new ChatSource("archive", "MSL auction archive")], "analytics"));
+                                }
+                            }
                         }
                     }
                 }
@@ -199,6 +211,10 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
             // The model provider didn't answer in time (a local CPU model on a busy machine can take many minutes).
             return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "The AI model took too long to answer. Try again, narrow the question, or pick a faster provider (the Local model is for testing only)." });
         }
+
+        // Any larger figure the model wrote that its own tool results don't contain gets a short caution under the answer.
+        var checkedReply = AnswerVerifier.Annotate(response.Reply, response.ToolOutputs ?? []);
+        response = response with { Reply = checkedReply };
 
         var assistantMessage = new ConversationMessage
         {

@@ -81,6 +81,6 @@ public class ReportsAgent(AiGateway gateway, ReportsToolExecutor tools, Asc.Api.
             })), ct);
         // The model only ever handles a short [[chart:id]] placeholder, never the chart's numbers;
         // swap it for the real chart block here so it is stored with the message.
-        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey, sources.ToSources());
+        return new AgentResponse(tools.ResolveCharts(reply, madeCharts), providerKey, sources.ToSources(), sources.ToolResults());
     }
 }

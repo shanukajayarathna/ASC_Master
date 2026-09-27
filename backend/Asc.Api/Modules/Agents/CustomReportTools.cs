@@ -213,6 +213,13 @@ public static class CustomReportLogic
     /// the categories and each group row becomes a series. Only the top rows are kept; for
     /// additive metrics the remainder is folded into "Other" so shares still add up to 100%.
     /// </summary>
+    /// <summary>Chronological sort key for a "NN/YYYY" sale label (a text sort would put 05/2026 before 51/2025).</summary>
+    public static int SaleOrderKey(string label)
+    {
+        var parts = label.Split('/');
+        return parts.Length == 2 && int.TryParse(parts[0], out var no) && int.TryParse(parts[1], out var year) ? year * 100 + no : int.MaxValue;
+    }
+
     public static CustomDataset BuildDataset(
         string id, string title, string scope, string dimension, MetricDef metric, bool split,
         IReadOnlyList<(string Label, IReadOnlyList<FilteredSectionRow> Rows)> columns, int topN)
@@ -234,7 +241,7 @@ public static class CustomReportLogic
         var ordered = rank.OrderByDescending(kv => kv.Value).Select(kv => kv.Key).ToList();
         // A time axis reads left to right; sales are already chronological columns, but a "sale"
         // dimension without a split keeps its natural order rather than being ranked by volume.
-        if (dimension == "sale" && !split) ordered = ordered.OrderBy(k => k, StringComparer.Ordinal).ToList();
+        if (dimension == "sale" && !split) ordered = ordered.OrderBy(SaleOrderKey).ThenBy(k => k, StringComparer.Ordinal).ToList();
         var kept = ordered.Take(topN).ToList();
         var rest = ordered.Skip(topN).ToList();
         var showOther = metric.Additive && rest.Count > 0;
