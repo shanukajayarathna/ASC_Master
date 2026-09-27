@@ -16,13 +16,15 @@ public class AnalyticsToolExecutor(
     Asc.Api.Modules.Msl.MslExcelExportService excel,
     Asc.Api.Modules.Msl.MslReportExportService reportExports,
     ILogger<AnalyticsToolExecutor> logger,
-    CustomReportTools? custom = null)
+    CustomReportTools? custom = null,
+    FactoryAverageTools? factories = null)
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private static readonly IReadOnlyList<ToolDef> Definitions =
     [
         .. CustomReportTools.Definitions,
+        .. FactoryAverageTools.Definitions,
         new("list_sales",
             "Lists auction sales (newest first) with headline numbers: lots, sold lots, total and " +
             "sold quantity (kg), proceeds (Rs), and quantity-weighted average price (Rs/kg). " +
@@ -211,6 +213,10 @@ public class AnalyticsToolExecutor(
     {
         if (Definitions.All(d => d.Name != name))
             return JsonSerializer.Serialize(new { error = $"Tool '{name}' is not available to the Analytics Agent." });
+        if (FactoryAverageTools.IsFactoryTool(name))
+            return factories is null
+                ? JsonSerializer.Serialize(new { error = "Factory averages are not available in this environment." })
+                : await factories.ExecuteAsync(name, argumentsJson, ct);
         if (CustomReportTools.IsCustomTool(name))
             return custom is null
                 ? JsonSerializer.Serialize(new { error = "Custom charts are not available in this environment." })

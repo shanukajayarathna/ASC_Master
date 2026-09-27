@@ -20,7 +20,7 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
         "and Tea Board national averages. Read-only.";
 
     public IReadOnlyList<string> Capabilities { get; } =
-        ["market-analytics", "auction-history", "sale-breakdowns", "teaboard-averages"];
+        ["market-analytics", "auction-history", "sale-breakdowns", "teaboard-averages", "factory-averages"];
 
     private const string SystemPrompt =
         "You are the Analytics Agent inside the Analysis screen of Asia Siyaka Commodities' tea " +
@@ -57,6 +57,12 @@ public class AnalyticsAgent(AiGateway gateway, AnalyticsToolExecutor tools, Ctta
         "top / bottom); its premiums are computed server-side against the market average of the " +
         "same sales, so paste its table verbatim, state its scope line, and present the results " +
         "as evidence, not proof. " +
+        "FACTORY-LEVEL QUESTIONS (which factory/estate got the best price, top factories in an elevation, " +
+        "how one factory's price moved): use get_factory_averages for a month's factory table and " +
+        "factory_history for one factory over time — these come from the monthly Factory Wise Averages " +
+        "reports (January 2023 onward, all brokers), a different source from the per-sale rollups, so name " +
+        "the month and say 'Factory Wise Averages' in the scope line; paste their markdownTable verbatim; " +
+        "when a name matches several factories, ask which one via CLARIFY. " +
         "CHARTS AND CUSTOM BREAKDOWNS: when the user asks for a chart, a share/split/trend, or a " +
         "comparison across brokers, grades or periods that the fixed tools do not cover, build it " +
         "with query_data (filter + group_by + optional split_by='sale' + metric) and then make_chart. " +

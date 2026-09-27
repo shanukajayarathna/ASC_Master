@@ -39,7 +39,7 @@ public sealed class SourceTracker
     private static readonly HashSet<string> ArchiveTools = new(StringComparer.Ordinal)
     {
         "query_data", "make_chart", "list_sales", "get_sale_breakdown", "compare_sales", "mark_broker_history",
-        "scan_mark_performance", "get_teaboard_averages", "get_sale_summary",
+        "scan_mark_performance", "get_teaboard_averages", "get_sale_summary", "get_factory_averages", "factory_history",
     };
 
     private static bool IsError(string result) => result.TrimStart().StartsWith("{\"error\"", StringComparison.Ordinal);

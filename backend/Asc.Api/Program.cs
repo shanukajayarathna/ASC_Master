@@ -71,6 +71,8 @@ builder.Services.AddSingleton<MongoContext>();
 builder.Services.AddSingleton<IMigrationHistoryStore>(sp =>
     new MongoMigrationHistoryStore(sp.GetRequiredService<MongoContext>().Database));
 builder.Services.AddSingleton<IDatabaseMigration, Migration001CurrentIndexes>();
+builder.Services.AddSingleton<IDatabaseMigration, Migration002FactoryAverageIndexes>();
+builder.Services.AddSingleton<IDatabaseMigration, Migration003ReportIndexes>();
 builder.Services.AddSingleton<MigrationRunner>();
 builder.Services.AddSingleton<CatalogueImportService>();
 // Catalogue data is served straight from the weekly-sale Excel files (data/sales) via
@@ -198,6 +200,7 @@ builder.Services.AddScoped<IAgent, AnalyticsAgent>();
 // ReportsAgent's tool set — reused AssistantToolExecutor lookups plus ISavedReportsService
 // access (list/fetch already-generated reports); see Modules/Agents/ReportsToolExecutor.cs.
 builder.Services.AddSingleton<CustomReportTools>();
+builder.Services.AddSingleton<FactoryAverageTools>();
 builder.Services.AddSingleton<ReportsToolExecutor>();
 builder.Services.AddScoped<IAgent, ReportsAgent>();
 builder.Services.AddScoped<IAgentRegistry, AgentRegistry>();

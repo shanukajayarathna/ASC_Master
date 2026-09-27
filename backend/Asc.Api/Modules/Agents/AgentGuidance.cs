@@ -10,6 +10,7 @@ public static class AgentGuidance
         "(2) the sale catalogues — the current and recent sales' lots with ASC's estimated valuations, pulled live from the OKLO SmartAuction system (Auction tools); a sale " +
         "that is still open or newer than the archive has catalogue data only, so its figures are valuations, not sold prices; " +
         "(3) the Sri Lanka Tea Board — official monthly national averages (get_teaboard_averages); " +
+        "(3b) the monthly Factory Wise Averages — every factory's quantity and Rs/kg by elevation, main vs off grade, with rank, January 2023 onward (get_factory_averages, factory_history); " +
         "(4) the CTTA By-Laws (get_ctta_bylaws). Say which source a figure came from, and never mix sold prices with valuations.";
 
     /// <summary>How an answer is shaped: answer first, then the evidence, then the scope, then a way forward.</summary>

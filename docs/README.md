@@ -55,6 +55,7 @@ Full diagrams: [01_System_Architecture.md](01_System_Architecture.md).
 ├── 29_Mark_Intelligence.md
 ├── 30_AI_Assistant_Hub.md          the universal AI Assistant (one chat, specialists behind it)
 ├── 31_OKLO_Live_Data.md            live sale data from the OKLO SmartAuction API (replaces hand-downloaded files)
+├── 32_Factory_Averages.md          monthly Factory Wise Averages reports: archive layout, parser, MongoDB collection, API
 ├── ctta-bylaws-knowledge-base.md  CTTA By-Laws & Conditions of Sale reference (domain rules; served to agents via get_ctta_bylaws)
 └── assets/
     ├── wireframes/

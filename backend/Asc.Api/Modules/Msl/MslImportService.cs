@@ -112,6 +112,10 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
                     affectedSales.Add((sale.SaleYear, sale.SaleNo));
                 await db.AuctionLots.DeleteManyAsync(l => l.SourceFile == gone, ct);
                 await db.TeaBoardAverages.DeleteManyAsync(t => t.SourceFile == gone, ct);
+                await db.FactoryAverages.DeleteManyAsync(f => f.SourceFile == gone, ct);
+                await db.GradeAnalysis.DeleteManyAsync(g => g.SourceFile == gone, ct);
+                await db.PlantationRankings.DeleteManyAsync(p => p.SourceFile == gone, ct);
+                await db.CombinedAverages.DeleteManyAsync(c => c.SourceFile == gone, ct);
                 await db.MslFiles.DeleteOneAsync(f => f.RelativePath == gone, ct);
                 removed++;
             }
@@ -157,6 +161,37 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
                          .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase))
                 yield return f;
 
+        // Monthly "Factory Wise Averages" reports (one text file per month; PDFs of the same reports
+        // and the other report kinds — grade analysis, combined averages, plantation ranking — sit
+        // alongside in their own folders and are archived, not imported).
+        var factoryAverages = new DirectoryInfo(Path.Combine(root, "factory-averages"));
+        if (factoryAverages.Exists)
+            foreach (var f in factoryAverages.EnumerateFiles("factory-averages-*.txt", SearchOption.AllDirectories)
+                         .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase))
+                yield return f;
+
+        // Grade analysis and plantation ranking reports: the monthly text files (and the all-elevations /
+        // overall summaries). Their PDFs and the combined-averages reports are archived, not imported.
+        var gradeAnalysis = new DirectoryInfo(Path.Combine(root, "grade-analysis"));
+        if (gradeAnalysis.Exists)
+            foreach (var f in gradeAnalysis.EnumerateFiles("grade-analysis-*.txt", SearchOption.AllDirectories)
+                         .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase))
+                yield return f;
+        var plantationRanking = new DirectoryInfo(Path.Combine(root, "plantation-ranking"));
+        if (plantationRanking.Exists)
+            foreach (var f in plantationRanking.EnumerateFiles("plantation-ranking-*.txt", SearchOption.AllDirectories)
+                         .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase))
+                yield return f;
+
+        // Combined (gross) averages: the full monthly reports. The "-asia-siyaka" files are extracts of one
+        // broker's pages that the full report already contains, so they stay archive-only.
+        var combinedAverages = new DirectoryInfo(Path.Combine(root, "combined-averages"));
+        if (combinedAverages.Exists)
+            foreach (var f in combinedAverages.EnumerateFiles("combined-averages-*.txt", SearchOption.AllDirectories)
+                         .Where(f => !f.Name.Contains("-asia-siyaka", StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase))
+                yield return f;
+
         var teaBoard = new DirectoryInfo(Path.Combine(root, "tea-board"));
         if (teaBoard.Exists)
             foreach (var f in teaBoard.EnumerateFiles("*.pdf", SearchOption.TopDirectoryOnly)
@@ -170,10 +205,33 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
         {
             var averages = TeaBoardPdfParser.ParseFile(file.FullName, rel);
             await db.TeaBoardAverages.DeleteManyAsync(t => t.SourceFile == rel, ct);
-            if (averages.Count > 0)
-                await db.TeaBoardAverages.InsertManyAsync(averages, cancellationToken: ct);
+            if (averages.Count == 0) return 0;
+
+            // One month, one set of rows. A "~2" copy (a second document for the same month —
+            // often the only one with a text layer when the base file is a scan) only fills a
+            // month the base file left empty; a base file that yields rows replaces any copy.
+            var (year, month) = TeaBoardPdfParser.PeriodOf(file.Name)!.Value;
+            if (TeaBoardPdfParser.IsAlternateCopy(file.Name))
+            {
+                if (await db.TeaBoardAverages.Find(t => t.Year == year && t.Month == month && t.SourceFile != rel).AnyAsync(ct))
+                    return 0;
+            }
+            else
+            {
+                await db.TeaBoardAverages.DeleteManyAsync(t => t.Year == year && t.Month == month && t.SourceFile != rel, ct);
+            }
+            await db.TeaBoardAverages.InsertManyAsync(averages, cancellationToken: ct);
             return averages.Count;
         }
+
+        if (rel.StartsWith("factory-averages/", StringComparison.OrdinalIgnoreCase))
+            return await ImportFactoryAveragesAsync(file, rel, ct);
+        if (rel.StartsWith("grade-analysis/", StringComparison.OrdinalIgnoreCase))
+            return await ImportGradeAnalysisAsync(file, rel, ct);
+        if (rel.StartsWith("plantation-ranking/", StringComparison.OrdinalIgnoreCase))
+            return await ImportPlantationRankingAsync(file, rel, ct);
+        if (rel.StartsWith("combined-averages/", StringComparison.OrdinalIgnoreCase))
+            return await ImportCombinedAveragesAsync(file, rel, ct);
 
         var isPrivate = rel.StartsWith("private-sales/", StringComparison.OrdinalIgnoreCase);
         MslTxtParser.ParseResult parsed;
@@ -221,6 +279,98 @@ public class MslImportService(MongoContext db, IConfiguration config, IWebHostEn
         if (parsed.SkippedLines > 0)
             logger.LogDebug("MSL {File}: {Skipped} unparseable line(s) skipped", rel, parsed.SkippedLines);
         return parsed.Lots.Count;
+    }
+
+    /// <summary>
+    /// One monthly Factory Wise Averages report. The month comes from the report's own title, not the
+    /// file name. A "~N" copy only fills a month no other file has already supplied; a base file
+    /// replaces any copy. A report in an older layout (no recognisable title) imports zero rows.
+    /// Internal inconsistencies in a report (its printed totals not matching its factories) are
+    /// logged, not rejected — a few source reports have them.
+    /// </summary>
+    private async Task<int> ImportFactoryAveragesAsync(FileInfo file, string rel, CancellationToken ct)
+    {
+        var parsed = Asc.Api.Modules.Msl.FactoryAverages.FactoryAveragesParser.Parse(
+            Asc.Api.Modules.Msl.FactoryAverages.FactoryAveragesParser.DecodeText(await File.ReadAllBytesAsync(file.FullName, ct)), rel);
+        await db.FactoryAverages.DeleteManyAsync(f => f.SourceFile == rel, ct);
+        if (parsed is null)
+        {
+            logger.LogInformation("Factory averages {File}: not a recognised report layout — archived only", rel);
+            return 0;
+        }
+
+        var (year, month) = (parsed.Year, parsed.Month);
+        if (file.Name.Contains('~'))
+        {
+            if (await db.FactoryAverages.Find(f => f.Year == year && f.Month == month && f.SourceFile != rel).AnyAsync(ct))
+                return 0;
+        }
+        else
+        {
+            await db.FactoryAverages.DeleteManyAsync(f => f.Year == year && f.Month == month && f.SourceFile != rel, ct);
+        }
+
+        foreach (var problem in Asc.Api.Modules.Msl.FactoryAverages.FactoryAveragesParser.Reconcile(parsed))
+            logger.LogWarning("Factory averages {Year}-{Month:00} ({File}) is not internally consistent: {Problem}", year, month, rel, problem);
+
+        await db.FactoryAverages.InsertManyAsync(parsed.Rows, cancellationToken: ct);
+        return parsed.Rows.Count;
+    }
+
+    /// <summary>One monthly grade-analysis report (or its all-elevations summary). Rows are replaced per file;
+    /// a report whose grades don't add up to its own printed totals is logged, not rejected.</summary>
+    private async Task<int> ImportGradeAnalysisAsync(FileInfo file, string rel, CancellationToken ct)
+    {
+        var parsed = Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisParser.Parse(
+            Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisParser.DecodeText(await File.ReadAllBytesAsync(file.FullName, ct)), rel);
+        await db.GradeAnalysis.DeleteManyAsync(g => g.SourceFile == rel, ct);
+        if (parsed is null)
+        {
+            logger.LogInformation("Grade analysis {File}: not a recognised report layout — archived only", rel);
+            return 0;
+        }
+        foreach (var problem in Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisParser.Reconcile(parsed))
+            logger.LogWarning("Grade analysis {Year}-{Month:00} ({File}) is not internally consistent: {Problem}", parsed.Year, parsed.Month, rel, problem);
+        await db.GradeAnalysis.InsertManyAsync(parsed.Rows, cancellationToken: ct);
+        return parsed.Rows.Count;
+    }
+
+    /// <summary>One monthly plantation-ranking ("Performance of Companies") report; rows are replaced per file.</summary>
+    private async Task<int> ImportPlantationRankingAsync(FileInfo file, string rel, CancellationToken ct)
+    {
+        var parsed = Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingParser.Parse(
+            Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingParser.DecodeText(await File.ReadAllBytesAsync(file.FullName, ct)), rel);
+        await db.PlantationRankings.DeleteManyAsync(p => p.SourceFile == rel, ct);
+        if (parsed is null)
+        {
+            logger.LogInformation("Plantation ranking {File}: not a recognised report layout — archived only", rel);
+            return 0;
+        }
+        foreach (var problem in Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingParser.Reconcile(parsed))
+            logger.LogWarning("Plantation ranking {Year}-{Month:00} ({File}) is not internally consistent: {Problem}", parsed.Year, parsed.Month, rel, problem);
+        await db.PlantationRankings.InsertManyAsync(parsed.Rows, cancellationToken: ct);
+        return parsed.Rows.Count;
+    }
+
+    /// <summary>One monthly combined (gross) averages report; rows are replaced per file.</summary>
+    private async Task<int> ImportCombinedAveragesAsync(FileInfo file, string rel, CancellationToken ct)
+    {
+        var parsed = Asc.Api.Modules.Msl.CombinedAverages.CombinedAveragesParser.Parse(
+            Asc.Api.Modules.Msl.CombinedAverages.CombinedAveragesParser.DecodeText(await File.ReadAllBytesAsync(file.FullName, ct)), rel);
+        await db.CombinedAverages.DeleteManyAsync(c => c.SourceFile == rel, ct);
+        if (parsed is null)
+        {
+            logger.LogInformation("Combined averages {File}: not a recognised report layout — archived only", rel);
+            return 0;
+        }
+        foreach (var problem in Asc.Api.Modules.Msl.CombinedAverages.CombinedAveragesParser.Reconcile(parsed))
+            logger.LogWarning("Combined averages {Year}-{Month:00} ({File}) is not internally consistent: {Problem}", parsed.Year, parsed.Month, rel, problem);
+        foreach (var batch in parsed.Rows.Chunk(2000))
+        {
+            ct.ThrowIfCancellationRequested();
+            await db.CombinedAverages.InsertManyAsync(batch, cancellationToken: ct);
+        }
+        return parsed.Rows.Count;
     }
 
     /// <summary>BSON DateTimes carry millisecond precision while NTFS mtimes carry

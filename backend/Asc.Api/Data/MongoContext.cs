@@ -55,6 +55,45 @@ public class MongoContext
 
     internal void CreateIndexesForMigration() => CreateIndexes();
 
+    /// <summary>Indexes for the grade-analysis, plantation-ranking and combined-averages tables (Migration003).</summary>
+    internal void CreateReportIndexes()
+    {
+        var g = Builders<Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisRow>.IndexKeys;
+        GradeAnalysis.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisRow>(g.Ascending(r => r.Year).Ascending(r => r.Month).Ascending(r => r.Elevation)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisRow>(g.Ascending(r => r.Grade).Ascending(r => r.Elevation).Ascending(r => r.Year).Ascending(r => r.Month)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisRow>(g.Ascending(r => r.SourceFile)),
+        ]);
+        var p = Builders<Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingRow>.IndexKeys;
+        PlantationRankings.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingRow>(p.Ascending(r => r.Year).Ascending(r => r.Month).Ascending(r => r.Elevation)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingRow>(p.Ascending(r => r.Company).Ascending(r => r.Year).Ascending(r => r.Month)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingRow>(p.Ascending(r => r.SourceFile)),
+        ]);
+        var c = Builders<Asc.Api.Modules.Msl.CombinedAverages.CombinedAverageRow>.IndexKeys;
+        CombinedAverages.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Asc.Api.Modules.Msl.CombinedAverages.CombinedAverageRow>(c.Ascending(r => r.Year).Ascending(r => r.Month).Ascending(r => r.Broker)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.CombinedAverages.CombinedAverageRow>(c.Ascending(r => r.MfCode).Ascending(r => r.Year).Ascending(r => r.Month)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.CombinedAverages.CombinedAverageRow>(c.Ascending(r => r.SourceFile)),
+        ]);
+    }
+
+    /// <summary>Indexes for the monthly factory-averages table (Migration002): a month/elevation
+    /// scan, one factory's history by MF code, and the per-file delete+reinsert on re-import.</summary>
+    internal void CreateFactoryAverageIndexes()
+    {
+        var keys = Builders<Asc.Api.Modules.Msl.FactoryAverages.FactoryAverage>.IndexKeys;
+        FactoryAverages.Indexes.CreateMany(
+        [
+            new CreateIndexModel<Asc.Api.Modules.Msl.FactoryAverages.FactoryAverage>(keys.Ascending(f => f.Year).Ascending(f => f.Month).Ascending(f => f.Elevation)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.FactoryAverages.FactoryAverage>(keys.Ascending(f => f.MfCode).Ascending(f => f.Year).Ascending(f => f.Month)),
+            new CreateIndexModel<Asc.Api.Modules.Msl.FactoryAverages.FactoryAverage>(keys.Ascending(f => f.SourceFile)),
+        ]);
+    }
+
     private void CreateIndexes()
     {
         // Catalogue data is file-backed (SaleFileStore); the database keeps only small
@@ -312,6 +351,14 @@ public class MongoContext
     /// <summary>The imported MSL archive — every auction + private-sale lot, 2013–present.</summary>
     public IMongoCollection<AuctionLot> AuctionLots => Database.GetCollection<AuctionLot>("auctionLots");
     public IMongoCollection<TeaBoardAverage> TeaBoardAverages => Database.GetCollection<TeaBoardAverage>("teaBoardAverages");
+    public IMongoCollection<Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisRow> GradeAnalysis =>
+        Database.GetCollection<Asc.Api.Modules.Msl.GradeAnalysis.GradeAnalysisRow>("gradeAnalysis");
+    public IMongoCollection<Asc.Api.Modules.Msl.CombinedAverages.CombinedAverageRow> CombinedAverages =>
+        Database.GetCollection<Asc.Api.Modules.Msl.CombinedAverages.CombinedAverageRow>("combinedAverages");
+    public IMongoCollection<Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingRow> PlantationRankings =>
+        Database.GetCollection<Asc.Api.Modules.Msl.PlantationRanking.PlantationRankingRow>("plantationRankings");
+    public IMongoCollection<Asc.Api.Modules.Msl.FactoryAverages.FactoryAverage> FactoryAverages =>
+        Database.GetCollection<Asc.Api.Modules.Msl.FactoryAverages.FactoryAverage>("factoryAverages");
     public IMongoCollection<MslFileState> MslFiles => Database.GetCollection<MslFileState>("mslFiles");
     public IMongoCollection<MslSaleStat> MslSaleStats => Database.GetCollection<MslSaleStat>("mslSaleStats");
 
