@@ -38,7 +38,7 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
         [FromQuery] string? knownVersion = null)
     {
         var (lots, snap) = await ResolveLotsAsync(catalogueId);
-        if (lots is null) return NotFound();
+        if (lots is null) return await liveSource.IsLiveAsync(catalogueId) ? SaleLoading() : NotFound();
 
         // Cheap freshness poll: the client says which version it holds; if the sale hasn't been
         // refreshed since, answer without sending a single lot.
@@ -107,7 +107,7 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
     {
         if (!LotSearch.IsReasonable(request)) return BadRequest("The search is too large.");
         var (lots, snap) = await ResolveLotsAsync(catalogueId);
-        if (lots is null) return NotFound();
+        if (lots is null) return await liveSource.IsLiveAsync(catalogueId) ? SaleLoading() : NotFound();
         var overrides = await OverridesFor(catalogueId);
 
         var limit = Math.Clamp(request.Limit, 1, 20000);
@@ -127,10 +127,14 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
     {
         if ((request.Headers?.Count ?? 0) > 100) return BadRequest("Too many columns requested.");
         var (lots, snap) = await ResolveLotsAsync(catalogueId);
-        if (lots is null) return NotFound();
+        if (lots is null) return await liveSource.IsLiveAsync(catalogueId) ? SaleLoading() : NotFound();
         var options = LotSearch.BuildOptions(lots, request.Headers ?? []);
         return Ok(new FilterOptionsDto(options, snap?.Total ?? lots.Count, snap is null ? null : LiveDto(snap)));
     }
+
+    /// <summary>An OKLO sale that has not produced rows yet: "try again" (503) rather than "not found" (404).</summary>
+    private ObjectResult SaleLoading() =>
+        StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "This sale is still loading from OKLO - it will appear in a moment." });
 
     private static LiveLoadDto LiveDto(LiveSnapshot snap) =>
         new(snap.Total, snap.Lots.Count, snap.Complete, snap.FetchedAtUtc, snap.Refreshing, snap.Error);

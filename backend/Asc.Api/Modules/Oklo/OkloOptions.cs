@@ -41,13 +41,27 @@ public class OkloOptions
     /// before OKLO; OKLO holds 2022-2023 too (2021 is empty), set 2022 to pull them.</summary>
     public int FirstYear { get; set; } = 2024;
 
+    /// <summary>A sale a person opened earlier and has since left (nobody has asked for it for this many seconds) yields its
+    /// load slot to a sale someone is waiting on now, instead of holding it for minutes. It restarts if it is opened again.</summary>
+    public int PreemptAfterIdleSeconds { get; set; } = 15;
+    /// <summary>A pull is never paused before it has run this long, and never once its first rows have arrived - so a slow OKLO
+    /// cannot leave sales endlessly paused and restarted with none finishing. Deliberately short: this only guards against
+    /// pausing something a second into its very first request: the idle check above (nobody has touched it in
+    /// PreemptAfterIdleSeconds) is what actually establishes "abandoned", and someone clicking through sales in the
+    /// Catalogue Manager expects switching away from one to free it up in seconds, not minutes.</summary>
+    public int PreemptMinRunSeconds { get; set; } = 20;
+
     /// <summary>Serve the catalogue pages straight from OKLO (loaded into memory when a sale is opened,
     /// no files involved) instead of from the synced workbooks. Files stay as an analytics cache and
     /// as the fallback when OKLO is unreachable.</summary>
     public bool LiveView { get; set; } = true;
     /// <summary>Rows per page while loading a sale into the live view. Small enough that the first rows
     /// appear in ~5s (a 500-row page measured 4.6s, a 3000-row page ~10s), big enough to be ~11 calls per sale.</summary>
-    public int LivePageSize { get; set; } = 1000;
+    // OKLO's own database charges a large fixed cost per request (measured ~11-12s, independent of page size) on top of the
+    // data itself — 1,000-row pages meant a 12k-lot sale needed ~13 round trips (~4 min); 3,000-row pages need only ~4-5
+    // (~2-2.5 min), for the same total data. Kept well under PageSize (3000, the sync client's own default) below OKLO's
+    // ignorePaging cutoff and the point where a single page's own transfer time starts dominating.
+    public int LivePageSize { get; set; } = 3000;
     /// <summary>How long a loaded sale is served before a background refresh — by how active it is.</summary>
     public int ViewTtlLiveMinutes { get; set; } = 2;
     public int ViewTtlRecentMinutes { get; set; } = 10;

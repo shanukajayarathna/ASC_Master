@@ -104,10 +104,11 @@ public class OkloClient(HttpClient http, IOptions<OkloOptions> options, ILogger<
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
     };
 
-    /// <summary>One cap on in-flight OKLO requests for the whole process, shared by every client instance
-    /// (sync, live view, size probes). OKLO's database is slow and shared: unbounded concurrent pulls made
-    /// requests time out at 180s, which starved the very page someone was waiting on.</summary>
-    private static readonly SemaphoreSlim Gate = new(4);
+    /// <summary>The one request OKLO is allowed to be answering at a time, for the whole process (sync, live view, size
+    /// probes) - shared, not per sale. Several sales loading side by side used to send several requests to OKLO at once,
+    /// which its slow, shared database answered even more slowly; one request at a time is the most OKLO is asked to do
+    /// concurrently, whatever else is queued behind it.</summary>
+    private static readonly SemaphoreSlim Gate = new(1);
 
     /// <summary>Background work may hold at most two of those four slots, so a page a user just opened is never
     /// queued behind a multi-hour back-fill or a warm-up. The small catalogue-list calls skip the queue entirely.</summary>

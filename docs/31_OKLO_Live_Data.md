@@ -21,7 +21,7 @@ under "Legacy file sync" below is off by default and no longer needed.
 | `Scope`, `ClientId`, `ClientSecret` | from OKLO's onboarding email |
 | `Username`, `Password` | the API user (the account name; set in user-secrets / `.env`, never committed); password grant — a password is mandatory |
 | `AutoSync` | `true` to run the background refresh loop (default `false`) |
-| `RecentWindowDays` / `RecentRefreshMinutes` / `LiveRefreshMinutes` / `ArchiveRefreshHours` / `CatalogListMinutes` / `BackgroundPauseSeconds` / `PageSize` / `FirstYear` | tuning, see `OkloOptions`. `FirstYear` defaults to 2024 (what existed as files); set 2022 to also import 2022-2023 (2021 is empty in OKLO). |
+| `RecentWindowDays` / `RecentRefreshMinutes` / `LiveRefreshMinutes` / `ArchiveRefreshHours` / `CatalogListMinutes` / `BackgroundPauseSeconds` / `PageSize` / `FirstYear` | tuning, see `OkloOptions`. `FirstYear` defaults to 2024 in code; the Docker compose file and the local user-secrets set it to 2023. OKLO's first four 2022 sales (Sale 01-04, Jan 2022) come back with zero lots — verified live, not a load failure — so 2022 is left out entirely rather than showing a year with holes in it; 2023 onward has been checked sale-by-sale and every sale has lots. Older sales are read on demand and saved as snapshots by the low-priority background back-fill, so the wider list adds no load to page views. |
 
 Set with `dotnet user-secrets set "Oklo:AutoSync" "true"` in `backend/Asc.Api`. Docker: carry the
 same keys as `Oklo__…` environment variables.

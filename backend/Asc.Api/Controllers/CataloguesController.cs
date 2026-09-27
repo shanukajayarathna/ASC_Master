@@ -38,6 +38,11 @@ public class CataloguesController(ICatalogueSource source, ILiveCatalogueSource 
         );
     }
 
+    /// <summary>A real OKLO sale whose first rows have not arrived yet (or OKLO is slow): not "missing" (404) but "try again" (503),
+    /// which the app retries quietly instead of showing an error.</summary>
+    private ObjectResult SaleLoading() =>
+        StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "This sale is still loading from OKLO - it will appear in a moment." });
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<CatalogueDetailDto>> Get(Guid id)
     {
@@ -47,7 +52,7 @@ public class CataloguesController(ICatalogueSource source, ILiveCatalogueSource 
         var c = await liveSource.IsLiveAsync(id)
             ? (await liveSource.GetSnapshotAsync(id, HttpContext.RequestAborted))?.Catalogue
             : source.GetCatalogue(id);
-        if (c is null) return NotFound();
+        if (c is null) return await liveSource.IsLiveAsync(id) ? SaleLoading() : NotFound();
         var columnMeta = importer.RefreshDefaultVisibility(c.ColumnMeta);
         return Ok(new CatalogueDetailDto(c.Id, c.SourceName, c.Headers, columnMeta, c.RowCount, c.ImportedAt, c.Year, c.SaleDateStart, c.SaleDateEnd));
     }

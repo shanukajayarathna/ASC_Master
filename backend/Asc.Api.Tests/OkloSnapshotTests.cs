@@ -47,6 +47,10 @@ public class OkloSnapshotTests
         public Task? HoldOnly { get; set; }
         /// <summary>A (page, pageSize) that always fails - OKLO's database timing out on one heavy page.</summary>
         public (int Page, int Size)? FailingPage { get; set; }
+        /// <summary>Simulates OKLO's own OkloClient.Gate: at most one call executes at a time, process-wide, across every
+        /// catalogue - a call queues here before it can even reach <see cref="Hold"/>. Unset (the default) leaves every
+        /// call free to run concurrently, as the other tests in this file rely on.</summary>
+        public SemaphoreSlim? SharedGate { get; set; }
         public int PageCalls;
         /// <summary>Every catalogue that has started a page request (before any hold) - i.e. is pulling from OKLO right now.</summary>
         public ConcurrentDictionary<int, bool> Started { get; } = new();
@@ -56,14 +60,19 @@ public class OkloSnapshotTests
 
         public async Task<OkloPage<OkloLot>> GetGeneralReportPageAsync(int catalogId, int pageNumber, int pageSize, CancellationToken ct, bool background = false)
         {
-            Interlocked.Increment(ref PageCalls);
-            Started[catalogId] = true;
-            if (Hold is not null) await Hold;
-            if (HoldCatalog == catalogId && HoldOnly is not null) await HoldOnly;
-            if (Down) throw new HttpRequestException("OKLO down");
-            if (FailingPage is { } bad && bad.Page == pageNumber && bad.Size == pageSize) throw new HttpRequestException("OKLO 500");
-            if (pageNumber == 1) lock (PulledCatalogs) PulledCatalogs.Add(catalogId);
-            return new OkloPage<OkloLot>(Lots.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList(), Lots.Count);
+            if (SharedGate is not null) await SharedGate.WaitAsync(ct);
+            try
+            {
+                Interlocked.Increment(ref PageCalls);
+                Started[catalogId] = true;
+                if (Hold is not null) await Hold.WaitAsync(ct);
+                if (HoldCatalog == catalogId && HoldOnly is not null) await HoldOnly.WaitAsync(ct);
+                if (Down) throw new HttpRequestException("OKLO down");
+                if (FailingPage is { } bad && bad.Page == pageNumber && bad.Size == pageSize) throw new HttpRequestException("OKLO 500");
+                if (pageNumber == 1) lock (PulledCatalogs) PulledCatalogs.Add(catalogId);
+                return new OkloPage<OkloLot>(Lots.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList(), Lots.Count);
+            }
+            finally { SharedGate?.Release(); }
         }
     }
 
@@ -236,7 +245,7 @@ public class OkloSnapshotTests
     }
 
     [Fact]
-    public async Task OnlyTwoSalesPullFromOkloAtOnce_WhenSeveralAreOpenedTogether()
+    public async Task OnlyOneSaleAPersonOpened_PullsFromOkloAtOnce_WhenSeveralAreOpenedTogether()
     {
         var hold = new TaskCompletionSource();
         var feed = new Feed { Lots = MakeLots(50), Hold = hold.Task, Catalogs = Enumerable.Range(1, 5).Select(i => Cat(i, i, Recent.AddDays(-i))).ToList() };
@@ -248,8 +257,136 @@ public class OkloSnapshotTests
             .ToArray();
         await Task.WhenAll(opens);                 // nothing can finish while OKLO is held, so all five give up waiting
 
-        Assert.Equal(2, feed.Started.Count);       // …but only two of the five sales were allowed to start pulling
+        Assert.Single(feed.Started);                // …but only one of the five sales was allowed to start pulling
         hold.SetResult();
+    }
+
+    [Fact]
+    public async Task ASaleSomeoneIsWaitingOn_PausesAnAbandonedOneInsteadOfQueuingBehindIt()
+    {
+        var hold = new TaskCompletionSource();
+        var feed = new Feed { Lots = MakeLots(50), Hold = hold.Task, Catalogs = Enumerable.Range(1, 2).Select(i => Cat(i, i, Recent.AddDays(-i))).ToList() };
+        using var rig = new Rig(feed, tweak: o => { o.PreemptAfterIdleSeconds = 1; o.PreemptMinRunSeconds = 0; });
+        await rig.Live.RefreshDirectoryAsync();
+        Guid Id(int i) => SaleFileStore.CatalogueIdFor(Recent.AddDays(-i).Year, i);
+
+        // Sale 1 is opened (taking the one priority slot) and then left; OKLO is slow, so it never finishes.
+        await rig.Live.GetSnapshotAsync(Id(1), false, TimeSpan.FromMilliseconds(300), default);
+        Assert.Single(feed.Started);
+        await Task.Delay(1300);                    // …and nobody asks for it again: it counts as abandoned
+
+        // Sale 2 is opened next: without pre-emption it would queue behind sale 1 until it finished.
+        var second = rig.Live.GetSnapshotAsync(Id(2), false, TimeSpan.FromSeconds(3), default);
+        for (var i = 0; i < 60 && !feed.Started.ContainsKey(2); i++) await Task.Delay(50);
+        Assert.True(feed.Started.ContainsKey(2), "the sale being waited on should get a slot");
+        Assert.False(rig.Live.Loaded(Id(1))!.Loading);   // sale 1, abandoned, was paused
+        hold.SetResult();
+        await second;
+    }
+
+    [Fact]
+    public async Task ABackgroundRefreshOfAnAlreadyCompleteSale_IsPausedForAFreshSaleSomeoneIsWaitingOn()
+    {
+        // Sale A is complete and then goes stale (a routine background refresh will pick it up); sale B has never loaded.
+        var idA = SaleFileStore.CatalogueIdFor(Recent.Year, 1);
+        var idB = SaleFileStore.CatalogueIdFor(Recent.Year, 2);
+        var feed = new Feed { Lots = MakeLots(30), Catalogs = [Cat(1, 1, Recent), Cat(2, 2, Recent.AddDays(-1))] };
+        using var rig = new Rig(feed, tweak: o => { o.ViewTtlRecentMinutes = 0; o.ViewTtlLiveMinutes = 0; o.ViewTtlArchiveHours = 0; });
+        await rig.Live.RefreshDirectoryAsync();
+        await rig.Live.GetSnapshotAsync(idA, needComplete: true, TimeSpan.FromSeconds(20), default);   // sale A finishes once, normally
+
+        // OKLO now hangs: sale A's background refresh (TTL already 0, so EnsureFresh restarts it) gets stuck holding the
+        // one shared OKLO slot, without anyone waiting on sale A specifically.
+        var hold = new TaskCompletionSource();
+        feed.Hold = hold.Task;
+        var saleA = rig.Live.Loaded(idA)!;
+        rig.Live.EnsureFresh(saleA);
+        for (var i = 0; i < 60 && !saleA.Running; i++) await Task.Delay(50);
+        Assert.True(saleA.Running, "the background refresh should have started");
+
+        // Someone opens sale B (never loaded before): without preempting the background refresh it would queue for
+        // however long that refresh takes.
+        var task = rig.Live.GetSnapshotAsync(idB, needComplete: false, TimeSpan.FromSeconds(3), default);
+        for (var i = 0; i < 60 && !feed.Started.ContainsKey(2); i++) await Task.Delay(50);
+        Assert.True(feed.Started.ContainsKey(2), "sale B should get the slot promptly");
+        Assert.False(saleA.Loading, "sale A's background refresh was paused, not left holding the slot");
+        hold.SetResult();
+        await task;
+    }
+
+    [Fact]
+    public async Task ASecondPersonsSale_DoesNotPauseAnUnrelatedRefresh_WhenTheRealBlockerIsTheFirstPersonsOwnSale()
+    {
+        // Sale C is complete and about to go stale (a routine background refresh will pick it up); sale A is a person's
+        // sale actively (and legitimately) loading; sale B is a second person's sale, queued behind A for the one user slot.
+        var idA = SaleFileStore.CatalogueIdFor(Recent.Year, 1);
+        var idB = SaleFileStore.CatalogueIdFor(Recent.Year, 2);
+        var idC = SaleFileStore.CatalogueIdFor(Recent.Year, 3);
+        var feed = new Feed { Lots = MakeLots(30), Catalogs = [Cat(1, 1, Recent), Cat(2, 2, Recent.AddDays(-1)), Cat(3, 3, Recent.AddDays(-2))] };
+        using var rig = new Rig(feed, tweak: o => { o.ViewTtlRecentMinutes = 0; o.ViewTtlLiveMinutes = 0; o.ViewTtlArchiveHours = 0; });
+        await rig.Live.RefreshDirectoryAsync();
+        await rig.Live.GetSnapshotAsync(idC, needComplete: true, TimeSpan.FromSeconds(20), default);   // sale C finishes once, normally
+
+        var hold = new TaskCompletionSource();
+        feed.Hold = hold.Task;
+
+        // Sale A takes the one user slot and starts pulling (OKLO now hangs, so it never finishes - but it is actively
+        // running, not abandoned). The opening call itself only stays around briefly - like a person opening a sale and
+        // moving on - so its own polling (which would otherwise also be entitled to free up sale C, on ITS OWN behalf,
+        // exactly as intended) stops, isolating what happens next to sale B's polling alone.
+        await rig.Live.GetSnapshotAsync(idA, needComplete: false, TimeSpan.FromMilliseconds(300), default);
+        Assert.True(feed.Started.ContainsKey(1));
+        var saleA = rig.Live.Loaded(idA)!;
+        Assert.True(saleA.Loading, "sale A keeps loading in the background after its opening call returns");
+
+        // Sale C's background refresh also starts (TTL already 0).
+        var saleC = rig.Live.Loaded(idC)!;
+        rig.Live.EnsureFresh(saleC);
+        for (var i = 0; i < 60 && !feed.Started.ContainsKey(3); i++) await Task.Delay(50);
+        Assert.True(feed.Started.ContainsKey(3));
+
+        // Sale B is opened next: it cannot run (the one user slot is held by sale A, which is not abandoned), so pausing
+        // sale C's refresh would not help it at all - it should be left alone.
+        var taskB = rig.Live.GetSnapshotAsync(idB, needComplete: false, TimeSpan.FromSeconds(4), default);
+        await taskB;
+        Assert.False(feed.Started.ContainsKey(2), "sale B should still be queued, not running");
+        Assert.True(saleC.Loading, "sale C's unrelated refresh should not have been paused - it would not free sale A's slot");
+
+        hold.SetResult();
+    }
+
+    [Fact]
+    public async Task ASaleThatAlreadyHasItsOwnSlot_StillGetsHelp_WhenStuckBehindABackgroundRefreshAtOklosOwnSharedConnection()
+    {
+        // A stand-in for OkloClient's real Gate: only one call to "OKLO" runs at a time, process-wide - the one thing the
+        // other fakes in this file don't model, and the one thing MakeRoomFor must keep working around even after its own
+        // sale already has a lane slot.
+        var sharedGate = new SemaphoreSlim(1);
+        var idD = SaleFileStore.CatalogueIdFor(Recent.Year, 1);
+        var idE = SaleFileStore.CatalogueIdFor(Recent.Year, 2);
+        var feed = new Feed { Lots = MakeLots(30), SharedGate = sharedGate, Catalogs = [Cat(1, 1, Recent), Cat(2, 2, Recent.AddDays(-1))] };
+        using var rig = new Rig(feed, tweak: o => { o.ViewTtlRecentMinutes = 0; o.ViewTtlLiveMinutes = 0; o.ViewTtlArchiveHours = 0; });
+        await rig.Live.RefreshDirectoryAsync();
+        await rig.Live.GetSnapshotAsync(idE, needComplete: true, TimeSpan.FromSeconds(20), default);   // sale E finishes once, normally
+
+        // Sale E goes stale and starts a background refresh that grabs the shared connection and then hangs on it.
+        var hold = new TaskCompletionSource();
+        feed.Hold = hold.Task;
+        var saleE = rig.Live.Loaded(idE)!;
+        rig.Live.EnsureFresh(saleE);
+        for (var i = 0; i < 60 && !feed.Started.ContainsKey(2); i++) await Task.Delay(50);
+        Assert.True(feed.Started.ContainsKey(2), "sale E's background refresh should have started");
+
+        // Sale D is opened next: its own lane slot is free (nothing else holds it), so it reaches "Running" almost at
+        // once - but every attempt to actually call OKLO then queues behind sale E at the shared connection. Without
+        // MakeRoomFor continuing to help past that point, it would sit there for its entire timeout with zero rows.
+        var taskD = rig.Live.GetSnapshotAsync(idD, needComplete: false, TimeSpan.FromSeconds(5), default);
+        for (var i = 0; i < 100 && !feed.Started.ContainsKey(1); i++) await Task.Delay(50);
+        Assert.True(feed.Started.ContainsKey(1), "sale D should get through to OKLO, not sit stuck at the shared connection");
+
+        hold.SetResult();   // "OKLO answers" - lets D's now-in-flight call (and E's cancelled one) actually complete
+        var snap = await taskD;
+        Assert.NotNull(snap);   // it got at least its first rows within the timeout
     }
 
     // ---- page reload => fresh pull ----------------------------------------------------------------------

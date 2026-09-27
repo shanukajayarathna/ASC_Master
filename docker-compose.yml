@@ -36,6 +36,8 @@ services:
       Oklo__ClientSecret: ${OKLO_CLIENT_SECRET:-}
       Oklo__Username: ${OKLO_USERNAME:-}
       Oklo__Password: ${OKLO_PASSWORD:-}
+      # Earliest sale year listed/imported (OKLO holds 2022-23 too; 2021 is empty). Lower it back to 2024 to shrink the list.
+      Oklo__FirstYear: ${OKLO_FIRST_YEAR:-2023}
       Oklo__AutoSync: ${OKLO_AUTO_SYNC:-false}
       # Stores every OKLO sale once in MongoDB (snapshots). Run it on ONE instance if you scale out.
       Oklo__SnapshotBackfill: ${OKLO_SNAPSHOT_BACKFILL:-true}

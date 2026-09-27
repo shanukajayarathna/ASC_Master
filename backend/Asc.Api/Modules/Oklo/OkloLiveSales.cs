@@ -45,6 +45,12 @@ public sealed class LiveSale(LiveSaleRef sale)
     public volatile bool ForceNext;
     internal readonly object Gate = new();
     internal Task? LoadTask;
+    /// <summary>Lets a newer request pause this sale's pull (see OkloLiveSales.MakeRoomFor).</summary>
+    internal CancellationTokenSource? Cts;
+    /// <summary>The pull has a slot and is running (not just queued), and in which lane.</summary>
+    internal volatile bool Running;
+    internal volatile bool InUserLane;
+    internal long StartedTicks;
 
     public LiveSnapshot? Snapshot()
     {
@@ -69,7 +75,10 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
     /// <summary>How many sales may be pulling from OKLO at once: two for sales a person is waiting on, one for everything
     /// else (background refreshes, index building, the valuation re-link). Without this cap a burst of refreshes and
     /// sweeps put eight sales in flight together, all sharing the same four OKLO request slots - so none of them finished.</summary>
-    private readonly SemaphoreSlim _userLoads = new(2);
+    /// <summary>How many sales a person opened may be actively loading (queued for their turn at OKLO, see
+    /// OkloClient's Gate) at once - one, so opening a second sale waits for the first rather than both racing OKLO
+    /// side by side.</summary>
+    private readonly SemaphoreSlim _userLoads = new(1);
     private readonly SemaphoreSlim _backgroundLoads = new(1);
     /// <summary>The two newest active sales have a slot of their own: their refresh must never queue behind housekeeping
     /// (the valuation re-link, index building, refreshes of older sales) that can hold the background slot for many minutes
@@ -375,13 +384,65 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
     private async Task LoadAsync(LiveSale s)
     {
         // Queued (Loading stays true) until a slot of the right kind is free.
-        var slot = s.UserWaiting ? _userLoads : s.IsHot ? _hotLoads : _backgroundLoads;
+        var userLane = s.UserWaiting;
+        var slot = userLane ? _userLoads : s.IsHot ? _hotLoads : _backgroundLoads;
         await slot.WaitAsync();
-        try { await LoadCoreAsync(s); }
+        try
+        {
+            // A sale that queued for a slot and was abandoned meanwhile (its page moved on to another sale) is dropped rather
+            // than pulled for nobody; it starts again the next time someone opens it.
+            if (userLane && !s.IsHot && Idle(s) && s.State.Catalogue is null)
+            {
+                s.Loading = false; s.UserWaiting = false; s.ForceNext = false;
+                return;
+            }
+            var cts = new CancellationTokenSource();
+            s.Cts = cts;
+            s.InUserLane = userLane;
+            Interlocked.Exchange(ref s.StartedTicks, DateTime.UtcNow.Ticks);
+            s.Running = true;
+            try { await LoadCoreAsync(s, cts.Token); }
+            finally { s.Running = false; s.InUserLane = false; }
+        }
         finally { slot.Release(); }
     }
 
-    private async Task LoadCoreAsync(LiveSale s)
+    private bool Idle(LiveSale s) =>
+        DateTime.UtcNow.Ticks - Interlocked.Read(ref s.TouchedTicks) > TimeSpan.FromSeconds(Math.Max(0, _o.PreemptAfterIdleSeconds)).Ticks;
+
+    /// <summary>A person is waiting on <paramref name="wanted"/> and it has not produced a single row yet: pause whatever is
+    /// in its way, so a background/hot-lane refresh of a sale nobody is looking at right now - or another person's sale they
+    /// have since walked away from - never leaves it stuck. Runs whether <paramref name="wanted"/> is still queued for its
+    /// own lane (see OkloClient's Gate, its one shared OKLO connection) or has already reached that lane and is now merely
+    /// waiting its turn at the Gate behind one of those slower background pulls - either way it is not yet getting
+    /// anywhere, which is exactly the "still says loading" complaint this exists to fix. Stops once it has its first rows
+    /// (progress is now visible, and it's fair game to queue like anything else for the rest of its own pages). What a
+    /// paused sale had already loaded stays available either way; a background/hot refresh simply retries next time.</summary>
+    private void MakeRoomFor(LiveSale wanted)
+    {
+        if (!wanted.Loading || wanted.State.Catalogue is not null) return;
+        // wanted already holds its own lane slot (Running + InUserLane): the only thing left in its way is the shared Gate,
+        // so pausing a background/hot pull holding it is always worth trying. Otherwise wanted is still queued FOR that
+        // lane slot itself - pausing an unrelated background/hot pull wouldn't free that slot, so it only helps when the
+        // lane is actually free (about to hand it straight to wanted); when a rival occupies it, only that rival (if
+        // genuinely abandoned) is worth pausing.
+        var holdsOwnLane = wanted.Running && wanted.InUserLane;
+        if (wanted.Running && !holdsOwnLane) return; // running in some other lane itself - not this mechanism's concern
+        var victim = (holdsOwnLane || _userLoads.CurrentCount > 0
+                ? AllLoaded().Where(v => v != wanted && v.Running && !v.InUserLane)
+                    .OrderBy(v => Interlocked.Read(ref v.TouchedTicks)).FirstOrDefault()
+                : null)
+            ?? (holdsOwnLane ? null : AllLoaded().Where(v => v != wanted && v.Running && v.InUserLane && !v.IsHot && Idle(v)
+                    && v.State.Catalogue is null   // nothing has arrived yet: pausing loses nothing
+                    && DateTime.UtcNow.Ticks - Interlocked.Read(ref v.StartedTicks) > TimeSpan.FromSeconds(Math.Max(0, _o.PreemptMinRunSeconds)).Ticks)
+                .OrderBy(v => Interlocked.Read(ref v.TouchedTicks)).FirstOrDefault());
+        if (victim is null) return;
+        log.LogInformation("OKLO sale {Sale}/{Year} paused so {Wanted}/{WantedYear}, which someone is waiting on, can load",
+            victim.Ref.SaleNo, victim.Ref.Year, wanted.Ref.SaleNo, wanted.Ref.Year);
+        victim.Cts?.Cancel();
+    }
+
+    private async Task LoadCoreAsync(LiveSale s, CancellationToken ct)
     {
         var r = s.Ref;
         var pageSize = Math.Max(100, _o.LivePageSize);
@@ -397,7 +458,7 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
                 if (!s.ForceNext && s.State.FetchedAtUtc is { } pulled && DateTime.UtcNow - pulled <= Ttl(r)) return;
             }
             var progressive = !s.State.Complete;
-            var first = await feed.GetGeneralReportPageAsync(r.Catalog.Id, 1, pageSize, default, background: !s.UserWaiting);
+            var first = await feed.GetGeneralReportPageAsync(r.Catalog.Id, 1, pageSize, ct, background: !s.UserWaiting);
             var total = first.TotalItems;
             _counts[r.Catalog.Id] = total;
             var lots = new List<OkloLot>(Math.Max(total, first.Rows.Count));
@@ -416,7 +477,7 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
                     await gate.WaitAsync();
                     try
                     {
-                        var rows = await FetchPageAsync(r.Catalog.Id, page, pageSize, !s.UserWaiting, default);
+                        var rows = await FetchPageAsync(r.Catalog.Id, page, pageSize, !s.UserWaiting, ct);
                         OkloLot[]? snapshot = null;
                         lock (arrived)
                         {
@@ -436,6 +497,11 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
             Publish(s, lots.ToArray(), total, complete: true);
             s.Error = null;
             if (lots.Count == total && total > 0) await SaveSnapshotAsync(r, lots, total);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Paused for a sale someone is waiting on (MakeRoomFor). Not a failure: no error is recorded, and the next
+            // request for this sale starts the pull again.
         }
         catch (Exception ex)
         {
@@ -618,8 +684,10 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
         if (userInitiated) s.UserWaiting = true; // a person is waiting: promote this sale's requests to the priority lane
         EnsureFresh(s);
         var deadline = DateTime.UtcNow + timeout;
+        var spins = 0;
         while (true)
         {
+            if (userInitiated && spins++ % 20 == 0) MakeRoomFor(s);
             var st = s.State;
             if (needComplete ? st.Complete : st.Catalogue is not null) break;
             if (!s.Loading && s.Error is not null && st.Catalogue is null) return null;
