@@ -617,7 +617,7 @@ export default function AskingPricePage() {
       {exporting && <BusyOverlay message="Building workbook…" />}
       <PageHeader
         title="Asking Price"
-        subtitle="The same fast worksheet, for pre-auction asking prices. Nothing here saves to sale data — its own session, kept separate from Worksheet."
+        subtitle="The same fast worksheet, for pre-auction asking prices. Nothing here saves to sale data — its own session, kept separate from Muster Report."
         backTo={{ href: "/reports", label: "Reports" }}
       />
 

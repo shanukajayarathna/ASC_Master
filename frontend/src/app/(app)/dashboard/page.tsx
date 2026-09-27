@@ -3,35 +3,25 @@
 import AdminDashboard from "./AdminDashboard";
 import AiInsightsPanel, { type Insight } from "@/components/home/AiInsightsPanel";
 import AttentionList, { type AttentionEntry } from "@/components/home/AttentionList";
-import FuturisticKpiRow from "@/components/dashboard/FuturisticKpiRow";
+import AmbientStrip from "@/components/dashboard/AmbientStrip";
 import Footer from "@/components/shell/Footer";
 import MarketPulseTicker from "@/components/home/MarketPulseTicker";
 import ModuleTile from "@/components/home/ModuleTile";
 import RecentActivityList, { type ActivityEntry } from "@/components/home/RecentActivityList";
-import Sparkline from "@/components/home/Sparkline";
 import TiltCard from "@/components/ui/TiltCard";
 import { NAV_ITEMS } from "@/components/shell/nav";
 import { useAuth } from "@/context/AuthContext";
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
-import { formatCurrency, timeAgo } from "@/lib/format";
+import { timeAgo } from "@/lib/format";
 import type { CatalogueSummary, Conversation, DashboardStats, SavedReport } from "@/types/api";
-import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
-import CalendarTodayOutlinedIcon from "@mui/icons-material/CalendarTodayOutlined";
-import CenterFocusStrongOutlinedIcon from "@mui/icons-material/CenterFocusStrongOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ChatBubbleOutlineOutlinedIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
-import EventAvailableOutlinedIcon from "@mui/icons-material/EventAvailableOutlined";
-import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
-import Skeleton from "@mui/material/Skeleton";
 import TextField from "@mui/material/TextField";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -67,11 +57,9 @@ export default function DashboardPage() {
 }
 
 /**
- * The launchpad — every existing "Executive Dashboard" KPI section is kept exactly as it
- * was (same DashboardStats fields, same endpoint, no data removed). Above it sits a
- * compact glance bar, and below the module tile grid sit three real panels (activity,
- * computed insights, sales needing attention) — see the plan file for what's real vs.
- * deliberately adapted from the reference mockup.
+ * The launchpad — the KPI row and module tile grid, with three real panels below them
+ * (activity, computed insights, sales needing attention) — see the plan file for what's
+ * real vs. deliberately adapted from the reference mockup.
  */
 function UserDashboard() {
   const { user } = useAuth();
@@ -94,17 +82,10 @@ function UserDashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [prompt, setPrompt] = useState("");
 
-  const [previousStats, setPreviousStats] = useState<DashboardStats | null>(null);
-  const [previousSaleName, setPreviousSaleName] = useState<string | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [attention, setAttention] = useState<AttentionEntry[]>([]);
   const [attentionLoading, setAttentionLoading] = useState(false);
-  // Chronological (oldest first) avg-valuation per sale across the recent window — feeds
-  // the glance bar's sparkline. Real numbers only: sales with no valued lots (null avg)
-  // are dropped rather than plotted as zero.
-  const [avgValuationTrend, setAvgValuationTrend] = useState<number[]>([]);
-
   // Which tiles the user has pinned to the top of their own launchpad — purely local
   // (localStorage), never sent anywhere, so this is genuinely "their" personalization
   // rather than something the app is guessing at.
@@ -157,16 +138,13 @@ function UserDashboard() {
     api.listConversations().then(setConversations).catch(() => {});
   }, []);
 
-  // Enrichment: the previous sale's stats (for the Avg Valuation delta), AI Insights
-  // (real, computed from Analytics breakdown/distribution endpoints), and the "Sales
-  // Needing Attention" list — all bounded to the RECENT_SALES_WINDOW most recent sales.
+  // Enrichment: AI Insights (real, computed from Analytics breakdown/distribution
+  // endpoints) and the "Sales Needing Attention" list — all bounded to the RECENT_SALES_WINDOW most recent sales.
   useEffect(() => {
     if (!activeCatalogueId || catalogues.length === 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setPreviousStats(null);
       setInsights([]);
       setAttention([]);
-      setAvgValuationTrend([]);
       return;
     }
     let cancelled = false;
@@ -211,20 +189,7 @@ function UserDashboard() {
         setAttentionLoading(false);
       }
 
-      // Oldest-first avg-valuation trend for the glance bar's sparkline — sales with no
-      // valued lots yet are skipped rather than plotted as a misleading zero.
-      const trend = valid
-        .filter((x) => x.s.avgValuation != null)
-        .sort((a, b) => new Date(a.c.importedAt).getTime() - new Date(b.c.importedAt).getTime())
-        .map((x) => x.s.avgValuation as number);
-      if (!cancelled) setAvgValuationTrend(trend);
-
       const prevEntry = previous ? valid.find((x) => x.c.id === previous.id) : undefined;
-      if (!cancelled) {
-        setPreviousStats(prevEntry?.s ?? null);
-        setPreviousSaleName(previous?.sourceName ?? null);
-      }
-
       if (!previous || !prevEntry) {
         if (!cancelled) {
           setInsights([]);
@@ -310,12 +275,6 @@ function UserDashboard() {
     router.push(text ? `/assistant?q=${encodeURIComponent(text)}` : "/assistant");
   };
 
-  const totalLotsAllSales = catalogues.reduce((sum, c) => sum + c.rowCount, 0);
-  const avgValuationDeltaPct =
-    stats?.avgValuation != null && previousStats?.avgValuation
-      ? ((stats.avgValuation - previousStats.avgValuation) / previousStats.avgValuation) * 100
-      : null;
-
   // Sorted by the raw ISO timestamp (kept alongside, since `timeAgo` only produces the
   // display string) then trimmed to the entry shape the list component actually wants.
   const activity: ActivityEntry[] = [
@@ -376,25 +335,8 @@ function UserDashboard() {
               : "Here's what's happening with your tea auctions today."}
           </p>
         </div>
-        {/* Just the date now — weather moved to its own card in FuturisticKpiRow below,
-            so showing it here too would be the same fact twice on one page. */}
-        <div
-          className="flex items-center gap-2 px-3.5 py-2 rounded-[var(--radius-lg)] border border-border"
-          style={{ background: "var(--surface)" }}
-        >
-          <CalendarTodayOutlinedIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
-          <div className="leading-tight">
-            <div className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
-              {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
-            </div>
-            <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-              Colombo, Sri Lanka
-            </div>
-          </div>
-        </div>
+        <AmbientStrip />
       </div>
-
-      <FuturisticKpiRow />
 
       <div className="mb-6">
         <MarketPulseTicker variant="dashboard" />
@@ -417,144 +359,6 @@ function UserDashboard() {
             Go to Catalogue Manager
           </Button>
         </div>
-      )}
-
-      {/* ---- glance bar skeleton: same six-column strip, shown until `stats` resolves so
-           the page never sits blank while the sale's file loads/parses server-side (that
-           can take several seconds on a cold cache) — see DashboardController. ---- */}
-      {activeCatalogueId && !stats && (
-        <div
-          className="mb-6 rounded-[var(--radius-lg)] border border-border grid"
-          style={{ background: "var(--surface)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
-        >
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-2.5 p-4"
-              style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}
-            >
-              <Skeleton variant="circular" width={32} height={32} sx={{ flexShrink: 0 }} />
-              <div className="min-w-0 flex-1">
-                <Skeleton variant="text" width="65%" height={14} />
-                <Skeleton variant="text" width="45%" height={24} />
-                <Skeleton variant="text" width="55%" height={13} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ---- glance bar: one bordered strip, six real KPIs — right after the greeting,
-           the first real content on the page. All six icons read the same neutral way —
-           they're wayfinding, not status; the one place color carries real meaning is the
-           Avg Valuation delta arrow (genuinely up or down vs the previous sale). ---- */}
-      {activeCatalogueId && stats && (
-        <div
-          className="mb-6 rounded-[var(--radius-lg)] border border-border grid"
-          style={{ background: "var(--surface)", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
-        >
-          {[
-            {
-              icon: LayersOutlinedIcon,
-              label: "Total Lots (All Sales)",
-              value: totalLotsAllSales.toLocaleString(),
-              sub: `across ${catalogues.length} sale${catalogues.length === 1 ? "" : "s"}`,
-              trend: undefined as number[] | undefined,
-            },
-            {
-              icon: CheckCircleOutlinedIcon,
-              label: "Valuations Completed",
-              value: stats.completed.toLocaleString(),
-              sub: `${stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0}% completion rate`,
-              trend: undefined as number[] | undefined,
-            },
-            {
-              icon: HourglassEmptyOutlinedIcon,
-              label: "Pending Valuations",
-              value: stats.pending.toLocaleString(),
-              sub: "this sale",
-              trend: undefined as number[] | undefined,
-            },
-            {
-              icon: TrendingUpOutlinedIcon,
-              label: "Avg Valuation",
-              value: formatCurrency(stats.avgValuation, 0),
-              sub:
-                avgValuationDeltaPct != null
-                  ? `${avgValuationDeltaPct >= 0 ? "↑" : "↓"} ${Math.abs(avgValuationDeltaPct).toFixed(1)}% vs ${previousSaleName ?? "last sale"}`
-                  : "no previous sale to compare",
-              subColor: avgValuationDeltaPct != null ? (avgValuationDeltaPct >= 0 ? "var(--sage-dark)" : "var(--danger)") : undefined,
-              trend: avgValuationTrend,
-            },
-            {
-              icon: EventAvailableOutlinedIcon,
-              label: "Today's Valuations",
-              value: stats.todayCount.toLocaleString(),
-              sub: "saved today",
-              trend: undefined as number[] | undefined,
-            },
-            {
-              icon: Inventory2OutlinedIcon,
-              label: "Top Valuation",
-              value: formatCurrency(stats.maxValuation, 0),
-              sub: "highest in this sale",
-              trend: undefined as number[] | undefined,
-            },
-          ].map((k, i) => (
-            <div
-              key={k.label}
-              className="flex items-start gap-2.5 p-4"
-              style={{ borderLeft: i === 0 ? undefined : "1px solid var(--border)" }}
-            >
-              <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface-sunken)" }}>
-                <k.icon sx={{ fontSize: 16, color: "var(--text-muted)" }} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                  {k.label}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="font-mono text-[19px] font-semibold leading-tight" style={{ color: "var(--text-strong)" }}>
-                    {k.value}
-                  </div>
-                  {k.trend && k.trend.length >= 2 && (
-                    <Sparkline values={k.trend} color="var(--liquor)" width={48} height={18} />
-                  )}
-                </div>
-                <div className="text-[12px] truncate" style={{ color: k.subColor ?? "var(--text-muted)" }}>
-                  {k.sub}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ---- primary action: jump straight into Focus mode at the next lot needing
-           attention, instead of making every visit navigate there manually first ---- */}
-      {activeCatalogueId && stats && stats.pending > 0 && (
-        <Link
-          href="/valuation?focus=1"
-          className="mb-3 flex items-center gap-3 p-4 rounded-[var(--radius-lg)] no-underline lift-on-hover"
-          style={{ background: "var(--rule-brand)" }}
-        >
-          <span
-            className="w-11 h-11 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: "rgba(255,255,255,0.22)" }}
-          >
-            <CenterFocusStrongOutlinedIcon sx={{ fontSize: 22, color: "#fff" }} />
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="font-display text-[16px] font-bold" style={{ color: "#fff" }}>
-              Continue Valuing
-            </div>
-            <div className="text-[12px]" style={{ color: "rgba(255,255,255,0.88)" }}>
-              {stats.pending.toLocaleString()} lot{stats.pending === 1 ? "" : "s"} still need a valuation
-              {activeCatalogue ? ` in ${activeCatalogue.sourceName}` : ""}
-            </div>
-          </div>
-          <ArrowForwardIcon sx={{ fontSize: 20, color: "#fff" }} />
-        </Link>
       )}
 
       {/* ---- launchpad: module tiles replace the old sidebar as the primary navigation ---- */}

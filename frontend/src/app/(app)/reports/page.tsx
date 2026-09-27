@@ -51,7 +51,7 @@ const MODERN_REPORT_TILES: NavItem[] = [
   },
   {
     href: "/reports/worksheet",
-    label: "Worksheet",
+    label: "Muster Report",
     section: "Reports",
     status: "live",
     description: "Fast, spreadsheet-style pre-auction pricing — a rough working copy, not saved to sale data.",

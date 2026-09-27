@@ -25,6 +25,10 @@ import ViewColumnOutlinedIcon from "@mui/icons-material/ViewColumnOutlined";
 import Autocomplete from "@mui/material/Autocomplete";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import Divider from "@mui/material/Divider";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Menu from "@mui/material/Menu";
@@ -208,7 +212,25 @@ export default function WorksheetPage() {
   const [removedRows, setRemovedRows] = useState<{ index: number; row: Row }[]>([]);
   const [undoRow, setUndoRow] = useState<Row | null>(null);
 
+  const [saleYear, setSaleYear] = useState("");
   const [saleCatalogueId, setSaleCatalogueId] = useState("");
+
+  // Year and sale number both come from the catalogue list, which is the OKLO-fed sale list
+  // (same source as the Catalogue page's Year/Sale pickers). Newest first.
+  const saleYears = useMemo(
+    () => Array.from(new Set(catalogues.map((c) => c.year))).sort((a, b) => b - a),
+    [catalogues]
+  );
+  const saleOptions = useMemo(
+    () =>
+      catalogues
+        .filter((c) => String(c.year) === saleYear)
+        .map((c) => {
+          const short = /Sale\s+(\d+)/i.exec(c.sourceName);
+          return { id: c.id, label: short ? `Sale ${short[1]}` : c.sourceName };
+        }),
+    [catalogues, saleYear]
+  );
   const [broker, setBroker] = useState("");
   const [factory, setFactory] = useState<string[]>([]);
   const [facets, setFacets] = useState<WorksheetFacets | null>(null);
@@ -225,7 +247,7 @@ export default function WorksheetPage() {
 
   useLeaveConfirmation(
     uploading || exporting,
-    "The worksheet is still working. Leaving now will cancel it — continue?"
+    "The muster report is still working. Leaving now will cancel it — continue?"
   );
 
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
@@ -412,7 +434,7 @@ export default function WorksheetPage() {
 
   const resetWorksheet = () => {
     if (!rows.length) return;
-    if (!window.confirm("Reset the current worksheet to the default state? This will clear the loaded data and any entered valuations.")) return;
+    if (!window.confirm("Reset the current muster report to the default state? This will clear the loaded data and any entered valuations.")) return;
     setRows([]);
     setRemovedRows([]);
     setUndoRow(null);
@@ -484,12 +506,12 @@ export default function WorksheetPage() {
     [extraColumnKeys, visibleColumns]
   );
 
-  const exportExcel = async () => {
+  const exportExcel = async (fileName: string) => {
     setExporting(true);
     setError(null);
     try {
       const blob = await api.exportWorksheetExcel(
-        "Worksheet",
+        "Muster Report",
         saleLabel,
         rows.map(
           (r): WorksheetRow => ({
@@ -507,9 +529,10 @@ export default function WorksheetPage() {
           })
         ),
         excludeUnvalued,
-        activeExtraKeys
+        activeExtraKeys,
+        { sheetName: "Muster Report" }
       );
-      triggerDownload(blob, "Worksheet.xlsx");
+      triggerDownload(blob, `${fileName}.xlsx`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -518,7 +541,7 @@ export default function WorksheetPage() {
   };
 
   const [exportingPdf, setExportingPdf] = useState(false);
-  const exportPdf = async () => {
+  const exportPdf = async (fileName: string) => {
     setExportingPdf(true);
     setError(null);
     try {
@@ -541,13 +564,38 @@ export default function WorksheetPage() {
         { label: "Total Proceeds", numeric: true, getValue: (r: Row) => fmt2((r.valuation ?? 0) * (r.totalWeight ?? 0)) },
         ...(visibleColumns.includes("remarks") ? [{ label: "Remarks", numeric: false, getValue: (r: Row) => r.remarks ?? "" }] : []),
       ];
-      const topic = saleLabel ? `Worksheet — ${saleLabel}` : "Worksheet";
-      await exportWorksheetPdf({ topic, columns, rows, excludeUnvalued });
+      const topic = saleLabel ? `Muster Report — ${saleLabel}` : "Muster Report";
+      await exportWorksheetPdf({ topic, columns, rows, excludeUnvalued, fileName });
     } catch (e) {
       setError(e instanceof Error ? e.message : "PDF export failed");
     } finally {
       setExportingPdf(false);
     }
+  };
+
+  // The saved file is named after what was actually filled in: only valuations, only remarks, or
+  // both. The valuer can rename it in the save dialog before it downloads.
+  const suggestedFileName = () => {
+    const hasValuation = rows.some((r) => (r.valuation ?? 0) > 0);
+    const hasRemarks = rows.some((r) => (r.remarks ?? "").trim() !== "");
+    const kind =
+      hasValuation && hasRemarks ? "Valuation and Remarks Muster" : hasValuation ? "Valuation Muster" : hasRemarks ? "Remarks Muster" : "Muster Report";
+    const sale = saleYear && saleCatalogueId ? saleOptions.find((o) => o.id === saleCatalogueId)?.label : null;
+    // Mark names go in only while there are at most two of them; a sheet spanning more marks
+    // would just get an unwieldy name, so they're left out.
+    const marks = Array.from(new Set(rows.map((r) => (r.sellingMark ?? "").trim()).filter(Boolean)));
+    const markPart = marks.length > 0 && marks.length <= 2 ? marks.join(" & ") : null;
+    return [saleYear && sale ? `${saleYear} ${sale}` : null, markPart, kind].filter(Boolean).join(" - ");
+  };
+  const [saveDialog, setSaveDialog] = useState<{ kind: "pdf" | "excel"; name: string } | null>(null);
+  const openSaveDialog = (kind: "pdf" | "excel") => setSaveDialog({ kind, name: suggestedFileName() });
+  const confirmSave = () => {
+    if (!saveDialog) return;
+    const name = saveDialog.name.replace(/[\\/:*?"<>|]+/g, "").trim() || suggestedFileName();
+    const kind = saveDialog.kind;
+    setSaveDialog(null);
+    if (kind === "pdf") void exportPdf(name);
+    else void exportExcel(name);
   };
 
   const toggleColumn = (key: string) => {
@@ -587,9 +635,9 @@ export default function WorksheetPage() {
   return (
     <div>
       {exportingPdf && <BusyOverlay message="Building PDF…" />}
-      {exporting && <BusyOverlay message="Building worksheet…" />}
+      {exporting && <BusyOverlay message="Building muster report…" />}
       <PageHeader
-        title="Worksheet"
+        title="Muster Report"
         subtitle="A rough pre-auction pricing copy. Nothing here saves to sale data — only Valuation Centre does that."
         backTo={{ href: "/reports", label: "Reports" }}
       />
@@ -605,27 +653,51 @@ export default function WorksheetPage() {
         <div className="border border-border rounded-lg bg-surface p-4">
           <h3 className="font-display text-[14px] font-semibold text-text-strong m-0 mb-3">Import from a sale</h3>
           <div className="flex flex-col gap-2.5">
-            <Select
-              size="small"
-              value={saleCatalogueId}
-              onChange={(e) => {
-                setSaleCatalogueId(e.target.value);
-                setBroker("");
-                setFactory([]);
-              }}
-              displayEmpty
-              sx={{ fontSize: 13 }}
-              renderValue={(v) => {
-                if (!v) return <span className="text-text-muted">Sale number…</span>;
-                return catalogues.find((c) => c.id === v)?.sourceName ?? "…";
-              }}
-            >
-              {catalogues.map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.sourceName}
-                </MenuItem>
-              ))}
-            </Select>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Select
+                size="small"
+                value={saleYear}
+                onChange={(e) => {
+                  // A sale number only means something inside its year, so changing the year
+                  // drops the current sale (and the filters that were read from it).
+                  setSaleYear(e.target.value);
+                  setSaleCatalogueId("");
+                  setBroker("");
+                  setFactory([]);
+                }}
+                displayEmpty
+                sx={{ fontSize: 13 }}
+                renderValue={(v) => (v ? v : <span className="text-text-muted">Year…</span>)}
+              >
+                {saleYears.map((y) => (
+                  <MenuItem key={y} value={String(y)}>
+                    {y}
+                  </MenuItem>
+                ))}
+              </Select>
+              <Select
+                size="small"
+                value={saleCatalogueId}
+                onChange={(e) => {
+                  setSaleCatalogueId(e.target.value);
+                  setBroker("");
+                  setFactory([]);
+                }}
+                displayEmpty
+                disabled={!saleYear}
+                sx={{ fontSize: 13 }}
+                renderValue={(v) => {
+                  if (!v) return <span className="text-text-muted">Sale number…</span>;
+                  return saleOptions.find((o) => o.id === v)?.label ?? "…";
+                }}
+              >
+                {saleOptions.map((o) => (
+                  <MenuItem key={o.id} value={o.id}>
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </div>
             <Autocomplete
               freeSolo
               size="small"
@@ -718,7 +790,7 @@ export default function WorksheetPage() {
       {removedRows.length > 0 && (
         <div className="mb-3 p-3 rounded border border-border bg-surface-alt text-sm text-text-muted flex items-center justify-between gap-3 flex-wrap print:hidden">
           <span>
-            {removedRows.length} {removedRows.length === 1 ? "line is" : "lines are"} removed from this worksheet — left out
+            {removedRows.length} {removedRows.length === 1 ? "line is" : "lines are"} removed from this muster report — left out
             of the totals, the average and every export.
           </span>
           <Button size="small" variant="outlined" onClick={restoreAllRemoved}>
@@ -774,7 +846,7 @@ export default function WorksheetPage() {
           Clear valuations
         </Button>
         <Button variant="outlined" onClick={resetWorksheet} disabled={rows.length === 0}>
-          Reset worksheet
+          Reset
         </Button>
         <div className="flex-1" />
         <Button variant="outlined" startIcon={<PrintOutlinedIcon fontSize="small" />} onClick={() => window.print()} disabled={rows.length === 0}>
@@ -783,7 +855,7 @@ export default function WorksheetPage() {
         <Button
           variant="outlined"
           startIcon={<PictureAsPdfOutlinedIcon fontSize="small" />}
-          onClick={exportPdf}
+          onClick={() => openSaveDialog("pdf")}
           disabled={exportingPdf || rows.length === 0}
         >
           {exportingPdf ? "Exporting…" : "Export PDF"}
@@ -791,7 +863,7 @@ export default function WorksheetPage() {
         <Button
           variant="outlined"
           startIcon={<DownloadOutlinedIcon fontSize="small" />}
-          onClick={exportExcel}
+          onClick={() => openSaveDialog("excel")}
           disabled={exporting || rows.length === 0}
         >
           {exporting ? "Exporting…" : "Export to Excel"}
@@ -914,6 +986,35 @@ export default function WorksheetPage() {
           </table>
         </div>
       )}
+
+      <Dialog open={saveDialog !== null} onClose={() => setSaveDialog(null)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontSize: 16 }}>Save muster report</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="File name"
+            value={saveDialog?.name ?? ""}
+            onChange={(e) => setSaveDialog((d) => (d ? { ...d, name: e.target.value } : d))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                confirmSave();
+              }
+            }}
+            onFocus={(e) => e.target.select()}
+            slotProps={{ input: { endAdornment: <span className="text-text-muted text-[13px]">{saveDialog?.kind === "pdf" ? ".pdf" : ".xlsx"}</span> } }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveDialog(null)}>Cancel</Button>
+          <Button variant="contained" onClick={confirmSave}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={!!undoRow}

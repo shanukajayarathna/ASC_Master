@@ -82,8 +82,10 @@ export async function exportWorksheetPdf<TRow extends WorksheetRow>(opts: {
   columns: WorksheetPdfColumn<TRow>[];
   rows: TRow[];
   excludeUnvalued: boolean;
+  /** Saved file name without the extension; defaults to "{topic}-{yyyymmdd}". */
+  fileName?: string;
 }): Promise<void> {
-  const { topic, columns, rows, excludeUnvalued } = opts;
+  const { topic, columns, rows, excludeUnvalued, fileName } = opts;
 
   const doc = new jsPDF({ orientation: "landscape", unit: "pt" });
 
@@ -154,7 +156,7 @@ export async function exportWorksheetPdf<TRow extends WorksheetRow>(opts: {
     },
   });
 
-  doc.save(`${safeFileName(topic)}-${dateStamp()}.pdf`);
+  doc.save(`${fileName || `${safeFileName(topic)}-${dateStamp()}`}.pdf`);
 }
 
 function buildFootRow<TRow extends WorksheetRow>(
