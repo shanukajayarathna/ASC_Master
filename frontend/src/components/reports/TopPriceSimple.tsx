@@ -73,11 +73,28 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
   return e;
 }
 
+/** How much of `col`'s own real content is actually filled, top to bottom — NOT `col.scrollHeight`,
+ *  which is useless for this: `.cols` is a flex row with the default `align-items: stretch`, so
+ *  EVERY `.col` (even a completely empty one) is stretched to the full column height regardless of
+ *  content, and `scrollHeight` reports whichever is larger of that stretched box or the real
+ *  content — for any column under budget, that's always the stretched box, not the content. This
+ *  instead reads the real bottom edge of the column's own last child. */
+function realColHeight(col: HTMLElement): number {
+  const last = col.lastElementChild;
+  if (!last) return 0;
+  return last.getBoundingClientRect().bottom - col.getBoundingClientRect().top;
+}
+
 /** Fills `ncols` columns with region blocks at font size `px`, in reading order, breaking between
  *  rows when a column is full ("(continued)" header + repeated grade label on the next column).
- *  Returns false as soon as content can't fit — real rendered heights (scrollHeight), not an
- *  estimate, so a `true` here means the sheet genuinely fits. */
-function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number): boolean {
+ *  Returns false as soon as content can't fit — real rendered heights, not an estimate, so a
+ *  `true` here means the sheet genuinely fits. `target`, when given, makes this BALANCE instead of
+ *  greedily filling each column to the budget before moving on: once a non-empty column's real
+ *  content reaches `target`, the next row moves to a fresh column even though there'd still be
+ *  room left — see `packBalanced` below for why (a plain greedy fill left trailing columns mostly
+ *  or entirely empty on real sales). The hard budget check still applies regardless — `target` can
+ *  only make a page LESS full than it's allowed to be, never overflow it. */
+function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number, target?: number): boolean {
   host.replaceChildren();
   host.style.fontSize = `${px}px`;
   const cols: HTMLElement[] = [];
@@ -93,6 +110,11 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
     for (let i = 0; i < reg.rows.length; i++) {
       const r = reg.rows[i];
       for (;;) {
+        if (target !== undefined && ci < ncols - 1 && cols[ci].childNodes.length > 0 && realColHeight(cols[ci]) >= target) {
+          ci++;
+          needHeader = true;
+          continue;
+        }
         const added: HTMLElement[] = [];
         if (needHeader) {
           const h = el("div", styles.rh);
@@ -108,7 +130,7 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
           g.append(r.grade);
           if (r.sub) g.append(el("small", undefined, r.sub));
         } else {
-          g.textContent = " ";
+          g.textContent = " ";
         }
         const deal = el("div", styles.deal);
         deal.append(el("div", styles.m, r.mark), el("div", styles.p, r.price));
@@ -117,7 +139,7 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
 
         const wasEmpty = cols[ci].childNodes.length === 0;
         added.forEach((a) => cols[ci].appendChild(a));
-        if (cols[ci].scrollHeight <= budget + 0.5) {
+        if (realColHeight(cols[ci]) <= budget + 0.5) {
           needHeader = false;
           break;
         }
@@ -130,6 +152,22 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
     }
   }
   return true;
+}
+
+/** Packs once plainly (greedy — fills each column to the budget before moving to the next) purely
+ *  to learn the REAL total content height at this px/ncols (the sum of every column's own real
+ *  content — the same number regardless of how it happens to be distributed across columns), then
+ *  packs again with that total spread evenly as a per-column target. A sale's content rarely
+ *  divides evenly across a fixed 6 or 7 columns — greedy-fill dumps the entire remainder on
+ *  whichever column runs out of content last, which measured as much as an ENTIRE empty trailing
+ *  column, or a column using barely a quarter of its budget, on real sales. Same trade this file's
+ *  own two-pass balancing already makes elsewhere: a plain-greedy result is still returned if
+ *  balancing can't be computed (e.g. genuinely no content), but never used when it can. */
+function packBalanced(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number): boolean {
+  if (!pack(host, regions, ncols, px)) return false;
+  const total = Array.from(host.children).reduce((sum, col) => sum + realColHeight(col as HTMLElement), 0);
+  if (total <= 0) return true;
+  return pack(host, regions, ncols, px, total / ncols);
 }
 
 /** Whether any mark in the just-packed host had to break WITHIN a word — overflow-wrap:anywhere
@@ -166,7 +204,7 @@ function anyMidWordBreak(host: HTMLElement): boolean {
 function largestFit(host: HTMLElement, regions: SimpleRegion[], ncols: number): { px: number; clean: boolean } | null {
   let dirtyBest: number | null = null;
   for (let px = 16; px >= 5; px -= 0.25) {
-    if (!pack(host, regions, ncols, px)) continue;
+    if (!packBalanced(host, regions, ncols, px)) continue;
     if (dirtyBest === null) dirtyBest = px;
     if (!anyMidWordBreak(host)) return { px, clean: true };
   }
@@ -186,8 +224,8 @@ function fit(host: HTMLElement, regions: SimpleRegion[]): void {
   const clean = results.filter((r) => r.clean);
   const pool = clean.length ? clean : results;
   const best = pool.length ? pool.reduce((a, b) => (b.px > a.px + 0.01 ? b : a)) : null;
-  if (best) pack(host, regions, best.ncols, best.px);
-  else pack(host, regions, 7, 5);
+  if (best) packBalanced(host, regions, best.ncols, best.px);
+  else packBalanced(host, regions, 7, 5);
   host.dataset.fontPx = String(best?.px ?? 5);
   host.dataset.cols = String(best?.ncols ?? 7);
 }
