@@ -132,23 +132,60 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
   return true;
 }
 
-/** Largest font size (px) at which everything fits in `ncols` columns, or null. */
-function largestFit(host: HTMLElement, regions: SimpleRegion[], ncols: number): number | null {
-  for (let px = 16; px >= 5; px -= 0.25) if (pack(host, regions, ncols, px)) return px;
-  return null;
-}
-
-/** 6 columns unless that would push text below ~7.5px, in which case 7 is tried and the larger
- *  resulting size wins; a sale too dense for either falls back to 7 columns at the 5px floor. */
-function fit(host: HTMLElement, regions: SimpleRegion[]): void {
-  let best: { px: number; ncols: number } | null = null;
-  for (const ncols of [6, 7]) {
-    const px = largestFit(host, regions, ncols);
-    if (px !== null && (!best || px > best.px + 0.01)) {
-      best = { px, ncols };
-      if (px >= 7.5) break;
+/** Whether any mark in the just-packed host had to break WITHIN a word — overflow-wrap:anywhere
+ *  (the `.m` rule) stops overlap, but it breaks at the exact pixel where a word stops fitting,
+ *  which can just as easily land after 12 of 14 characters as after 7, leaving a stray 2-character
+ *  fragment like "na" alone on its own line ("Kalubowitiyana" -> "Kalubowitiya" / "na") — confirmed
+ *  directly on real data (Range.getClientRects: a single word spanning more than one distinct
+ *  `top` means it broke mid-word). That's ugly even though it's not technically an overflow, so
+ *  `largestFit` below treats "fits AND wraps cleanly" as the real target and only accepts a
+ *  mid-word split as a last resort when no size/column combination avoids one. */
+function anyMidWordBreak(host: HTMLElement): boolean {
+  const marks = host.querySelectorAll(`.${styles.m}`);
+  for (const markEl of Array.from(marks)) {
+    const textNode = markEl.firstChild;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
+    const text = textNode.textContent ?? "";
+    const wordPattern = /\S+/g;
+    let match: RegExpExecArray | null;
+    while ((match = wordPattern.exec(text))) {
+      const range = document.createRange();
+      range.setStart(textNode, match.index);
+      range.setEnd(textNode, match.index + match[0].length);
+      const tops = new Set(Array.from(range.getClientRects()).map((r) => Math.round(r.top)));
+      if (tops.size > 1) return true;
     }
   }
+  return false;
+}
+
+/** Largest font size (px) at which everything fits in `ncols` columns AND no mark breaks
+ *  mid-word — or, failing that (scanned all the way to the floor with every fitting size still
+ *  splitting some word), the largest size that at least fits, mid-word splits accepted as a last
+ *  resort rather than losing rows. `clean` tells the caller which of the two it got. */
+function largestFit(host: HTMLElement, regions: SimpleRegion[], ncols: number): { px: number; clean: boolean } | null {
+  let dirtyBest: number | null = null;
+  for (let px = 16; px >= 5; px -= 0.25) {
+    if (!pack(host, regions, ncols, px)) continue;
+    if (dirtyBest === null) dirtyBest = px;
+    if (!anyMidWordBreak(host)) return { px, clean: true };
+  }
+  return dirtyBest === null ? null : { px: dirtyBest, clean: false };
+}
+
+/** Tries both 6 and 7 columns and picks the best result — a clean (no mid-word split) fit always
+ *  wins over a dirty one regardless of font size, since an ugly split matters more than a slightly
+ *  smaller page; among same-cleanliness results, the larger font size wins. Only when NEITHER
+ *  column count can avoid a split anywhere does the largest font size settle for one. */
+function fit(host: HTMLElement, regions: SimpleRegion[]): void {
+  const results: { px: number; ncols: number; clean: boolean }[] = [];
+  for (const ncols of [6, 7]) {
+    const r = largestFit(host, regions, ncols);
+    if (r) results.push({ px: r.px, ncols, clean: r.clean });
+  }
+  const clean = results.filter((r) => r.clean);
+  const pool = clean.length ? clean : results;
+  const best = pool.length ? pool.reduce((a, b) => (b.px > a.px + 0.01 ? b : a)) : null;
   if (best) pack(host, regions, best.ncols, best.px);
   else pack(host, regions, 7, 5);
   host.dataset.fontPx = String(best?.px ?? 5);
