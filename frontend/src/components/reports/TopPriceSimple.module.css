@@ -127,10 +127,29 @@
   align-items: baseline;
   gap: 1.2mm;
   padding: 0 0.8mm;
+  /* Reserved on EVERY row, not just .ours ones below — a transparent border still takes up real
+     layout width even though it's invisible. Highlighted rows used to add this same 0.8mm border
+     + 1mm padding ON TOP of this box's own padding, which left them with ~1.8mm less room for the
+     mark than a plain row got — enough, on a tight column, to wrap a word like "Kalubowitiyana"
+     only when it happened to be ASC's own lot and not otherwise. Reserving the space here always
+     means the highlight only ever toggles colour, never how much room the mark has to work with. */
+  border-left: 0.8mm solid transparent;
+  padding-left: 1mm;
 }
 .m {
   flex: 1 1 auto;
   min-width: 0;
+  /* A single-word mark ("Nawagamuwehena", "Susantha"...) has no space to wrap on — without this,
+     the flex-shrunk box (min-width:0 lets it shrink below the word's own min-content width, which
+     is what tight columns need for ordinary multi-word names) just lets that word's text overflow
+     straight through and past the price column instead of wrapping. Confirmed directly: 162 rows
+     on one real sale alone measured scrollWidth > clientWidth (real text overflow, not just a
+     tight-but-contained box) before this fix. Wrapping a long single word onto extra lines instead
+     grows the row's real height, which the fit routine already measures and accounts for (it reads
+     actual rendered scrollHeight, not an estimate), so this can only make a page need slightly more
+     room — never overflow into the price. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .p {
   flex: 0 0 auto;
@@ -141,8 +160,7 @@
    across the grade cell. */
 .ours .deal {
   background: #f3cf6b;
-  border-left: 0.8mm solid #1f7a4d;
-  padding-left: 1mm;
+  border-left-color: #1f7a4d;
   color: #1f7a4d;
 }
 .ours .m {
