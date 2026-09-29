@@ -228,6 +228,20 @@ function fit(host: HTMLElement, regions: SimpleRegion[]): void {
   else packBalanced(host, regions, 7, 5);
   host.dataset.fontPx = String(best?.px ?? 5);
   host.dataset.cols = String(best?.ncols ?? 7);
+  // Balancing (packBalanced above) already spreads leftover room evenly, but each column can
+  // still end a few px short of or past its neighbours -- the actual row heights it happened to
+  // receive don't divide the target perfectly. Giving every column this SAME explicit height (the
+  // tallest one's own real content) lines up every column's bottom edge at one shared line instead
+  // of each keeping its own slightly different leftover margin. `.cols` itself no longer stretches
+  // its children to fill it (module CSS's own `align-items: flex-start`), so this is the only
+  // thing controlling each column's rendered height now -- safe to grow up to the tallest column
+  // without any risk of clipping, since every column's own content is already <= that height.
+  const cols = Array.from(host.children) as HTMLElement[];
+  const heights = cols.map((c) => realColHeight(c));
+  const maxHeight = heights.length ? Math.max(...heights) : 0;
+  cols.forEach((c) => {
+    c.style.height = `${maxHeight}px`;
+  });
 }
 
 export interface TopPriceSimpleProps {

@@ -67,6 +67,11 @@
   margin-top: 3.2mm;
   flex: 1 1 auto;
   min-height: 0;
+  /* Not the flex default (stretch) — TopPriceSimple.tsx sets each .col's own height explicitly
+     (the tallest column's real content, applied to every column) once packing is done, so their
+     bottoms all line up at the same edge instead of each keeping its own leftover margin. Stretch
+     would override that by forcing every column back to this row's own full height regardless. */
+  align-items: flex-start;
 }
 .col {
   flex: 1 1 0;
