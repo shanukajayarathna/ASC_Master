@@ -41,10 +41,14 @@ function AverageCell({ cell, bold }: { cell: TrendCell; bold?: boolean }) {
 export default function CategoryAverageTrendPage() {
   const { catalogues } = useCatalogue();
 
-  // Every sale, newest first (by sale year then sale number, not by import time).
+  // Every sale that has actually been auctioned (saleDateEnd set), newest first by sale year then
+  // sale number — not by import time. A sale uploaded ahead of its auction has no saleDateEnd yet
+  // and no results to show here, and loading one is slow (a full parse of that sale's own file);
+  // leaving it out of the picker keeps this page fast and keeps it from offering an empty result.
   const sales = useMemo(
     () =>
       catalogues
+        .filter((c) => !!c.saleDateEnd)
         .map((c) => ({ id: c.id, name: c.sourceName, year: c.year, no: Number(SALE_NAME.exec(c.sourceName)?.[1] ?? NaN) }))
         .filter((s) => Number.isFinite(s.no))
         .sort((a, b) => b.year - a.year || b.no - a.no),

@@ -51,13 +51,26 @@ public class CategoryAverageTrendController(ICatalogueSource source) : Controlle
     }
 
     /// <summary>The newest sale that actually has sold results, so the page opens on real figures
-    /// instead of an upcoming sale whose catalogue is loaded but hasn't sold yet.</summary>
+    /// instead of an upcoming sale whose catalogue is loaded but hasn't sold yet.
+    ///
+    /// Checked cheaply first: Catalogue.SaleDateEnd (read straight from the already-cached
+    /// per-sale metadata that ListCatalogues() returns — no full sale parse) is only ever set once
+    /// that sale's own "Selling End Time" column has real values, i.e. once the auction has actually
+    /// happened. A brand new catalogue, uploaded ahead of its sale, has every lot still Pending and
+    /// no Selling End Time yet, so this is null. Skipping those first avoids GetLots() — a full parse
+    /// of that sale's own ~10k-row, ~30MB file — for every upcoming sale sitting ahead of the real
+    /// latest one; on this app's own hardware that parse is slow enough (seconds each, uncached) that
+    /// scanning three or four upcoming sales in a row before finding a closed one made this endpoint
+    /// itself the slow part of the page, not the sale data. GetLots() is then only called on sales
+    /// that already look closed, and only until one actually has a Sold/Outsold lot (the same real
+    /// check as before — SaleDateEnd is just the fast pre-filter, not a substitute for it).</summary>
     [HttpGet("latest")]
     public ActionResult<LatestSaleWithResultsDto> Latest()
     {
         var all = SalesOldestFirst();
         for (var i = all.Count - 1; i >= 0; i--)
         {
+            if (all[i].Catalogue.SaleDateEnd is null) continue;
             var lots = source.GetLots(all[i].Catalogue.Id);
             if (lots is not null && lots.Any(CategoryAverageTrendEngine.IsSoldOrOutsold))
                 return Ok(new LatestSaleWithResultsDto(all[i].Catalogue.Id, all[i].Catalogue.SourceName));
