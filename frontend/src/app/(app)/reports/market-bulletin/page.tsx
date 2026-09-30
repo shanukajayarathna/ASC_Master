@@ -21,6 +21,7 @@ export default function MarketBulletinPage() {
 
   const [bulletin, setBulletin] = useState<MarketBulletin | null>(null);
   const [monthly, setMonthly] = useState<MonthlyComparison | null>(null);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -65,6 +66,7 @@ export default function MarketBulletinPage() {
     setMonthly(null);
     if (!activeCatalogueId) return;
     let cancelled = false;
+    setMonthlyLoading(true);
     api
       .getMarketBulletinMonthly(activeCatalogueId)
       .then((m) => {
@@ -72,6 +74,9 @@ export default function MarketBulletinPage() {
       })
       .catch(() => {
         if (!cancelled) setMonthly(null);
+      })
+      .finally(() => {
+        if (!cancelled) setMonthlyLoading(false);
       });
     return () => {
       cancelled = true;
@@ -188,6 +193,18 @@ export default function MarketBulletinPage() {
             catalogueId={activeCatalogueId ?? undefined}
             editable={editingRanges}
           />
+
+          {/* Page 4 (month-over-month comparison) touches every sale in a 2-month window and can
+              take up to a minute to build the first time a given month is viewed (see
+              pdfRender.ts's doc comment) — without this, the page simply appears absent while
+              still loading, since MarketBulletinBulletin renders nothing for it until `monthly`
+              arrives. */}
+          {monthlyLoading && !monthly && (
+            <div className="flex items-center justify-center gap-3 py-10 text-sm text-text-muted print:hidden">
+              <TeaLoader size={24} />
+              Building page 4 (month-over-month comparison) — this can take up to a minute the first time this month is viewed…
+            </div>
+          )}
         </div>
       )}
     </div>

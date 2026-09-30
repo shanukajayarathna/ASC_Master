@@ -1,3 +1,4 @@
+using Asc.Api.Modules.MarketBulletin;
 using Asc.Api.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.FileProviders;
@@ -129,12 +130,12 @@ public class SaleFileStoreTests
         var headers = new[]
         {
             "Broker", "Lot No", "Selling Mark", "Grade", "Invoice No", "Sub Elevation", "Sale Code", "Category",
-            "RP", "Trade Mark", "Bags", "Net Weight", "Total Weight", "Factory Name", "Factory",
+            "RP", "Trade Mark", "Bags", "Net Weight", "Total Weight", "Factory Name", "Factory", "Status", "Purchased Price",
         };
         string[][] rows =
         [
-            ["ASC", "1", "GREEN RIDGE", "BOP", "INV1", "L", "S1", "Low Grown", "No", "MF0344B", "10", "30", "300", "MATALE WEST TEA FACTORY", "MF0344"],
-            ["CT", "2", "GREEN RIDGE CTC", "BOP", "INV2", "L", "S1", "Low Grown", "Yes", "MF0344C", "8", "25", "200", "MATALE WEST TEA FACTORY", "MF0344"],
+            ["ASC", "1", "GREEN RIDGE", "BOP", "INV1", "L", "S1", "Low Grown", "No", "MF0344B", "10", "30", "300", "MATALE WEST TEA FACTORY", "MF0344", "Sold", "450"],
+            ["CT", "2", "GREEN RIDGE CTC", "BOP", "INV2", "L", "S1", "Low Grown", "Yes", "MF0344C", "8", "25", "200", "MATALE WEST TEA FACTORY", "MF0344", "Outsold", "0"],
         ];
 
         var wb = new XSSFWorkbook();
@@ -172,6 +173,33 @@ public class SaleFileStoreTests
         AssertSameReportFields(full, afterRestart);
     }
 
+    /// <summary>The actual regression this guards: MarketBulletinEngine/MarketBulletinMonthlyEngine
+    /// used to call the heavy GetLots (every one of a sale's ~60 raw columns, for every sale in a
+    /// 2-month window) — confirmed live taking 30-40+ seconds per call and blowing past the PDF
+    /// export's 30s Playwright timeout. They now call GetReportLots instead; this proves that slim
+    /// path alone still carries everything MarketBulletinEngine needs (Grade/Category/
+    /// PurchasedPrice/Status — none of which the Sharing Mark report that GetReportLots was
+    /// originally built for ever needed) to produce a correct, non-empty report end to end.</summary>
+    [Fact]
+    public void GetReportLots_FeedsMarketBulletinEngine_CorrectlyEndToEnd()
+    {
+        using var t = new TempStore();
+        WriteReportShapedSaleFile(Path.Combine(t.SalesDir, "06.xlsx"));
+        var id = SaleFileStore.CatalogueIdFor(2026, 6);
+
+        var slim = t.Store.GetReportLots(id)!;
+        var dto = MarketBulletinEngine.Build([.. slim], null, "Sale 6 - 2026", null);
+
+        // Only the ASC/"GREEN RIDGE"/BOP/Sold/450 lot passes ScopeToSold (the CT row is Outsold);
+        // TierSplitter puts a single lot in Below Best (n=1: cut1=cut2=0, cut3=1).
+        var lowGrown = dto.Sections.Single(s => s.Title == "Low Grown");
+        var bopTable = lowGrown.Tables.Single(x => x.GradeLabel == "BOP");
+        var belowBest = bopTable.Rows.Single(r => r.Label == "Below Best");
+        Assert.Equal(450m, belowBest.ThisWeek.Min);
+        Assert.Equal(450m, belowBest.ThisWeek.Max);
+        Assert.Equal(1, belowBest.ThisWeek.LotCount);
+    }
+
     private static void AssertSameReportFields(IReadOnlyList<Asc.Api.Models.Lot> expected, IReadOnlyList<Asc.Api.Models.Lot> actual)
     {
         Assert.Equal(expected.Count, actual.Count);
@@ -186,6 +214,12 @@ public class SaleFileStoreTests
             Assert.Equal(expected[i].SaleNo, actual[i].SaleNo);
             Assert.Equal(expected[i].NetWeight, actual[i].NetWeight);
             Assert.Equal(expected[i].IsReprint, actual[i].IsReprint);
+            // r2 fields — MarketBulletinEngine/MarketBulletinMonthlyEngine's own needs, added
+            // after the Sharing Mark report's original r1 shape (see ReportLotRow's own comment).
+            Assert.Equal(expected[i].Grade, actual[i].Grade);
+            Assert.Equal(expected[i].Category, actual[i].Category);
+            Assert.Equal(expected[i].PurchasedPrice, actual[i].PurchasedPrice);
+            Assert.Equal(expected[i].Status, actual[i].Status);
         }
     }
 

@@ -82,11 +82,20 @@ public static class MarketBulletinMonthlyEngine
         var (lastMonthYear, lastMonth) = targetMonth == 1 ? (target.Year - 1, 12) : (target.Year, targetMonth - 1);
         var lastMonthCalendar = source.SalesInMonth(lastMonthYear, lastMonth).OrderBy(w => w.SaleNo).ToList();
 
+        // ListCatalogues() is metadata-only (file stats + a small on-disk meta.json — see its own
+        // doc comment in SaleFileStore), read once here rather than calling GetCatalogue per slot
+        // below: GetCatalogue triggers the SAME heavy full-sale parse/cache as GetLots internally
+        // (LoadByCatalogueId -> LoadSale) purely to hand back a Catalogue's own SourceName, so a
+        // ~10-sale two-month window was paying that cost ten times over just for a page 4 that
+        // only ever wanted a name string — confirmed live taking 55-60+ seconds even after
+        // GetReportLots (below) replaced this method's own GetLots calls.
+        var byId = source.ListCatalogues().ToDictionary(c => c.Id);
+
         return new MonthlyComparisonDto(
             ThisMonthLabel: targetDate.ToString("MMMM yyyy"),
             LastMonthLabel: new DateTime(lastMonthYear, lastMonth, 1).ToString("MMMM yyyy"),
-            ThisMonth: BuildSlots(source, target.Year, thisMonthCalendar, cutoffSaleNo: targetSaleNo),
-            LastMonth: BuildSlots(source, lastMonthYear, lastMonthCalendar, cutoffSaleNo: null));
+            ThisMonth: BuildSlots(source, byId, target.Year, thisMonthCalendar, cutoffSaleNo: targetSaleNo),
+            LastMonth: BuildSlots(source, byId, lastMonthYear, lastMonthCalendar, cutoffSaleNo: null));
     }
 
     private static (int Month, DateTime Date)? ResolveTargetMonth(ICatalogueSource source, int year, int targetSaleNo)
@@ -107,14 +116,15 @@ public static class MarketBulletinMonthlyEngine
     /// its real SourceName is still shown if that sale has already been catalogued (matches the
     /// user's own confirmed behavior: "Sale 35 - 2026" labelled but empty, not a blank "Not
     /// yet").</summary>
-    private static List<MonthlySaleSlotDto> BuildSlots(ICatalogueSource source, int year, List<(int SaleNo, DateTime Date)> calendar, int? cutoffSaleNo)
+    private static List<MonthlySaleSlotDto> BuildSlots(
+        ICatalogueSource source, IReadOnlyDictionary<Guid, Catalogue> catalogueById, int year, List<(int SaleNo, DateTime Date)> calendar, int? cutoffSaleNo)
     {
         var slots = new List<MonthlySaleSlotDto>();
         for (var i = 0; i < calendar.Count; i++)
         {
             var saleNo = calendar[i].SaleNo;
             var catalogueId = SaleFileStore.CatalogueIdFor(year, saleNo);
-            var catalogue = source.GetCatalogue(catalogueId);
+            catalogueById.TryGetValue(catalogueId, out var catalogue);
 
             if (cutoffSaleNo is int cutoff && saleNo > cutoff)
             {
@@ -122,7 +132,7 @@ public static class MarketBulletinMonthlyEngine
                 continue;
             }
 
-            var lots = catalogue is not null ? source.GetLots(catalogueId) : null;
+            var lots = catalogue is not null ? source.GetReportLots(catalogueId) : null;
             if (catalogue is null || lots is null || lots.Count == 0)
             {
                 slots.Add(new MonthlySaleSlotDto(i + 1, null, null));

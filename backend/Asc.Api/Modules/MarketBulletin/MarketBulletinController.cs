@@ -21,11 +21,11 @@ public class MarketBulletinController(ICatalogueSource source) : ControllerBase
     public ActionResult<MarketBulletinDto> Get(Guid catalogueId)
     {
         var catalogue = source.GetCatalogue(catalogueId);
-        var lots = source.GetLots(catalogueId);
+        var lots = source.GetReportLots(catalogueId);
         if (catalogue is null || lots is null) return NotFound();
 
         var previous = PreviousCatalogue(source, catalogue);
-        var previousLots = previous is not null ? source.GetLots(previous.Id) : null;
+        var previousLots = previous is not null ? source.GetReportLots(previous.Id) : null;
 
         // Always the plain automatic computation — nothing here is ever saved (per explicit
         // instruction), so every fetch of this sale, including a page reload, sees the exact
@@ -56,7 +56,7 @@ public class MarketBulletinController(ICatalogueSource source) : ControllerBase
     public ActionResult<PriceRangeDto> PreviewRangeOverride(Guid catalogueId, RangeOverrideDto dto)
     {
         var catalogue = source.GetCatalogue(catalogueId);
-        var lots = source.GetLots(catalogueId);
+        var lots = source.GetReportLots(catalogueId);
         if (catalogue is null || lots is null) return NotFound();
         if (dto.Min > dto.Max) return BadRequest("Min cannot be greater than Max.");
 
@@ -64,7 +64,7 @@ public class MarketBulletinController(ICatalogueSource source) : ControllerBase
         var overrides = new Dictionary<MarketBulletinEngine.RowKey, (decimal Min, decimal Max)> { [key] = (dto.Min, dto.Max) };
 
         var previous = PreviousCatalogue(source, catalogue);
-        var previousLots = previous is not null ? source.GetLots(previous.Id) : null;
+        var previousLots = previous is not null ? source.GetReportLots(previous.Id) : null;
         var built = MarketBulletinEngine.Build(
             [.. lots],
             previousLots is null ? null : [.. previousLots],

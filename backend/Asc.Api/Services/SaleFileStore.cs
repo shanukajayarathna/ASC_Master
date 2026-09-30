@@ -709,8 +709,9 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
 
     private readonly Dictionary<(int Year, int SaleNo), (Signature Sig, List<Lot> Lots)> _reportLots = new();
 
-    /// <summary>On-disk shape of one slim lot: only the fields the Sharing Mark report reads.
-    /// Short JSON names keep the per-sale file small.</summary>
+    /// <summary>On-disk shape of one slim lot: only the fields any report built on GetReportLots
+    /// reads (originally just the Sharing Mark report's fields; extended for MarketBulletin's
+    /// own needs — see r2's own note below). Short JSON names keep the per-sale file small.</summary>
     private sealed class ReportLotRow
     {
         public string? B { get; set; }   // Broker
@@ -722,12 +723,22 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         public string? No { get; set; }  // SaleNo
         public decimal? W { get; set; }  // NetWeight
         public bool R { get; set; }      // IsReprint
+        // r2 additions — MarketBulletinEngine/MarketBulletinMonthlyEngine's own needs (grade
+        // tiers over the whole market's sold lots, not per-broker, so Broker above goes unused
+        // by that caller but every field below is required): Grade for LotsForFamily's grouping,
+        // Category for the Ex-estate section, PurchasedPrice for TierSplitter's own price cut,
+        // Status for TopPriceEngine.ScopeToSold's sold/unsold filter.
+        public string? G { get; set; }   // Grade
+        public string? C { get; set; }   // Category
+        public decimal? P { get; set; }  // PurchasedPrice
+        public string? St { get; set; } // Status
     }
 
     private static ReportLotRow ToReportRow(Lot l) => new()
     {
         B = l.Broker, M = l.Mark, S = l.SellingMark, F = l.Factory, N = l.FactoryName,
         E = l.Elevation, No = l.SaleNo, W = l.NetWeight, R = l.IsReprint,
+        G = l.Grade, C = l.Category, P = l.PurchasedPrice, St = l.Status,
     };
 
     // string.Intern: a handful of distinct brokers/marks/factories repeat across ~450k lots, so
@@ -740,12 +751,17 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         Broker = Intern(r.B), Mark = Intern(r.M), SellingMark = Intern(r.S), Factory = Intern(r.F),
         FactoryName = Intern(r.N), Elevation = Intern(r.E), SaleNo = Intern(r.No),
         NetWeight = r.W, IsReprint = r.R,
+        Grade = Intern(r.G), Category = Intern(r.C), PurchasedPrice = r.P, Status = Intern(r.St),
     };
 
     // Versioned with CacheSchemaVersion so a re-parse-worthy change to how lots are read also
-    // invalidates every slim copy derived from them; "r1" is this slim shape's own revision.
+    // invalidates every slim copy derived from them. "r1" was the Sharing Mark report's original
+    // shape; "r2" added Grade/Category/PurchasedPrice/Status for MarketBulletinEngine — bumped
+    // (not appended in place) so a persisted r1 file (missing these) never silently deserializes
+    // with nulls for them, which would have quietly zeroed out every Market Bulletin figure
+    // instead of triggering a clean, one-time re-derive from the already-cached full sale.
     private string ReportLotsCachePath(int year, int saleNo) =>
-        Path.Combine(CacheDir, $"report-lots-{CacheSchemaVersion}-r1-{year}-{saleNo}.json.gz");
+        Path.Combine(CacheDir, $"report-lots-{CacheSchemaVersion}-r2-{year}-{saleNo}.json.gz");
 
     /// <summary>See ICatalogueSource.GetReportLots. First call for a sale builds a compact
     /// copy from the existing full-sale cache (never inserting the full sale into the LRU, so

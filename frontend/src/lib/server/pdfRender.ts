@@ -34,7 +34,20 @@ export async function renderPrintRouteToPdf(requestUrl: string, printPath: strin
     const page = await context.newPage();
 
     await page.goto(printUrl.toString(), { waitUntil: "load", timeout: 30000 });
-    await page.waitForSelector('[data-ready="true"]', { timeout: 30000 });
+    // The Market Bulletin's own 4th-page data (MarketBulletinMonthlyEngine) touches every sale in
+    // a 2-month window; the FIRST time any one of those sales is read this way, SaleFileStore
+    // builds its own compact per-sale cache from the existing full-sale one — confirmed live at
+    // ~5-6s per untouched sale on an otherwise-idle machine, so a full cold window (~8-10 sales)
+    // can take 40-60s the very first time that month is ever viewed. 30s was tuned for the OTHER
+    // report (Top Price Page, one sale, a few seconds) and left this one failing on exactly that
+    // first view. Confirmed live on the actual dev machine this runs on (shared with other real
+    // work, so its free memory/CPU swings unpredictably): three otherwise-identical cold-ish runs
+    // measured 28.6s, 72.5s, and one that exceeded even 120s — the same request, same warm
+    // caches, wildly different wall-clock time purely from contention with whatever else that
+    // machine was doing at that moment. 180s buys real margin against that swing without the
+    // caller waiting meaningfully longer on the common case, which finishes in seconds once this
+    // month's sales are warm (that per-sale cache persists to disk, across restarts too).
+    await page.waitForSelector('[data-ready="true"]', { timeout: 180000 });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(150); // one paint settle past fonts.ready
 
