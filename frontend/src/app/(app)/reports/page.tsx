@@ -18,6 +18,7 @@ import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined
 import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
+import PercentOutlinedIcon from "@mui/icons-material/PercentOutlined";
 
 // Sub-destinations of Reports, not top-level modules — a local tile array rather than
 // NAV_ITEMS/nav.ts (which is the global launchpad). No `image` on the not-yet-built tiles:
@@ -138,6 +139,15 @@ const MODERN_REPORT_TILES: NavItem[] = [
     description: "Every estate ASC shares with another broker — catalogued Sale/MTD/YTD quantity per side, from the 8 broker pre-sale files, before the sale even happens.",
     icon: ShareOutlinedIcon,
     gradient: 7,
+  },
+  {
+    href: "/reports/shared-mark-catalogue-percent",
+    label: "Shared Mark Catalogues % Broker-wise",
+    section: "Reports",
+    status: "live",
+    description: "Every factory catalogued by two or more brokers, and each broker's percentage share of its catalogued quantity — by sale, month, year or a sale range.",
+    icon: PercentOutlinedIcon,
+    gradient: 2,
   },
   {
     href: "/reports/automated",

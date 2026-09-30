@@ -44,3 +44,20 @@ export function brokerPaletteCss(): string {
   const dark = Object.entries(BROKERS).map(([k, b]) => `--broker-${k}: ${b.colorDark};`).join(" ");
   return `:root { ${light} } :root[data-theme="dark"] { ${dark} }`;
 }
+
+/** MSL code keyed by company short code (ASC, BC, CT, ...) — the reverse of BrokerIdentity.code,
+ *  for reports whose own data (e.g. Shared Mark Catalogues %, read off /data/sales' "Broker"
+ *  column) already comes back in the short-code form rather than the MSL file code. */
+const MSL_CODE_BY_SHORT_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(BROKERS).map(([mslCode, b]) => [b.code, mslCode]),
+);
+
+export function brokerColorVarByShortCode(shortCode: string | null | undefined): string {
+  const mslCode = shortCode ? MSL_CODE_BY_SHORT_CODE[shortCode.toUpperCase()] : undefined;
+  return mslCode ? `var(--broker-${mslCode})` : "var(--brand-gold)";
+}
+
+/** Canonical broker column order (the portal donut's own order) — filter this down to whichever
+ *  short codes a report's data actually contains, rather than sorting alphabetically, so a
+ *  broker's column position stays stable across reports. */
+export const BROKER_SHORT_CODES_ORDERED: string[] = Object.values(BROKERS).map((b) => b.code);
