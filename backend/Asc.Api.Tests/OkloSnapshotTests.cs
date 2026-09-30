@@ -191,6 +191,28 @@ public class OkloSnapshotTests
     }
 
     [Fact]
+    public async Task Backfill_PrefersTheNeedierYear_OverSimplyTheNewestMissingSaleAcrossAllYears()
+    {
+        // Year 2025 (older) has nothing snapshotted yet (2 of 2 missing); year 2026 (newer, and with a newer sale than
+        // anything in 2025) already has most of its sales done (1 of 3 missing). Picking "the newest missing sale overall"
+        // would pick straight from 2026 every time and never let 2025 get a turn once 2026 has ANY gap - which is exactly
+        // what starved a whole year in practice. 2025 should go first here, even though its sales are all older.
+        var feed = new Feed { Lots = MakeLots(20) };
+        feed.Catalogs =
+        [
+            Cat(1, 1, new DateTime(2025, 1, 5)), Cat(2, 2, new DateTime(2025, 1, 12)),
+            Cat(3, 1, new DateTime(2026, 1, 4)), Cat(4, 2, new DateTime(2026, 1, 11)), Cat(5, 3, new DateTime(2026, 1, 18)),
+        ];
+        using var rig = new Rig(feed);
+        await rig.Live.RefreshDirectoryAsync();
+        // 2026's sale 1 already has a snapshot (only sales 2 and 3 of 2026 are missing) - 1 of 3 missing, vs 2025's 2 of 2.
+        rig.Snapshots.Data[SaleFileStore.CatalogueIdFor(2026, 1)] = new SaleSnapshot(SaleFileStore.CatalogueIdFor(2026, 1), 2026, 1, DateTime.UtcNow, 20, MakeLots(20));
+
+        Assert.True(await rig.Live.BackfillNextAsync(default));
+        Assert.Equal(2, feed.PulledCatalogs.Single());   // 2025's newest (sale 2, catalog id 2) - not 2026's sale 3, the newest overall
+    }
+
+    [Fact]
     public async Task Backfill_DoesNotStoreAPartialPull_AndBacksOffFromAFailingSale()
     {
         var feed = new Feed { Lots = MakeLots(40), Down = true, Catalogs = [Cat(11, 10, new DateTime(2024, 3, 5))] };

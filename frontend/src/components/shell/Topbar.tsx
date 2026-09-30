@@ -7,6 +7,7 @@ import { useThemeMode } from "@/context/ThemeModeContext";
 import { api } from "@/lib/api";
 import type { AppNotification } from "@/types/api";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
@@ -260,6 +261,35 @@ interface TopbarProps {
   onSearchClick: () => void;
 }
 
+/** True once a sale is open for bidding on OKLO right now - checked on mount and every 2 minutes (the sale list's own
+ *  refresh window), so the pulsing dot never lags more than that behind reality. */
+function LiveAuctionButton() {
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => api.getLiveSale().then((r) => { if (!cancelled) setLive(r.live); }).catch(() => {});
+    check();
+    const timer = setInterval(check, 120_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+  return (
+    <Tooltip title={live ? "A sale is open for bidding right now - watch it live" : "Watch the next live auction here"}>
+      <Link
+        href="/live-auction"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[12px] font-semibold no-underline transition-colors shrink-0"
+        style={
+          live
+            ? { borderColor: "var(--danger, #b3261e)", color: "var(--danger, #b3261e)", background: "var(--danger-light, #fde3e3)" }
+            : { borderColor: "var(--border)", color: "var(--text-muted)", background: "var(--surface)" }
+        }
+      >
+        <RadioButtonCheckedIcon sx={{ fontSize: 13 }} className={live ? "animate-pulse" : undefined} />
+        {live ? "Live Auction" : "Watch Live"}
+      </Link>
+    </Tooltip>
+  );
+}
+
 const PAGES_WITH_OWN_SALE_PICKER = ["/catalogue", "/reports/top-price-page", "/reports/worksheet"];
 
 export default function Topbar({ onSearchClick }: TopbarProps) {
@@ -306,6 +336,8 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
           </span>
         </Link>
       </Tooltip>
+
+      <LiveAuctionButton />
 
       <button
         type="button"

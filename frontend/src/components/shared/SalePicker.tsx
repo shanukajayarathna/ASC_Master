@@ -15,9 +15,22 @@ export function shortSaleName(sourceName: string): string {
  * Year + Sale dropdowns that choose the app's active sale (shared with the header, the Catalogue Manager and every page that
  * reads the active sale). Pick a year to list that year's sales, then pick the sale.
  */
-export default function SalePicker({ className }: { className?: string }) {
+export default function SalePicker({
+  className,
+  value,
+  onChange,
+}: {
+  className?: string;
+  /** Controlled mode: picks a sale locally (e.g. the Live Auction page watching one sale at a time) instead of the
+   *  app's shared active sale. Omit both to get the default, app-wide behavior. */
+  value?: string | null;
+  onChange?: (catalogueId: string | null) => void;
+}) {
   const { catalogues, activeCatalogueId, selectCatalogue, refreshList } = useCatalogue();
-  const activeCatalogue = catalogues.find((c) => c.id === activeCatalogueId) ?? null;
+  const controlled = value !== undefined;
+  const selectedId = controlled ? value : activeCatalogueId;
+  const setSelectedId = controlled ? onChange! : selectCatalogue;
+  const activeCatalogue = catalogues.find((c) => c.id === selectedId) ?? null;
   // Every year that actually has a sale on file, newest first - independent of which sale is active.
   const years = useMemo(() => Array.from(new Set(catalogues.map((c) => c.year))).sort((a, b) => b - a), [catalogues]);
   // The year being browsed: follows the active sale until the user opens a different year, and resets once they pick a sale.
@@ -50,9 +63,9 @@ export default function SalePicker({ className }: { className?: string }) {
       </Select>
       <Select
         size="small"
-        value={activeCatalogue?.year === pickerYear ? (activeCatalogueId ?? "") : ""}
+        value={activeCatalogue?.year === pickerYear ? (selectedId ?? "") : ""}
         onChange={(e) => {
-          selectCatalogue(e.target.value || null);
+          setSelectedId(e.target.value || null);
           setBrowsingYear(null);
         }}
         onOpen={() => refreshList()}

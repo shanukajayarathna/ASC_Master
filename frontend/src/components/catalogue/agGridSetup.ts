@@ -23,7 +23,10 @@ import {
 // actually uses (client-side rows, text/number filters+editors, pagination, checkbox row
 // selection, tooltips, column auto-size for sizeColumnsToFit). ValidationModule is
 // dev-only — it logs a clear console error naming any feature used without its module
-// registered, which is how this list should be extended if the grid grows.
+// registered, which is how this list should be extended if the grid grows. A grid in a
+// different route (e.g. LiveAuctionGrid.tsx) registers its own modules directly instead of
+// importing this file - a side-effect-only import did not reliably run before that grid
+// rendered, being in a different page bundle chunk.
 ModuleRegistry.registerModules([
   ClientSideRowModelModule,
   TextFilterModule,

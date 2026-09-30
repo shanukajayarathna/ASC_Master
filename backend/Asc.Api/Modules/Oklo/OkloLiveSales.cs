@@ -196,6 +196,12 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
 
     public LiveSaleRef? Find(Guid catalogueId) => _byId.GetValueOrDefault(catalogueId);
 
+    /// <summary>The sale currently accepting bids on OKLO right now (StatusId 3, "Open" — see OkloClient's status list),
+    /// if any. Distinct from the "Live" TTL tier above, which is date-based only and would also match a sale that
+    /// happened today but has already closed.</summary>
+    public LiveSaleRef? CurrentlyOpenSale() =>
+        Directory.Where(r => r.Catalog.StatusId == 3).OrderByDescending(r => r.Catalog.AuctionDate).FirstOrDefault();
+
     /// <summary>True when the id is an OKLO sale served live. Waits (bounded) for the very first
     /// directory load, so the first request after startup isn't wrongly treated as "not live".</summary>
     public async Task<bool> IsLiveAsync(Guid catalogueId)
@@ -635,16 +641,32 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
     /// waiting on. Returns true when it did (or tried) a pull, so the caller paces the next one.</summary>
     public async Task<bool> BackfillNextAsync(CancellationToken ct)
     {
-        if (!Enabled || IsBusy) return false;
+        // Only the background lane itself matters here, not "is anything at all loading" - a person's own sale, or a
+        // routine hot-sale refresh, already yields Gate time to backfill fairly (Gate serializes actual OKLO requests
+        // process-wide regardless); backing off completely just because something unrelated is mid-refresh meant backfill
+        // sat idle for most of the time the app was open, since a hot sale refreshes every couple of minutes.
+        if (!Enabled || _backgroundLoads.CurrentCount == 0) return false;
         EnsureSnapshotIndexLoaded();
         var now = DateTime.UtcNow;
-        var next = Directory
+        var candidates = Directory
             .Where(r => !(_backfillFailures.TryGetValue(r.CatalogueId, out var failed) && now - failed < TimeSpan.FromMinutes(30)))
             .Select(r => (Sale: r, Has: _snapshotAges.TryGetValue(r.CatalogueId, out var at), At: at))
             // Missing snapshots first; a stored one only when the sale is still active and the pull is 6h+ old
             // (finished sales are final, so their snapshot is never re-pulled).
             .Where(x => !x.Has || (TierOf(x.Sale) != Activity.Archive && now - x.At > TimeSpan.FromHours(6)))
-            .OrderBy(x => x.Has ? 1 : 0).ThenByDescending(x => x.Sale.Catalog.AuctionDate)
+            .ToList();
+        // The neediest YEAR goes first (fewest of its sales snapshotted so far, as a fraction of that year's total on
+        // file) - not simply the newest sale overall. Newest-sale-first across the whole directory meant a year with
+        // any gap at all (e.g. the current year, constantly growing new sales) permanently starved every older year:
+        // it always had a newer candidate, so nothing else ever got a turn. Within the chosen year, newest first still
+        // applies - a person is more likely to open a recent sale of whichever year they're looking at.
+        var stillNeeded = candidates.Select(x => x.Sale.CatalogueId).ToHashSet();
+        var neededFraction = Directory.GroupBy(r => r.Year)
+            .ToDictionary(g => g.Key, g => (double)g.Count(r => stillNeeded.Contains(r.CatalogueId)) / g.Count());
+        var next = candidates
+            .OrderBy(x => x.Has ? 1 : 0)
+            .ThenByDescending(x => neededFraction.GetValueOrDefault(x.Sale.Year))
+            .ThenByDescending(x => x.Sale.Catalog.AuctionDate)
             .Select(x => x.Sale)
             .FirstOrDefault();
         if (next is null) return false;

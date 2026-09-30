@@ -34,7 +34,10 @@ public class OkloOptions
     /// <summary>How often older sales are re-checked once they've been imported.</summary>
     public int ArchiveRefreshHours { get; set; } = 24;
     /// <summary>Pause after each archive/back-fill sale, so a long import leaves the machine responsive.</summary>
-    public int BackgroundPauseSeconds { get; set; } = 20;
+    // Gate (OkloClient's process-wide one-request-at-a-time cap) already serializes real OKLO usage, so this pause is
+    // purely a local courtesy gap between backfill steps, not a throttle on OKLO itself - kept short so the backlog
+    // (hundreds of sales, each also taking real time on OKLO's side) actually clears at a reasonable pace.
+    public int BackgroundPauseSeconds { get; set; } = 5;
     /// <summary>How often the catalogue list is re-read to notice new sales.</summary>
     public int CatalogListMinutes { get; set; } = 15;
     /// <summary>Earliest auction year the back-fill imports. Defaults to 2024 — what the app had as files

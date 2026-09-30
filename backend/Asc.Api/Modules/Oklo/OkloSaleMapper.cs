@@ -75,6 +75,12 @@ public static class OkloSaleMapper
         ("Outlot Setting Type", ""), ("Selling End Time", ""), ("Producer", ""), ("Final Buyer", "Buyer Company Name"),
         ("", "Buyer Code"), ("", "Buyer Company User"), ("Final Price", "Price"), ("", "Total Value"),
         ("Transaction Type", ""), (AuctionItemIdHeader, ""),
+        // Appended after the historically-matched layout (like AuctionItemIdHeader above) rather than naming the blank
+        // "Buyer Company" cells above in place - those positions must stay byte-for-byte identical to the original
+        // Excel export so old files and OKLO-built ones parse to the same table. OKLO already gives the highest and
+        // second-highest bidder's own company name per lot (HighestBidBuyerName/SecondHighestBidBuyerName) - these two
+        // extra columns are the one place that identity is exposed by a real header, for the Live Auction watch page.
+        ("Highest Bidder", ""), ("Second Highest Bidder", ""),
     ];
 
     // The original export's second header row starts blank; the API-built one names only
@@ -101,6 +107,7 @@ public static class OkloSaleMapper
         S(l.OutlotSettingType), SellingEndTime(l.SellingEndTime), S(l.ProducerParentCompany), S(l.FinalBuyerCompany),
         S(l.FinalBuyerCode), S(l.FinalBuyerUserName), N(l.FinalPrice), N(l.FinalTotalValue),
         S(l.PostSaleType), l.AuctionItemId.ToString(CultureInfo.InvariantCulture),
+        S(l.HighestBidBuyerName), S(l.SecondHighestBidBuyerName),
     ];
 
     private static string S(string? v) => v?.Trim() ?? "";

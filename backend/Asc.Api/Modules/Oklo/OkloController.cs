@@ -15,6 +15,17 @@ namespace Asc.Api.Modules.Oklo;
 [Authorize]
 public class OkloController(OkloSyncService sync, OkloSyncBackgroundService background) : ControllerBase
 {
+    /// <summary>The sale currently open for bidding on OKLO right now, if any - for the "watch the live auction" page.
+    /// Open to every signed-in user, like freshness/refresh-now (no data beyond what the catalogue itself already shows).</summary>
+    [HttpGet("live-sale")]
+    public IActionResult LiveSale([FromServices] OkloLiveSales live)
+    {
+        var sale = live.CurrentlyOpenSale();
+        return Ok(sale is null
+            ? new LiveSaleDto(false, null, null, null, null, null)
+            : new LiveSaleDto(true, sale.CatalogueId, sale.Year, sale.SaleNo, $"Sale {sale.SaleNo} - {sale.Year}", sale.Catalog.AuctionDate));
+    }
+
     /// <summary>When the newest OKLO data was checked, for an "as of hh:mm" stamp in the UI.</summary>
     [HttpGet("freshness")]
     public IActionResult Freshness() =>
@@ -75,3 +86,6 @@ public class OkloController(OkloSyncService sync, OkloSyncBackgroundService back
 
 /// <summary>Body of POST /api/oklo/refresh-now: the sales the page is working with (optional).</summary>
 public record RefreshNowRequest(List<Guid>? CatalogueIds);
+
+/// <summary>GET /api/oklo/live-sale: the sale open for bidding right now, if any.</summary>
+public record LiveSaleDto(bool Live, Guid? CatalogueId, int? Year, int? SaleNo, string? SourceName, DateTime? AuctionDate);
