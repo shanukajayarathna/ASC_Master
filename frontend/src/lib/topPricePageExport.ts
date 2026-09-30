@@ -148,35 +148,13 @@ export function buildAutoCategories(combined: CombinedReport): TppAutoCategory[]
     });
     return {
       title: region,
-      grades: groups.map((g) => ({ grade: g.grade, block: g.block, rows: dedupeSameMarkPrice([...g.rows].sort((a, b) => b.price - a.price)) })),
+      // No dedup: every ranked row in this grade group prints, including a broker's own lot
+      // appearing more than once in the source data (a literal repeat), and two different
+      // brokers tying on the same mark and price (two real, distinct lots) — the page always
+      // reflects the underlying report data as-is, not a filtered subset of it.
+      grades: groups.map((g) => ({ grade: g.grade, block: g.block, rows: [...g.rows].sort((a, b) => b.price - a.price) })),
     };
   });
-}
-
-/** Drops a row that repeats the exact same Selling Mark AND price as one already kept earlier in
- *  this grade group — same mark, same price is a redundant line on the printed page (it tells the
- *  reader nothing a single line hasn't already), not a second real ranking entry. Keeps whichever
- *  occurrence is `isOurs` when the duplicates disagree on that — an ASC-highlighted row must never
- *  be the one silently dropped just because a plain duplicate of the same mark/price happened to
- *  sort ahead of it (rows only sort by price, so two rows tied on mark+price keep whatever relative
- *  order the report data itself gave them, which has nothing to do with which one is ASC's). Falls
- *  back to the first occurrence when neither (or both) duplicate is `isOurs`, since then they're
- *  interchangeable. Applies identically to the Excel export and the HTML bulletin, since both read
- *  from this same `TppGradeGroup.rows` array. */
-function dedupeSameMarkPrice(rows: RankedLotRow[]): RankedLotRow[] {
-  const kept = new Map<string, RankedLotRow>();
-  const order: string[] = [];
-  for (const r of rows) {
-    const key = `${r.sellingMark} ${r.price}`;
-    const existing = kept.get(key);
-    if (!existing) {
-      kept.set(key, r);
-      order.push(key);
-    } else if (r.isOurs && !existing.isOurs) {
-      kept.set(key, r);
-    }
-  }
-  return order.map((key) => kept.get(key)!);
 }
 
 // ---- MASONRY PAGE LAYOUT — port of asc-studio.js's estimateTppAutoCardHeight/

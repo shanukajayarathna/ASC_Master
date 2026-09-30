@@ -85,18 +85,81 @@ function realColHeight(col: HTMLElement): number {
   return last.getBoundingClientRect().bottom - col.getBoundingClientRect().top;
 }
 
+/** Font size the widest real grade code/CTC elevation label is measured at (measureGradeRefWidth)
+ *  — arbitrary but large enough that sub-pixel rounding in the measurement doesn't meaningfully
+ *  skew the width `pack` later scales down to the actual `px` in play (text width scales linearly
+ *  with font size for a given string, so one measurement at a big reference size covers every
+ *  candidate size the fit search tries). */
+const GRADE_REF_PX = 100;
+
+/** How much horizontal padding beyond the raw measured text width `.g`'s column gets — covers
+ *  `.g`'s own box-model rounding and keeps the grade code from sitting flush against the column
+ *  edge (matches the visual breathing room the old flat 15.5mm gave short codes, without paying
+ *  for it on every row regardless of how short THIS sale's codes actually are). */
+const GRADE_WIDTH_PAD = 7;
+
+/** The real rendered width (in px, at GRADE_REF_PX) of THIS sale's single longest grade code or
+ *  CTC elevation sub-label (whichever needs more room) — measured directly with a throwaway
+ *  offscreen span rather than estimated from character count, since a proportional font's glyph
+ *  widths vary too much per-character for a flat ratio to size the column without either clipping
+ *  a wide code (letters like F/P/W run wider than a ratio tuned for the average) or wasting room
+ *  padding for one that never occurs in this sale's own data. `pack` scales this down linearly to
+ *  whatever `px` it's actually trying, so this only needs computing ONCE per sale, not once per
+ *  candidate font size — the codes/labels rendered don't change, only their size does. Considers
+ *  the sub-label (`.g small`, 0.72em/weight 400) alongside the grade code (full size/weight 700)
+ *  since a CTC region's "Western Medium" can need more room than any grade code in the sale. */
+function measureGradeRefWidth(regions: SimpleRegion[]): number {
+  const span = document.createElement("span");
+  span.style.position = "absolute";
+  span.style.visibility = "hidden";
+  span.style.whiteSpace = "nowrap";
+  span.style.fontFamily = "'Segoe UI', Arial, Helvetica, sans-serif";
+  document.body.appendChild(span);
+
+  const grades = new Set<string>();
+  const subs = new Set<string>();
+  for (const reg of regions)
+    for (const r of reg.rows) {
+      grades.add(r.grade);
+      if (r.sub) subs.add(r.sub);
+    }
+
+  const measure = (text: string, fontWeight: number, relSize: number) => {
+    span.style.fontWeight = String(fontWeight);
+    span.style.fontSize = `${GRADE_REF_PX * relSize}px`;
+    span.textContent = text;
+    return span.getBoundingClientRect().width;
+  };
+  let widest = 0;
+  for (const g of grades) widest = Math.max(widest, measure(g, 700, 1));
+  for (const s of subs) widest = Math.max(widest, measure(s, 400, 0.72));
+
+  document.body.removeChild(span);
+  return widest;
+}
+
 /** Fills `ncols` columns with region blocks at font size `px`, in reading order, breaking between
  *  rows when a column is full ("(continued)" header + repeated grade label on the next column).
- *  Returns false as soon as content can't fit — real rendered heights, not an estimate, so a
- *  `true` here means the sheet genuinely fits. `target`, when given, makes this BALANCE instead of
- *  greedily filling each column to the budget before moving on: once a non-empty column's real
- *  content reaches `target`, the next row moves to a fresh column even though there'd still be
- *  room left — see `packBalanced` below for why (a plain greedy fill left trailing columns mostly
- *  or entirely empty on real sales). The hard budget check still applies regardless — `target` can
- *  only make a page LESS full than it's allowed to be, never overflow it. */
-function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number, target?: number): boolean {
+ *  `cap`, when given, makes this BALANCE instead of greedily filling each column to the budget
+ *  before moving on: a non-empty column advances to the next one as soon as its own real content
+ *  reaches `cap`, and — unlike the page's hard `budget` — `cap` applies to EVERY column, including
+ *  the last, so content that still doesn't fit in `ncols` columns at this `cap` is a real failure
+ *  (returns false) rather than silently spilling into the last column regardless of `cap`. That's
+ *  what lets `packBalanced` below binary-search for the smallest `cap` that still fits everything
+ *  in `ncols` columns: at that tightest feasible `cap`, no column can be far short of it, because a
+ *  meaningfully shorter one would mean `cap` still had room to spare and a smaller `cap` would have
+ *  been feasible too — see packBalanced's own comment for why a single flat `total/ncols` guess
+ *  (this function's own previous behaviour) doesn't have that property and left a real sale's last
+ *  column 42px shorter than its neighbours. Returns false as soon as content can't fit at all (even
+ *  the hard `budget`) — real rendered heights, not an estimate, so a `true` here means the sheet
+ *  genuinely fits. `gradeRefW`, when given, sets `.g`'s width (via the `--grade-w` custom property
+ *  `.g` reads) to that sale's own real grade-column need at this `px` — see measureGradeRefWidth. */
+function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number, cap?: number, gradeRefW?: number): boolean {
   host.replaceChildren();
   host.style.fontSize = `${px}px`;
+  if (gradeRefW !== undefined) {
+    host.style.setProperty("--grade-w", `${Math.ceil((gradeRefW * px) / GRADE_REF_PX + GRADE_WIDTH_PAD)}px`);
+  }
   const cols: HTMLElement[] = [];
   for (let i = 0; i < ncols; i++) {
     const c = el("div", styles.col);
@@ -110,8 +173,9 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
     for (let i = 0; i < reg.rows.length; i++) {
       const r = reg.rows[i];
       for (;;) {
-        if (target !== undefined && ci < ncols - 1 && cols[ci].childNodes.length > 0 && realColHeight(cols[ci]) >= target) {
+        if (cap !== undefined && cols[ci].childNodes.length > 0 && realColHeight(cols[ci]) >= cap) {
           ci++;
+          if (ci >= ncols) return false;
           needHeader = true;
           continue;
         }
@@ -156,18 +220,32 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
 
 /** Packs once plainly (greedy — fills each column to the budget before moving to the next) purely
  *  to learn the REAL total content height at this px/ncols (the sum of every column's own real
- *  content — the same number regardless of how it happens to be distributed across columns), then
- *  packs again with that total spread evenly as a per-column target. A sale's content rarely
- *  divides evenly across a fixed 6 or 7 columns — greedy-fill dumps the entire remainder on
- *  whichever column runs out of content last, which measured as much as an ENTIRE empty trailing
- *  column, or a column using barely a quarter of its budget, on real sales. Same trade this file's
- *  own two-pass balancing already makes elsewhere: a plain-greedy result is still returned if
- *  balancing can't be computed (e.g. genuinely no content), but never used when it can. */
-function packBalanced(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number): boolean {
-  if (!pack(host, regions, ncols, px)) return false;
+ *  content — the same number regardless of how it happens to be distributed across columns) and
+ *  confirm it fits in `ncols` columns at all. Then binary-searches `pack`'s own `cap` for the
+ *  SMALLEST value that still fits everything in `ncols` columns — not one flat `total/ncols` guess
+ *  used as a per-column target. A flat guess sounds even but isn't: `pack`'s cap check only fires
+ *  AFTER a row is added (so every column ends up cap-or-a-row-over, never under), and that small
+ *  per-column overshoot eats into what's left for every column after it, compounding forward with
+ *  nothing to correct it — confirmed directly on a real sale, where a flat guess left the LAST
+ *  column 42px shorter than its neighbours (605px against 641-647px). The binary search instead
+ *  finds the tightest cap the content can be squeezed into `ncols` columns at all: any real column
+ *  meaningfully short of THAT cap would mean the cap had spare room to give, which would make an
+ *  even smaller cap feasible too — contradicting it being the smallest one found. 24 steps of a
+ *  search starting from a `total/ncols`-to-`budget` range converges to sub-pixel precision, cheap
+ *  next to the rest of `fit`'s own font-size sweep. */
+function packBalanced(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number, gradeRefW?: number): boolean {
+  if (!pack(host, regions, ncols, px, undefined, gradeRefW)) return false;
   const total = Array.from(host.children).reduce((sum, col) => sum + realColHeight(col as HTMLElement), 0);
   if (total <= 0) return true;
-  return pack(host, regions, ncols, px, total / ncols);
+
+  let lo = total / ncols;
+  let hi = host.clientHeight;
+  for (let i = 0; i < 24 && hi - lo > 0.5; i++) {
+    const mid = (lo + hi) / 2;
+    if (pack(host, regions, ncols, px, mid, gradeRefW)) hi = mid;
+    else lo = mid;
+  }
+  return pack(host, regions, ncols, px, hi, gradeRefW);
 }
 
 /** Whether any mark in the just-packed host had to break WITHIN a word — overflow-wrap:anywhere
@@ -197,35 +275,85 @@ function anyMidWordBreak(host: HTMLElement): boolean {
   return false;
 }
 
-/** Largest font size (px) at which everything fits in `ncols` columns AND no mark breaks
- *  mid-word — or, failing that (scanned all the way to the floor with every fitting size still
- *  splitting some word), the largest size that at least fits, mid-word splits accepted as a last
- *  resort rather than losing rows. `clean` tells the caller which of the two it got. */
-function largestFit(host: HTMLElement, regions: SimpleRegion[], ncols: number): { px: number; clean: boolean } | null {
-  let dirtyBest: number | null = null;
-  for (let px = 16; px >= 5; px -= 0.25) {
-    if (!packBalanced(host, regions, ncols, px)) continue;
-    if (dirtyBest === null) dirtyBest = px;
-    if (!anyMidWordBreak(host)) return { px, clean: true };
-  }
-  return dirtyBest === null ? null : { px: dirtyBest, clean: false };
+/** How much blank room is left under the SHORTEST column at the size/column-count `host` was just
+ *  packed at, against the page budget — not the tallest column's own shortfall. `fit`'s final
+ *  alignment step (below) always stretches every column's box up to the TALLEST column's real
+ *  height, so once that runs, the shortest column's own blank space is exactly what becomes
+ *  visible: a column-shaped gap of empty space below its last real row, looking like a mistake
+ *  rather than a page that's merely not 100% full (confirmed directly: a candidate whose tallest
+ *  column used 647 of a 653 budget still put a 42px visible gap under its shortest column, because
+ *  only the tallest column's own fullness was being checked here before). Checking the tallest
+ *  column alone can't see that — two columns can be equally "nearly full at the top" while one of
+ *  them is dramatically shorter than the other. */
+function blankOf(host: HTMLElement): number {
+  const budget = host.clientHeight;
+  const cols = Array.from(host.children) as HTMLElement[];
+  const heights = cols.map((c) => realColHeight(c));
+  return budget - (heights.length ? Math.min(...heights) : 0);
 }
 
-/** Tries both 6 and 7 columns and picks the best result — a clean (no mid-word split) fit always
- *  wins over a dirty one regardless of font size, since an ugly split matters more than a slightly
- *  smaller page; among same-cleanliness results, the larger font size wins. Only when NEITHER
- *  column count can avoid a split anywhere does the largest font size settle for one. */
+/** Two fit candidates only really differ when the gap between how much blank space each leaves
+ *  behind is bigger than about a row's worth (a couple of these sales' rows land within ~10-15px
+ *  of each other in real measurements) — below that, it's noise from the same discrete rows
+ *  landing slightly differently across columns, not a real difference in how well either uses the
+ *  page, so the larger, more readable font wins instead. Above it, real unused room matters more
+ *  than a marginally bigger font. */
+const BLANK_TOLERANCE_PX = 15;
+function pickFitter<T extends { px: number; blank: number }>(candidates: T[]): T | null {
+  if (candidates.length === 0) return null;
+  return candidates.reduce((a, b) => {
+    if (b.blank < a.blank - BLANK_TOLERANCE_PX) return b;
+    if (a.blank < b.blank - BLANK_TOLERANCE_PX) return a;
+    return b.px > a.px ? b : a;
+  });
+}
+
+/** Largest-font-with-least-blank-space fit in `ncols` columns AND no mark breaking mid-word — or,
+ *  failing that (scanned all the way to the floor with every fitting size still splitting some
+ *  word), the fitting size with the least blank space, mid-word splits accepted as a last resort
+ *  rather than losing rows. `clean` tells the caller which of the two it got. Sweeps the WHOLE
+ *  range rather than stopping at the first size that fits: a slightly smaller font sometimes packs
+ *  noticeably tighter than the largest one that still technically fits, because rows only ever
+ *  move between columns in whole units — one row tipping over a column's budget can cascade and
+ *  leave a later column with real room to spare, which a bigger nearby size doesn't. */
+function largestFit(host: HTMLElement, regions: SimpleRegion[], ncols: number, gradeRefW: number): { px: number; blank: number; clean: boolean } | null {
+  let bestClean: { px: number; blank: number } | null = null;
+  let bestDirty: { px: number; blank: number } | null = null;
+  for (let px = 16; px >= 5; px -= 0.25) {
+    if (!packBalanced(host, regions, ncols, px, gradeRefW)) continue;
+    const blank = blankOf(host);
+    if (!anyMidWordBreak(host)) {
+      const candidate = { px, blank };
+      bestClean = pickFitter(bestClean ? [bestClean, candidate] : [candidate]);
+      // Already using the page about as fully as makes any visible difference — no need to keep
+      // scanning smaller sizes purely to shave off a few more px of blank space.
+      if (bestClean && bestClean.blank < 3) break;
+    } else if (!bestDirty) {
+      bestDirty = { px, blank };
+    }
+  }
+  if (bestClean) return { ...bestClean, clean: true };
+  return bestDirty ? { ...bestDirty, clean: false } : null;
+}
+
+/** Tries several column counts and picks the result that leaves the least blank space on the
+ *  page (within `BLANK_TOLERANCE_PX`, where the larger font wins instead) — a clean (no mid-word
+ *  split) fit always wins over a dirty one regardless of fill, since an ugly split matters more
+ *  than a slightly emptier page. Column count alone can swing how evenly a sale's rows divide up
+ *  far more than font size does: real sales measured leaving 100+px of a ~650px-tall column empty
+ *  at 6 or 7 columns, when 5 columns fit the exact same content with room to spare. */
 function fit(host: HTMLElement, regions: SimpleRegion[]): void {
-  const results: { px: number; ncols: number; clean: boolean }[] = [];
-  for (const ncols of [6, 7]) {
-    const r = largestFit(host, regions, ncols);
-    if (r) results.push({ px: r.px, ncols, clean: r.clean });
+  const gradeRefW = measureGradeRefWidth(regions);
+  const results: { px: number; ncols: number; clean: boolean; blank: number }[] = [];
+  for (const ncols of [5, 6, 7, 8]) {
+    const r = largestFit(host, regions, ncols, gradeRefW);
+    if (r) results.push({ px: r.px, ncols, clean: r.clean, blank: r.blank });
   }
   const clean = results.filter((r) => r.clean);
   const pool = clean.length ? clean : results;
-  const best = pool.length ? pool.reduce((a, b) => (b.px > a.px + 0.01 ? b : a)) : null;
-  if (best) packBalanced(host, regions, best.ncols, best.px);
-  else packBalanced(host, regions, 7, 5);
+  const best = pickFitter(pool);
+  if (best) packBalanced(host, regions, best.ncols, best.px, gradeRefW);
+  else packBalanced(host, regions, 7, 5, gradeRefW);
   host.dataset.fontPx = String(best?.px ?? 5);
   host.dataset.cols = String(best?.ncols ?? 7);
   // Balancing (packBalanced above) already spreads leftover room evenly, but each column can

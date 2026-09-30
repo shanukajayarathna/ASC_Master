@@ -114,7 +114,14 @@
 }
 .g {
   flex: 0 0 auto;
-  width: 15.5mm;
+  /* Set by TopPriceSimple.tsx's fit() to the real rendered width of THIS sale's own longest grade
+     code/CTC elevation label at the current font size (measureGradeRefWidth), not a flat guess —
+     real sale data measured actual grade-code content needing as little as ~40px while the old
+     fixed 15.5mm (~59px) reserved nearly 50% more than that on every single row, room that would
+     otherwise have gone to the Selling Mark column and let the fit search land on a smaller,
+     unnecessarily cramped font. 15.5mm is only the fallback for the brief instant before the first
+     layout pass sets the real value. */
+  width: var(--grade-w, 15.5mm);
   font-weight: 700;
   color: #124734;
 }
