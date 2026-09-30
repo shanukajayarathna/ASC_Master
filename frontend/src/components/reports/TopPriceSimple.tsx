@@ -197,7 +197,11 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
           g.textContent = " ";
         }
         const deal = el("div", styles.deal);
-        deal.append(el("div", styles.m, r.mark), el("div", styles.p, r.price));
+        // Same "@" marker as the Detailed bulletin's own .at span (TopPriceBulletin.tsx) — shown
+        // only on ASC's own sold rows, right before the price. A space (never an empty string) on
+        // every other row keeps this cell's real rendered height identical whether or not it holds
+        // a glyph, so it can't skew realColHeight's row-height measurement between ASC and plain rows.
+        deal.append(el("div", styles.m, r.mark), el("div", styles.at, r.ours ? "@" : " "), el("div", styles.p, r.price));
         row.append(g, deal);
         added.push(row);
 

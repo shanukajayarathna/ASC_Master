@@ -163,6 +163,16 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+/* Same "@" marker as the Detailed bulletin's own .at (TopPriceBulletin.module.css) — a fixed-width
+   cell so its "@" (ASC's own sold rows) or blank space never shifts the price column's own
+   alignment across rows. */
+.at {
+  flex: 0 0 auto;
+  width: 1.6em;
+  text-align: center;
+  font-weight: 700;
+  color: #1f7a4d;
+}
 .p {
   flex: 0 0 auto;
   font-weight: 700;
