@@ -91,6 +91,137 @@ public class BrokerCatalogueUploadParserTests
         Assert.Equal(0, result.SkippedRows);
     }
 
+    [Theory]
+    [InlineData("10", "Ex-estate")]
+    [InlineData("20", "High & Medium")]
+    [InlineData("30", "Leafy")]
+    [InlineData("32", "Semi Leafy")]
+    [InlineData("35", "Tippy")]
+    [InlineData("36", "Premium Flowery")]
+    [InlineData("40", "Off Grade")]
+    [InlineData("45", "BOP1A")]
+    [InlineData("50", "Dust")]
+    [InlineData("EX-ESTATE", "Ex-estate")]
+    [InlineData("EXESTATE", "Ex-estate")]
+    [InlineData("EX", "Ex-estate")]
+    [InlineData("HIGH & MEDIUM", "High & Medium")]
+    [InlineData("HM", "High & Medium")]
+    [InlineData("H & M", "High & Medium")]
+    [InlineData("LEAFY", "Leafy")]
+    [InlineData("LE", "Leafy")]
+    [InlineData("LOW GROWN LEAFY", "Leafy")]
+    [InlineData("LG", "Leafy")]
+    [InlineData("SEMI LEAFY", "Semi Leafy")]
+    [InlineData("SLE", "Semi Leafy")]
+    [InlineData("SEMLF", "Semi Leafy")]
+    [InlineData("LOW GROWN SEMI", "Semi Leafy")]
+    [InlineData("SL", "Semi Leafy")]
+    [InlineData("TIPPY", "Tippy")]
+    [InlineData("TI", "Tippy")]
+    [InlineData("LOW GROWN TIPPY", "Tippy")]
+    [InlineData("TS", "Tippy")]
+    [InlineData("PREMIUM FLOWERY", "Premium Flowery")]
+    [InlineData("PF", "Premium Flowery")]
+    [InlineData("OFF GRADE", "Off Grade")]
+    [InlineData("OFF GRADES", "Off Grade")]
+    [InlineData("OF", "Off Grade")]
+    [InlineData("OFF", "Off Grade")]
+    [InlineData("OG", "Off Grade")]
+    [InlineData("BOP1A", "BOP1A")]
+    [InlineData("BOP1A CATALOGUE", "BOP1A")]
+    [InlineData("BP", "BOP1A")]
+    [InlineData("DUST", "Dust")]
+    [InlineData("D U S T S", "Dust")]
+    [InlineData("D", "Dust")]
+    [InlineData("DS", "Dust")]
+    public void NormalizeCategory_MapsEveryRealObservedValue_ToTheUserSuppliedCanonicalName(string raw, string expected)
+    {
+        // Every value here was pulled live from a real Sale 40/2026 broker file's own
+        // Category column (AEB, BC, LCBL, MPB, CT text; FW's numeric code column) - not
+        // invented. The numeric codes (10/20/30/32/35/36/40/45/50) are the user's own
+        // canonical scheme; FW's raw file happens to carry them directly.
+        Assert.Equal(expected, BrokerCatalogueUploadParser.NormalizeCategory(raw));
+    }
+
+    [Fact]
+    public void NormalizeCategory_ReturnsNull_ForBlankOrUnrecognizedText()
+    {
+        Assert.Null(BrokerCatalogueUploadParser.NormalizeCategory(""));
+        Assert.Null(BrokerCatalogueUploadParser.NormalizeCategory("   "));
+        Assert.Null(BrokerCatalogueUploadParser.NormalizeCategory("105/4, MUTHURAJAWELA RD.,MUTHURAJAWELA"));
+    }
+
+    [Fact]
+    public void ParseAeb_ReadsCategoryFromColumn12()
+    {
+        var rows = Blank(Row("EB", "2026", "36A", "1", "MF0034", "STRATHSPEY", "0254R", "BOP", "20", "50", "1000", "1000", "HIGH & MEDIUM"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseAeb(rows, 36).Lots);
+        Assert.Equal("High & Medium", lot.Category);
+    }
+
+    [Fact]
+    public void ParseBc_ReadsCategoryFromColumn13()
+    {
+        var rows = Blank(Row("BC", "2026", "037", "0001", "MF0864A", "AULTMORE CTC", "", "0252", "PF1", "10", "52", "520", "520", "EX"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseBc(rows, 36).Lots);
+        Assert.Equal("Ex-estate", lot.Category);
+    }
+
+    [Fact]
+    public void ParseJk_NeverSetsCategory_FileHasNoCategoryColumn()
+    {
+        var rows = Blank(Row("0001", "MF0548", "KENILWORTH", "", "0353", "RA", "BOPSp", "10", "42", "B", "0", "420"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseJk(rows, 36).Lots);
+        Assert.Null(lot.Category);
+    }
+
+    [Fact]
+    public void ParseFw_ReadsCategoryFromNumericColumn14_NotTheTextColumn13()
+    {
+        // Real Sale 40/2026 row: column 13 is the text "EX-ESTATE", column 14 is the numeric
+        // code "10" — confirmed live these always agree, and the numeric column is used since
+        // NormalizeCategory checks numeric codes first and it's unambiguous either way.
+        var rows = Blank(Row("FW", "40", "2026-10-14", "1", "MF0007", "WINDSORFOREST", "205", "BOPF", "20", "B", "58", "1160", "1", "EX-ESTATE", "10"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseFw(rows, 40).Lots);
+        Assert.Equal("Ex-estate", lot.Category);
+    }
+
+    [Fact]
+    public void ParseLcbl_ReadsCategoryFromColumn11()
+    {
+        var rows = Blank(Row("1", "MF0548", "KENILWORTH", "0420", "BOPSp", "10", "B", "45", "0", "0", "450", "SEMLF"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseLcbl(rows, 36).Lots);
+        Assert.Equal("Semi Leafy", lot.Category);
+    }
+
+    [Fact]
+    public void ParseMb_ReadsCategoryFromColumn12()
+    {
+        var rows = Blank(Row("MB", "36", "16/09/2026", "1", "MF01257", "UPLANDS", "421", "BOPF", "20", "B", "55", "1100", "LOW GROWN TIPPY"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseMb(rows, 36).Lots);
+        Assert.Equal("Tippy", lot.Category);
+    }
+
+    [Fact]
+    public void ParseCtb_ReadsCategoryFromColumn14()
+    {
+        var rows = Blank(Row("CT036", "16/09/2026", "1", "MF0616A", "DARTRY", "1590", "BOPF", "20", "B", "56", "PS", "0", "580", "Warehouse", "HM"));
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseCtb(rows, 36).Lots);
+        Assert.Equal("High & Medium", lot.Category);
+    }
+
+    [Fact]
+    public void ParseAsc_NeverSetsCategory_FileHasNoCategoryField()
+    {
+        var rows = new List<List<string>>
+        {
+            Row("Broker", "SaleNumber", "SaleYear", "LotNo", "Mark", "SellingMark", "InvoiceNo", "Grade", "NoOfChests", "WeightPerChest", "NettWeight", "GrossWeight"),
+            Row("AS", "36", "2026", "1", "MF0294", "ROBGILL", "0229", "BOPF", "10", "58", "580", "580"),
+        };
+        var lot = Assert.Single(BrokerCatalogueUploadParser.ParseAsc(new CatalogueImportService(), rows, 36).Lots);
+        Assert.Null(lot.Category);
+    }
+
     [Fact]
     public void ParseBc_ReadsRealSample36Row()
     {

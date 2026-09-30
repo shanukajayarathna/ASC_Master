@@ -75,8 +75,84 @@ public static class BrokerCatalogueUploadParser
     private static decimal ParseDecimal(string raw) =>
         decimal.TryParse(raw.Trim().Replace(",", ""), out var d) ? d : 0m;
 
+    /// <summary>Canonical category names, keyed to the numeric codes the user supplied
+    /// (confirmed live: FW's own raw file carries these exact numbers in a dedicated column —
+    /// 10/20/30/32/35/36/40/45/50 for the same 9 rows FW also labels "EX-ESTATE" etc. in the
+    /// column next to it). Every other broker spells the same 9 categories out in its own
+    /// free-text abbreviation instead of the number — CategoryTextAliases below maps each
+    /// broker's own observed spelling back to one of these same canonical names, so a report
+    /// grouping by category doesn't have to know each broker's own vocabulary.</summary>
+    private static readonly Dictionary<string, string> CategoryCodes = new()
+    {
+        ["10"] = "Ex-estate",
+        ["20"] = "High & Medium",
+        ["30"] = "Leafy",
+        ["32"] = "Semi Leafy",
+        ["35"] = "Tippy",
+        ["36"] = "Premium Flowery",
+        ["40"] = "Off Grade",
+        ["45"] = "BOP1A",
+        ["50"] = "Dust",
+    };
+
+    /// <summary>Every raw category spelling actually observed live across the 6 brokers whose
+    /// files carry a category column at all (AEB, BC, LCBL, MPB, CT; FW carries the numeric
+    /// code directly instead, see CategoryCodes) — ASC and JK's own file layouts have no
+    /// category field at all. Keyed on the raw text with spaces/hyphens stripped and
+    /// uppercased, so "EX-ESTATE", "EXESTATE" and "EX ESTATE" all match the same entry
+    /// without needing three separate keys.</summary>
+    private static readonly Dictionary<string, string> CategoryTextAliases = new()
+    {
+        ["EXESTATE"] = "Ex-estate",
+        ["EX"] = "Ex-estate",
+        ["HIGHMEDIUM"] = "High & Medium",
+        ["HM"] = "High & Medium", // "HM" and "H & M" (spaces/hyphens stripped) both land here
+        ["LEAFY"] = "Leafy",
+        ["LE"] = "Leafy",
+        ["LOWGROWNLEAFY"] = "Leafy",
+        ["LG"] = "Leafy",
+        ["SEMILEAFY"] = "Semi Leafy",
+        ["SLE"] = "Semi Leafy",
+        ["SEMLF"] = "Semi Leafy",
+        ["LOWGROWNSEMI"] = "Semi Leafy",
+        ["SL"] = "Semi Leafy",
+        ["TIPPY"] = "Tippy",
+        ["TI"] = "Tippy",
+        ["LOWGROWNTIPPY"] = "Tippy",
+        ["TS"] = "Tippy",
+        ["PREMIUMFLOWERY"] = "Premium Flowery",
+        ["PF"] = "Premium Flowery",
+        ["OFFGRADE"] = "Off Grade",
+        ["OFFGRADES"] = "Off Grade",
+        ["OF"] = "Off Grade",
+        ["OFF"] = "Off Grade",
+        ["OG"] = "Off Grade",
+        ["BOP1A"] = "BOP1A",
+        ["BOP1ACATALOGUE"] = "BOP1A",
+        ["BP"] = "BOP1A",
+        ["DUST"] = "Dust",
+        ["DUSTS"] = "Dust", // "D U S T S" strips to "DUSTS"
+        ["D"] = "Dust",
+        ["DS"] = "Dust",
+    };
+
+    /// <summary>Maps one broker's own raw category cell to the canonical name — a numeric
+    /// code (FW) looked up directly, otherwise free text normalized (uppercased, spaces and
+    /// hyphens stripped) and matched against CategoryTextAliases. Null for blank input or
+    /// anything unrecognized (a genuinely new category text this alias table doesn't cover
+    /// yet), never a guess.</summary>
+    internal static string? NormalizeCategory(string raw)
+    {
+        var trimmed = raw.Trim();
+        if (trimmed.Length == 0) return null;
+        if (CategoryCodes.TryGetValue(trimmed, out var byCode)) return byCode;
+
+        var key = new string(trimmed.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        return CategoryTextAliases.GetValueOrDefault(key);
+    }
+
     private static Lot? BuildLot(string broker, int saleNo, string mfCode, string sellingMark, string grade,
-        string chestsRaw, string chestWeightRaw, string nettWeightRaw)
+        string chestsRaw, string chestWeightRaw, string nettWeightRaw, string categoryRaw = "")
     {
         if (string.IsNullOrWhiteSpace(mfCode) || string.IsNullOrWhiteSpace(sellingMark)) return null;
         var chests = ParseDecimal(chestsRaw);
@@ -95,6 +171,7 @@ public static class BrokerCatalogueUploadParser
             Bags = (int)chests,
             NetWeight = nettWeight,
             IsReprint = IsReprint(nettWeight, chests, chestWeight),
+            Category = NormalizeCategory(categoryRaw),
         };
     }
 
@@ -110,6 +187,12 @@ public static class BrokerCatalogueUploadParser
     /// same skipped count they had when scanning started at row 1.</summary>
     private static int UnparsedRowCost(int rowIndex) => rowIndex > FirstDataRow ? 1 : 0;
 
+    /// <summary>Column i if the row is wide enough to have it, else "" — used for Category,
+    /// which is never required for a row to count as a real lot (BuildLot's own required
+    /// fields are unchanged), so a row just short of the category column still parses fine
+    /// with a blank category rather than being skipped over a field nothing else needs.</summary>
+    private static string SafeCol(List<string> row, int i) => i < row.Count ? row[i] : "";
+
     public static BrokerParseResult ParseAeb(List<List<string>> rows, int saleNo)
     {
         // Broker,Year,SaleNo,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,ChestWt,NettWt,GrossWt,Category,Stores,PackCode
@@ -119,7 +202,7 @@ public static class BrokerCatalogueUploadParser
         {
             var row = rows[r];
             if (row.Count < 11) { skipped += UnparsedRowCost(r); continue; }
-            var lot = BuildLot(BrokerCode.Aeb, saleNo, row[4], row[5], row[7], row[8], row[9], row[10]);
+            var lot = BuildLot(BrokerCode.Aeb, saleNo, row[4], row[5], row[7], row[8], row[9], row[10], SafeCol(row, 12));
             if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
@@ -134,7 +217,7 @@ public static class BrokerCatalogueUploadParser
         {
             var row = rows[r];
             if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
-            var lot = BuildLot(BrokerCode.Bc, saleNo, row[4], row[5], row[8], row[9], row[10], row[11]);
+            var lot = BuildLot(BrokerCode.Bc, saleNo, row[4], row[5], row[8], row[9], row[10], row[11], SafeCol(row, 13));
             if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
@@ -143,6 +226,7 @@ public static class BrokerCatalogueUploadParser
     public static BrokerParseResult ParseJk(List<List<string>> rows, int saleNo)
     {
         // LotNo,MFCode,SellingMark,(blank),InvoiceNo,(code),Grade,Chests,ChestWt,(flag),(0),NettWt,...
+        // No Category column at all in JK's own file layout — Lot.Category stays null for JK.
         var lots = new List<Lot>();
         var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
@@ -167,7 +251,7 @@ public static class BrokerCatalogueUploadParser
         {
             var row = rows[r];
             if (row.Count < 11 || !int.TryParse(row[0].Trim(), out _)) continue;
-            var lot = BuildLot(BrokerCode.Lcbl, saleNo, row[1], row[2], row[4], row[5], row[7], row[10]);
+            var lot = BuildLot(BrokerCode.Lcbl, saleNo, row[1], row[2], row[4], row[5], row[7], row[10], SafeCol(row, 11));
             if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
@@ -182,7 +266,7 @@ public static class BrokerCatalogueUploadParser
         {
             var row = rows[r];
             if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
-            var lot = BuildLot(BrokerCode.Mb, saleNo, row[4], row[5], row[7], row[8], row[10], row[11]);
+            var lot = BuildLot(BrokerCode.Mb, saleNo, row[4], row[5], row[7], row[8], row[10], row[11], SafeCol(row, 12));
             if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
@@ -190,14 +274,19 @@ public static class BrokerCatalogueUploadParser
 
     public static BrokerParseResult ParseFw(List<List<string>> rows, int saleNo)
     {
-        // Broker,SaleNo,Date,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,(flag),ChestWt,NettWt,(flag),Category,(number)
+        // Broker,SaleNo,Date,LotNo,MFCode,SellingMark,InvoiceNo,Grade,Chests,(flag),ChestWt,NettWt,(flag),CategoryText,CategoryCode
+        // Column 13 is the category as free text ("EX-ESTATE"); column 14 is the SAME
+        // category as one of the user's own numeric codes (confirmed live: 10/20/30/32/35/
+        // 36/40/45/50, matching CategoryCodes exactly) — the numeric column is used since
+        // NormalizeCategory checks it first and it's unambiguous, unlike FW's own text
+        // column, which was previously (wrongly) assumed to be at this same index 13.
         var lots = new List<Lot>();
         var skipped = 0;
         for (var r = FirstDataRow; r < rows.Count; r++)
         {
             var row = rows[r];
             if (row.Count < 12) { skipped += UnparsedRowCost(r); continue; }
-            var lot = BuildLot(BrokerCode.Fw, saleNo, row[4], row[5], row[7], row[8], row[10], row[11]);
+            var lot = BuildLot(BrokerCode.Fw, saleNo, row[4], row[5], row[7], row[8], row[10], row[11], SafeCol(row, 14));
             if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
@@ -212,7 +301,7 @@ public static class BrokerCatalogueUploadParser
         {
             var row = rows[r];
             if (row.Count < 13) { skipped += UnparsedRowCost(r); continue; }
-            var lot = BuildLot(BrokerCode.Ctb, saleNo, row[3], row[4], row[6], row[7], row[9], row[12]);
+            var lot = BuildLot(BrokerCode.Ctb, saleNo, row[3], row[4], row[6], row[7], row[9], row[12], SafeCol(row, 14));
             if (lot is not null) lots.Add(lot); else skipped += UnparsedRowCost(r);
         }
         return new BrokerParseResult(lots, skipped);
