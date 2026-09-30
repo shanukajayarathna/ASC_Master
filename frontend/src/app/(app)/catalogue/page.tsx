@@ -120,6 +120,7 @@ const DEFAULT_SHOWN_COLUMNS = [
   /^bags$/i,
   /^net.?weight/i,
   /^total.?weight/i,
+  /^valuation$/i,
   new RegExp(`^${SALE_COLUMN_HEADER}$`, "i"),
 ];
 

@@ -105,7 +105,9 @@ export default function CatalogueGrid({
       const isSale = h === SALE_COLUMN_HEADER;
       cols.push({
         field: h,
-        headerName: h,
+        // The raw "Valuation" column is whichever broker's own published valuation for that lot (from OKLO) -
+        // labeled to tell it apart from the app's own pinned Valuation column (ASC's own assessment) further right.
+        headerName: h === "Valuation" ? "Broker Valuation" : h,
         hide: hiddenColumns.has(h),
         // agSetColumnFilter is AG Grid Enterprise-only — Community-only here, so
         // categorical columns fall back to the text filter (the app's own FilterPanel is
