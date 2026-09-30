@@ -760,6 +760,23 @@ export interface LatestSaleWithResults {
   sourceName: string;
 }
 
+// ---- Shared Mark Catalogues % Broker-wise — see backend/Modules/MarkIntelligence/SharedMarkCataloguePercent* ----
+
+/** QtyByBroker/PercentByBroker only carry brokers that actually catalogued this factory in the
+ *  selected scope — a broker with no entry catalogued nothing, distinct from a genuine 0. */
+export interface SharedMarkCataloguePercentRow {
+  code: string;
+  factoryName: string;
+  qtyByBroker: Record<string, number>;
+  percentByBroker: Record<string, number>;
+  totalQty: number;
+}
+
+export interface SharedMarkCataloguePercent {
+  brokers: string[];
+  rows: SharedMarkCataloguePercentRow[];
+}
+
 // ---- Category Analysis (Price & Classification — Sale x Broker) — see backend/Modules/CategoryReports ----
 
 export interface CategoryOption {
@@ -936,6 +953,16 @@ export interface GradeStats {
 
 export interface PreviousGradeStats {
   grades: Record<string, GradeStats>;
+}
+
+/** GET /api/oklo/live-sale */
+export interface LiveSaleInfo {
+  live: boolean;
+  catalogueId: string | null;
+  year: number | null;
+  saleNo: number | null;
+  sourceName: string | null;
+  auctionDate: string | null;
 }
 
 export interface Lot {

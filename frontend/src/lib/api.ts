@@ -77,6 +77,7 @@ import type {
   PublicMarketPulseItem,
   SaleAnalytics,
   SaleSummary,
+  SharedMarkCataloguePercent,
   WesEquivalentApi,
   ProviderStatus,
   Report,
@@ -107,6 +108,7 @@ import type {
   WorksheetImportResult,
   WorksheetLookupResult,
   WorksheetRow,
+  LiveSaleInfo,
 } from "@/types/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5058";
@@ -869,6 +871,9 @@ export const api = {
   searchLots: (catalogueId: string, body: LotSearchBody) =>
     retryWhileLoading(() => request<PagedLots>(`/api/catalogues/${catalogueId}/lots/search`, { method: "POST", body: JSON.stringify(body) })),
 
+  /** The sale open for bidding on OKLO right now, if any - for the "watch the live auction" page. */
+  getLiveSale: () => retryWhileLoading(() => request<LiveSaleInfo>("/api/oklo/live-sale")),
+
   /** Dropdown option lists (distinct values, most frequent first) for the given columns of a sale. */
   getFilterOptions: (catalogueId: string, headers: string[]) =>
     retryWhileLoading(() =>
@@ -1446,6 +1451,27 @@ export const api = {
 
   // Newest sale with sold results — where the trend report opens (a 404 means no sale has results yet).
   getLatestSaleWithResults: () => request<LatestSaleWithResults>("/api/v1/reports/category-average-trend/latest"),
+
+  // Shared Mark Catalogues % Broker-wise — one factory per row, % split of catalogued quantity per
+  // broker, for factories catalogued by 2+ brokers in the chosen scope. `mode` picks which of the
+  // other params apply: "sale" (catalogueId), "month"/"year" (year, month), "range" (fromCatalogueId,
+  // toCatalogueId).
+  getSharedMarkCataloguePercent: (params: {
+    mode: "sale" | "month" | "year" | "range";
+    catalogueId?: string;
+    year?: number;
+    month?: number;
+    fromCatalogueId?: string;
+    toCatalogueId?: string;
+  }) => {
+    const qs = new URLSearchParams({ mode: params.mode });
+    if (params.catalogueId) qs.set("catalogueId", params.catalogueId);
+    if (params.year !== undefined) qs.set("year", String(params.year));
+    if (params.month !== undefined) qs.set("month", String(params.month));
+    if (params.fromCatalogueId) qs.set("fromCatalogueId", params.fromCatalogueId);
+    if (params.toCatalogueId) qs.set("toCatalogueId", params.toCatalogueId);
+    return request<SharedMarkCataloguePercent>(`/api/v1/reports/shared-mark-catalogue-percent?${qs.toString()}`);
+  },
 
   /**
    * Excel export. Lots are (catalogue, lot) pairs so one workbook can span several sales
