@@ -220,27 +220,43 @@ function pack(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: num
 
 /** Packs once plainly (greedy — fills each column to the budget before moving to the next) purely
  *  to learn the REAL total content height at this px/ncols (the sum of every column's own real
- *  content — the same number regardless of how it happens to be distributed across columns) and
- *  confirm it fits in `ncols` columns at all. Then binary-searches `pack`'s own `cap` for the
- *  SMALLEST value that still fits everything in `ncols` columns — not one flat `total/ncols` guess
- *  used as a per-column target. A flat guess sounds even but isn't: `pack`'s cap check only fires
- *  AFTER a row is added (so every column ends up cap-or-a-row-over, never under), and that small
- *  per-column overshoot eats into what's left for every column after it, compounding forward with
- *  nothing to correct it — confirmed directly on a real sale, where a flat guess left the LAST
- *  column 42px shorter than its neighbours (605px against 641-647px). The binary search instead
- *  finds the tightest cap the content can be squeezed into `ncols` columns at all: any real column
- *  meaningfully short of THAT cap would mean the cap had spare room to give, which would make an
- *  even smaller cap feasible too — contradicting it being the smallest one found. 24 steps of a
- *  search starting from a `total/ncols`-to-`budget` range converges to sub-pixel precision, cheap
- *  next to the rest of `fit`'s own font-size sweep. */
+ *  content — the same number regardless of how it happens to be distributed across columns), then
+ *  packs again with that total spread evenly as a flat per-column cap. Cheap (one extra `pack`
+ *  call) but only approximately even — good enough to RANK candidate sizes/column-counts against
+ *  each other during `fit`'s own sweep (tried up to ~180 times), which is all this is used for; the
+ *  actually-rendered result uses `packTightlyBalanced` below instead, once, on the winning
+ *  candidate only. A flat guess isn't perfectly even because `pack`'s cap check only fires AFTER a
+ *  row is added, so every column ends up cap-or-a-row over, and that overshoot compounds forward —
+ *  fine for ranking (the error is consistent across candidates), not for what actually ships. */
 function packBalanced(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number, gradeRefW?: number): boolean {
+  if (!pack(host, regions, ncols, px, undefined, gradeRefW)) return false;
+  const total = Array.from(host.children).reduce((sum, col) => sum + realColHeight(col as HTMLElement), 0);
+  if (total <= 0) return true;
+  return pack(host, regions, ncols, px, total / ncols, gradeRefW);
+}
+
+/** The precise version of the balance above — binary-searches `pack`'s own `cap` for the SMALLEST
+ *  value that still fits everything in `ncols` columns, rather than one flat `total/ncols` guess.
+ *  Used ONCE, on `fit`'s final winning (ncols, px), for the sheet that's actually rendered — NOT
+ *  during the sweep that picks that winner (packBalanced above), because this costs ~24x a single
+ *  pack: confirmed directly, running this per candidate during the sweep took a real sale from
+ *  ~1.8s to ~91s. A flat guess is uneven for the same reason noted above (`pack`'s cap only fires
+ *  after a row is added, so the overshoot compounds forward, all landing on the LAST column, which
+ *  has nothing after it to make it up) — confirmed directly on a real sale, where the flat guess
+ *  left the last column 42px shorter than its neighbours (605px against 641-647px). The binary
+ *  search instead finds the tightest cap the content can be squeezed into `ncols` columns at all:
+ *  any real column meaningfully short of THAT cap would mean the cap had spare room to give, which
+ *  would make an even smaller cap feasible too — contradicting it being the smallest one found. 14
+ *  steps of a search starting from a `total/ncols`-to-`budget` range converges to sub-pixel
+ *  precision; paid once per render, not per sweep candidate, this stays cheap. */
+function packTightlyBalanced(host: HTMLElement, regions: SimpleRegion[], ncols: number, px: number, gradeRefW?: number): boolean {
   if (!pack(host, regions, ncols, px, undefined, gradeRefW)) return false;
   const total = Array.from(host.children).reduce((sum, col) => sum + realColHeight(col as HTMLElement), 0);
   if (total <= 0) return true;
 
   let lo = total / ncols;
   let hi = host.clientHeight;
-  for (let i = 0; i < 24 && hi - lo > 0.5; i++) {
+  for (let i = 0; i < 14 && hi - lo > 0.5; i++) {
     const mid = (lo + hi) / 2;
     if (pack(host, regions, ncols, px, mid, gradeRefW)) hi = mid;
     else lo = mid;
@@ -352,23 +368,29 @@ function fit(host: HTMLElement, regions: SimpleRegion[]): void {
   const clean = results.filter((r) => r.clean);
   const pool = clean.length ? clean : results;
   const best = pickFitter(pool);
-  if (best) packBalanced(host, regions, best.ncols, best.px, gradeRefW);
-  else packBalanced(host, regions, 7, 5, gradeRefW);
+  if (best) packTightlyBalanced(host, regions, best.ncols, best.px, gradeRefW);
+  else packTightlyBalanced(host, regions, 7, 5, gradeRefW);
   host.dataset.fontPx = String(best?.px ?? 5);
   host.dataset.cols = String(best?.ncols ?? 7);
-  // Balancing (packBalanced above) already spreads leftover room evenly, but each column can
-  // still end a few px short of or past its neighbours -- the actual row heights it happened to
-  // receive don't divide the target perfectly. Giving every column this SAME explicit height (the
-  // tallest one's own real content) lines up every column's bottom edge at one shared line instead
-  // of each keeping its own slightly different leftover margin. `.cols` itself no longer stretches
-  // its children to fill it (module CSS's own `align-items: flex-start`), so this is the only
-  // thing controlling each column's rendered height now -- safe to grow up to the tallest column
-  // without any risk of clipping, since every column's own content is already <= that height.
+  // Lines up every column's bottom edge at one shared line instead of each keeping its own
+  // leftover margin — but only up to a small tolerance. A column that's only a few px short of the
+  // tallest is real balancing noise (reading-order content rarely divides perfectly even at the
+  // tightest feasible cap — see packTightlyBalanced), and stretching it those few px to match looks
+  // like alignment. A column that's tens of px short is different: that gap is inherent to this
+  // sale's own content at this column count (confirmed directly — no cap, however tight, redistributes
+  // it, because reading order forbids moving rows backward into an earlier, already-fuller column),
+  // and stretching ITS box open that far doesn't hide that, it just turns a column that legitimately
+  // ran out of content into what reads as an obviously broken empty box. Past the tolerance, a
+  // column is left at its own real height instead. `.cols` itself no longer stretches its children
+  // to fill it (module CSS's own `align-items: flex-start`), so this explicit height is the only
+  // thing controlling each column's rendered height now — safe to grow within tolerance, since
+  // every column's own content is already <= the tallest column's height.
+  const BOTTOM_ALIGN_TOLERANCE_PX = 20;
   const cols = Array.from(host.children) as HTMLElement[];
   const heights = cols.map((c) => realColHeight(c));
   const maxHeight = heights.length ? Math.max(...heights) : 0;
-  cols.forEach((c) => {
-    c.style.height = `${maxHeight}px`;
+  cols.forEach((c, i) => {
+    c.style.height = `${Math.min(maxHeight, heights[i] + BOTTOM_ALIGN_TOLERANCE_PX)}px`;
   });
 }
 
