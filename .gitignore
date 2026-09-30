@@ -29,4 +29,10 @@ Thumbs.db
 # Local run logs and verification build output
 /backend_run.log
 /frontend_run.log
+/backend_run.err.log
+/frontend_run.err.log
+/dev_run.log
+/dev_run.err.log
+/frontend_dev.log
+/out.txt
 backend/Asc.Api.Tests/bin_verify/
