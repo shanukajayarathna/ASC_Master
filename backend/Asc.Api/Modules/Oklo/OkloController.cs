@@ -82,6 +82,44 @@ public class OkloController(OkloSyncService sync, OkloSyncBackgroundService back
         if (match is null) return NotFound($"OKLO has no sale {saleNo}/{year}.");
         return Ok(await sync.SyncCatalogAsync(match, ct));
     }
+
+    /// <summary>
+    /// One-time maintenance: re-writes every local sale file that already exists in data/sales, straight from its
+    /// stored OKLO snapshot - no OKLO calls (fast, local-only), used to bring the old, now-stale fallback copies in
+    /// data/sales up to date with what OKLO has shown since (does NOT turn AutoSync back on, and does not create a
+    /// file for any sale that doesn't already have one - see docs/31_OKLO_Live_Data.md: these files stay a frozen
+    /// fallback for when OKLO is unreachable, not the live source).
+    /// </summary>
+    [HttpPost("refresh-local-files")]
+    [Authorize(Policy = Policies.ManageDataFiles)]
+    public async Task<IActionResult> RefreshLocalFiles([FromServices] Asc.Api.Services.SaleFileStore files, [FromServices] ISaleSnapshotStore snapshots, CancellationToken ct)
+    {
+        var targets = new List<(int Year, int SaleNo, string Path)>();
+        if (Directory.Exists(files.SalesDir))
+            foreach (var yearDir in Directory.GetDirectories(files.SalesDir))
+                if (int.TryParse(Path.GetFileName(yearDir), out var year))
+                    foreach (var file in Directory.GetFiles(yearDir, "*.xlsx"))
+                        if (int.TryParse(Path.GetFileNameWithoutExtension(file), out var saleNo))
+                            targets.Add((year, saleNo, file));
+
+        var written = new List<string>();
+        var noSnapshot = new List<string>();
+        var failed = new List<string>();
+        foreach (var (year, saleNo, path) in targets.OrderBy(t => t.Year).ThenBy(t => t.SaleNo))
+        {
+            var label = $"{saleNo}/{year}";
+            try
+            {
+                var snap = await snapshots.LoadAsync(Asc.Api.Services.SaleFileStore.CatalogueIdFor(year, saleNo), ct);
+                if (snap is null || snap.Lots.Count == 0) { noSnapshot.Add(label); continue; }
+                var rows = snap.Lots.OrderBy(l => l.Broker, StringComparer.Ordinal).ThenBy(l => l.BrokerLotNumber).Select(OkloSaleMapper.MapRow).ToList();
+                OkloSaleWriter.Write(path, rows);
+                written.Add(label);
+            }
+            catch (Exception ex) { failed.Add($"{label}: {ex.Message}"); }
+        }
+        return Ok(new { totalFiles = targets.Count, written = written.Count, noSnapshot, failed });
+    }
 }
 
 /// <summary>Body of POST /api/oklo/refresh-now: the sales the page is working with (optional).</summary>
