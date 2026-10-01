@@ -44,7 +44,7 @@ public class SharedMarkCataloguePercentEngineTests
     }
 
     [Fact]
-    public void ReprintLots_AreExcludedFromTotals()
+    public void ReprintLots_AreExcludedFromTotals_ByDefault()
     {
         var result = SharedMarkCataloguePercentEngine.Build([
             Lot("MF0020", "RANSIRINI", "ASC", 497, isReprint: true),
@@ -52,6 +52,19 @@ public class SharedMarkCataloguePercentEngineTests
         ]);
 
         Assert.Empty(result.Rows);
+    }
+
+    [Fact]
+    public void ReprintLots_AreIncluded_WhenIncludeReprintsIsTrue()
+    {
+        var result = SharedMarkCataloguePercentEngine.Build([
+            Lot("MF0020", "RANSIRINI", "ASC", 497, isReprint: true),
+            Lot("MF0020", "RANSIRINI", "EB", 500),
+        ], includeReprints: true);
+
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(997, row.TotalQty);
+        Assert.Equal(497, row.QtyByBroker["ASC"]);
     }
 
     [Fact]

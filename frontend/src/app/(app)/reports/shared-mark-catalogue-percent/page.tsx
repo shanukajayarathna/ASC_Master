@@ -6,7 +6,9 @@ import { useCatalogue } from "@/context/CatalogueContext";
 import { api, ApiError } from "@/lib/api";
 import { BROKER_SHORT_CODES_ORDERED, brokerColorVarByShortCode, brokerPaletteCss } from "@/lib/brokers";
 import type { SharedMarkCataloguePercent } from "@/types/api";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import MenuItem from "@mui/material/MenuItem";
+import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -43,6 +45,9 @@ export default function SharedMarkCataloguePercentPage() {
   const [month, setMonth] = useState<number | "">("");
   const [fromSaleId, setFromSaleId] = useState("");
   const [toSaleId, setToSaleId] = useState("");
+  // Off by default: a re-catalogued lot would otherwise double-count. On reconciles against a
+  // source with no reprint flag of its own (e.g. the MSL archive).
+  const [includeReprints, setIncludeReprints] = useState(false);
 
   // Fall back to the newest sale/year until the user picks one — derived rather than set via an
   // effect, so there's no extra render just to seed a default.
@@ -64,12 +69,13 @@ export default function SharedMarkCataloguePercentPage() {
   const [error, setError] = useState<string | null>(null);
 
   const params = useMemo((): Parameters<typeof api.getSharedMarkCataloguePercent>[0] | null => {
-    if (mode === "sale") return effectiveSaleId ? { mode, catalogueId: effectiveSaleId } : null;
-    if (mode === "year") return effectiveYear !== "" ? { mode, year: effectiveYear } : null;
-    if (mode === "month") return effectiveYear !== "" && month !== "" ? { mode, year: effectiveYear, month } : null;
-    if (mode === "range") return fromSaleId && toSaleId ? { mode, fromCatalogueId: fromSaleId, toCatalogueId: toSaleId } : null;
+    if (mode === "sale") return effectiveSaleId ? { mode, catalogueId: effectiveSaleId, includeReprints } : null;
+    if (mode === "year") return effectiveYear !== "" ? { mode, year: effectiveYear, includeReprints } : null;
+    if (mode === "month") return effectiveYear !== "" && month !== "" ? { mode, year: effectiveYear, month, includeReprints } : null;
+    if (mode === "range")
+      return fromSaleId && toSaleId ? { mode, fromCatalogueId: fromSaleId, toCatalogueId: toSaleId, includeReprints } : null;
     return null;
-  }, [mode, effectiveSaleId, effectiveYear, month, fromSaleId, toSaleId]);
+  }, [mode, effectiveSaleId, effectiveYear, month, fromSaleId, toSaleId, includeReprints]);
 
   useEffect(() => {
     if (!params) return;
@@ -217,6 +223,12 @@ export default function SharedMarkCataloguePercentPage() {
               </TextField>
             </>
           )}
+
+          <FormControlLabel
+            className="ml-auto"
+            control={<Switch size="small" checked={includeReprints} onChange={(e) => setIncludeReprints(e.target.checked)} />}
+            label={<span className="text-[13px] text-text-muted">Include reprints</span>}
+          />
         </div>
       </div>
 
@@ -237,13 +249,13 @@ export default function SharedMarkCataloguePercentPage() {
           <table className="w-full text-[12.5px] border-collapse min-w-[560px]">
             <thead>
               <tr>
-                <th className="font-semibold text-[11px] uppercase tracking-wide text-left px-3 py-2 whitespace-nowrap text-white" style={{ background: "#1F3864" }}>
+                <th className="font-semibold text-[14px] uppercase tracking-wide text-left px-3 py-2.5 whitespace-nowrap text-white" style={{ background: "#1F3864" }}>
                   Factory
                 </th>
                 {brokerColumns.map((code) => (
                   <th
                     key={code}
-                    className="font-semibold text-[11px] uppercase tracking-wide text-center px-3 py-2 whitespace-nowrap text-white"
+                    className="font-bold text-[15px] uppercase tracking-wide text-center px-3 py-2.5 whitespace-nowrap text-white"
                     style={{ background: brokerColorVarByShortCode(code) }}
                   >
                     {code}
@@ -254,19 +266,15 @@ export default function SharedMarkCataloguePercentPage() {
             <tbody>
               {data.rows.map((row) => (
                 <tr key={row.code}>
-                  <td className="px-3 py-1.5 border-t border-border whitespace-nowrap font-medium text-text-strong">{row.factoryName}</td>
+                  <td className="px-3 py-2 border-t border-border whitespace-nowrap font-semibold text-[14px] text-text-strong">{row.factoryName}</td>
                   {brokerColumns.map((code) => {
                     const pct = row.percentByBroker[code];
-                    const qty = row.qtyByBroker[code];
                     return (
                       <td key={code} className="px-3 py-1.5 border-t border-border text-center tabular-nums">
                         {pct !== undefined ? (
-                          <>
-                            <div className="font-semibold" style={{ color: brokerColorVarByShortCode(code) }}>
-                              {pct.toFixed(1)}%
-                            </div>
-                            <div className="text-[10.5px] text-text-muted">{qty.toLocaleString("en-US", { maximumFractionDigits: 0 })} kg</div>
-                          </>
+                          <span className="text-[16px] font-bold" style={{ color: brokerColorVarByShortCode(code) }}>
+                            {pct.toFixed(2)}%
+                          </span>
                         ) : (
                           <span className="text-text-muted">—</span>
                         )}

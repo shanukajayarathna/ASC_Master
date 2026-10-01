@@ -38,7 +38,8 @@ public class SharedMarkCataloguePercentController(ICatalogueSource source) : Con
         [FromQuery] int? year,
         [FromQuery] int? month,
         [FromQuery] Guid? fromCatalogueId,
-        [FromQuery] Guid? toCatalogueId)
+        [FromQuery] Guid? toCatalogueId,
+        [FromQuery] bool includeReprints = false)
     {
         var catalogueIds = ResolveCatalogueIds(mode, catalogueId, year, month, fromCatalogueId, toCatalogueId);
         if (catalogueIds is null)
@@ -47,7 +48,7 @@ public class SharedMarkCataloguePercentController(ICatalogueSource source) : Con
             return Ok(new SharedMarkCataloguePercentDto([], []));
 
         var lots = catalogueIds.SelectMany(id => source.GetReportLots(id) ?? []);
-        return Ok(SharedMarkCataloguePercentEngine.Build(lots));
+        return Ok(SharedMarkCataloguePercentEngine.Build(lots, includeReprints));
     }
 
     private List<Guid>? ResolveCatalogueIds(

@@ -1463,6 +1463,9 @@ export const api = {
     month?: number;
     fromCatalogueId?: string;
     toCatalogueId?: string;
+    /** Include reprinted/re-catalogued lots instead of excluding them (the default) — useful to
+     *  reconcile against a source with no reprint flag of its own, e.g. the MSL archive. */
+    includeReprints?: boolean;
   }) => {
     const qs = new URLSearchParams({ mode: params.mode });
     if (params.catalogueId) qs.set("catalogueId", params.catalogueId);
@@ -1470,6 +1473,7 @@ export const api = {
     if (params.month !== undefined) qs.set("month", String(params.month));
     if (params.fromCatalogueId) qs.set("fromCatalogueId", params.fromCatalogueId);
     if (params.toCatalogueId) qs.set("toCatalogueId", params.toCatalogueId);
+    if (params.includeReprints) qs.set("includeReprints", "true");
     return request<SharedMarkCataloguePercent>(`/api/v1/reports/shared-mark-catalogue-percent?${qs.toString()}`);
   },
 

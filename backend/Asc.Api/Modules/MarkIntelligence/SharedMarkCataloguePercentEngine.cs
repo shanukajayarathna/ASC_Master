@@ -18,13 +18,17 @@ namespace Asc.Api.Modules.MarkIntelligence;
 /// </summary>
 public static class SharedMarkCataloguePercentEngine
 {
-    public static SharedMarkCataloguePercentDto Build(IEnumerable<Lot> lots)
+    /// <summary>includeReprints defaults to false (a re-catalogued lot would otherwise double-count
+    /// its own earlier appearance) — pass true only when the caller explicitly wants the raw,
+    /// reprint-inclusive figures, e.g. to reconcile against a source with no reprint flag of its
+    /// own (the MSL archive's TXT format carries no equivalent of the sale Excel's "RP" column).</summary>
+    public static SharedMarkCataloguePercentDto Build(IEnumerable<Lot> lots, bool includeReprints = false)
     {
         var groups = new Dictionary<string, Accumulator>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var lot in lots)
         {
-            if (lot.IsReprint) continue;
+            if (lot.IsReprint && !includeReprints) continue;
             if (lot.NetWeight is not { } qty || qty <= 0) continue;
             if (string.IsNullOrWhiteSpace(lot.Broker)) continue;
             var key = GroupKey(lot);
@@ -61,7 +65,7 @@ public static class SharedMarkCataloguePercentEngine
                 var total = a.QtyByBroker.Values.Sum();
                 var percentByBroker = a.QtyByBroker.ToDictionary(
                     kv => kv.Key,
-                    kv => total > 0 ? Math.Round(kv.Value / total * 100m, 1) : 0m);
+                    kv => total > 0 ? Math.Round(kv.Value / total * 100m, 2) : 0m);
                 var displayName = a.Name ?? a.Code;
                 return new SharedMarkCataloguePercentRowDto(
                     a.Code,
