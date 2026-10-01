@@ -419,7 +419,7 @@ export default function TopPriceSimple({ entries, meta }: TopPriceSimpleProps) {
     <div className={styles.wrap} data-format="simple">
       <div className={styles.page}>
         <div className={styles.head}>
-          <h1 className={styles.title}>Top Price Page</h1>
+          <h1 className={styles.title}>Top Prices</h1>
           <div className={styles.meta}>
             <b>{meta.broker || "Asia Siyaka Commodities PLC"}</b> &nbsp;·&nbsp; Sale No. {meta.auctionNumber || "—"} &nbsp;·&nbsp;{" "}
             <b>{meta.saleDate}</b>

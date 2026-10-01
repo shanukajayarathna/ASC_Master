@@ -334,7 +334,7 @@ export default function TopPriceBulletin({ pages, density, meta }: TopPriceBulle
             </div>
             <div>
               <div className={styles.mastheadTitle}>{meta.broker || "Asia Siyaka Commodities PLC"}</div>
-              <span className={styles.mastheadSub}>Top Price Page</span>
+              <span className={styles.mastheadSub}>Top Prices</span>
             </div>
             <div className={styles.mastheadRight}>
               <div>Sale No. {meta.auctionNumber || "—"}</div>
