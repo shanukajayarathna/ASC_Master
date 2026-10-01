@@ -47,12 +47,12 @@ interface MbDensity {
  *  COMPACT is a real safety net for the opposite: more grade codes, longer numbers, or any other
  *  future data drift that pushes a page's fixed shape past what COZY can hold. */
 const MB_ROOMY: MbDensity = {
-  rowH: 15,
-  rowFs: 11,
-  theadH: 22,
-  theadFs: 15.5,
-  theadUnitFs: 8.5,
-  colheadFs: 8.5,
+  rowH: 17,
+  rowFs: 12.5,
+  theadH: 24,
+  theadFs: 16.5,
+  theadUnitFs: 9,
+  colheadFs: 9.5,
   colheadPadV: 1.5,
   sectionHeadFs: 13.5,
   sectionHeadPadT: 3.5,
@@ -64,12 +64,12 @@ const MB_ROOMY: MbDensity = {
   pagePadH: 13.5,
 };
 const MB_COZY: MbDensity = {
-  rowH: 14,
-  rowFs: 10.5,
-  theadH: 21,
-  theadFs: 15,
-  theadUnitFs: 8,
-  colheadFs: 8,
+  rowH: 16,
+  rowFs: 12,
+  theadH: 23,
+  theadFs: 16,
+  theadUnitFs: 8.5,
+  colheadFs: 9,
   colheadPadV: 1,
   sectionHeadFs: 13,
   sectionHeadPadT: 3,
@@ -81,12 +81,12 @@ const MB_COZY: MbDensity = {
   pagePadH: 13,
 };
 const MB_COMPACT: MbDensity = {
-  rowH: 12,
-  rowFs: 9.5,
-  theadH: 18,
-  theadFs: 13,
-  theadUnitFs: 7,
-  colheadFs: 7,
+  rowH: 14,
+  rowFs: 10.5,
+  theadH: 20,
+  theadFs: 14,
+  theadUnitFs: 7.5,
+  colheadFs: 8,
   colheadPadV: 0.5,
   sectionHeadFs: 11.5,
   sectionHeadPadT: 2,
@@ -402,6 +402,68 @@ function SectionCard({ section, editing }: { section: BulletinSection; editing?:
   );
 }
 
+/** Page 1's explanatory number-line: how a grade's lots split into the four price tiers by lot
+ *  count, per TierSplitter's own fixed cut points (top 15% Select Best, next 30% Best, next 40%
+ *  Below Best, bottom 15% Poor) — reusing TIER_COLORS/TIER_ORDER (declared just below) so the
+ *  colors match page 4's pies exactly, per the user's own instruction. Not tied to any one table's
+ *  real min/max — page 1 carries many grades, each with its own price range, so "Lowest"/"Highest"
+ *  are generic end labels describing the concept (the low end of a grade's traded range vs the
+ *  high end), not one specific number. */
+const TIER_SCALE_PCT: Record<(typeof TIER_ORDER)[number], number> = {
+  "Select Best": 15,
+  Best: 30,
+  "Below Best": 40,
+  Poor: 15,
+};
+
+/** The page's own real lowest/highest ThisWeek price across every grade table shown on it (Low
+ *  Grown + Premium Flowery) — per the user's own instruction to show the actual value at each end
+ *  of the line rather than a plain "Lowest"/"Highest" label with nothing behind it. Skips any row
+ *  with no lots (lotCount === 0 / a null range), same guard formatRange already uses. Null when
+ *  the whole page has no priced lots at all (an empty/placeholder sale), so the legend falls back
+ *  to just the words. */
+function pageThisWeekRange(sections: BulletinSection[]): { min: number; max: number } | null {
+  let min: number | null = null;
+  let max: number | null = null;
+  for (const s of sections) {
+    for (const t of s.tables) {
+      for (const r of t.rows) {
+        if (r.thisWeek.lotCount === 0 || r.thisWeek.min === null || r.thisWeek.max === null) continue;
+        if (min === null || r.thisWeek.min < min) min = r.thisWeek.min;
+        if (max === null || r.thisWeek.max > max) max = r.thisWeek.max;
+      }
+    }
+  }
+  return min !== null && max !== null ? { min, max } : null;
+}
+
+function TierScaleLegend({ range }: { range: { min: number; max: number } | null }) {
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return (
+    <div className={styles.tierScaleWrap}>
+      <span className={styles.tierScaleNote}>This is the logic used to classify a grade&apos;s lots into price tiers, highest price to lowest:</span>
+      <div className={styles.tierScale}>
+        <span className={styles.tierScaleEnd}>
+          Lowest
+          {range && <span className={styles.tierScaleEndVal}>{fmt(range.min)}</span>}
+        </span>
+        <div className={styles.tierScaleBar}>
+          {TIER_ORDER.map((tier) => (
+            <div key={tier} className={styles.tierScaleSeg} style={{ flexBasis: `${TIER_SCALE_PCT[tier]}%`, background: TIER_COLORS[tier] }}>
+              <span className={styles.tierScaleSegName}>{tier}</span>
+              <span className={styles.tierScaleSegPct}>{TIER_SCALE_PCT[tier]}%</span>
+            </div>
+          ))}
+        </div>
+        <span className={styles.tierScaleEnd}>
+          Highest
+          {range && <span className={styles.tierScaleEndVal}>{fmt(range.max)}</span>}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ---- page 4: month-over-month sale comparison, one combined pie per sale ----------------------
 
 /** Same quality-scale color language as the rest of the bulletin (gold = best, rust = worst —
@@ -678,6 +740,10 @@ function MonthlyComparisonSection({ comparison }: { comparison: MonthlyCompariso
  *  copy-pasted inline block. `subtitle` defaults to pages 1-3's own title since page 4 is the
  *  only caller that overrides it: page 4 isn't a classification/quotation table at all, so
  *  keeping that subtitle there read as wrong once the reader actually looked at the page. */
+/** Same left-title / right-meta layout as TopPriceSimple.module.css's own `.head` (`.title` on
+ *  the left, a black meta line — company name, sale number, sale date — on the right), per the
+ *  user's own instruction to match that report's topic-area format rather than the earlier
+ *  center-title/two-side-column arrangement. */
 function Masthead({
   bulletin,
   saleNo,
@@ -691,32 +757,31 @@ function Masthead({
 }) {
   return (
     <div className={styles.masthead}>
-      <dl className={styles.mastheadMeta}>
-        <div>
-          <dt>Sale Date</dt>
-          <dd>{bulletin.sourceName}</dd>
-        </div>
-      </dl>
-      <div>
-        <div className={styles.mastheadTitle}>Asia Siyaka Commodities PLC</div>
-        <span className={styles.mastheadSub}>{subtitle}</span>
-      </div>
-      <div className={styles.mastheadRight}>
-        <div>Sale No. {saleNo}</div>
-        {prevSaleNo && <div className={styles.mastheadRightSub}>cf. Sale {prevSaleNo}</div>}
+      <h1 className={styles.mastheadTitle}>{subtitle}</h1>
+      <div className={styles.mastheadMeta}>
+        <b>Asia Siyaka Commodities PLC</b> &nbsp;·&nbsp; Sale No. {saleNo}
+        {prevSaleNo && (
+          <>
+            {" "}
+            &nbsp;·&nbsp; cf. Sale {prevSaleNo}
+          </>
+        )}
+        &nbsp;·&nbsp; <b>{bulletin.sourceName}</b>
       </div>
     </div>
   );
 }
 
+/** Same plain left-text/right-"Page X of Y" split as TopPriceSimple.module.css's own `.foot` —
+ *  per the user's own instruction — rather than the earlier centered caption flanked by two
+ *  decorative rule lines. */
 function Footer({ saleNo, pageNumber, totalPages }: { saleNo: string; pageNumber: number; totalPages: number }) {
   return (
     <div className={styles.footer}>
-      <span className={styles.footerRule} aria-hidden="true" />
-      <span className={styles.footerCaption}>
-        &#9670; {["Asia Siyaka Commodities PLC", `Sale No. ${saleNo}`, `Page ${pageNumber} of ${totalPages}`].join("   ·   ")} &#9670;
+      <span>Asia Siyaka Commodities PLC &nbsp;·&nbsp; Sale No. {saleNo}</span>
+      <span>
+        Page {pageNumber} of {totalPages}
       </span>
-      <span className={styles.footerRule} aria-hidden="true" />
     </div>
   );
 }
@@ -860,6 +925,7 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady, catalogueId
           <div key={pi} className={styles.page} data-mb-page="true">
             <Masthead bulletin={bulletin} saleNo={saleNo} prevSaleNo={prevSaleNo} />
             <div className={styles.sections}>
+              {pi === 0 && <TierScaleLegend range={pageThisWeekRange(sections)} />}
               {sections.map((s, si) => (
                 <SectionCard key={si} section={s} editing={editingProps} />
               ))}

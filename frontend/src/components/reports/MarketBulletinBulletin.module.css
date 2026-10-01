@@ -36,101 +36,73 @@
   font-family: var(--font-plex-sans), -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
-/* --- masthead: identical layout/colors to TopPriceBulletin.module.css's own ------------------- */
+/* --- masthead: matches TopPriceSimple.module.css's own `.head` (light card, green rule, green
+   title) rather than the earlier solid-green filled bar — per the user's own instruction to use
+   the same topic-area style as the Simple Top Price Page, and because a full-bleed green
+   masthead sitting directly above a page already dense with green table headers (see .tableHead/
+   .colHead below) is exactly the kind of "everything is green" flattening the user flagged: nothing
+   on the page stood out as its own distinct region once the title bar was the same solid fill as
+   every table header beneath it. */
+/* Exact same values as TopPriceSimple.module.css's own `.head`/`.title`/`.meta` (font family,
+   sizes, colors, border) — per the user's own instruction that the topic area should look the
+   same, not just be arranged the same way. */
 .masthead {
   grid-area: top;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 20px;
-  background-color: #2f7d52;
-  color: #fff;
-  padding: 6px 16px;
-  border-radius: 6px;
+  border-bottom: 2px solid #2f7d52;
+  padding-bottom: 2.2mm;
 }
-.mastheadMeta {
-  padding-top: 3px;
-  font-size: 11px;
-  line-height: 1.2;
-  margin: 0;
-}
-.mastheadMeta dt {
-  display: inline;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.8);
-  margin-right: 5px;
-}
-.mastheadMeta dd {
-  display: inline;
-  margin: 0;
-  font-weight: 700;
-}
+/* 22pt (TopPriceSimple's own exact title size) left too little row width for this report's own
+   longer meta line (it carries a "cf. Sale N" clause TopPriceSimple's doesn't — see .mastheadMeta's
+   own comment) — the sale-number/year clause kept wrapping onto its own line. Trimmed down until
+   that stopped happening on real sale names. */
 .mastheadTitle {
-  font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
+  flex: 0 0 auto;
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17pt;
   font-weight: 700;
-  font-size: 20px;
-  line-height: 1.2;
-  text-align: center;
+  color: #2f7d52;
+  letter-spacing: 0.2px;
   white-space: nowrap;
-  letter-spacing: 0.005em;
 }
-.mastheadSub {
-  display: block;
-  font-weight: 600;
-  font-size: 11px;
-  line-height: 1.2;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: #d9b44a;
-  margin-top: 1px;
-  text-align: center;
-}
-.mastheadRight {
+/* Unlike TopPriceSimple's own meta line (just company/sale-no/date), this report's also carries
+   a "cf. Sale N" comparison clause, which made the same fixed 9.5pt nowrap text run past the
+   page's right edge on longer sale names. `min-width: 0` lets it actually shrink inside the flex
+   row instead of forcing the row wider than the page, `text-align: right` keeps it flush against
+   the same edge it always sat on, and wrapping onto a second line (rather than shrinking the
+   font itself) keeps it legible instead of trailing off into illegibly small type. */
+.mastheadMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 9.5pt;
+  color: #124734;
   text-align: right;
-  font-size: 11px;
-  line-height: 1.3;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding-top: 3px;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
-.mastheadRightSub {
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.75);
-  text-transform: none;
-  margin-top: 1px;
+.mastheadMeta b {
+  font-weight: 700;
 }
 
-/* --- footer: decorative closing line, same as TopPriceBulletin's own -------------------------- */
+/* --- footer: same plain gold text row as TopPriceSimple.module.css's own `.foot` --------------- */
 .footer {
   grid-area: foot;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 14px;
-  margin-top: 0;
-  padding-top: 4px;
-  border-top: 1px solid #d3d8de;
-}
-.footerRule {
-  flex: 1 1 auto;
-  height: 1px;
-  min-width: 20px;
-  background-color: #b68c2a;
-  opacity: 0.55;
-}
-.footerCaption {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  font-family: var(--font-fraunces), "Times New Roman", Georgia, serif;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 7.5pt;
   color: #b68c2a;
+  border-top: 0.3mm solid #b68c2a;
+  padding-top: 1.6mm;
+}
+.footer span:first-child {
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-weight: 600;
 }
 
 /* --- body: sections stacked top to bottom ------------------------------------------------------ */
@@ -166,7 +138,6 @@
   flex-direction: column;
   flex: 0 0 auto;
   border-radius: 3px;
-  border: 1px solid #dedacb;
   background: #fcfbf8;
   break-inside: avoid;
 }
@@ -175,15 +146,18 @@
 }
 /* Plain black text, no background fill, per the user's own instruction — the earlier solid
    charcoal box read as too heavy/too much vertical weight for what's just a section label. */
+/* Same slight tint + underline treatment as the grade-table headers (.tableHead) — a light green
+   fill spanning the section box's own full width, per the user's own instruction. */
 .sectionHead {
   flex: 0 0 auto;
   padding: var(--mb-sectionhead-pad-t, 3px) 10px var(--mb-sectionhead-pad-b, 4px);
-  color: #000;
+  color: #1f5c3f;
   font-size: var(--mb-sectionhead-fs, 13px);
   font-weight: 700;
   line-height: 1.3;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  background: #eef3ee;
 }
 .sectionEmpty {
   flex: 1;
@@ -227,16 +201,20 @@
 }
 /* Fixed height + explicit shared line-height on both children, not align-items:baseline — same
    cross-font (Plex Mono grade label vs Plex Sans unit text) html2canvas baseline-misalignment
-   bug as .row above; see that rule's comment for the full explanation. Solid green fill + white
-   text is the same themed header treatment TopPriceBulletin's own `.head` uses for its region
-   titles (see that file's own `.head` comment) — reused here so the grade name reads as the
-   card's own bold heading instead of a faint grey label bar. */
+   bug as .row above; see that rule's comment for the full explanation.
+   A solid green fill worked fine as a one-off themed header (TopPriceBulletin's own region
+   titles, a handful per page) but this report can carry a dozen-plus of these on one page — that
+   many identical solid-green blocks stacked edge to edge is what actually read as "the whole
+   document is green, nothing stands out" (the user's own words). Switched to a light tint +
+   colored bottom rule instead: the grade name still reads as the card's bold heading (now in
+   green ink on a pale ground), but the page as a whole has far less raw green fill, so distinct
+   cards/sections are easier to tell apart at a glance. */
 .tableHead {
   display: flex;
   justify-content: space-between;
   height: var(--mb-thead-h, 16px);
   padding: 0 7px;
-  background: #2f7d52;
+  background: #eef3ee;
   border-top-left-radius: 2px;
   border-top-right-radius: 2px;
 }
@@ -245,7 +223,7 @@
   font-size: var(--mb-thead-fs, 11px);
   line-height: var(--mb-thead-h, 16px);
   font-weight: 700;
-  color: #fff;
+  color: #1f5c3f;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -253,15 +231,13 @@
   font-size: var(--mb-thead-unit-fs, 8.5px);
   line-height: var(--mb-thead-h, 16px);
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
+  color: #6b7a72;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-/* Same exact green fill as .tableHead, no border/seam between them — per the user's own
-   instruction, this reads as ONE continuous green header (grade name on top, "This Week"/"Last
-   Week" fused directly beneath it at a smaller size), not a second block stacked under the
-   first. Font stays well below --mb-thead-fs so the grade name still reads as the card's
-   primary heading. */
+/* No fill at all — a plain hairline-bordered row of column labels beneath .tableHead's own light
+   tint, per the same "less solid green" fix described there. The grade name above still reads as
+   the card's clear primary heading; this row only needs to be legible, not another colored block. */
 .colHead {
   display: flex;
   padding: var(--mb-colhead-pad-v, 1px) 7px;
@@ -269,8 +245,8 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #fff;
-  background: #2f7d52;
+  color: #6b7a72;
+  background: #fff;
   white-space: nowrap;
 }
 .colHead span:first-child {
@@ -329,9 +305,6 @@
   font-size: var(--mb-row-fs, 10.5px);
   line-height: var(--mb-row-h, 14px);
   background: #fff;
-}
-.row[data-zebra="true"] {
-  background: #f7f5ee;
 }
 /* Dust's only current user (see rowBand in the .tsx) — a small gap right where one elevation
    band's four rows end and the next begins ("Low Poor" -> "Medium Select Best", "Medium Poor" ->
@@ -407,6 +380,87 @@
   color: #a24b3a;
   white-space: nowrap;
 }
+/* --- page 1 only: tier-split legend, a plain explanatory number-line (not tied to any one
+   table's real prices — page 1 covers many different grades, each with its own price range, so
+   there's no single "the" lowest/highest to anchor real numbers to) showing HOW the four price
+   tiers divide a grade's traded lots by lot count (15/30/40/15%, TierSplitter's own cut points —
+   see that file's own comment), in the same tier colors page 4's pies already use, per the user's
+   own instruction to reuse "the standard colour we use in the 4th page." Lives inside `.sections`
+   as a `flex: 0 0 auto` item ahead of the real section cards, so it takes part in the page's own
+   space-evenly leftover-height split without needing a layout of its own. */
+.tierScaleWrap {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 10px;
+}
+.tierScaleNote {
+  font-size: 8.5px;
+  font-style: italic;
+  color: #8b929e;
+}
+.tierScale {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Sits right against the bar's own end (see .tierScale's own tightened gap) rather than floating
+   off to the side of it — per the user's own instruction that the end labels should read as
+   belonging to that corner of the line, not as separate text next to it. The real value (added
+   per the same instruction, below the word) is what actually anchors it there. */
+.tierScaleEnd {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7a72;
+}
+.tierScaleEndVal {
+  font-family: var(--font-plex-mono), "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #124734;
+}
+.tierScaleBar {
+  flex: 1 1 auto;
+  display: flex;
+  height: 22px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid #dedacb;
+}
+.tierScaleSeg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  line-height: 1.05;
+}
+.tierScaleSegName {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+.tierScaleSegPct {
+  font-size: 7.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+
 /* --- page 4: month-over-month quantity/average-price pie comparison ---------------------------- */
 .monthlyUnit {
   font-size: 0.75em;
