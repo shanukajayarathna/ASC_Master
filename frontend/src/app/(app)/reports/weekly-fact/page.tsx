@@ -718,24 +718,48 @@ export default function WeeklyFactReportsPage() {
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
       buffers.forEach((o) => zip.file(o.filename, o.buffer));
-      // The PDF mirror of every workbook rides along in the same ZIP, one .pdf per .xlsx.
+
+      // One conversion cache for the whole ZIP build — the combined report below re-requests
+      // the same FACT/LOW files the individual-PDF loop just converted (same filename, no
+      // `sheets`), so without this every one of those would spawn LibreOffice a second time.
+      // Keyed by filename+sheets so the combined report's per-tab RANK conversions (a different
+      // `sheets` value than the plain RANK workbook PDF) still get their own entries. Cached by
+      // Promise, not by resolved value, so two concurrent requests for the same key share one
+      // in-flight conversion instead of racing two.
+      const pdfCache = new Map<string, Promise<Blob>>();
+      const cachedConvert = (buffer: ArrayBuffer, filename: string, sheets?: string[]): Promise<Blob> => {
+        const key = sheets ? `${filename}::${sheets.join(",")}` : filename;
+        let promise = pdfCache.get(key);
+        if (!promise) {
+          promise = api.convertWeeklyFactPdf(buffer, filename, sheets);
+          pdfCache.set(key, promise);
+        }
+        return promise;
+      };
+
+      // The PDF mirror of every workbook rides along in the same ZIP, one .pdf per .xlsx. Each
+      // conversion is an independent LibreOffice spawn (its own profile dir — see route.ts), so
+      // they run concurrently rather than one-at-a-time.
+      const individualPdfs: { name: string; promise: Promise<Blob> }[] = [];
       if (job) {
         for (const o of job.outcomes) {
-          if (o.buffer) zip.file(pdfNameOf(o.filename), await api.convertWeeklyFactPdf(o.buffer, o.filename));
+          if (o.buffer) individualPdfs.push({ name: pdfNameOf(o.filename), promise: cachedConvert(o.buffer, o.filename) });
         }
         if (job.rankWorkbook?.buffer && job.rankWorkbook.filename) {
-          zip.file(pdfNameOf(job.rankWorkbook.filename), await api.convertWeeklyFactPdf(job.rankWorkbook.buffer, job.rankWorkbook.filename));
+          individualPdfs.push({ name: pdfNameOf(job.rankWorkbook.filename), promise: cachedConvert(job.rankWorkbook.buffer, job.rankWorkbook.filename) });
         }
         if (job.lowRankWorkbook?.buffer && job.lowRankWorkbook.filename) {
-          zip.file(pdfNameOf(job.lowRankWorkbook.filename), await api.convertWeeklyFactPdf(job.lowRankWorkbook.buffer, job.lowRankWorkbook.filename));
+          individualPdfs.push({ name: pdfNameOf(job.lowRankWorkbook.filename), promise: cachedConvert(job.lowRankWorkbook.buffer, job.lowRankWorkbook.filename) });
         }
         if (job.lowMarkWorkbook?.buffer && job.lowMarkWorkbook.filename) {
-          zip.file(pdfNameOf(job.lowMarkWorkbook.filename), await api.convertWeeklyFactPdf(job.lowMarkWorkbook.buffer, job.lowMarkWorkbook.filename));
+          individualPdfs.push({ name: pdfNameOf(job.lowMarkWorkbook.filename), promise: cachedConvert(job.lowMarkWorkbook.buffer, job.lowMarkWorkbook.filename) });
         }
       }
+      for (const { name, promise } of individualPdfs) zip.file(name, await promise);
+
       if (job) {
         try {
-          zip.file(combinedPdfName(job.saleNumber), await buildCombinedReportPdf(job, api.convertWeeklyFactPdf));
+          zip.file(combinedPdfName(job.saleNumber), await buildCombinedReportPdf(job, cachedConvert));
         } catch {
           // The individual PDFs above are already in the ZIP — don't fail the whole download.
         }

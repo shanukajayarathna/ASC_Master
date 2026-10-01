@@ -255,9 +255,14 @@ export async function buildCombinedReportPdf(job: WeeklyJobResult, convert: (buf
   if (job.lowRankWorkbook?.buffer) parts.push({ buffer: job.lowRankWorkbook.buffer, filename: job.lowRankWorkbook.filename ?? "RANK WISE.xlsx" });
   if (!parts.length) throw new Error("No generated workbooks to combine.");
 
+  // Each conversion is its own LibreOffice headless spawn (cold profile each time — see
+  // route.ts's own comment on why they can't share one) — nothing here depends on another
+  // part's result, so running them concurrently rather than one-at-a-time is a straight wall-
+  // time win. Order is restored afterwards from `parts`, not from resolution order.
+  const converted = await Promise.all(parts.map((part) => convert(part.buffer.slice(0), part.filename, part.sheets)));
+
   const merged = await PDFDocument.create();
-  for (const part of parts) {
-    const blob = await convert(part.buffer.slice(0), part.filename, part.sheets);
+  for (const blob of converted) {
     const src = await PDFDocument.load(await blob.arrayBuffer());
     for (const page of await merged.copyPages(src, src.getPageIndices())) merged.addPage(page);
   }
