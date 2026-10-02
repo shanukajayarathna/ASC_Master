@@ -29,7 +29,11 @@ function esc(v: string | null | undefined): string {
  * has and produces the same professional letterhead + table.
  */
 export function printLotsReport(lots: Lot[], catalogueName: string) {
-  const win = window.open("", "_blank", "noopener,noreferrer");
+  // No "noopener"/"noreferrer" here — per spec, either one makes window.open() return null
+  // (there's no WindowProxy to hand back once the opener link is severed), which used to make
+  // every PDF/print menu item silently do nothing. Safe without them: this tab is never
+  // navigated to an untrusted URL, only written to directly with our own markup below.
+  const win = window.open("", "_blank");
   if (!win) return;
 
   // Show the Sale column only when the lots actually span several sales (the pooled set
