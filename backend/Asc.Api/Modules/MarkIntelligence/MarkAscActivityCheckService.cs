@@ -39,7 +39,11 @@ public record MarkAscActivityRunResult(
 /// </summary>
 public class MarkAscActivityCheckService(MongoContext db, ICatalogueSource catalogues, ILogger<MarkAscActivityCheckService> logger)
 {
-    private const string AscBrokerCode = "AS";
+    // The literal broker code /data/sales uses for ASC's own rows in this consolidated general
+    // report (confirmed against real Sale 36/2026 data — see SharedMarkCatalogueService's own
+    // doc comment, which hit and fixed the same wrong assumption) — NOT "AS", which is the Msl
+    // archive's broker code. This file carries every broker's rows together, spelled "ASC".
+    private const string AscBrokerCode = "ASC";
 
     // WarningWindow's 90 days is duplicated as a raw literal in frontend/src/app/(app)/
     // mark-intelligence/page.tsx's isRecentlyIncoming (no API exposes this constant today) —
@@ -82,7 +86,7 @@ public class MarkAscActivityCheckService(MongoContext db, ICatalogueSource catal
             {
                 if (string.IsNullOrWhiteSpace(lot.SellingMark)) continue;
                 // /data/sales is ASC's own file store — a blank Broker column is treated as
-                // ASC's own row; an explicit non-"AS" broker is skipped (defensive, in case a
+                // ASC's own row; an explicit non-"ASC" broker is skipped (defensive, in case a
                 // file ever carries mixed-broker rows).
                 if (!string.IsNullOrWhiteSpace(lot.Broker) && !string.Equals(lot.Broker, AscBrokerCode, StringComparison.OrdinalIgnoreCase)) continue;
                 var markCode = lot.SellingMark.Trim().ToUpperInvariant();
