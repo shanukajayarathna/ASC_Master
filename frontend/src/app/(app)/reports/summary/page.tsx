@@ -15,7 +15,7 @@ import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const REPORT_TYPES: { value: string; label: string }[] = [
   { value: "executive", label: "Executive Summary" },
@@ -63,20 +63,34 @@ export default function ReportsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Guards against an older (catalogueId, type) request landing after a newer one — e.g. the
+  // "Reopen" link's effect above switching the active sale while this effect's own fetch for
+  // the PREVIOUS sale is still in flight, or quickly switching Type. Without this, whichever
+  // response resolves last wins regardless of which one is actually current.
+  const latestRequestRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeCatalogueId) {
+      latestRequestRef.current = null;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setReport(null);
       return;
     }
+    const requestKey = `${activeCatalogueId}:${type}`;
+    latestRequestRef.current = requestKey;
     setLoading(true);
     setError(null);
     setSaved(false);
     api
       .generateReport(activeCatalogueId, type)
-      .then(setReport)
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't generate the report"))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (latestRequestRef.current === requestKey) setReport(r);
+      })
+      .catch((e) => {
+        if (latestRequestRef.current === requestKey) setError(e instanceof Error ? e.message : "Couldn't generate the report");
+      })
+      .finally(() => {
+        if (latestRequestRef.current === requestKey) setLoading(false);
+      });
   }, [activeCatalogueId, type]);
 
   const exportExcel = async () => {

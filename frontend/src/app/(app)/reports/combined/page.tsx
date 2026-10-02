@@ -22,7 +22,7 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Source = "catalogue" | "upload";
 
@@ -112,23 +112,39 @@ export default function CombinedReportPage() {
     "The combined report is still working. Leaving now will cancel it — continue?"
   );
 
+  // Guards against a stale response winning — either an older sale's slower response landing
+  // after a newer sale's (switching A→B quickly), or a response for "catalogue" mode landing
+  // after the user has already switched to "upload" mode (which this effect's own early-return
+  // used to let through, since the in-flight promise's .then still fired).
+  const latestRequestRef = useRef<string | null>(null);
   useEffect(() => {
-    if (source !== "catalogue") return;
+    if (source !== "catalogue") {
+      latestRequestRef.current = null;
+      return;
+    }
     if (!activeCatalogueId) {
+      latestRequestRef.current = null;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCombined(null);
       return;
     }
+    const requestKey = activeCatalogueId;
+    latestRequestRef.current = requestKey;
     setLoading(true);
     setError(null);
     api
       .getCombinedReport(activeCatalogueId)
       .then((r) => {
+        if (latestRequestRef.current !== requestKey) return;
         setCombined(r);
         setActiveFamily(0);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't generate the combined report"))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (latestRequestRef.current === requestKey) setError(e instanceof Error ? e.message : "Couldn't generate the combined report");
+      })
+      .finally(() => {
+        if (latestRequestRef.current === requestKey) setLoading(false);
+      });
   }, [source, activeCatalogueId]);
 
   const changeSource = (next: Source | null) => {

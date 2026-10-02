@@ -26,7 +26,7 @@ import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import Button from "@mui/material/Button";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export default function TopPricePagePage() {
   const { catalogues, activeCatalogueId } = useCatalogue();
@@ -43,19 +43,33 @@ export default function TopPricePagePage() {
     "The Top Price Page export is still running. Leaving now will cancel it — continue?"
   );
 
+  // Guards against an older sale's slower response landing after a newer sale's — without
+  // this, the bulletin/Excel export could show the previous sale while the picker shows the
+  // new one, and the PDF export (which posts activeCatalogueId directly) could carry the new
+  // sale's id together with the stale report's meta.auctionNumber.
+  const latestRequestRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeCatalogueId) {
+      latestRequestRef.current = null;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCombined(null);
       return;
     }
+    const requestKey = activeCatalogueId;
+    latestRequestRef.current = requestKey;
     setLoading(true);
     setError(null);
     api
       .getCombinedReport(activeCatalogueId)
-      .then(setCombined)
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't build the Top Price Page"))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (latestRequestRef.current === requestKey) setCombined(r);
+      })
+      .catch((e) => {
+        if (latestRequestRef.current === requestKey) setError(e instanceof Error ? e.message : "Couldn't build the Top Price Page");
+      })
+      .finally(() => {
+        if (latestRequestRef.current === requestKey) setLoading(false);
+      });
   }, [activeCatalogueId]);
 
   const layout: { pages: TppBulletinPage[]; density: TppDensity } | null = useMemo(
@@ -79,7 +93,7 @@ export default function TopPricePagePage() {
     setExporting(true);
     setError(null);
     try {
-      await exportTopPricePageExcel(combined);
+      await exportTopPricePageExcel(combined, undefined, activeCatalogue?.saleDateStart, activeCatalogue?.saleDateEnd);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {

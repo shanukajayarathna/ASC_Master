@@ -1471,8 +1471,16 @@ export function buildTppMeta(
   };
 }
 
-export async function exportTopPricePageExcel(combined: CombinedReport, referenceReport?: AuctionReport): Promise<void> {
-  const meta = buildTppMeta(combined, referenceReport);
+export async function exportTopPricePageExcel(
+  combined: CombinedReport,
+  referenceReport?: AuctionReport,
+  saleDateStart?: string | null,
+  saleDateEnd?: string | null
+): Promise<void> {
+  // Without these, the masthead falls back to combined.sourceName ("Sale 30 - 2026") instead of
+  // the real formatted date — the on-screen bulletin (buildTppMeta called with these same two
+  // fields from the page) showed the real date while this export didn't.
+  const meta = buildTppMeta(combined, referenceReport, saleDateStart, saleDateEnd);
 
   const entries = buildRegionEntries(combined);
   const layout = planRegionPageLayout(entries);
