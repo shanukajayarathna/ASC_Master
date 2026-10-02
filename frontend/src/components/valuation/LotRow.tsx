@@ -297,8 +297,17 @@ function LotRowImpl({
             } else if (e.key === "Enter") {
               e.preventDefault();
               const c = CLASSIFICATIONS[cursor];
-              if (currentCls === c.value) onNavigate(index, "classification");
-              else onCommitClassification(lot, index, c.value, setError);
+              if (currentCls === c.value) {
+                // Already this value (e.g. the auto-picked tier after Save & Next) — accept and
+                // move on, same destination ArrowRight uses from the last chip. Re-navigating to
+                // the same field was a no-op; re-committing instead would toggle it OFF to
+                // Unclassified (see commitClassification's own current===value swap).
+                const nextField = rowFields[rowFields.indexOf("classification") + 1];
+                if (nextField) onNavigate(index, nextField);
+                else onNavigate(index + 1, "valuation");
+              } else {
+                onCommitClassification(lot, index, c.value, setError);
+              }
             }
           }}
           className="flex gap-1 flex-wrap rounded-lg outline-none"
