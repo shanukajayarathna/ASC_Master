@@ -147,6 +147,12 @@ export default function CatalogueGrid({
       // Fixed width: sizeColumnsToFit must not squeeze these (their header/pills/buttons got clipped).
       suppressSizeToFit: true,
       wrapHeaderText: false,
+      // No field/valueGetter here used to mean the inherited sortable/filter (from
+      // defaultColDef) had no underlying value to work with — sorting this column did nothing
+      // and its text filter matched nothing. The label text is what's actually shown, so sort
+      // and filter work against the same words the user sees.
+      valueGetter: (p) =>
+        CLASSIFICATION_STYLE[(p.data as { __lot: Lot }).__lot.valuation?.classification ?? "Unclassified"].label,
       cellRenderer: (p: ICellRendererParams) => {
         const lot = (p.data as { __lot: Lot }).__lot;
         const cls = lot.valuation?.classification ?? "Unclassified";

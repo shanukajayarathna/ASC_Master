@@ -33,7 +33,11 @@ function categorize(lots: Lot[]): CategoryRow[] {
     const row = byName.get(name) ?? { lots: 0, sold: 0, unsold: 0, pending: 0 };
     row.lots++;
     const status = l.rawData["Status"]?.trim();
-    if (status === "Sold") row.sold++;
+    // "Outsold" (sold outside the floor auction, not via a live bid) is still a FINAL status,
+    // same as LiveAuctionGrid's own styling treats it — counting it as "pending" instead used
+    // to mean a category whose lots were all Sold/Outsold never showed "Ended" and its Pending
+    // count never reached 0.
+    if (status === "Sold" || status === "Outsold") row.sold++;
     else if (status === "Unsold") row.unsold++;
     else row.pending++;
     byName.set(name, row);
