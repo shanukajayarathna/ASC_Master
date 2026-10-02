@@ -145,16 +145,21 @@ public class WorksheetExcelBuilder(IWebHostEnvironment env)
             var c1 = c0 + 1;
             if (c1 >= nCols) break;
 
-            var lCell = ws.GetRow(labelRow)?.GetCell(c0) ?? ws.CreateRow(labelRow).CreateCell(c0);
+            // NPOI's CreateRow(rownum) overwrites (and blanks) any row already at that index —
+            // calling it again per box used to wipe out the previous box's label/value. Look the
+            // row up once (creating it only the first time) and reuse it for every box.
+            var lRow = ws.GetRow(labelRow) ?? ws.CreateRow(labelRow);
+            var lCell = lRow.GetCell(c0) ?? lRow.CreateCell(c0);
             lCell.SetCellValue(summary[i].Label.ToUpperInvariant());
             lCell.CellStyle = styles.BoxLabel;
-            ws.GetRow(labelRow).CreateCell(c1).CellStyle = styles.BoxLabel;
+            (lRow.GetCell(c1) ?? lRow.CreateCell(c1)).CellStyle = styles.BoxLabel;
             ws.AddMergedRegion(new CellRangeAddress(labelRow, labelRow, c0, c1));
 
-            var vCell = (ws.GetRow(valueRow) ?? ws.CreateRow(valueRow)).CreateCell(c0);
+            var vRow = ws.GetRow(valueRow) ?? ws.CreateRow(valueRow);
+            var vCell = vRow.GetCell(c0) ?? vRow.CreateCell(c0);
             vCell.SetCellValue((double)summary[i].Value);
             vCell.CellStyle = styles.BoxValue;
-            ws.GetRow(valueRow).CreateCell(c1).CellStyle = styles.BoxValue;
+            (vRow.GetCell(c1) ?? vRow.CreateCell(c1)).CellStyle = styles.BoxValue;
             ws.AddMergedRegion(new CellRangeAddress(valueRow, valueRow, c0, c1));
         }
         ws.GetRow(labelRow).HeightInPoints = 14;
