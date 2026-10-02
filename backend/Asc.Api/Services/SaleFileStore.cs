@@ -1086,6 +1086,13 @@ public class SaleFileStore(CatalogueImportService importer, IWebHostEnvironment 
         {
             foreach (var path in Directory.GetFiles(dir, "*.xls*"))
             {
+                var name = Path.GetFileName(path);
+                // "*.xls*" also matches Excel's own lock file ("~$05.xlsx", created while someone
+                // has the file open) and a writer's temp file ("05.xlsx.tmp" — OkloSaleWriter,
+                // refresh-local-files) — both resolve to the SAME sale number as the real file,
+                // so without this they race it for which one "wins" by mtime in the GroupBy below.
+                if (name.StartsWith("~$", StringComparison.Ordinal) || name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                    continue;
                 var digits = new string(Path.GetFileNameWithoutExtension(path).Where(char.IsDigit).ToArray());
                 if (digits.Length is 0 or > 3 || !int.TryParse(digits, out var saleNo)) continue;
                 var info = new FileInfo(path);
