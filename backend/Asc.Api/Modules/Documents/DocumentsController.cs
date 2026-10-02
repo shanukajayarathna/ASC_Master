@@ -111,9 +111,14 @@ public class DocumentsController(MongoContext db, IDocumentStore store, IEmbeddi
 
         // No back-reference is stored on the superseded document (see KnowledgeDocument's
         // doc comment) — computed here instead, from the same full list this endpoint
-        // already loads.
+        // already loads. GroupBy+First rather than ToDictionary: Upload only checks that the
+        // target exists, not that it's already superseded, so two uploads can legitimately
+        // both name the same SupersedesDocumentId — that used to throw on the duplicate key
+        // (500 on every call to this endpoint until one was deleted). `docs` is sorted newest
+        // first, so First() picks the most recently uploaded superseder.
         var supersededBy = docs.Where(d => d.SupersedesDocumentId.HasValue)
-            .ToDictionary(d => d.SupersedesDocumentId!.Value, d => d.Id);
+            .GroupBy(d => d.SupersedesDocumentId!.Value)
+            .ToDictionary(g => g.Key, g => g.First().Id);
 
         return Ok(docs.Select(d => ToDto(d, supersededBy.TryGetValue(d.Id, out var by) ? by : null)).ToList());
     }

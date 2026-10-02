@@ -594,9 +594,14 @@ public class MslController(
         var mslLots = await db.AuctionLots
             .Find(l => l.SaleYear == year && l.SaleNo == saleNo && !l.IsPrivate)
             .ToListAsync(ct);
+        // GroupBy+last rather than ToDictionary: the same broker TXT dropped twice under
+        // different names in a sale folder (e.g. AS32.TXT and AS32 (1).TXT) would otherwise
+        // throw on the duplicate (broker, lot) key instead of returning a 500-free (if
+        // imperfect) comparison.
         var byKey = mslLots
             .Where(l => l.Broker is not null)
-            .ToDictionary(l => (l.Broker!, l.LotNo), l => l);
+            .GroupBy(l => (l.Broker!, l.LotNo))
+            .ToDictionary(g => g.Key, g => g.Last());
 
         int joined = 0, agree = 0;
         var diffs = new List<SaleComparisonDiffDto>();

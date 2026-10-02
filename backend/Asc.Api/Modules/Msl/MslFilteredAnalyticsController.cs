@@ -243,9 +243,12 @@ public class MslFilteredAnalyticsEngine(
             .SortByDescending(s => s.Year).ThenByDescending(s => s.SaleNo).ToListAsync(ct);
         var grades = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "grade").ToListAsync(ct);
         var buyers = await db.MslSaleStats.Distinct(s => s.Key, s => s.Dimension == "buyer").ToListAsync(ct);
-        var elevations = await db.MslSaleStats
-            .Find(s => s.Dimension == "elevation" && s.Year == totals.FirstOrDefault()!.Year)
-            .ToListAsync(ct);
+        // No "total" rows yet (fresh install, or stats wiped) — nothing to scope elevations to.
+        var elevations = totals.Count == 0
+            ? []
+            : await db.MslSaleStats
+                .Find(s => s.Dimension == "elevation" && s.Year == totals[0].Year)
+                .ToListAsync(ct);
 
         // Real sale-book categories (Ex-estate, etc.) and the private-sale bucket are
         // lot-level overrides, not a function of grade alone — pure grade-classification
