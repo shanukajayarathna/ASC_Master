@@ -125,13 +125,17 @@ export async function exportWorksheetPdf<TRow extends WorksheetRow>(opts: {
   drawMetric(doc, 444, 70, 190, "Total value", fmt2(totalValue));
 
   // Right-align numeric columns wherever they land; Valuation/Total Proceeds always follow the
-  // active columns and are always right-aligned, Remarks (always last) stays wide enough to read.
+  // active columns and are always right-aligned, Remarks (when shown) is always last and stays
+  // wide enough to read. Remarks is optional (the Columns menu can hide it) — unconditionally
+  // treating the last column as Remarks used to overwrite Total Proceeds' own right-alignment
+  // with a plain 130pt width whenever Remarks was hidden.
   const columnStyles: Record<number, { halign?: "right"; cellWidth?: number }> = {};
   columns.forEach((c, idx) => {
     if (c.numeric) columnStyles[idx] = { halign: "right" };
   });
-  const remarksIdx = columns.length - 1;
-  columnStyles[remarksIdx] = { cellWidth: 130 };
+  if (columns.length > 0 && columns[columns.length - 1].label === "Remarks") {
+    columnStyles[columns.length - 1] = { cellWidth: 130 };
+  }
 
   autoTable(doc, {
     startY: 112,
@@ -168,18 +172,30 @@ function buildFootRow<TRow extends WorksheetRow>(
 ): (string | number)[] {
   // "TOTAL — N lots" lands in the first column that doesn't already hold a total (Net/Total
   // Weight get their own sums); Valuation/Total Proceeds always get avg/totalValue.
+  //
+  // jspdf-autotable builds its columns from `head[0]` alone, so a foot row must return exactly
+  // one cell per column — appending 3 extra cells here (instead of filling them into `lead`)
+  // used to mean every exported PDF's footer silently dropped avg/totalValue/the label, since
+  // the extra cells past `columns.length` were just discarded.
+  //
+  // Valuation/Total Proceeds are structurally always the two columns right before an optional
+  // trailing Remarks column (see both callers — worksheet and asking-price title them
+  // differently, "Valuation"/"Asking Price" and "Total Proceeds"/"Total Value", so they're
+  // located by position here rather than by label text).
   const totalNet = rows.reduce((s, r) => s + (r.netWeight ?? 0), 0);
   const label = `TOTAL — ${rows.length} lots`;
-  let labelPlaced = false;
-  const lead = columns.map((c) => {
+  const hasRemarks = columns.length > 0 && columns[columns.length - 1].label === "Remarks";
+  const proceedsIdx = columns.length - (hasRemarks ? 2 : 1);
+  const valuationIdx = proceedsIdx - 1;
+
+  const lead = columns.map((c, i) => {
+    if (i === valuationIdx) return fmt2(avg);
+    if (i === proceedsIdx) return fmt2(totalValue);
     if (c.label === "Total Weight") return fmt2(totalQty);
     if (c.label === "Net Weight") return fmt2(totalNet);
     return "";
   });
-  if (lead[0] === "") {
-    lead[0] = label;
-    labelPlaced = true;
-  }
-  const tail = [fmt2(avg), fmt2(totalValue), labelPlaced ? "" : label];
-  return [...lead, ...tail];
+  const labelIdx = lead.findIndex((v) => v === "");
+  if (labelIdx !== -1) lead[labelIdx] = label;
+  return lead;
 }
