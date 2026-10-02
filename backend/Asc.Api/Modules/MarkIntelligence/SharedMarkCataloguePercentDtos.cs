@@ -18,7 +18,3 @@ public record SharedMarkCataloguePercentRowDto(
 public record SharedMarkCataloguePercentDto(
     List<string> Brokers,
     List<SharedMarkCataloguePercentRowDto> Rows);
-
-/// <summary>One sale, for the report's own Sale/Range picker — mirrors SalePicker.tsx's own
-/// "Sale N - YYYY" source name, pre-parsed so the frontend doesn't need its own regex.</summary>
-public record SharedMarkCataloguePercentSaleDto(Guid CatalogueId, int Year, int SaleNo, string SourceName, DateTime ImportedAt);

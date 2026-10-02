@@ -61,13 +61,6 @@ public static class MarketBulletinMonthlyEngine
         if (resolved is null) return null;
         var (targetMonth, targetDate) = resolved.Value;
 
-        // SalesInMonth's own weekly-anchor estimate can drift a day or two from the real
-        // calendar (see SharedMarkCatalogueService's own AlignCalendarToKnownSaleDate, which
-        // this mirrors) — the viewed sale's own date is now known exactly (from the scan above),
-        // so every other week in ITS month is shifted by the same constant offset. Last month
-        // needs no such correction: it's a different month's own calendar, already computed from
-        // its own year's anchor/date table, with nothing exact to calibrate against here.
-        //
         // The FULL month's calendar is kept here (not filtered to <= targetSaleNo) — that filter
         // used to strip a later-this-month sale out of the list entirely, which meant viewing an
         // EARLY sale in a 5-sale month only ever showed 1-2 circles instead of the real 5, with
@@ -75,9 +68,7 @@ public static class MarketBulletinMonthlyEngine
         // that already happened in real time but comes after the viewed one must still read as
         // "hasn't happened yet") is now enforced per-slot in BuildSlots instead, so those
         // still-to-come sales stay in the list as empty placeholder circles rather than vanishing.
-        var thisMonthCalendar = AlignToKnownDate(source.SalesInMonth(target.Year, targetMonth), targetSaleNo, targetDate)
-            .OrderBy(w => w.SaleNo)
-            .ToList();
+        var thisMonthCalendar = source.SalesInMonth(target.Year, targetMonth).OrderBy(w => w.SaleNo).ToList();
 
         var (lastMonthYear, lastMonth) = targetMonth == 1 ? (target.Year - 1, 12) : (target.Year, targetMonth - 1);
         var lastMonthCalendar = source.SalesInMonth(lastMonthYear, lastMonth).OrderBy(w => w.SaleNo).ToList();
@@ -227,12 +218,4 @@ public static class MarketBulletinMonthlyEngine
         return new MonthlyTierMetricsDto(tierName, qty, minPrice, maxPrice, tierLots.Count);
     }
 
-    private static IReadOnlyList<(int SaleNo, DateTime Date)> AlignToKnownDate(
-        IReadOnlyList<(int SaleNo, DateTime Date)> calendar, int knownSaleNo, DateTime knownDate)
-    {
-        var known = calendar.FirstOrDefault(w => w.SaleNo == knownSaleNo);
-        if (known == default) return calendar;
-        var offset = knownDate.Date - known.Date.Date;
-        return offset == TimeSpan.Zero ? calendar : calendar.Select(w => (w.SaleNo, w.Date + offset)).ToList();
-    }
 }

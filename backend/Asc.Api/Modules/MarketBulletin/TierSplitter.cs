@@ -8,8 +8,8 @@ namespace Asc.Api.Modules.MarketBulletin;
 /// next 30% = Best, next 40% = Below Best, bottom 15% = Poor (updated from the original
 /// 20/35/30/15 split per the user's own instruction). This is a distinct, descending,
 /// lot-count-weighted split from the existing Classification/TierFor backfill in
-/// SaleFileStore.cs (20/25/30/25, ascending, used for per-lot Classification storage) —
-/// the two must not be confused or merged.
+/// SaleFileStore.cs (25/30/25/20 — Poor/BelowBest/Best/SelectBest, ascending by price rank,
+/// used for per-lot Classification storage) — the two must not be confused or merged.
 /// </summary>
 public static class TierSplitter
 {
