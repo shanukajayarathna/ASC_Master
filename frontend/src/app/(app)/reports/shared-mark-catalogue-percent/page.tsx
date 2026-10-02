@@ -78,7 +78,15 @@ export default function SharedMarkCataloguePercentPage() {
   }, [mode, effectiveSaleId, effectiveYear, month, fromSaleId, toSaleId, includeReprints]);
 
   useEffect(() => {
-    if (!params) return;
+    if (!params) {
+      // An incomplete scope (e.g. switched to Month/Range and the new picker isn't filled in
+      // yet) used to leave the previous scope's table on screen with no indication it's stale.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setData(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setData(null);
