@@ -86,6 +86,9 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
     private readonly SemaphoreSlim _hotLoads = new(1);
     private readonly object _snapIndexGate = new();
     private bool _snapIndexLoaded;
+    /// <summary>A listing already in flight past the 20s wait below — so a slow listing isn't
+    /// re-launched by every caller that comes in while it's still running.</summary>
+    private Task<IReadOnlyDictionary<Guid, DateTime>>? _snapIndexLoadTask;
 
     private static readonly TimeSpan SriLankaOffset = TimeSpan.FromMinutes(330);
     private static readonly TimeSpan DirectoryTtl = TimeSpan.FromMinutes(2);
@@ -372,7 +375,11 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
         var st = s.State;
         var stale = !st.Complete || st.FetchedAtUtc is null || DateTime.UtcNow - st.FetchedAtUtc > Ttl(s.Ref);
         // A failed load isn't retried in a tight loop: wait a little before the next attempt.
-        if (stale && s.Error is not null && st.Catalogue is null && DateTime.UtcNow.Ticks - Interlocked.Read(ref s.TouchedTicks) < TimeSpan.FromSeconds(3).Ticks) return;
+        // Measured against StartedTicks (set when a load attempt actually begins, StartLoad
+        // below) — NOT TouchedTicks, which GetOrCreate resets on every call just before this
+        // runs, so comparing against it made "elapsed since last touch" always ~0 and this
+        // throttle never let a failed sale retry at all, from any caller.
+        if (stale && s.Error is not null && st.Catalogue is null && DateTime.UtcNow.Ticks - Interlocked.Read(ref s.StartedTicks) < TimeSpan.FromSeconds(3).Ticks) return;
         if (stale) StartLoad(s);
     }
 
@@ -584,12 +591,52 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
             if (_snapIndexLoaded) return;
             try
             {
-                var listing = _snap.ListAsync(default);
+                // Reuse an already-in-flight listing rather than firing a second one — a prior
+                // call that timed out below leaves one running, and every caller until it lands
+                // used to start its own (and, worse, mark the index "loaded" — empty — regardless
+                // of whether anything was actually read; see the else branch).
+                var listing = _snapIndexLoadTask ??= _snap.ListAsync(default);
                 if (listing.Wait(TimeSpan.FromSeconds(20)))
+                {
                     foreach (var (id, at) in listing.Result) _snapshotAges[id] = at;
+                    _snapIndexLoaded = true;
+                    _snapIndexLoadTask = null;
+                }
+                else
+                {
+                    // Still running past the wait: do NOT mark the index loaded — that used to
+                    // permanently empty it for the rest of the process (every later HasSnapshot
+                    // false, BackfillNextAsync re-downloading everything already stored). Apply
+                    // the result once it actually lands instead; by then this method's own lock
+                    // has long been released, so no deadlock.
+                    log.LogWarning("OKLO snapshot index listing exceeded 20s — will apply its result once it completes, and retry meanwhile");
+                    listing.ContinueWith(t =>
+                    {
+                        lock (_snapIndexGate)
+                        {
+                            if (t.IsCompletedSuccessfully)
+                            {
+                                foreach (var (id, at) in t.Result) _snapshotAges[id] = at;
+                                _snapIndexLoaded = true;
+                            }
+                            else
+                            {
+                                log.LogWarning("OKLO snapshot index not loaded: {Message}", t.Exception?.GetBaseException().Message);
+                            }
+                            _snapIndexLoadTask = null;
+                        }
+                    }, TaskScheduler.Default);
+                }
             }
-            catch (Exception ex) { log.LogWarning("OKLO snapshot index not loaded: {Message}", ex.Message); }
-            _snapIndexLoaded = true;
+            catch (Exception ex)
+            {
+                log.LogWarning("OKLO snapshot index not loaded: {Message}", ex.Message);
+                _snapIndexLoadTask = null;
+                // A genuine failure (not just slow) still shouldn't be retried in a tight loop —
+                // same as the original behavior — so it's marked loaded (empty) here, unlike the
+                // timeout case above.
+                _snapIndexLoaded = true;
+            }
         }
     }
 
