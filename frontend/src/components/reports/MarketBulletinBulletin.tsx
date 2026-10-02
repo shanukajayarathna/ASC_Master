@@ -448,7 +448,11 @@ function TierScaleLegend({ range }: { range: { min: number; max: number } | null
           {range && <span className={styles.tierScaleEndVal}>{fmt(range.min)}</span>}
         </span>
         <div className={styles.tierScaleBar}>
-          {TIER_ORDER.map((tier) => (
+          {/* TIER_ORDER is highest-price-tier-first (Select Best → Poor); the end labels beside
+              this bar run the opposite way (Lowest on the left, Highest on the right), so the
+              segments are rendered reversed to actually line up with them — without this, Select
+              Best (the highest tier) sat against "Lowest" and Poor against "Highest". */}
+          {[...TIER_ORDER].reverse().map((tier) => (
             <div key={tier} className={styles.tierScaleSeg} style={{ flexBasis: `${TIER_SCALE_PCT[tier]}%`, background: TIER_COLORS[tier] }}>
               <span className={styles.tierScaleSegName}>{tier}</span>
               <span className={styles.tierScaleSegPct}>{TIER_SCALE_PCT[tier]}%</span>
@@ -858,15 +862,20 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady, catalogueId
     setSaveError(null);
     try {
       const entries = [...pendingEdits.entries()];
-      const results = new Map<string, PriceRange>();
       for (const [rowKey, edit] of entries) {
         const [section, groupLabelRaw, tableTitle, rowLabel] = rowKey.split("\u0000");
-        const min = Number(edit.min);
-        const max = Number(edit.max);
+        // Number("") is 0, not NaN — trim first so a cleared box (as opposed to one typed "0")
+        // fails the "needs both" check below instead of silently being saved as a real 0.
+        const minText = edit.min.trim();
+        const maxText = edit.max.trim();
+        const min = minText === "" ? NaN : Number(minText);
+        const max = maxText === "" ? NaN : Number(maxText);
         if (!Number.isFinite(min) || !Number.isFinite(max)) throw new Error(`"${rowLabel}" needs both a Min and a Max`);
         if (min > max) throw new Error(`"${rowLabel}": Min can't be greater than Max`);
         // eslint-disable-next-line no-await-in-loop -- deliberately sequential: one row failing
         // (e.g. a bad number) should leave every row before it applied and stop before the rest.
+        // Each row's result is committed as it succeeds (not batched at the end) so a later
+        // row's failure doesn't throw away the rows that already saved.
         const computed = await api.previewMarketBulletinRangeOverride(catalogueId, {
           section,
           groupLabel: groupLabelRaw === "" ? null : groupLabelRaw,
@@ -875,14 +884,13 @@ function MarketBulletinBulletinContent({ bulletin, monthly, onReady, catalogueId
           min,
           max,
         });
-        results.set(rowKey, computed);
+        setAppliedOverrides((prev) => new Map(prev).set(rowKey, computed));
+        setPendingEdits((prev) => {
+          const next = new Map(prev);
+          next.delete(rowKey);
+          return next;
+        });
       }
-      setAppliedOverrides((prev) => {
-        const next = new Map(prev);
-        for (const [k, v] of results) next.set(k, v);
-        return next;
-      });
-      setPendingEdits(new Map());
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Couldn't apply one or more rows");
     } finally {
