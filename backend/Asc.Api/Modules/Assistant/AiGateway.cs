@@ -54,7 +54,17 @@ public class AiGateway(IEnumerable<IChatProvider> providers, IAiUsageLogger usag
             await usageLogger.LogAsync(provider.Key, provider.Model, result.PromptTokens, result.CompletionTokens, true, sw.ElapsedMilliseconds, ct, AiUsageScope.Current);
             return (result.Reply, provider.Key);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The CALLER's own token fired — not a provider-side timeout. HttpClient's internal
+            // request timeout also throws OperationCanceledException (a TaskCanceledException),
+            // which used to be excluded here too and so was never logged as a failed call,
+            // contradicting this class's own "every call — success or failure — is recorded"
+            // doc comment. Checking ct.IsCancellationRequested (not just the exception's type)
+            // tells the two apart: only a real caller cancellation skips logging here.
+            throw;
+        }
+        catch (Exception ex)
         {
             logger.LogWarning(ex,
                 "AI gateway call: provider={Provider} model={Model} durationMs={DurationMs} success=false",
