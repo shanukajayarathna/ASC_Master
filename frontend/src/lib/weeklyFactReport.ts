@@ -1050,12 +1050,7 @@ export function computeDefaultLowHeaderText(saleDate: string | null, saleNumber:
   const saleDay = new Date(yyyy, mm - 1, dd);
   const prevDay = new Date(saleDay);
   prevDay.setDate(prevDay.getDate() - 1);
-  const ordinal = (n: number) => {
-    const h = n % 100;
-    if (h >= 11 && h <= 13) return "th";
-    return n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
-  };
-  const day = (d: Date) => `${String(d.getDate()).padStart(2, "0")}${ordinal(d.getDate())}`;
+  const day = (d: Date) => `${String(d.getDate()).padStart(2, "0")}${ordinalSuffix(d.getDate())}`;
   // Both archive sales ran inside one month; when a sale straddles a month boundary the first
   // day carries its own month name so the range still reads correctly.
   const crossMonth = prevDay.getMonth() !== saleDay.getMonth() ? ` ${MONTH_NAMES[prevDay.getMonth()]}` : "";
@@ -1273,7 +1268,17 @@ export function buildMarketShareCompareRows(opts: {
   const { current, previous } = opts;
   const warnings: string[] = [];
 
-  if (current.saleNumber != null && previous.saleNumber != null && previous.saleNumber !== current.saleNumber - 1) {
+  // Sale 1 of a new year following some high sale number last year (e.g. sale 1 after last
+  // year's sale 36) isn't a mistake — CatalogueTotalsReport carries no year field to confirm
+  // it, but "this week is sale 1" is itself as strong a signal of a year rollover as this
+  // function can get, and treating every January as a false "wrong week" warning (which blocks
+  // generation until clicked through) was worse than skipping the check for this one case.
+  if (
+    current.saleNumber != null &&
+    current.saleNumber !== 1 &&
+    previous.saleNumber != null &&
+    previous.saleNumber !== current.saleNumber - 1
+  ) {
     warnings.push(
       `The 'last week' file is sale ${previous.saleNumber}, but this week is sale ${current.saleNumber} — expected sale ${current.saleNumber - 1}. Double-check you uploaded the immediately-preceding sale.`
     );
@@ -1390,6 +1395,15 @@ export interface SaleOverrides {
 
 const MONTH_NAMES = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
 
+/** English ordinal suffix for a day-of-month number (1st, 2nd, 3rd, 4th, ... 11th-13th, 21st, ...).
+ *  Shared by the RANK and LOW default-header builders below — they used to compute this
+ *  independently and diverged: RANK's own copy hardcoded "TH" for every day. */
+function ordinalSuffix(n: number): string {
+  const h = n % 100;
+  if (h >= 11 && h <= 13) return "th";
+  return n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
+}
+
 /** Best-effort default for the RANK workbook's date-range header cell — real archived RANK
  *  files show a "{prev day}TH {MONTH} / {sale day}TH {MONTH} {YEAR}" range (the two days the
  *  sale ran across), but every real example has its own inconsistent spacing/abbreviation
@@ -1405,7 +1419,7 @@ export function computeDefaultRankHeaderText(saleDate: string | null, saleNumber
   const saleDay = new Date(yyyy, mm - 1, dd);
   const prevDay = new Date(saleDay);
   prevDay.setDate(prevDay.getDate() - 1);
-  const fmt = (d: Date) => `${String(d.getDate()).padStart(2, "0")}TH ${MONTH_NAMES[d.getMonth()]}`;
+  const fmt = (d: Date) => `${String(d.getDate()).padStart(2, "0")}${ordinalSuffix(d.getDate()).toUpperCase()} ${MONTH_NAMES[d.getMonth()]}`;
   return `Sale No. ${saleNumber}- ${fmt(prevDay)} / ${fmt(saleDay)} ${saleDay.getFullYear()}`;
 }
 
