@@ -237,7 +237,17 @@ internal static class SharedMarkCatalogueWorkbookBuilder
         // returns rows in this order (which also keeps a paired Orthodox/CTC row adjacent to
         // its sibling, immediately after it), so this just re-asserts it rather than
         // trusting caller order silently.
-        var orderedRows = rows.OrderBy(x => SharedMarkCatalogueService.CodeSortKey(x.Code)).ThenBy(x => x.EstateName, StringComparer.OrdinalIgnoreCase).ToList();
+        // Same three-level sort as SharedMarkCatalogueService.BuildRows (Code, then Orthodox-
+        // before-CTC, then EstateName) — dropping the middle tiebreak here used to let a
+        // dual-production factory's CTC row sort ahead of its own Orthodox row whenever the
+        // CTC name happened to come first alphabetically, which then printed two header rows
+        // for that factory instead of one shared one (continuesPair below checks the
+        // immediately-PRECEDING row is Orthodox, so CTC-first breaks the pairing entirely).
+        var orderedRows = rows
+            .OrderBy(x => SharedMarkCatalogueService.CodeSortKey(x.Code))
+            .ThenBy(x => x.ProductionLabel == "Ctc" ? 1 : 0)
+            .ThenBy(x => x.EstateName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         // Tracks each top-level factory block's own row range (name row through its last
         // broker row, including a paired CTC sub-block sharing that same header) so a page
