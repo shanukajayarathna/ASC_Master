@@ -281,6 +281,10 @@ export default function SharedMarkCatalogueSummaryPage() {
                 const f = e.target.files?.[0];
                 setZipFile(f);
                 if (f) detectAndFillSaleInfo({ zipFile: f });
+                // Without this, re-picking the SAME file for the next run never fires onChange
+                // again (the input's value hasn't changed from the browser's point of view),
+                // leaving the slot looking empty after a reset even though nothing can be picked.
+                e.target.value = "";
               }}
             />
             <Button
@@ -315,6 +319,9 @@ export default function SharedMarkCatalogueSummaryPage() {
                         if (f) detectAndFillSaleInfo({ files: next });
                         return next;
                       });
+                      // Without this, re-picking the SAME file for this slot's next run never
+                      // fires onChange again, leaving the slot looking empty after a reset.
+                      e.target.value = "";
                     }}
                   />
                   <Button
@@ -327,7 +334,7 @@ export default function SharedMarkCatalogueSummaryPage() {
                     sx={{ justifyContent: "flex-start", textTransform: "none" }}
                     title={chosen?.name}
                   >
-                    <span className="truncate">{chosen ? slot.label : slot.label}</span>
+                    <span className="truncate">{chosen ? chosen.name : slot.label}</span>
                   </Button>
                 </div>
               );
