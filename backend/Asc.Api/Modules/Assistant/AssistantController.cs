@@ -109,6 +109,12 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         }
         AgentResponse response;
         Guid? lotSale = null;
+        // A sale named in the question ("sale 41") is answered from that sale's catalogue even when the route picks a general agent.
+        if (dto.CatalogueId is null && SalePicker.SaleNoOf(dto.Message) is null && System.Text.RegularExpressions.Regex.Match(dto.Message ?? "", @"\bsale\s*#?\s*(\d{1,2})\b") is { Success: true } namedSale)
+        {
+            var no = int.Parse(namedSale.Groups[1].Value);
+            lotSale = catalogueSource.ListCatalogues().FirstOrDefault(c => SalePicker.SaleNoOf(c.SourceName) == no)?.Id;
+        }
         ResolvedRequest? resolved = null;
         var effectiveHistory = history;
         string? answeredBy = dto.Agent;
@@ -161,6 +167,40 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                         }
                     }
                 }
+
+                // Factory codes: answered from the sale's lots, with no model (and a misspelt name is confirmed, not guessed).
+                if (FactoryLookup.Asks(dto.Message))
+                {
+                    var codeCatalogue = catalogueSource.ListCatalogues().FirstOrDefault(c => c.Id == (lotSale ?? catalogueSource.ListCatalogues().FirstOrDefault()?.Id));
+                    var codeLots = codeCatalogue is null ? [] : (catalogueSource.GetLots(codeCatalogue.Id) ?? []);
+                    var codeReply = FactoryLookup.Reply(dto.Message, NameIndex.From(codeLots), codeCatalogue?.SourceName ?? "the latest sale");
+                    if (codeReply is not null)
+                    {
+                        var codeMessage = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = codeReply, Provider = "direct" };
+                        await db.ConversationMessages.InsertOneAsync(codeMessage, cancellationToken: ct);
+                        return Ok(new ChatResponseDto(conversation.Id, codeReply, "direct", null, "auction"));
+                    }
+                }
+
+                // Names (factory, mark, buyer): when one could be more than one of them, ask which, and never guess.
+                var nameAnswer = NameAnswerIn(lastReply, dto.Message);
+                if (nameAnswer is null && resolved is null)
+                {
+                    var names = (await NameIndexAsync(ct)).Find(dto.Message);
+                    var ambiguous = names.FirstOrDefault(n => n.Kinds.Count > 1);
+                    if (ambiguous is not null)
+                    {
+                        var kindWords = ambiguous.Kinds.Select(KindLabel).ToList();
+                        var nameQuestion = $"Is {ambiguous.Name} a {string.Join(", a ", kindWords.Take(kindWords.Count - 1))}{(kindWords.Count > 1 ? " or a " : "a ")}{kindWords[^1]}?";
+                        var nameAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(new ClarifyQuestion(nameQuestion, [.. kindWords]), null), Provider = "router" };
+                        await db.ConversationMessages.InsertOneAsync(nameAsk, cancellationToken: ct);
+                        return Ok(new ChatResponseDto(conversation.Id, nameAsk.Content, "router", null, "auction"));
+                    }
+                    if (names.FirstOrDefault(n => n.Kinds.Count == 1) is { } known)
+                        effectiveHistory = [.. effectiveHistory.Take(effectiveHistory.Count - 1), ("user", $"{dto.Message} ({known.Name} is a {KindLabel(known.Kinds[0])}: match that column)")];
+                }
+                else if (nameAnswer is not null)
+                    effectiveHistory = [.. effectiveHistory.Take(effectiveHistory.Count - 1), ("user", $"{dto.Message} ({nameAnswer.Value.Name} is a {KindLabel(nameAnswer.Value.Kind)}: match that column)")];
 
                 if (!catalogueScoped && resolved is null && scope is null && SalePicker.Involved(dto.Message, lastReply))
                 {
@@ -281,7 +321,12 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         }
 
         // Any larger figure the model wrote that its own tool results don't contain gets a short caution under the answer.
-        var checkedReply = AnswerVerifier.Annotate(response.Reply, response.ToolOutputs ?? []);
+        // A by-law answer is only shown when the question was about by-laws; otherwise the route went wrong and the reader is told so.
+        var bylawAnswer = response.Sources?.Any(x => x.Kind == "bylaws") ?? false;
+        var bylawQuestion = System.Text.RegularExpressions.Regex.IsMatch(dto.Message ?? "", @"\b(by-?laws?|ctta|deposit|penalt\w*|prompt day|debar\w*|claims?|storage|objection|bid|reserve)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var checkedReply = (bylawAnswer && !bylawQuestion) || AnswerVerifier.IsNarratedToolCall(response.Reply, response.ToolOutputs ?? [])
+            ? AnswerVerifier.CouldNotLookUp
+            : AnswerVerifier.Annotate(response.Reply, response.ToolOutputs ?? []);
         response = response with { Reply = checkedReply };
 
         var assistantMessage = new ConversationMessage
@@ -295,7 +340,46 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
     }
 
     /// <summary>What exists to choose from: archive sales, catalogue sales (with their ids), every grade, and the top grades of the latest archive sale.</summary>
+    private static string KindLabel(NameKind k) => k switch { NameKind.Factory => "factory", NameKind.Mark => "mark", _ => "buyer" };
+
+    /// <summary>The user's answer to "Is X a factory, a mark or a buyer?" — the name and the kind — or null.</summary>
+    private static (string Name, NameKind Kind)? NameAnswerIn(string? lastReply, string answer)
+    {
+        var asked = lastReply is null ? System.Text.RegularExpressions.Match.Empty : System.Text.RegularExpressions.Regex.Match(lastReply, @"^Is (.+?) a (?:factory|mark|buyer).*?");
+        if (!asked.Success) return null;
+        var name = asked.Groups[1].Value;
+        var kind = answer.Trim().ToLowerInvariant() switch { "factory" => NameKind.Factory, "mark" => NameKind.Mark, "buyer" => NameKind.Buyer, _ => (NameKind?)null };
+        return kind is null || name.Length == 0 ? null : (name, kind.Value);
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, NameIndex Index)> NameIndexCache = new();
+
+    /// <summary>Names of the newest sale's lots, cached for a few minutes.</summary>
+    private async Task<NameIndex> NameIndexAsync(CancellationToken ct)
+    {
+        const string key = "names:latest";
+        if (NameIndexCache.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < TimeSpan.FromMinutes(5)) return hit.Index;
+        var newest = catalogueSource.ListCatalogues().FirstOrDefault();
+        var lots = newest is null ? [] : (catalogueSource.GetLots(newest.Id) ?? []);
+        var index = NameIndex.From(lots);
+        NameIndexCache[key] = (DateTime.UtcNow, index);
+        return index;
+    }
+
+    /// <summary>The guided options change only when a sale is imported, so they are reused for a few minutes instead of querying the archive on every message.</summary>
+    private static readonly TimeSpan IntakeTtl = TimeSpan.FromMinutes(5);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, (IntakeData Data, Dictionary<(int Year, int SaleNo), Guid> CatalogueIds) Value)> IntakeCache = new();
+
     private async Task<(IntakeData Data, Dictionary<(int Year, int SaleNo), Guid> CatalogueIds)> LoadIntakeDataAsync(string myBroker, CancellationToken ct)
+    {
+        var key = "intake:" + myBroker;
+        if (IntakeCache.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < IntakeTtl) return hit.Value;
+        var loaded = await LoadIntakeDataUncachedAsync(myBroker, ct);
+        IntakeCache[key] = (DateTime.UtcNow, loaded);
+        return loaded;
+    }
+
+    private async Task<(IntakeData Data, Dictionary<(int Year, int SaleNo), Guid> CatalogueIds)> LoadIntakeDataUncachedAsync(string myBroker, CancellationToken ct)
     {
         var stats = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0).Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
         var archived = stats.Select(x => (x.Year, x.SaleNo)).Distinct().ToList();
