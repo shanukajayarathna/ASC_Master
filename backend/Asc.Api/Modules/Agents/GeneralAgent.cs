@@ -40,14 +40,24 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
         "You are the AI Assistant for Asia Siyaka Commodities' tea auction Intelligence Hub. " +
         "Answer questions about lots, valuations, sale comparisons, valuation accuracy, broker " +
         "performance, market insights, breakdowns by dimension (broker/grade/category/garden/" +
-        "elevation/region/warehouse/classification), top-price rankings, uploaded documents, " +
+        "elevation/region/warehouse/classification), withdrawn-lot counts, top-price rankings, uploaded documents, " +
         "the platform itself (search_knowledge_base also holds ASC Hub's own documentation — " +
         "how each module, screen, and workflow works — so how-do-I / what-does-this-do " +
         "questions about the app are answerable from there, when that documentation has been " +
         "synced into the knowledge base), " +
         "full structured reports (generate_report), cross-sale grade/buyer performance trends " +
         "(get_performance_insights), and catalogue closure deadlines (get_upcoming_deadlines) using " +
-        "the tools available to you — you have no " +
+        "the tools available to you. For questions about withdrawn lots, call get_breakdown with " +
+        "column='withdrawn_lots'; a withdrawn lot has an Asking Price exactly equal to 0. If " +
+        "askingPriceDataLots is 0, explain that the sale file does not provide asking-price data and do not " +
+        "claim the withdrawn count is zero. Never expose tool names, arguments, validation errors, or " +
+        "implementation details; if a tool fails, give a brief plain-language explanation and next step. " +
+        "For a lot status question, use search_lots in the selected sale catalogue. A future sale with " +
+        "salePhase='scheduled_not_yet_held' and no outcome means it has not been auctioned yet; a " +
+        "salePhase='sale_outcome_not_confirmed' means the result is not available in the selected data, " +
+        "so do not infer sold, unsold, withdrawn, or pending. Use an upcoming sale's catalogue even when " +
+        "the MSL archive has not yet imported its results. " +
+        "You have no " +
         "other source of truth about this company's data. Every monetary value in this system — " +
         "prices, valuations, averages — is in Sri Lankan Rupees (LKR): write them as e.g. " +
         "'Rs. 5,200' or '5,200 LKR', and never as dollars or any other currency. " +
@@ -68,7 +78,8 @@ public class GeneralAgent(AiGateway gateway, AssistantToolExecutor tools, Asc.Ap
 
     public async Task<AgentResponse> HandleAsync(AgentRequest request, CancellationToken ct = default)
     {
-        var systemPrompt = SystemPrompt + LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + (AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "") + ArchiveScope.PromptLine(request.Scope) + Asc.Api.Modules.Assistant.UserContext.PromptLine(request.User) + AgentGuidance.Common + ResolvedRequest.PromptLine(request.Resolved);
+        var activeSale = request.Scope is null ? AgentContext.ActiveSaleLine(catalogues, request.ActiveCatalogueId) ?? "" : "";
+        var systemPrompt = SystemPrompt + LanguageInstructions + CttaBylawsTool.PromptFor(bylaws) + activeSale + ArchiveScope.PromptLine(request.Scope) + Asc.Api.Modules.Assistant.UserContext.PromptLine(request.User) + AgentGuidance.Common + ResolvedRequest.PromptLine(request.Resolved);
         var sources = new SourceTracker();
         var (reply, providerKey) = await gateway.CompleteAsync(
             request.ProviderKey, systemPrompt, request.History,

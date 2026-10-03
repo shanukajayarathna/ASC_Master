@@ -58,7 +58,7 @@ public class AssistantToolExecutor(
 
         new ToolDef(
             "search_lots",
-            "Search lots within a specific catalogue by lot number, garden, grade, broker, or category. Returns up to 10 matches with their current valuation.",
+            "Search lots within a specific sale catalogue by lot number, garden, grade, broker, or category. Returns up to 10 matches with valuation and any recorded auction outcome. A null outcome in a future-dated sale catalogue means the lot has not been auctioned yet; a past sale with no outcome is unavailable data, not proof of a particular status.",
             new
             {
                 type = "object",
@@ -153,7 +153,8 @@ public class AssistantToolExecutor(
         new ToolDef(
             "get_breakdown",
             "Get lot count and average value grouped by a dimension (broker, grade, category, garden, elevation, region, " +
-            "warehouse) for a catalogue, or lot count by valuation classification tier.",
+            "warehouse) for a catalogue, or lot count by valuation classification tier. For withdrawn lots, use " +
+            "column='withdrawn_lots': a withdrawn lot is defined as a lot with Asking Price exactly 0.",
             new
             {
                 type = "object",
@@ -163,7 +164,7 @@ public class AssistantToolExecutor(
                     column = new
                     {
                         type = "string",
-                        @enum = new[] { "broker", "grade", "category", "garden", "elevation", "region", "warehouse", "classification" },
+                        @enum = new[] { "broker", "grade", "category", "garden", "elevation", "region", "warehouse", "classification", "withdrawn_lots" },
                     },
                 },
                 required = new[] { "catalogueId", "column" },
@@ -324,6 +325,12 @@ public class AssistantToolExecutor(
     {
         var lots = source.GetLots(catalogueId);
         if (lots is null) return JsonSerializer.Serialize(new { error = "Catalogue not found." });
+        var catalogue = source.GetCatalogue(catalogueId);
+        var todayInSriLanka = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5.5));
+        var saleDate = catalogue?.SaleDateStart is { } date ? DateOnly.FromDateTime(date) : (DateOnly?)null;
+        var salePhase = saleDate is { } scheduled && scheduled > todayInSriLanka
+            ? "scheduled_not_yet_held"
+            : "sale_outcome_not_confirmed";
 
         var overrides = (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync(ct))
             .ToDictionary(v => v.LotId, v => v.Valuation);
@@ -349,6 +356,11 @@ public class AssistantToolExecutor(
                 category = l.Category,
                 effectiveValue = val?.EffectiveValue,
                 classification = val?.Classification.ToString(),
+                auctionStatus = string.IsNullOrWhiteSpace(l.Status) ? null : l.Status,
+                actualPurchasePrice = l.PurchasedPrice,
+                saleName = catalogue?.SourceName,
+                saleDate = saleDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                salePhase = !string.IsNullOrWhiteSpace(l.Status) || l.PurchasedPrice is not null ? "auction_outcome_recorded" : salePhase,
             };
         }).ToList();
 
@@ -428,14 +440,54 @@ public class AssistantToolExecutor(
         var merged = await LoadMerged(catalogueId, ct);
         if (merged is null) return JsonSerializer.Serialize(new { error = "Catalogue not found." });
 
-        if (column == "classification")
+        // In the sale catalogue, withdrawal is represented by an asking price of exactly
+        // zero. Handle the user's natural wording here so the model doesn't try to treat
+        // "withdrawn lots" as a physical catalogue column.
+        var normalizedColumn = column.Trim().Replace(' ', '_').Replace('-', '_').ToLowerInvariant();
+        if (normalizedColumn is "withdrawn" or "withdrawn_lot" or "withdrawn_lots" or "withdrawn_lot_count")
+        {
+            var withdrawn = merged.Count(x => AskingPriceIsZero(x.Lot));
+            var askingPriceDataLots = merged.Count(x => TryGetAskingPrice(x.Lot, out _));
+            return JsonSerializer.Serialize(new
+            {
+                catalogueId,
+                metric = "withdrawnLotCount",
+                count = withdrawn,
+                askingPriceDataLots,
+                totalLots = merged.Count,
+                definition = "A withdrawn lot has an Asking Price of exactly 0.",
+            });
+        }
+
+        if (normalizedColumn == "classification")
             return JsonSerializer.Serialize(ReportGenerator.ClassificationSection(merged).Groups);
 
-        if (!_breakdownSelectors.TryGetValue(column, out var def))
+        if (!_breakdownSelectors.TryGetValue(normalizedColumn, out var def))
             return JsonSerializer.Serialize(new { error = $"Unknown breakdown column '{column}'." });
 
         return JsonSerializer.Serialize(ReportGenerator.GroupSection(def.Label, def.Label, merged, def.Selector).Groups);
     }
+
+    private static bool AskingPriceIsZero(Lot lot) => TryGetAskingPrice(lot, out var price) && price == 0m;
+
+    private static bool TryGetAskingPrice(Lot lot, out decimal price)
+    {
+        price = default;
+        var raw = lot.RawData.FirstOrDefault(pair =>
+            string.Equals(NormalizeHeader(pair.Key), "askingprice", StringComparison.OrdinalIgnoreCase)).Value;
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+
+        var cleaned = raw.Trim().Replace(",", "", StringComparison.Ordinal)
+            .Replace("LKR", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("Rs.", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("Rs", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+        return decimal.TryParse(cleaned, System.Globalization.NumberStyles.Number | System.Globalization.NumberStyles.AllowCurrencySymbol,
+            System.Globalization.CultureInfo.InvariantCulture, out price);
+    }
+
+    private static string NormalizeHeader(string value) =>
+        new(value.Where(char.IsLetterOrDigit).ToArray());
 
     // Flattened, not the raw AuctionReportDto — its nested Sheets → Blocks → Grades → Rows tree
     // can carry hundreds of ranked rows per catalogue, far more than a chat answer needs or an

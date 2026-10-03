@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using Asc.Api.Modules.Agents;
 
 namespace Asc.Api.Modules.Assistant;
 
@@ -36,4 +37,10 @@ public class ConversationMessage
     /// <summary>Which AI provider produced this turn ("openai"/"gemini"/"groq") — null on user
     /// messages. Safe, non-secret metadata; lets the UI show which vendor answered.</summary>
     public string? Provider { get; set; }
+
+    /// <summary>Attribution kept with the answer so history retains its provenance.</summary>
+    public string? Agent { get; set; }
+    public List<ChatSource>? Sources { get; set; }
+    [MongoDB.Bson.Serialization.Attributes.BsonRepresentation(MongoDB.Bson.BsonType.String)]
+    public Guid? ReplyToClientMessageId { get; set; }
 }

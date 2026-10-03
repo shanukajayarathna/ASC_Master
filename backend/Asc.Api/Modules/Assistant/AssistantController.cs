@@ -168,6 +168,20 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                     }
                 }
 
+                // Lot lists (any broker, grade, elevation, category or factory / mark / buyer): a table built from the sale's lots, with no model.
+                if (LotListAnswer.Asks(dto.Message))
+                {
+                    var listCatalogue = catalogueSource.ListCatalogues().FirstOrDefault(c => c.Id == (lotSale ?? catalogueSource.ListCatalogues().FirstOrDefault()?.Id));
+                    var listLots = listCatalogue is null ? [] : (catalogueSource.GetLots(listCatalogue.Id) ?? []);
+                    var listReply = LotListAnswer.Reply(dto.Message, listLots, NameIndex.From(listLots), listCatalogue?.SourceName ?? "the latest sale");
+                    if (listReply is not null)
+                    {
+                        var listMessage = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = listReply, Provider = "direct" };
+                        await db.ConversationMessages.InsertOneAsync(listMessage, cancellationToken: ct);
+                        return Ok(new ChatResponseDto(conversation.Id, listReply, "direct", null, "auction"));
+                    }
+                }
+
                 // Factory codes: answered from the sale's lots, with no model (and a misspelt name is confirmed, not guessed).
                 if (FactoryLookup.Asks(dto.Message))
                 {

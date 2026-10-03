@@ -15,12 +15,12 @@ public record ArchiveScope(int FromYear, int? FromSale, int ToYear, int? ToSale)
     private int ToSaleNo => ToSale ?? 99;
 
     /// <summary>Null when the scope is usable; otherwise the message to return.</summary>
-    public string? Validate()
+    public string? Validate(bool enforceMaxYears = true)
     {
         if (FromYear is < 2000 or > 2100 || ToYear is < 2000 or > 2100) return "Scope years must be between 2000 and 2100.";
         if (FromSale is < 1 or > 99 || ToSale is < 1 or > 99) return "Scope sale numbers must be between 1 and 99.";
         if (ToYear < FromYear || (ToYear == FromYear && ToSaleNo < FromSaleNo)) return "The scope must end after it starts.";
-        if (ToYear - FromYear + 1 > MaxYears) return $"A scope can span at most {MaxYears} years.";
+        if (enforceMaxYears && ToYear - FromYear + 1 > MaxYears) return $"A scope can span at most {MaxYears} years.";
         return null;
     }
 
@@ -40,12 +40,11 @@ public record ArchiveScope(int FromYear, int? FromSale, int ToYear, int? ToSale)
 
     /// <summary>The prompt line that makes an agent stay inside the scope. Empty for no scope.</summary>
     public static string PromptLine(ArchiveScope? scope) => scope is null ? "" :
-        $" The user has limited archive questions to {scope.Describe()}. Treat that as the period for every archive tool " +
-        "call and every comparison unless the user explicitly names a different one, and say the period in your answer. " +
-        "(Questions about lots in the current catalogue still use the sale selected in the app.)";
+        $" The user has selected {scope.Describe()} in the visible archive scope control. Treat it as authoritative " +
+        "for every tool call and comparison, and say the period in your answer. Do not substitute the app's active " +
+        "catalogue when it differs from this selection.";
 
-    /// <summary>Puts the scope into a <c>query_data</c> call that named no period of its own — deterministically, so a
-    /// model that forgets the scope cannot silently answer for the wrong sales. Other tools and explicit periods pass through.</summary>
+    /// <summary>Applies the visible user-selected scope to a <c>query_data</c> call, removing conflicting periods.</summary>
     public static string ApplyToToolCall(string toolName, string argumentsJson, ArchiveScope? scope)
     {
         if (scope is null || toolName != "query_data") return argumentsJson;
@@ -53,8 +52,8 @@ public record ArchiveScope(int FromYear, int? FromSale, int ToYear, int? ToSale)
         {
             var node = JsonNode.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson)?.AsObject();
             if (node is null) return argumentsJson;
-            var namesPeriod = node["years"] is not null || node["sale_nos"] is not null || node["last_n_sales"] is not null || node["last_n_months"] is not null || node["from_year"] is not null;
-            if (namesPeriod) return argumentsJson;
+            foreach (var key in new[] { "years", "sale_nos", "last_n_sales", "last_n_months", "from_year", "from_sale", "to_year", "to_sale" })
+                node.Remove(key);
             node["from_year"] = scope.FromYear;
             node["to_year"] = scope.ToYear;
             if (scope.FromSale is { } f) node["from_sale"] = f;
