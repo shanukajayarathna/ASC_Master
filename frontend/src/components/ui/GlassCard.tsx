@@ -1,7 +1,7 @@
 import type { CSSProperties, ElementType, ReactNode } from "react";
 
 /**
- * Shared glassmorphism surface for the futuristic-UI phases (Landing, Dashboard KPI
+ * Shared glassmorphism surface for the futuristic-UI phases (Landing, dashboard
  * cards, Knowledge Base, AI Assistant). Uses --glass-surface/--glass-border (globals.css)
  * — translucent versions of the theme's own surface color, not a new hue — so it reads
  * correctly in both light and dark mode without any extra work at the call site.

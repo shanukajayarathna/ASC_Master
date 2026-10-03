@@ -22,7 +22,17 @@ export interface ActivityEntry {
  * client-side just to sort by edit time would be the kind of expensive bulk-fetch the
  * earlier performance pass specifically avoided.
  */
-export default function RecentActivityList({ entries }: { entries: ActivityEntry[] }) {
+export default function RecentActivityList({
+  entries,
+  loading = false,
+  error = false,
+  onRetry,
+}: {
+  entries: ActivityEntry[];
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
+}) {
   return (
     <div
       className="rounded-[var(--radius-lg)] border border-border p-4"
@@ -33,11 +43,27 @@ export default function RecentActivityList({ entries }: { entries: ActivityEntry
           Recent Activity
         </h3>
       </div>
-      {entries.length === 0 ? (
+      {loading ? (
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          Nothing yet — import a sale, save a report or ask the AI Assistant something.
+          Loading recent activity…
         </p>
       ) : (
+        <>
+          {error && (
+            <p role="alert" className="text-[12px] m-0 mb-2" style={{ color: "var(--warn)" }}>
+              Some activity couldn&apos;t be loaded. {" "}
+              {onRetry && (
+                <button type="button" onClick={onRetry} className="underline cursor-pointer border-0 bg-transparent p-0 text-inherit">
+                  Try again
+                </button>
+              )}
+            </p>
+          )}
+          {entries.length === 0 && !error ? (
+            <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
+              Nothing yet — import a sale, save a report or ask the AI Assistant something.
+            </p>
+          ) : entries.length > 0 ? (
         <ul className="m-0 p-0 list-none flex flex-col gap-3">
           {entries.map((e) => {
             const Icon = e.icon;
@@ -66,6 +92,8 @@ export default function RecentActivityList({ entries }: { entries: ActivityEntry
             );
           })}
         </ul>
+          ) : null}
+        </>
       )}
     </div>
   );

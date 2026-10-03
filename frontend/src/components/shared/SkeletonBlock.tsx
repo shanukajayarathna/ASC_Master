@@ -2,10 +2,9 @@ import Skeleton from "@mui/material/Skeleton";
 
 /**
  * Generic first-load placeholders for pages whose data takes a moment — same bare-MUI-
- * `Skeleton` approach the dashboard's own KPI-strip skeleton already uses (see
- * app/(app)/dashboard/page.tsx), just not pixel-matched to any one page's exact layout.
- * Compose a few of these per page (a row of `SkeletonCard` for a KPI strip, `SkeletonRows`
- * for a table, a taller `SkeletonCard` for a chart) rather than reaching for a bespoke
+ * `Skeleton` approach used across the app, just not pixel-matched to any one page's exact
+ * layout. Compose these per page (`SkeletonCard` for a summary or chart, `SkeletonRows`
+ * for a table) rather than reaching for a bespoke
  * skeleton per page.
  */
 
@@ -20,7 +19,7 @@ export function SkeletonRows({ rows = 5 }: { rows?: number }) {
   );
 }
 
-/** One rounded block — stands in for a chart or a KPI tile. */
+/** One rounded block — stands in for a chart or summary card. */
 export function SkeletonCard({ height = 140 }: { height?: number }) {
   return <Skeleton variant="rounded" height={height} sx={{ borderRadius: "var(--radius-lg)" }} />;
 }

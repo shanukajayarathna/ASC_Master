@@ -17,6 +17,7 @@ import Popover from "@mui/material/Popover";
 import { AccountSection, AppearanceSection, LanguageSection } from "@/components/settings/SettingsSections";
 import MenuItem from "@mui/material/MenuItem";
 import SalePicker from "@/components/shared/SalePicker";
+import OkloFreshness from "@/components/shared/OkloFreshness";
 import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
 import Avatar from "@mui/material/Avatar";
@@ -116,45 +117,6 @@ function UserMenu() {
         </Button>
       </Popover>
     </>
-  );
-}
-
-/** "Sale data updated 3m ago" — how fresh the OKLO-fed sale data is (see Modules/Oklo). Polled
- *  every 30s; renders nothing when the live sync is off, so it never implies freshness it can't
- *  vouch for. The stamp is when the newest sale was last checked against OKLO, not when a lot
- *  last changed. */
-function DataFreshness() {
-  const [checkedUtc, setCheckedUtc] = useState<string | null>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [, tick] = useState(0);
-
-  useEffect(() => {
-    const load = () =>
-      api
-        .getOkloFreshness()
-        .then((f) => {
-          setEnabled(f.enabled);
-          setCheckedUtc(f.newestCheckedUtc);
-        })
-        .catch(() => {});
-    load();
-    const poll = setInterval(load, 30_000);
-    const rerender = setInterval(() => tick((n) => n + 1), 30_000); // keeps "Xm ago" honest between polls
-    return () => {
-      clearInterval(poll);
-      clearInterval(rerender);
-    };
-  }, []);
-
-  if (!enabled) return null;
-  // The API serialises UTC without a zone suffix on some fields — treat a bare timestamp as UTC.
-  const iso = checkedUtc && !/[zZ]|[+-]\d\d:\d\d$/.test(checkedUtc) ? `${checkedUtc}Z` : checkedUtc;
-  return (
-    <Tooltip title="Sale data is pulled live from OKLO SmartAuction and refreshed while you use the system.">
-      <span className="hidden lg:inline text-[11.5px] font-mono" style={{ color: "var(--text-muted)" }}>
-        {iso ? `Sale data · ${timeAgo(iso)}` : "Sale data · syncing…"}
-      </span>
-    </Tooltip>
   );
 }
 
@@ -306,12 +268,11 @@ function LiveAuctionButton() {
   );
 }
 
-const PAGES_WITH_OWN_SALE_PICKER = ["/catalogue", "/reports/top-price-page", "/reports/worksheet"];
+const PAGES_WITH_OWN_SALE_PICKER = ["/catalogue", "/reports/top-price-page", "/reports/worksheet", "/assistant"];
 
 export default function Topbar({ onSearchClick }: TopbarProps) {
   const { mode } = useThemeMode();
-  // These pages carry their own sale picker (the Catalogue Manager's Year + Sale dropdowns in its filter panel, the Top Price
-  // Page's select in its header - both drive the same active sale), so the header pair is hidden there rather than shown twice.
+  // These pages have a sale selection in their own workspace controls.
   const pathname = usePathname();
   const showSalePicker = !PAGES_WITH_OWN_SALE_PICKER.some((p) => (pathname ?? "").startsWith(p));
   const { user } = useAuth();
@@ -344,10 +305,10 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
           <BrandLogo height={30} onDark={mode === "dark"} />
           <span className="hidden lg:flex flex-col leading-none border-l border-border pl-2">
             <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
-              Tea Auction
+              Intelligence
             </span>
             <span className="font-mono text-[9.5px] tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
-              Platform
+              Hub
             </span>
           </span>
         </Link>
@@ -381,7 +342,7 @@ export default function Topbar({ onSearchClick }: TopbarProps) {
           </IconButton>
         </Tooltip>
 
-        <DataFreshness />
+        <OkloFreshness className="hidden lg:inline text-[11.5px] font-mono text-text-muted" />
         <NotificationsMenu />
 
         {isAdmin && (

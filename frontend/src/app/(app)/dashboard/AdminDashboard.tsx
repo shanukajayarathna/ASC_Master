@@ -82,7 +82,7 @@ function OversightTile({ card }: { card: OversightCard }) {
  * recent audit activity), each card deep-linking into the matching Admin Panel section
  * (/admin#id — see SectionCard's `id` prop). The day-to-day tools every user gets are still
  * reachable below, just de-emphasized: an admin doing real valuation work shouldn't have to
- * leave this page to find Catalogue Manager, just not have it be the first thing they see.
+ * leave this page to find Catalogue Reports, just not have it be the first thing they see.
  */
 export default function AdminDashboard({ user }: { user: AuthUser }) {
   const [users, setUsers] = useState<AuthUser[] | null>(null);
@@ -145,7 +145,7 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
   }
 
   // Only real, cheaply-known issues — no fabricated "all good" filler when there's nothing
-  // to flag (same principle the regular dashboard's AiInsightsPanel/AttentionList follow).
+  // to flag (same principle the regular dashboard's SaleInsightsPanel/AttentionList follow).
   const attentionItems: { key: string; text: string; href: string }[] = [];
   if (mslStatus && mslStatus.filesWithErrors > 0) {
     attentionItems.push({

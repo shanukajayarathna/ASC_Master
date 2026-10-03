@@ -1,7 +1,7 @@
 "use client";
 
 import AdminDashboard from "./AdminDashboard";
-import AiInsightsPanel, { type Insight } from "@/components/home/AiInsightsPanel";
+import SaleInsightsPanel, { type Insight } from "@/components/home/SaleInsightsPanel";
 import AttentionList, { type AttentionEntry } from "@/components/home/AttentionList";
 import AmbientStrip from "@/components/dashboard/AmbientStrip";
 import Footer from "@/components/shell/Footer";
@@ -25,7 +25,7 @@ import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const SUGGESTED_PROMPTS = [
   "Which lots are still unvalued in the active sale?",
@@ -33,7 +33,7 @@ const SUGGESTED_PROMPTS = [
   "What does the knowledge base say about grading standards?",
 ];
 
-// How many of the most recent sales are considered for week-over-week deltas, AI Insights
+// How many of the most recent sales are considered for week-over-week deltas, sale insights
 // and "Sales Needing Attention" — bounded so the dashboard doesn't fan out into dozens of
 // requests on an installation with many sales on file.
 const RECENT_SALES_WINDOW = 6;
@@ -57,16 +57,20 @@ export default function DashboardPage() {
 }
 
 /**
- * The launchpad — the KPI row and module tile grid, with three real panels below them
- * (activity, computed insights, sales needing attention) — see the plan file for what's
- * real vs. deliberately adapted from the reference mockup.
+ * The launchpad — active-sale context, module shortcuts and three real panels below them
+ * (activity, computed sale insights, sales needing attention).
  */
 function UserDashboard() {
   const { user } = useAuth();
-  // stats comes from CatalogueContext, not a fetch of its own — the topbar's notification
-  // badge needs the same DashboardStats, so it's fetched once there and shared (see
-  // CatalogueContext's activeStats doc comment).
-  const { activeCatalogueId, activeCatalogue, activeStats: stats, error: catalogueError } = useCatalogue();
+  // Catalogue list and active-sale stats are shared with the shell through context.
+  const {
+    catalogues,
+    activeCatalogueId,
+    activeCatalogue,
+    activeStats: stats,
+    error: catalogueError,
+    refreshList,
+  } = useCatalogue();
   const router = useRouter();
 
   // Lets the recent-sales-window effect below reuse the active sale's stats instead of
@@ -77,25 +81,26 @@ function UserDashboard() {
     statsRef.current = stats;
   }, [stats]);
 
-  const [catalogues, setCatalogues] = useState<CatalogueSummary[]>([]);
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [prompt, setPrompt] = useState("");
 
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState(false);
   const [attention, setAttention] = useState<AttentionEntry[]>([]);
   const [attentionLoading, setAttentionLoading] = useState(false);
+  const [attentionError, setAttentionError] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState(false);
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   // Which tiles the user has pinned to the top of their own launchpad — purely local
   // (localStorage), never sent anywhere, so this is genuinely "their" personalization
   // rather than something the app is guessing at.
   const [pinnedHrefs, setPinnedHrefs] = useState<string[]>([]);
-  // The launchpad shows a first "page" of tiles so the activity/insights panels below
-  // aren't pushed under the fold by the full grid; one click expands to everything.
+  // Keep the initial shortcut set compact; one click expands to every visible module.
   const [showAllTiles, setShowAllTiles] = useState(false);
-  // How many columns the responsive grid (2/3/4 by breakpoint) actually resolved to at
-  // the current viewport — read from the computed style so the collapsed view can always
-  // show exactly two FULL rows rather than cutting off mid-row.
+  // How many columns the responsive grid actually resolved to at the current viewport.
   const tileGridRef = useRef<HTMLDivElement | null>(null);
   const [tileCols, setTileCols] = useState(4);
   useEffect(() => {
@@ -110,7 +115,8 @@ function UserDashboard() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const collapsedTileCount = tileCols * 2;
+  // Show at most one full desktop row (or two rows on narrower screens).
+  const collapsedTileCount = Math.min(7, tileCols * 2);
   useEffect(() => {
     try {
       const stored = JSON.parse(window.localStorage.getItem(PINNED_TILES_KEY) ?? "[]");
@@ -130,26 +136,51 @@ function UserDashboard() {
     });
   };
 
-  // Real, existing data for the recent/pinned surfaces — best-effort, a failed fetch here
-  // just leaves that one panel empty rather than breaking the page.
-  useEffect(() => {
-    api.listCatalogues().then(setCatalogues).catch(() => {});
-    api.listSavedReports().then(setSavedReports).catch(() => {});
-    api.listConversations().then(setConversations).catch(() => {});
+  // The catalogue list already comes from CatalogueContext. Load only the other activity
+  // sources here, retaining partial results and showing a retry affordance on failure.
+  const loadActivity = useCallback(async () => {
+    setActivityLoading(true);
+    setActivityError(false);
+    const [reportsResult, conversationsResult] = await Promise.allSettled([
+      api.listSavedReports(),
+      api.listConversations(),
+    ]);
+    if (reportsResult.status === "fulfilled") setSavedReports(reportsResult.value);
+    else setSavedReports([]);
+    if (conversationsResult.status === "fulfilled") setConversations(conversationsResult.value);
+    else setConversations([]);
+    setActivityError(reportsResult.status === "rejected" || conversationsResult.status === "rejected");
+    setActivityLoading(false);
   }, []);
 
-  // Enrichment: AI Insights (real, computed from Analytics breakdown/distribution
-  // endpoints) and the "Sales Needing Attention" list — all bounded to the RECENT_SALES_WINDOW most recent sales.
+  useEffect(() => {
+    void loadActivity();
+  }, [loadActivity]);
+
+  const retryDashboard = () => {
+    void refreshList();
+    void loadActivity();
+    setDashboardRefreshKey((key) => key + 1);
+  };
+
+  // Enrichment: sale insights (computed from Analytics breakdown/distribution endpoints)
+  // and the "Sales Needing Attention" list — bounded to the recent sales window.
   useEffect(() => {
     if (!activeCatalogueId || catalogues.length === 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInsights([]);
       setAttention([]);
+      setInsightsError(false);
+      setAttentionError(false);
+      setInsightsLoading(false);
+      setAttentionLoading(false);
       return;
     }
     let cancelled = false;
     setInsightsLoading(true);
     setAttentionLoading(true);
+    setInsightsError(false);
+    setAttentionError(false);
 
     const sorted = [...catalogues].sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime());
     const activeIdx = sorted.findIndex((c) => c.id === activeCatalogueId);
@@ -170,6 +201,7 @@ function UserDashboard() {
         window.map((c) => getStats(c.id).then((s) => ({ c, s })).catch(() => null))
       );
       if (cancelled) return;
+      const statsHadFailures = windowStats.some((x) => x === null);
       const valid = windowStats.filter((x): x is { c: CatalogueSummary; s: DashboardStats } => x !== null);
 
       const att: AttentionEntry[] = valid
@@ -187,6 +219,7 @@ function UserDashboard() {
       if (!cancelled) {
         setAttention(att);
         setAttentionLoading(false);
+        setAttentionError(statsHadFailures);
       }
 
       const prevEntry = previous ? valid.find((x) => x.c.id === previous.id) : undefined;
@@ -194,17 +227,24 @@ function UserDashboard() {
         if (!cancelled) {
           setInsights([]);
           setInsightsLoading(false);
+          setInsightsError(!!previous && statsHadFailures);
         }
         return;
       }
 
-      const [curBreakdown, prevBreakdown, curDist, prevDist] = await Promise.all([
-        api.getBreakdown(activeCatalogueId, "grade").catch(() => []),
-        api.getBreakdown(previous.id, "grade").catch(() => []),
-        api.getDistribution(activeCatalogueId).catch(() => []),
-        api.getDistribution(previous.id).catch(() => []),
+      const [curBreakdownResult, prevBreakdownResult, curDistResult, prevDistResult] = await Promise.allSettled([
+        api.getBreakdown(activeCatalogueId, "grade"),
+        api.getBreakdown(previous.id, "grade"),
+        api.getDistribution(activeCatalogueId),
+        api.getDistribution(previous.id),
       ]);
       if (cancelled) return;
+      const curBreakdown = curBreakdownResult.status === "fulfilled" ? curBreakdownResult.value : [];
+      const prevBreakdown = prevBreakdownResult.status === "fulfilled" ? prevBreakdownResult.value : [];
+      const curDist = curDistResult.status === "fulfilled" ? curDistResult.value : [];
+      const prevDist = prevDistResult.status === "fulfilled" ? prevDistResult.value : [];
+      const analyticsHadFailures = [curBreakdownResult, prevBreakdownResult, curDistResult, prevDistResult]
+        .some((result) => result.status === "rejected");
 
       const computed: Insight[] = [];
 
@@ -246,6 +286,7 @@ function UserDashboard() {
       if (!cancelled) {
         setInsights(computed);
         setInsightsLoading(false);
+        setInsightsError(statsHadFailures || analyticsHadFailures);
       }
     })();
 
@@ -253,7 +294,7 @@ function UserDashboard() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCatalogueId, catalogues]);
+  }, [activeCatalogueId, catalogues, dashboardRefreshKey]);
 
   // Pinned tiles first (in the user's own pin order), everything else after in the
   // original curated order — a personalized "top of my launchpad" without losing the
@@ -357,7 +398,7 @@ function UserDashboard() {
           </h3>
           <p className="mb-4">Import a lot catalogue to populate the dashboard.</p>
           <Button component={Link} href="/catalogue" variant="contained" color="primary">
-            Go to Catalogue Manager
+            Go to Catalogue Reports
           </Button>
         </div>
       )}
@@ -374,7 +415,7 @@ function UserDashboard() {
             </span>
           )}
         </div>
-        <div ref={tileGridRef} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 items-stretch">
+        <div ref={tileGridRef} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-stretch">
           {(showAllTiles ? moduleTiles : moduleTiles.slice(0, collapsedTileCount)).map((item, i) => (
             <TiltCard key={item.href} className="h-full" maxTiltDeg={4}>
               <ModuleTile
@@ -439,13 +480,23 @@ function UserDashboard() {
         </div>
       </div>
 
-      {/* ---- three real panels: recent activity, computed AI insights, and sales needing
+      {/* ---- three real panels: recent activity, computed sale insights, and sales needing
            attention (this app's honest substitute for the reference mockup's fabricated
            "Upcoming Deadlines" — see the plan for why) ---- */}
       <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-        <RecentActivityList entries={activity} />
-        <AiInsightsPanel insights={insights} loading={insightsLoading} />
-        <AttentionList entries={attention} loading={attentionLoading} />
+        <SaleInsightsPanel insights={insights} loading={insightsLoading} error={insightsError} onRetry={retryDashboard} />
+        <AttentionList
+          entries={attention}
+          loading={attentionLoading}
+          error={attentionError}
+          onRetry={retryDashboard}
+          emptyMessage={catalogues.length === 0
+            ? "Load a sale catalogue to see valuation progress."
+            : activeCatalogueId
+              ? "Every recent sale is fully valued."
+              : "Select a sale to see valuation progress."}
+        />
+        <RecentActivityList entries={activity} loading={activityLoading} error={activityError || !!catalogueError} onRetry={retryDashboard} />
       </div>
 
       {/* Footer lives on the Dashboard only, not site-wide (it was in Shell before) — this

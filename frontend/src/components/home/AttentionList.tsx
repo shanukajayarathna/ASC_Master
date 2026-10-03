@@ -18,7 +18,19 @@ export interface AttentionEntry {
  * misleading, not just an incomplete visual. Same "what needs my attention" intent, real
  * data instead: the recent sales with the lowest valuation-completion rate.
  */
-export default function AttentionList({ entries, loading }: { entries: AttentionEntry[]; loading: boolean }) {
+export default function AttentionList({
+  entries,
+  loading,
+  error,
+  onRetry,
+  emptyMessage = "Every recent sale is fully valued.",
+}: {
+  entries: AttentionEntry[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+  emptyMessage?: string;
+}) {
   return (
     <div
       className="rounded-[var(--radius-lg)] border border-border p-4"
@@ -37,40 +49,52 @@ export default function AttentionList({ entries, loading }: { entries: Attention
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           Checking completion across recent sales…
         </p>
-      ) : entries.length === 0 ? (
-        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          Every recent sale is fully valued.
-        </p>
       ) : (
-        <ul className="m-0 p-0 list-none flex flex-col gap-2.5">
-          {entries.map((e) => (
-            <li key={e.key}>
-              <Link
-                href={`/valuation`}
-                className="block no-underline"
-                title={`${e.pending.toLocaleString()} lot${e.pending === 1 ? "" : "s"} still pending`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12.5px] font-medium truncate" style={{ color: "var(--text)" }}>
-                    {e.label}
-                  </span>
-                  <span className="text-[11px] font-mono shrink-0 ml-2" style={{ color: "var(--text-muted)" }}>
-                    {Math.round(e.completionPercent)}%
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--surface-sunken)" }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.max(4, Math.round(e.completionPercent))}%`,
-                      background: e.completionPercent < 50 ? "var(--warn)" : "var(--sage)",
-                    }}
-                  />
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          {error && (
+            <p role="alert" className="text-[12px] m-0 mb-2" style={{ color: "var(--warn)" }}>
+              Some sales couldn&apos;t be checked. {" "}
+              <button type="button" onClick={onRetry} className="underline cursor-pointer border-0 bg-transparent p-0 text-inherit">
+                Try again
+              </button>
+            </p>
+          )}
+          {entries.length > 0 ? (
+            <ul className="m-0 p-0 list-none flex flex-col gap-2.5">
+              {entries.map((e) => (
+                <li key={e.key}>
+                  <Link
+                    href={`/valuation`}
+                    className="block no-underline"
+                    title={`${e.pending.toLocaleString()} lot${e.pending === 1 ? "" : "s"} still pending`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[12.5px] font-medium truncate" style={{ color: "var(--text)" }}>
+                        {e.label}
+                      </span>
+                      <span className="text-[11px] font-mono shrink-0 ml-2" style={{ color: "var(--text-muted)" }}>
+                        {Math.round(e.completionPercent)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--surface-sunken)" }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.max(4, Math.round(e.completionPercent))}%`,
+                          background: e.completionPercent < 50 ? "var(--warn)" : "var(--sage)",
+                        }}
+                      />
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : !error ? (
+            <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
+              {emptyMessage}
+            </p>
+          ) : null}
+        </>
       )}
     </div>
   );

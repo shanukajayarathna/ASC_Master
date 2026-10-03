@@ -136,7 +136,7 @@ export default function MarketAccuracyAnalysis() {
           <h3 className="font-display text-xl text-text mb-1">No catalogue loaded yet</h3>
           <p className="mb-4">Import a lot catalogue before comparing against actual results.</p>
           <Button component={Link} href="/catalogue" variant="contained" color="primary">
-            Go to Catalogue Manager
+            Go to Catalogue Reports
           </Button>
         </div>
       )}

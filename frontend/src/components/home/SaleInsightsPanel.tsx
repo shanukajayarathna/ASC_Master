@@ -29,7 +29,17 @@ const TONE_FG: Record<Insight["tone"], string> = {
  * same Analytics endpoints and previous-sale logic Analysis/Valuation Centre already use).
  * Never decorative/predictive text with no data behind it.
  */
-export default function AiInsightsPanel({ insights, loading }: { insights: Insight[]; loading: boolean }) {
+export default function SaleInsightsPanel({
+  insights,
+  loading,
+  error,
+  onRetry,
+}: {
+  insights: Insight[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}) {
   return (
     <div
       className="rounded-[var(--radius-lg)] border border-border p-4"
@@ -38,7 +48,7 @@ export default function AiInsightsPanel({ insights, loading }: { insights: Insig
       <div className="flex items-center gap-2 mb-3">
         <LightbulbOutlinedIcon fontSize="small" sx={{ color: "var(--liquor)" }} />
         <h3 className="font-display text-[13.5px] font-semibold m-0" style={{ color: "var(--text-strong)" }}>
-          AI Insights
+          Sale insights
         </h3>
       </div>
 
@@ -46,25 +56,37 @@ export default function AiInsightsPanel({ insights, loading }: { insights: Insig
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           Comparing against the previous sale…
         </p>
-      ) : insights.length === 0 ? (
-        <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          Not enough history yet — insights appear once there&apos;s a previous sale to compare against.
-        </p>
       ) : (
-        <ul className="m-0 p-0 list-none flex flex-col gap-2 mb-3">
-          {insights.map((i) => (
-            <li
-              key={i.key}
-              className="flex items-start gap-2 px-3 py-2 rounded-[var(--radius-md)]"
-              style={{ background: TONE_BG[i.tone] }}
-            >
-              <span className="text-[12.5px] leading-snug flex-1" style={{ color: TONE_FG[i.tone] }}>
-                {i.text}
-              </span>
-              <ChevronRightIcon sx={{ fontSize: 16, color: TONE_FG[i.tone] }} />
-            </li>
-          ))}
-        </ul>
+        <>
+          {error && (
+            <p role="alert" className="text-[12px] m-0 mb-2" style={{ color: "var(--warn)" }}>
+              Some sale data couldn&apos;t be loaded. {" "}
+              <button type="button" onClick={onRetry} className="underline cursor-pointer border-0 bg-transparent p-0 text-inherit">
+                Try again
+              </button>
+            </p>
+          )}
+          {insights.length > 0 ? (
+            <ul className="m-0 p-0 list-none flex flex-col gap-2 mb-3">
+              {insights.map((i) => (
+                <li
+                  key={i.key}
+                  className="flex items-start gap-2 px-3 py-2 rounded-[var(--radius-md)]"
+                  style={{ background: TONE_BG[i.tone] }}
+                >
+                  <span className="text-[12.5px] leading-snug flex-1" style={{ color: TONE_FG[i.tone] }}>
+                    {i.text}
+                  </span>
+                  <ChevronRightIcon sx={{ fontSize: 16, color: TONE_FG[i.tone] }} />
+                </li>
+              ))}
+            </ul>
+          ) : !error ? (
+            <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
+              Not enough history yet — insights appear once there&apos;s a previous sale to compare against.
+            </p>
+          ) : null}
+        </>
       )}
 
       <div className="flex items-center justify-between pt-2 border-t border-border">

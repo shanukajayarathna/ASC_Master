@@ -390,6 +390,22 @@ body {
   height: calc(100dvh - 140px);
 }
 
+/* The universal assistant lives inside the app's main element, below the topbar.
+   Account for that shell chrome here; its own PageHeader placeholder is measured in
+   normal flow, so wrapped mobile actions reduce the chat area instead of pushing it
+   below the viewport. */
+.universal.chat-vh {
+  height: calc(100vh - var(--topbar-height, 68px) - 52px);
+  height: calc(100dvh - var(--topbar-height, 68px) - 52px - env(safe-area-inset-bottom, 0px));
+  min-height: 0;
+}
+@media (max-width: 767px) {
+  .universal.chat-vh {
+    height: calc(100vh - var(--topbar-height, 68px) - 40px);
+    height: calc(100dvh - var(--topbar-height, 68px) - 40px - env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* The brand rule — a 3px olive→gold bar. Used to cap dark headers (sidebar, drawer,
    focus mode) so the logo's two colours appear on every screen, not just the sidebar. */
 .brand-rule { background: var(--rule-brand); }

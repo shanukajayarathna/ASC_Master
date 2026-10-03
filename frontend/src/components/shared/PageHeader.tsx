@@ -62,7 +62,7 @@ function ScrollToTopButton() {
 }
 
 /**
- * The header every page hand-rolled slightly differently (and Catalogue Manager had none
+ * The header every page hand-rolled slightly differently (and Catalogue Reports had none
  * at all) — now that there's no sidebar, a page needs to say what it is on its own. A "Back
  * to Home" pill replaces the wayfinding the sidebar used to provide implicitly. Pages nested
  * under a launchpad sub-section (e.g. Reports' tile pages) also get a `backTo` pill pointing

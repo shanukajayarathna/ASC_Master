@@ -12,7 +12,7 @@ export function shortSaleName(sourceName: string): string {
 }
 
 /**
- * Year + Sale dropdowns that choose the app's active sale (shared with the header, the Catalogue Manager and every page that
+ * Year + Sale dropdowns that choose the app's active sale (shared with the header, the Catalogue Reports and every page that
  * reads the active sale). Pick a year to list that year's sales, then pick the sale.
  */
 export default function SalePicker({
@@ -48,6 +48,7 @@ export default function SalePicker({
         onOpen={() => refreshList()}
         displayEmpty
         disabled={years.length === 0}
+        inputProps={{ "aria-label": "Sale year" }}
         sx={{ width: 92, fontSize: 13, flexShrink: 0 }}
       >
         {years.length === 0 && (
@@ -71,6 +72,7 @@ export default function SalePicker({
         onOpen={() => refreshList()}
         displayEmpty
         disabled={salesForYear.length === 0}
+        inputProps={{ "aria-label": "Sale" }}
         sx={{ width: "100%", fontSize: 13, minWidth: 110 }}
         renderValue={(v) => {
           if (!v) return <span className="text-text-muted">Choose a sale</span>;

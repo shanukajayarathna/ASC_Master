@@ -71,7 +71,7 @@ export default function Footer() {
       </div>
       <div className="text-center py-4 border-t border-border" style={{ background: "var(--surface-alt)" }}>
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
-          ASC — Tea Auction Valuation &amp; Business Intelligence Platform
+          ASC — Intelligence Hub
         </p>
         <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
           © {new Date().getFullYear()} Asia Siyaka Commodities PLC. All rights reserved.
