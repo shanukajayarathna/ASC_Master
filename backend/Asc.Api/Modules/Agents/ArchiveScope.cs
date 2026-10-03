@@ -53,7 +53,7 @@ public record ArchiveScope(int FromYear, int? FromSale, int ToYear, int? ToSale)
         {
             var node = JsonNode.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson)?.AsObject();
             if (node is null) return argumentsJson;
-            var namesPeriod = node["years"] is not null || node["sale_nos"] is not null || node["last_n_sales"] is not null || node["from_year"] is not null;
+            var namesPeriod = node["years"] is not null || node["sale_nos"] is not null || node["last_n_sales"] is not null || node["last_n_months"] is not null || node["from_year"] is not null;
             if (namesPeriod) return argumentsJson;
             node["from_year"] = scope.FromYear;
             node["to_year"] = scope.ToYear;

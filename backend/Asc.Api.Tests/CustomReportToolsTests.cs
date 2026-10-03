@@ -311,4 +311,44 @@ public class CustomReportToolsTests
         Assert.Null(ReportsToolExecutor.TryGetChartId("query_data", """{"chartId":"1a2b3c4d"}"""));
         Assert.Null(ReportsToolExecutor.TryGetChartId("make_chart", "not json"));
     }
+
+    // ---------------------------------------------------------------- factory sub-mark merge
+
+    [Fact]
+    public void MergeFactoryFamilies_FoldsSubMarkCodesOfOneFactory_AndKeepsTotalsExact()
+    {
+        var merged = CustomReportLogic.MergeFactoryFamilies([
+            new FilteredSectionRow("MFA0300", "Abbotsleigh", 10, 8, 1000m, 800m, 160000m, 200m, 250m),
+            new FilteredSectionRow("MFB0300", "Abbotsleigh", 5, 5, 500m, 500m, 150000m, 300m, 320m),
+            new FilteredSectionRow("MF0400", "Other", 2, 2, 200m, 200m, 20000m, 100m, 100m),
+        ]);
+        Assert.Equal(2, merged.Count);
+        var a = merged.Single(r => r.Label == "Abbotsleigh");
+        Assert.Equal(1500m, a.TotalQtyKg);
+        Assert.Equal(310000m, a.ProceedsRs);
+        Assert.Equal(310000m / 1300m, a.AvgPriceRs);   // re-derived, not (200+300)/2
+        Assert.Equal(320m, a.MaxPriceRs);
+        Assert.Equal(1700m, merged.Sum(r => r.TotalQtyKg));
+    }
+
+    [Fact]
+    public void MergeFactoryFamilies_KeepsDifferentlyNamedFactoriesSeparate()
+    {
+        var merged = CustomReportLogic.MergeFactoryFamilies([
+            new FilteredSectionRow("MFA0300", "Alpha", 1, 1, 100m, 100m, 1000m, 10m, 10m),
+            new FilteredSectionRow("MFB0300", "Beta", 1, 1, 100m, 100m, 1000m, 10m, 10m),
+        ]);
+        Assert.Equal(2, merged.Count);
+    }
+
+    [Fact]
+    public void MonthWindow_Last24MonthsFromAug2026_SpansSep2024ToAug2026()
+    {
+        var (byYear, from, to) = CustomReportLogic.MonthWindow([new DateTime(2026, 8, 12), new DateTime(2026, 8, 5), new DateTime(2025, 1, 3)], 24);
+        Assert.Equal(new DateTime(2024, 9, 1), from);
+        Assert.Equal(new DateTime(2026, 8, 1), to);
+        Assert.Equal([9, 10, 11, 12], byYear[2024]);
+        Assert.Equal(Enumerable.Range(1, 12), byYear[2025]);
+        Assert.Equal(Enumerable.Range(1, 8), byYear[2026]);
+    }
 }

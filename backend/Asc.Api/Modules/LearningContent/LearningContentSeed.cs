@@ -17,7 +17,7 @@ public static class LearningContentSeed
         new()
         {
             Category = LearningContentCategory.ModuleGuidance,
-            Title = "Catalogue Manager",
+            Title = "Catalogue Reports",
             Tagline = "Import weekly sale catalogues and browse every lot in the grid.",
             Body = "Import weekly sale catalogues and browse every lot in the grid.",
             // Same already-vetted Unsplash photo as this module's own dashboard tile

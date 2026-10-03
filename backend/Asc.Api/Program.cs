@@ -623,8 +623,8 @@ catch (MongoException ex)
 }
 
 // Same first-run seed pattern as landing-page content just above, for the Knowledge Base
-// "Learn" carousel — only inserts if the collection is completely empty, so it never
-// overwrites anything an Admin has since added/edited through the CMS panel.
+// "Learn" carousel. Existing Admin content is preserved; this also carries the seeded
+// Catalogue Manager -> Catalogue Reports label change forward for installs already seeded.
 try
 {
     using var learningSeedScope = app.Services.CreateScope();
@@ -633,6 +633,12 @@ try
     if (learningCount == 0)
     {
         await learningSeedDb.LearningContentItems.InsertManyAsync(LearningContentSeed.Default());
+    }
+    else
+    {
+        await learningSeedDb.LearningContentItems.UpdateOneAsync(
+            item => item.Title == "Catalogue Manager" && item.AddedBy == "system-seed",
+            Builders<LearningContentItem>.Update.Set(item => item.Title, "Catalogue Reports"));
     }
 }
 catch (MongoException ex)

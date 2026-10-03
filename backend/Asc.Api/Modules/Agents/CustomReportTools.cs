@@ -278,6 +278,39 @@ public static class CustomReportLogic
                 g.Max(r => r.MaxPriceRs));
         })];
 
+    /// <summary>Folds one physical factory's sub-mark codes (MFA0300 / MFB0300 → family key MF0300) into a single row so a
+    /// "top factories" list never splits a factory in two. Rows are merged only when their resolved names agree (or only one has a
+    /// name) — two unrelated factories sharing a 4-digit suffix stay separate. Sums are exact; the average is re-derived from
+    /// proceeds / sold quantity, never a mean of averages.</summary>
+    public static IReadOnlyList<FilteredSectionRow> MergeFactoryFamilies(IReadOnlyList<FilteredSectionRow> rows)
+    {
+        static string Family(string code) =>
+            code.Length > 3 && char.IsLetter(code[2]) && char.IsDigit(code[3]) ? code[..2] + code[3..] : code;
+        var result = new List<FilteredSectionRow>();
+        foreach (var family in rows.GroupBy(r => Family(r.Key), StringComparer.OrdinalIgnoreCase))
+        {
+            // Within a family, bucket by resolved name; an unnamed row joins the single named bucket when there is exactly one.
+            var buckets = family.Where(r => !string.IsNullOrWhiteSpace(r.Label))
+                .GroupBy(r => r.Label!.Trim(), StringComparer.OrdinalIgnoreCase).Select(g => g.ToList()).ToList();
+            var unnamed = family.Where(r => string.IsNullOrWhiteSpace(r.Label)).ToList();
+            if (buckets.Count == 0) buckets.Add(unnamed);
+            else if (buckets.Count == 1) buckets[0].AddRange(unnamed);
+            else buckets.AddRange(unnamed.Select(u => new List<FilteredSectionRow> { u }));
+            foreach (var b in buckets)
+            {
+                if (b.Count == 1) { result.Add(b[0]); continue; }
+                var sold = b.Sum(r => r.SoldQtyKg);
+                var proceeds = b.Sum(r => r.ProceedsRs);
+                // Key: the family's plain code (the variant with no letter infix) when present, else the biggest variant's.
+                var key = b.FirstOrDefault(r => Family(r.Key) == r.Key)?.Key ?? b.OrderByDescending(r => r.TotalQtyKg).First().Key;
+                result.Add(new FilteredSectionRow(key, b.Select(r => r.Label).FirstOrDefault(l => !string.IsNullOrWhiteSpace(l)),
+                    b.Sum(r => r.Lots), b.Sum(r => r.SoldLots), b.Sum(r => r.TotalQtyKg), sold, proceeds,
+                    sold > 0 ? proceeds / sold : null, b.Max(r => r.MaxPriceRs)));
+            }
+        }
+        return [.. result.OrderByDescending(r => r.TotalQtyKg)];
+    }
+
     /// <summary>The filter that defines a broker's whole offered volume in the same sales: every narrowing filter
     /// (grade, category, mark, price…) dropped, only the period, the brokers and public/private kept.</summary>
     public static MslAnalyticsFilter OwnVolumeFilter(MslAnalyticsFilter f) => f with
@@ -295,6 +328,24 @@ public static class CustomReportLogic
     {
         var total = totals.GroupBy(t => t.Key).ToDictionary(g => g.Key, g => g.Sum(t => t.TotalQtyKg));
         return [.. rows.Where(r => total.TryGetValue(r.Key, out var t) && t > 0).Select(r => r with { TotalQtyKg = r.TotalQtyKg / total[r.Key] * 100m })];
+    }
+
+    public const int MaxMonths = 36;
+
+    /// <summary>The calendar months covered by "the last N months": N whole calendar months ending with the month of the
+    /// newest sale in <paramref name="saleDates"/>, as year → months. (A 24-month window from Aug 2026 is Sep 2024–Aug 2026.)</summary>
+    public static (Dictionary<int, List<int>> ByYear, DateTime From, DateTime To) MonthWindow(IEnumerable<DateTime> saleDates, int months)
+    {
+        var latest = saleDates.Max();
+        var to = new DateTime(latest.Year, latest.Month, 1);
+        var from = to.AddMonths(-(months - 1));
+        var byYear = new Dictionary<int, List<int>>();
+        for (var m = from; m <= to; m = m.AddMonths(1))
+        {
+            if (!byYear.TryGetValue(m.Year, out var list)) byYear[m.Year] = list = [];
+            list.Add(m.Month);
+        }
+        return (byYear, from, to);
     }
 
     /// <summary>The range named by from_year/from_sale/to_year/to_sale arguments, null when none was given.</summary>
@@ -440,6 +491,7 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
                     group_by = new { type = "string", description = "What to break the data down by: " + string.Join(" | ", CustomReportLogic.Dimensions) + "." },
                     metric = new { type = "string", description = "Measure: " + string.Join(" | ", CustomReportLogic.Metrics.Keys) + ". Default quantity_kg (quantity offered)." },
                     split_by = new { type = "string", description = "Optional: 'sale' repeats the breakdown for each of the most recent sales (needed for trends and stacked charts)." },
+                    last_n_months = new { type = "integer", description = $"Rolling window: the last N whole calendar months ending with the newest sale's month (e.g. 24 = the last two years), added up into one total. Use for 'last 6 months' / 'last 2 years'; max {CustomReportLogic.MaxMonths}. Not with split_by='sale'." },
                     last_n_sales = new { type = "integer", description = $"How many recent sales. With split_by='sale' each sale is a column (default {CustomReportLogic.DefaultSales}); without it the sales are added up into one total over that window. Max {CustomReportLogic.MaxSales}." },
                     top_n = new { type = "integer", description = $"Keep the top N groups; the rest fold into 'Other'. Default 8, max {CustomReportLogic.MaxCategories}." },
                     years = new { type = "array", items = new { type = "integer" }, description = "Sale years to include, e.g. [2026]." },
@@ -544,6 +596,7 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
         async Task<(IReadOnlyList<FilteredSectionRow> Rows, IReadOnlyList<FilteredSectionRow> Totals)> Load(MslAnalyticsFilter f)
         {
             var rows = CustomReportLogic.Section(await engine.FilteredAsync(f, ct, lite: true), groupBy)!;
+            if (groupBy == "factory") rows = CustomReportLogic.MergeFactoryFamilies(rows);
             var totals = shareMode ? CustomReportLogic.Section(await engine.FilteredAsync(CustomReportLogic.OwnVolumeFilter(f), ct, lite: true), "broker")! : [];
             return (rows, totals);
         }
@@ -559,6 +612,23 @@ public class CustomReportTools(MslFilteredAnalyticsEngine engine, IMemoryCache c
                 columns.Add(($"{s.SaleNo:00}/{s.Year}", Finish(rows, totals)));
             }
             period = $"the last {chosen.Count} sale(s), {chosen[0].SaleNo:00}/{chosen[0].Year}–{chosen[^1].SaleNo:00}/{chosen[^1].Year}";
+        }
+        else if (args["last_n_months"] is not null)
+        {
+            // Rolling window of whole calendar months ending at the newest sale's month: one archive query per calendar year
+            // (that year's months only), merged exactly — Years/Months alone can't express a window that crosses a year boundary.
+            var n = Math.Clamp(args["last_n_months"]!.GetValue<int>(), 1, CustomReportLogic.MaxMonths);
+            var (byYear, from, to) = CustomReportLogic.MonthWindow(sales.Select(s => s.SaleDate), n);
+            var perYear = new List<IReadOnlyList<FilteredSectionRow>>();
+            var perYearTotals = new List<IReadOnlyList<FilteredSectionRow>>();
+            foreach (var (year, months) in byYear.OrderBy(kv => kv.Key))
+            {
+                var (rows, totals) = await Load(filter with { Years = [year], Months = months });
+                perYear.Add(rows);
+                perYearTotals.Add(totals);
+            }
+            columns.Add(("Total", Finish(CustomReportLogic.MergeRows(perYear), CustomReportLogic.MergeRows(perYearTotals))));
+            period = $"the last {n} month(s), {from:MMM yyyy}–{to:MMM yyyy}";
         }
         else if (range is not null && args["last_n_sales"] is null)
         {
