@@ -28,10 +28,6 @@ export const HELP_FAQS: HelpFaq[] = [
     a: "A valuation is always a whole value in LKR of at most four digits, from 50 to 9999 — e.g. 1250. You can also give a range; the first number must be lower than the second. In the Valuation Centre list you type a range with a dash (1200-1350); in Focus mode the calculator has two lines instead — fill the first alone for a single value, or both for a range. Anything else is rejected with a message telling you what to fix.",
   },
   {
-    q: "Can I select and update multiple lots at once?",
-    a: "Yes — select rows with the checkboxes in Catalogue Reports and use the bulk toolbar that appears to classify, or clear notes, for all selected lots at once.",
-  },
-  {
     q: "Where do exports happen?",
     a: "The Catalogue Reports grid (AG Grid Enterprise) has built-in CSV/Excel export via its context menu and toolbar.",
   },

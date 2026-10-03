@@ -958,20 +958,6 @@ export const api = {
       body: JSON.stringify(dto),
     }),
 
-  // `skipped` counts lots left alone because they have no valuation — a classification
-  // grades a value, so an unvalued lot can't take one.
-  bulkClassify: (lotIds: string[], classification: string) =>
-    request<{ updated: number; skipped: number }>("/api/lots/bulk-classify", {
-      method: "POST",
-      body: JSON.stringify({ lotIds, classification }),
-    }),
-
-  bulkClearNotes: (lotIds: string[]) =>
-    request<{ updated: number }>("/api/lots/bulk-clear-notes", {
-      method: "POST",
-      body: JSON.stringify({ lotIds }),
-    }),
-
   // ---- per-lot media (photo + voice notes) --------------------------------------
   // Binaries are stored locally on the API (data/media) behind a DB-swappable seam; the
   // browser sends the captured/recorded blob as a raw PUT body.

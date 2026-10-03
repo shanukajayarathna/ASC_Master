@@ -23,7 +23,7 @@ import {
 } from "@/lib/lotFilters";
 import { combineSales, SALE_COLUMN_HEADER, type CombinedCatalogue, type SaleEntry } from "@/lib/multiSale";
 import { invalidateSale, patchCachedLot, type SaleStatus } from "@/lib/saleCache";
-import type { CatalogueDetail, ClassificationValue, LiveLoad, Lot } from "@/types/api";
+import type { CatalogueDetail, LiveLoad, Lot } from "@/types/api";
 import { CURATED_FILTERS, resolveHeader } from "@/lib/filterConfig";
 import SearchIcon from "@mui/icons-material/Search";
 import Button from "@mui/material/Button";
@@ -37,37 +37,13 @@ import DialogActions from "@mui/material/DialogActions";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
-import CircularProgress from "@mui/material/CircularProgress";
 import ListItemText from "@mui/material/ListItemText";
 import Tooltip from "@mui/material/Tooltip";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
-import BoltIcon from "@mui/icons-material/Bolt";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const WORKSHEET_HANDOFF_KEY = "asc:worksheet:pending";
-
-type WorksheetField =
-  | "classification"
-  | "standardData"
-  | "adjectiveData"
-  | "liquorRemarks"
-  | "musterReport"
-  | "brokerNotes"
-  | "privateNotes";
-
-const WORK_SECTIONS: { field: WorksheetField | "valuation"; label: string }[] = [
-  { field: "valuation", label: "Valuation" },
-  { field: "classification", label: "Classification" },
-  { field: "liquorRemarks", label: "Taster's Remarks" },
-  { field: "standardData", label: "Standard Data" },
-  { field: "adjectiveData", label: "Adjective Data" },
-  { field: "musterReport", label: "Muster Report" },
-  { field: "brokerNotes", label: "Broker Notes" },
-  { field: "privateNotes", label: "Private Notes" },
-];
 
 const CLASSIFICATION_LABELS: Record<string, string> = {
   SelectBest: "Select Best",
@@ -80,14 +56,6 @@ const STATUS_LABELS: Record<string, string> = {
   full: "Ticket complete",
   partial: "In progress",
   empty: "Not started",
-};
-
-// Outlined-on-dark styling for the selection bar's buttons — MUI's default disabled grey
-// is unreadable on the dark bar, so the locked (bulk-in-flight) state gets its own colors.
-const DARK_BAR_BUTTON_SX = {
-  color: "#fff",
-  borderColor: "rgba(255,255,255,0.3)",
-  "&.Mui-disabled": { color: "rgba(255,255,255,0.45)", borderColor: "rgba(255,255,255,0.15)" },
 };
 
 const EMPTY_COMBINED: CombinedCatalogue = {
@@ -229,24 +197,16 @@ export default function CataloguePage() {
   const [loadingLots, setLoadingLots] = useState(false);
 
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Lot[]>([]);
   const [drawerLot, setDrawerLot] = useState<Lot | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [viewLot, setViewLot] = useState<Lot | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
-  const [workMenuAnchor, setWorkMenuAnchor] = useState<HTMLElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsMenuAnchor, setColumnsMenuAnchor] = useState<HTMLElement | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
-  // Outcome of the last bulk classify, shown only when some lots were left unclassified.
-  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
-  // Which bulk action is in flight — locks the whole action bar (the API call plus the
-  // sale reload behind it take a while on a big selection, and a second click would fire
-  // the same bulk update again) and puts the spinner on the button that was clicked.
-  const [bulkBusy, setBulkBusy] = useState<ClassificationValue | "clear" | null>(null);
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
@@ -287,6 +247,10 @@ export default function CataloguePage() {
     () => ({ search, columnFilters, status: statusFilter, classification: classificationFilter, year: "" }),
     [search, columnFilters, statusFilter, classificationFilter]
   );
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
   const searchPending = useMemo(() => JSON.stringify(draft) !== JSON.stringify(applied), [draft, applied]);
 
   const markSearched = () => {
@@ -396,9 +360,12 @@ export default function CataloguePage() {
           resultsRef.current = new Map();
           const entries: SaleEntry[] = ids.map((id, i) => ({ id, sourceName: details[i].sourceName, detail: details[i], lots: [] }));
           const c = combineSales(entries, ids.length > 1);
+          // Keep the user's current filter draft when switching sales or years.
+          // A saved preset explicitly replaces it; a normal sale change should not
+          // silently clear the work already done in the filter panel.
           const spec: SearchSpec = pending
             ? { search: pending.search, columnFilters: pending.columnFilters, status: pending.status, classification: pending.classification, year: "" }
-            : EMPTY_SPEC;
+            : draftRef.current;
           setCombined(c);
           setHiddenColumns(new Set(c.headers.filter((h) => !DEFAULT_SHOWN_COLUMNS.some((re) => re.test(h)))));
           setColumnFilters(spec.columnFilters);
@@ -406,7 +373,6 @@ export default function CataloguePage() {
           setClassificationFilter(spec.classification);
           setSearch(spec.search);
           setYearFilter(yearOfSelection(ids));
-          setSelected([]);
           setSaleTotal(details.reduce((n, d) => n + d.rowCount, 0));
           setSaleStatuses([]);
           appliedRef.current = EMPTY_SPEC;
@@ -451,7 +417,6 @@ export default function CataloguePage() {
         appliedRef.current = spec;
         setApplied(spec);
         markSearched();
-        setSelected([]);
       } catch (e) {
         setImportError(e instanceof Error ? e.message : "Search failed");
       } finally {
@@ -702,13 +667,6 @@ export default function CataloguePage() {
   );
   const reportTitle = saleNames.length === 1 ? saleNames[0] : `${saleNames.length} sales`;
 
-  // How many distinct sales the current selection spans — Valuation/Worksheet are per-sale,
-  // so those hand-offs only work when the selection sits inside a single sale.
-  const selectionSaleCount = useMemo(
-    () => new Set(selected.map((l) => catalogueIdByLot.get(l.id))).size,
-    [selected, catalogueIdByLot]
-  );
-  const workDisabled = selectionSaleCount !== 1;
 
   // The first import (from the empty-state dropzone) — bring the file in and switch to it.
   const handleFile = async (file: File) => {
@@ -761,89 +719,21 @@ export default function CataloguePage() {
     }
   };
 
-  const editLot = (lot: Lot) => {
+  const editLot = useCallback((lot: Lot) => {
     setDrawerLot(lot);
     setDrawerOpen(true);
-  };
+  }, []);
 
-  const viewLotDetails = (lot: Lot) => {
+  const viewLotDetails = useCallback((lot: Lot) => {
     setViewLot(lot);
     setViewOpen(true);
-  };
+  }, []);
 
   const handleSaved = (updated: Lot) => {
     setCombined((prev) => ({ ...prev, lots: prev.lots.map((l) => (l.id === updated.id ? updated : l)) }));
     const saleId = catalogueIdByLot.get(updated.id);
     if (saleId) patchCachedLot(saleId, updated); // keep the cache warm and in sync
     setDrawerOpen(false);
-  };
-
-  // Drop the cache for every sale the given lots belong to — used after a bulk edit whose
-  // per-lot results aren't returned, so the follow-up reload refetches only those sales.
-  const invalidateLotSales = useCallback(
-    (ls: Lot[]) => {
-      new Set(ls.map((l) => catalogueIdByLot.get(l.id)))
-        .forEach((id) => id && invalidateSale(id));
-    },
-    [catalogueIdByLot]
-  );
-
-  // Hands the current selection off to the right workspace for the chosen section. Valuation
-  // has its own page (it always shows the whole sale, so no lot hand-off is needed) — every
-  // other section shares the Lot Worksheet. Both are per-sale, so the selection must sit in
-  // one sale (the button is disabled otherwise); if that sale isn't the active one, switch to
-  // it first so the target page opens on the right catalogue.
-  const openWorkSection = async (section: WorksheetField | "valuation") => {
-    setWorkMenuAnchor(null);
-    if (selected.length === 0 || workDisabled) return;
-    const saleId = catalogueIdByLot.get(selected[0].id);
-    if (!saleId) return;
-    const lotIds = selected.map((l) => l.id);
-    if (section === "valuation") {
-      if (saleId !== activeCatalogueId) await selectCatalogue(saleId);
-      router.push("/valuation");
-    } else {
-      window.sessionStorage.setItem(
-        WORKSHEET_HANDOFF_KEY,
-        JSON.stringify({ catalogueId: saleId, lotIds, field: section })
-      );
-      router.push("/worksheet");
-    }
-  };
-
-  const bulkClassify = async (classification: ClassificationValue) => {
-    if (selected.length === 0 || bulkBusy) return;
-    setBulkBusy(classification);
-    try {
-      const { updated, skipped } = await api.bulkClassify(selected.map((l) => l.id), classification);
-      setBulkNotice(
-        skipped > 0
-          ? `Classified ${updated.toLocaleString()} lot${updated === 1 ? "" : "s"} — ${skipped.toLocaleString()} skipped with no valuation yet.`
-          : null
-      );
-      invalidateLotSales(selected);
-      await reload();
-      setSelected([]);
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : "Bulk classify failed");
-    } finally {
-      setBulkBusy(null);
-    }
-  };
-
-  const bulkClearNotes = async () => {
-    if (selected.length === 0 || bulkBusy) return;
-    setBulkBusy("clear");
-    try {
-      await api.bulkClearNotes(selected.map((l) => l.id));
-      invalidateLotSales(selected);
-      await reload();
-      setSelected([]);
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : "Clearing notes failed");
-    } finally {
-      setBulkBusy(null);
-    }
   };
 
   if (!activeCatalogueId) {
@@ -984,7 +874,7 @@ export default function CataloguePage() {
         </Menu>
       </div>
 
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
+      <div className="flex items-center gap-2 -mt-2 mb-2 flex-wrap">
         <TextField
           placeholder="Search across every column…"
           size="small"
@@ -1078,7 +968,6 @@ export default function CataloguePage() {
           onSaleChange={handleSaleSelect}
           serverOptions={serverOptions}
           onSearch={handleSearch}
-          bodyMaxHeight="max(140px, calc(100vh - 660px))"
           toolbar={
             <>
               <ExportShareMenu
@@ -1108,100 +997,11 @@ export default function CataloguePage() {
         />
       )}
 
-      {activeFilterChips.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {activeFilterChips.map((chip) => (
-            <Chip key={chip.key} label={chip.label} size="small" onDelete={chip.onRemove} />
-          ))}
-        </div>
-      )}
-
-      {selected.length > 0 && (
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-[var(--radius-lg)] bg-ink-solid-900 text-white mb-3 flex-wrap">
-          <Chip
-            label={`${selected.length} lot${selected.length === 1 ? "" : "s"} selected${
-              selectionSaleCount > 1 ? ` · ${selectionSaleCount} sales` : ""
-            }`}
-            size="small"
-            sx={{ bgcolor: "rgba(217,182,92,0.18)", color: "var(--brass-light)", fontFamily: "var(--font-mono)" }}
-          />
-          <div className="flex gap-1.5 ml-auto flex-wrap">
-            <Tooltip title={workDisabled ? "Narrow the selection to a single sale to value or worksheet it" : ""}>
-              <span>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="primary"
-                  disabled={workDisabled || bulkBusy !== null}
-                  startIcon={<BoltIcon fontSize="small" />}
-                  onClick={(e) => setWorkMenuAnchor(e.currentTarget)}
-                >
-                  Work on selection…
-                </Button>
-              </span>
-            </Tooltip>
-            <Menu anchorEl={workMenuAnchor} open={!!workMenuAnchor} onClose={() => setWorkMenuAnchor(null)}>
-              {WORK_SECTIONS.map((s) => (
-                <MenuItem key={s.field} dense onClick={() => openWorkSection(s.field)}>
-                  {s.label}
-                </MenuItem>
-              ))}
-            </Menu>
-            <span className="w-px self-stretch bg-white/15 mx-0.5" />
-            {(["SelectBest", "Best", "BelowBest", "Poor"] as const).map((c) => (
-              <Button
-                key={c}
-                size="small"
-                variant="outlined"
-                disabled={bulkBusy !== null}
-                aria-busy={bulkBusy === c}
-                startIcon={bulkBusy === c ? <CircularProgress size={14} color="inherit" /> : undefined}
-                sx={DARK_BAR_BUTTON_SX}
-                onClick={() => bulkClassify(c)}
-              >
-                {bulkBusy === c ? "Marking…" : `Mark all ${CLASSIFICATION_LABELS[c]}`}
-              </Button>
-            ))}
-            <Button
-              size="small"
-              variant="outlined"
-              disabled={bulkBusy !== null}
-              aria-busy={bulkBusy === "clear"}
-              startIcon={bulkBusy === "clear" ? <CircularProgress size={14} color="inherit" /> : undefined}
-              sx={DARK_BAR_BUTTON_SX}
-              onClick={bulkClearNotes}
-            >
-              {bulkBusy === "clear" ? "Clearing…" : "Clear notes"}
-            </Button>
-            <span className="w-px self-stretch bg-white/15 mx-0.5" />
-            <ExportShareMenu
-              lots={selected}
-              reportTitle={reportTitle}
-              catalogueIdForLot={catalogueIdForLot}
-              availableColumns={availableExportColumns}
-              defaultColumnIds={exportDefaultColumnIds}
-              dark
-            />
-            <Button size="small" variant="outlined" disabled={bulkBusy !== null} sx={DARK_BAR_BUTTON_SX} onClick={() => setSelected([])}>
-              Deselect
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {bulkNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-warn bg-warn-light text-[13px]" style={{ color: "var(--warn)" }}>
-          {bulkNotice}
-          <button
-            type="button"
-            onClick={() => setBulkNotice(null)}
-            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
-            style={{ color: "var(--warn)" }}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+      <div className="flex flex-nowrap items-center gap-1.5 mb-2 h-6 overflow-x-auto overflow-y-hidden" aria-label="Active filters">
+        {activeFilterChips.map((chip) => (
+          <Chip key={chip.key} label={chip.label} size="small" onDelete={chip.onRemove} sx={{ flexShrink: 0, maxWidth: 320 }} />
+        ))}
+      </div>
 
       {importNotice && (
         <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
@@ -1274,7 +1074,6 @@ export default function CataloguePage() {
             onHiddenColumnsChange={setHiddenColumns}
             onViewLot={viewLotDetails}
             onEditLot={editLot}
-            onSelectionChanged={setSelected}
           />
         </div>
       ) : null}

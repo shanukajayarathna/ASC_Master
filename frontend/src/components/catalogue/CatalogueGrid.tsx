@@ -7,8 +7,8 @@ import { formatCurrency } from "@/lib/format";
 import { SALE_COLUMN_HEADER } from "@/lib/multiSale";
 import type { ColumnMeta, Lot } from "@/types/api";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, ColumnVisibleEvent, ICellRendererParams, SelectionChangedEvent } from "ag-grid-community";
-import { useEffect, useMemo, useRef } from "react";
+import type { ColDef, ColumnVisibleEvent, ICellRendererParams } from "ag-grid-community";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { ascGridTheme } from "./agGridTheme";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
@@ -30,8 +30,16 @@ const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: stri
  *  min/max comparison in one place; commas are stripped the same way the server's own
  *  decimal parsing does. */
 /** The grid never gets shorter than this, however little room is left below the filters. */
-const MIN_GRID_HEIGHT = 240;
+const MIN_GRID_HEIGHT = 180;
 /** Space kept between the grid's bottom edge (its scrollbar) and the bottom of the window. */
+const GRID_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function compareGridValues(valueA: unknown, valueB: unknown): number {
+  if (valueA == null) return valueB == null ? 0 : -1;
+  if (valueB == null) return 1;
+  if (typeof valueA === "number" && typeof valueB === "number") return valueA - valueB;
+  return GRID_COLLATOR.compare(String(valueA), String(valueB));
+}
 
 function parseNumericCell(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === "") return null;
@@ -47,7 +55,7 @@ function effectiveValuation(lot: Lot): number | null {
   return v.valuationFrom;
 }
 
-export default function CatalogueGrid({
+function CatalogueGrid({
   lots,
   headers,
   columnMeta,
@@ -55,7 +63,6 @@ export default function CatalogueGrid({
   onHiddenColumnsChange,
   onViewLot,
   onEditLot,
-  onSelectionChanged,
 }: {
   lots: Lot[];
   headers: string[];
@@ -72,7 +79,6 @@ export default function CatalogueGrid({
   onHiddenColumnsChange: (next: Set<string>) => void;
   onViewLot: (lot: Lot) => void;
   onEditLot: (lot: Lot) => void;
-  onSelectionChanged: (lots: Lot[]) => void;
 }) {
   const gridRef = useRef<AgGridReact>(null);
 
@@ -93,7 +99,18 @@ export default function CatalogueGrid({
   // in the search box re-renders the whole page), and AG Grid treats a new `defaultColDef`
   // reference as "the column configuration changed" — reprocessing every column even though
   // nothing in it actually did. Memoized once since these three flags never change.
-  const defaultColDef = useMemo<ColDef>(() => ({ sortable: true, filter: true, resizable: true, wrapHeaderText: true, autoHeaderHeight: true }), []);
+  const defaultColDef = useMemo<ColDef>(
+    () => ({
+      sortable: true,
+      sortingOrder: ["asc", "desc"],
+      comparator: compareGridValues,
+      filter: false,
+      resizable: true,
+      wrapHeaderText: true,
+      autoHeaderHeight: true,
+    }),
+    []
+  );
 
   const columnDefs = useMemo<ColDef[]>(() => {
     const cols: ColDef[] = [];
@@ -112,7 +129,6 @@ export default function CatalogueGrid({
         // agSetColumnFilter is AG Grid Enterprise-only — Community-only here, so
         // categorical columns fall back to the text filter (the app's own FilterPanel is
         // the primary multi-select filtering UI anyway).
-        filter: meta?.numeric ? "agNumberColumnFilter" : "agTextColumnFilter",
         type: meta?.numeric ? "numericColumn" : undefined,
         // field stays wired for edits (they write back into rawData as text, same as
         // before); valueGetter overrides what sort/filter/display actually read.
@@ -205,11 +221,6 @@ export default function CatalogueGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headers, columnMeta, hiddenColumns]);
 
-  const handleSelectionChanged = (e: SelectionChangedEvent) => {
-    const rows = e.api.getSelectedRows() as { __lot: Lot }[];
-    onSelectionChanged(rows.map((r) => r.__lot));
-  };
-
   // Recomputes the full hidden-column set straight from the grid's own column state —
   // fires for every visibility change, however it happened (native header menu, "Reset
   // Columns", or our own colDef push), so the app's state always matches what's actually
@@ -247,8 +258,6 @@ export default function CatalogueGrid({
         rowData={rowData}
         getRowId={getRowId}
         columnDefs={columnDefs}
-        rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
-        onSelectionChanged={handleSelectionChanged}
         onColumnVisible={handleColumnVisible}
         onGridReady={handleGridReady}
         onGridSizeChanged={fitColumns}
@@ -259,3 +268,8 @@ export default function CatalogueGrid({
     </div>
   );
 }
+
+// Filter edits and search typing update the page shell, but the grid's inputs stay
+// unchanged until Search is pressed. Skipping those parent renders avoids waking
+// AG Grid (and rebuilding its React cell renderers) for work unrelated to the rows.
+export default memo(CatalogueGrid);

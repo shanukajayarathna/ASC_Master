@@ -27,7 +27,6 @@ import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlineOutlined";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const PENDING_KEY = "asc:worksheet:pending";
 
 export type WorksheetField =
   | "classification"
@@ -79,7 +78,6 @@ export default function WorksheetPage() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(false);
   const [field, setField] = useState<WorksheetField>("classification");
-  const [handoffIds, setHandoffIds] = useState<Set<string>>(new Set());
   const [values, setValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -108,31 +106,11 @@ export default function WorksheetPage() {
     };
   }, [activeCatalogueId]);
 
-  // Consume a one-shot handoff from the Catalogue Reports grid's "Work on selection…" menu — the
-  // chosen section and the selected lots arrive together.
-  useEffect(() => {
-    if (!activeCatalogueId || lots.length === 0) return;
-    const raw = window.sessionStorage.getItem(PENDING_KEY);
-    if (!raw) return;
-    window.sessionStorage.removeItem(PENDING_KEY);
-    try {
-      const pending = JSON.parse(raw) as { catalogueId: string; lotIds: string[]; field: WorksheetField };
-      if (pending.catalogueId !== activeCatalogueId) return;
-      const validIds = pending.lotIds.filter((id) => lots.some((l) => l.id === id));
-      // One-shot handoff consumed inside an effect by design — not derived state.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (FIELD_DEFS.some((f) => f.value === pending.field)) setField(pending.field);
-      if (validIds.length > 0) setHandoffIds((prev) => new Set([...prev, ...validIds]));
-    } catch {
-      // ignore malformed handoff payload
-    }
-  }, [activeCatalogueId, lots]);
-
-  // The working set is everything that already has this field filled, plus anything just
-  // handed off from the Catalogue Reports — in the catalogue's natural (lot) order.
+  // The working set is everything that already has this field filled, in the catalogue's
+  // natural (lot) order.
   const displayedLots = useMemo(
-    () => lots.filter((l) => hasField(l, field) || handoffIds.has(l.id)),
-    [lots, field, handoffIds]
+    () => lots.filter((l) => hasField(l, field)),
+    [lots, field]
   );
 
   // Seed the text field for any newly-displayed lot without clobbering one the user is
@@ -253,8 +231,7 @@ export default function WorksheetPage() {
         <div className="text-center py-16 text-text-muted">
           <h3 className="font-display text-xl text-text mb-1">No lots in this worksheet yet</h3>
           <p className="mb-4">
-            Go to Catalogue Reports, select the lots you want, then choose &ldquo;{fieldDef.label}&rdquo; from its
-            &ldquo;Work on selection&rdquo; menu.
+            Lots appear here once they have a {fieldDef.label.toLowerCase()} entered.
           </p>
           <Button
             variant="contained"
