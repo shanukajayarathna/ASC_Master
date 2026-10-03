@@ -29,6 +29,7 @@ import { readScope, saveScope } from "./scope";
 import { archiveGap, parseSaleName, useLatestArchivedSale } from "./archive";
 import { answerTitle, pinId, usePins } from "./pins";
 import { DEFAULT_STATE, type BuilderState } from "./reportBuilder";
+import Link from "next/link";
 import { downloadTableXlsx, openTablePdf, parseMarkdownTable } from "./tableExports";
 import { useAgentChat } from "./useAgentChat";
 import { useReducedMotion } from "./useHubEnv";
@@ -246,6 +247,9 @@ export default function UniversalAssistant() {
                     </>
                   );
                 })()}
+                {!fromRouter && /weekly\s*fact|low\s*rank|mark[\s-]*wise|low[\s-]*wise/i.test(question) && (
+                  <Chip size="small" color="primary" clickable component={Link} href="/reports/weekly-fact" label="Open Weekly FACT report" sx={{ height: 24, fontSize: 11 }} />
+                )}
                 {(agent === "reports" || agent === "analytics") && !text.includes("```asc-chart") && !fromRouter && (
                   <Chip size="small" variant="outlined" clickable label="Open in report canvas" onClick={() => openCanvas(question)} sx={{ height: 24, fontSize: 11 }} />
                 )}
