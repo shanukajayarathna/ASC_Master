@@ -40,6 +40,40 @@ public sealed class NameIndex
 
     public static string Normalise(string? value) => Regex.Replace((value ?? "").Trim().ToLowerInvariant(), @"\s+", " ");
 
+    /// <summary>The factory whose name is closest to the question's words (edit distance 2, or 3 for long names), or null.</summary>
+    public NameMatch? Suggest(string question)
+    {
+        var words = Regex.Split(Normalise(question).Replace("?", " ").Replace(",", " "), @"\s+").Where(w => w.Length > 0).ToArray();
+        NameMatch? best = null;
+        var bestDistance = int.MaxValue;
+        foreach (var (name, entry) in _names)
+        {
+            if (!entry.Kinds.Contains(NameKind.Factory) || entry.Code is null) continue;
+            var size = name.Split(' ').Length;
+            var limit = name.Length > 10 ? 3 : 2;
+            for (var i = 0; i + size <= words.Length; i++)
+            {
+                var d = Distance(string.Join(' ', words[i..(i + size)]), name);
+                if (d <= limit && d < bestDistance) { bestDistance = d; best = new NameMatch(entry.Display, [NameKind.Factory], entry.Code); }
+            }
+        }
+        return best;
+    }
+
+    private static int Distance(string a, string b)
+    {
+        var prev = Enumerable.Range(0, b.Length + 1).ToArray();
+        for (var i = 1; i <= a.Length; i++)
+        {
+            var cur = new int[b.Length + 1];
+            cur[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+                cur[j] = Math.Min(Math.Min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+            prev = cur;
+        }
+        return prev[b.Length];
+    }
+
     /// <summary>Names that appear in the question, longest first, so "New Baddegama" wins over "Baddegama".</summary>
     public IReadOnlyList<NameMatch> Find(string question)
     {

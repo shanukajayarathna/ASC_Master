@@ -55,3 +55,33 @@ public class FactoryCodeTests
         Assert.Equal("New Baddegama", index.Find("MFA0300").Single().Name);
     }
 }
+
+public class FactoryLookupTests
+{
+    private static readonly NameIndex Index = NameIndex.From(
+    [
+        new Asc.Api.Models.Lot { FactoryName = "New Baddegama", Factory = "MFA0300" },
+        new Asc.Api.Models.Lot { FactoryName = "Glen Alpin", Factory = "MFB0121" },
+    ]);
+
+    [Fact]
+    public void AnExactFactoryCodeQuestion_IsAnsweredFromTheLots()
+    {
+        Assert.Equal("New Baddegama's MF code is MFA0300 (from the Factory column, sale 41/2026).", FactoryLookup.Reply("what is the mf code for New Baddegama", Index, "sale 41/2026"));
+    }
+
+    [Fact]
+    public void AMisspelling_IsConfirmedNotAnswered()
+    {
+        var reply = FactoryLookup.Reply("what is the mf code for New Baddegaama", Index, "sale 41/2026")!;
+        Assert.StartsWith("I couldn't find an exact match. Did you mean New Baddegama?", reply);
+        Assert.Contains("MFA0300", reply);
+    }
+
+    [Fact]
+    public void ANonFactoryQuestion_IsNotTakenHere_AndAnUnknownNameSaysSo()
+    {
+        Assert.Null(FactoryLookup.Reply("top price for BOP1A", Index, "sale 41/2026"));
+        Assert.Contains("couldn't find a factory", FactoryLookup.Reply("mf code for Zzzzzz Tea Estate Plantations", Index, "sale 41/2026")!);
+    }
+}
