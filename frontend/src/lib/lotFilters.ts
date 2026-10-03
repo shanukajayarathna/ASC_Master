@@ -43,7 +43,7 @@ export interface FilterOptions {
   year?: string;
 }
 
-/** What the Catalogue Manager sends to search a sale on the server: the filter panel's state plus a window of results. */
+/** What the Catalogue Reports page sends to search a sale on the server: the filter panel's state plus a window of results. */
 export interface LotSearchBody extends FilterOptions {
   status: TicketStatus | "";
   year: string;

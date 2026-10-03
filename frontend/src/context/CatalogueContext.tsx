@@ -15,12 +15,8 @@ interface CatalogueCtx {
   catalogues: CatalogueSummary[];
   activeCatalogue: CatalogueDetail | null;
   activeCatalogueId: string | null;
-  /** DashboardStats for the active sale, fetched once here and shared — the launchpad KPIs
-   *  and the topbar's pending-valuations badge both need this and used to each fetch it
-   *  independently, doubling the load on GET /catalogues/{id}/dashboard (expensive: it can
-   *  mean parsing an uncached sale file server-side). Null while loading or with no active
-   *  sale; consumers that need to tell "loading" apart from "loaded, zero lots" should check
-   *  activeCatalogueId too. */
+  /** DashboardStats for the active sale, fetched once and shared with consumers such as the
+   *  topbar's pending-valuations badge. Null while loading or with no active sale. */
   activeStats: DashboardStats | null;
   /** True while a sale switch (selectCatalogue) is in flight. Kept separate from `importing`
    *  so an unrelated sale switch elsewhere in the app (e.g. the Topbar dropdown) doesn't make

@@ -260,9 +260,9 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   provider?: string | null;
-  /** Where the answer's figures came from; only present on a reply received live (not stored with history). */
+  /** Where the answer's figures came from. */
   sources?: ChatSource[];
-  /** Which agent answered (general | auction | analytics | reports); set on replies from the universal chat. */
+  /** Which agent answered (general | auction | analytics | reports). */
   agent?: string | null;
 }
 
@@ -1507,6 +1507,10 @@ export interface AccessRequest {
 /** What the Reports workspace builder asks the archive for (see CustomReportsController). */
 /** The part of the archive the assistant is limited to: one sale, a range of sales, or whole years. Absent sale numbers mean the year's first / last. */
 export interface ChatScope {
+  /** Which stored data set the scope targets. Older saved scopes default to MSL. */
+  source?: "msl" | "catalogue" | "both";
+  /** True when the user deliberately chose this scope; automatic latest-sale defaults may refresh. */
+  userSelected?: boolean;
   fromYear: number;
   fromSale: number | null;
   toYear: number;

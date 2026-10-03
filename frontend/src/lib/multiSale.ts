@@ -2,7 +2,7 @@ import { sortForDisplay } from "@/lib/ourBroker";
 import type { CatalogueDetail, ColumnMeta, Lot } from "@/types/api";
 
 /**
- * Combining several sales into one working set (Catalogue Manager's multi-sale selection):
+ * Combining several sales into one working set (the Catalogue Reports page's multi-sale selection):
  * the lots of every selected sale are pooled, tagged with the sale they came from, and the
  * catalogues' differing column layouts are unioned into one header list. A synthetic "Sale"
  * column names each lot's sale so the pooled grid stays legible — it rides in each lot's

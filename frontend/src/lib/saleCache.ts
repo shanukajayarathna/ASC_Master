@@ -4,7 +4,7 @@ import type { Lot, PagedLots } from "@/types/api";
 
 /**
  * Shared in-memory cache of loaded sales, sitting between the pages that show a whole sale
- * (Catalogue Manager, Valuation Centre, Worksheet) and the API. A "sale" here is its headers
+ * (Catalogue Reports, Valuation Centre, Worksheet) and the API. A "sale" here is its headers
  * plus every lot — fetched once and kept, so the heavy 20k-lot load doesn't repeat every time
  * the same sale is re-selected, pooled into a multi-sale set, or reopened on another page.
  *

@@ -1085,13 +1085,18 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
-  /** Downloads an authenticated file (e.g. an agent-generated Excel) via blob + save. */
-  downloadAuthedFile: async (path: string, filename: string) => {
+  /** Fetches an authenticated generated report as a Blob for previewing or saving. */
+  fetchAuthedFile: async (path: string): Promise<Blob> => {
     const res = await apiFetch(`${API_BASE}${path}`, {
       headers: AUTH_HEADERS,
     });
     if (!res.ok) throw new ApiError(await res.text().catch(() => "Download failed"), res.status);
-    const blob = await res.blob();
+    return res.blob();
+  },
+
+  /** Downloads an authenticated file (e.g. an agent-generated Excel) via blob + save. */
+  downloadAuthedFile: async (path: string, filename: string) => {
+    const blob = await api.fetchAuthedFile(path);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1111,10 +1116,10 @@ export const api = {
    *  configured provider key — see getProviderStatuses(). `catalogueId` is the
    *  Topbar's active sale — AuctionAgent reads it to know what "the current sale"
    *  means without a tool round-trip, same reasoning as sendChatMessage's own. */
-  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string, signal?: AbortSignal, previousAgent?: string, scope?: ChatScope | null, localHour?: number) =>
+  sendAgentChatMessage: (agent: string, message: string, conversationId?: string, provider?: string, catalogueId?: string, signal?: AbortSignal, previousAgent?: string, scope?: ChatScope | null, localHour?: number, clientMessageId?: string) =>
     request<ChatResponse>("/api/v1/assistant/chat", {
       method: "POST",
-      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null, previousAgent: previousAgent ?? null, scope: scope ?? null, localHour: localHour ?? null }),
+      body: JSON.stringify({ conversationId: conversationId ?? null, message, agent, provider: provider ?? null, catalogueId: catalogueId ?? null, previousAgent: previousAgent ?? null, scope: scope ?? null, localHour: localHour ?? null, clientMessageId: clientMessageId ?? null }),
       signal,
     }),
 

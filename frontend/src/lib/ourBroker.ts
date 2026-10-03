@@ -1,5 +1,5 @@
 // Asia Siyaka's own lots are what the tea tasters work on day to day, so both lot
-// workspaces (Catalogue Manager and the Valuation Centre) put them at the top of the sale.
+// workspaces (Catalogue Reports and the Valuation Centre) put them at the top of the sale.
 // Ordering only — no filter is applied, so every other broker's lots are still right there
 // underneath without anything to clear first.
 
