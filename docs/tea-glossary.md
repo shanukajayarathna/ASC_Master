@@ -22,3 +22,12 @@ A **grade mix** shows how a lot, broker, garden or sale's tea is spread across g
 - the total for the whole mix
 
 Use the query's grade breakdown with the quantity and share columns, and state which sale, broker and grade types it covers.
+
+## Factory (the Factory column)
+A **factory** is the tea factory a lot came from, named in the catalogue's **Factory** column. "Factory name" and "factory code" both refer to this column.
+
+## Mark (the Mark Name column)
+A **mark** is a selling mark, named in the catalogue's **Mark Name** column. Marks are not factories: one factory can sell under more than one mark, and a mark can be used by different factories over time.
+
+## Asking which one
+A name can be a factory, a mark, or a buyer. When a question names something and doesn't say which, the assistant asks first ("Is Aruna a factory, a mark or a buyer?") and does not guess. Only the user's answer decides which column is searched.
