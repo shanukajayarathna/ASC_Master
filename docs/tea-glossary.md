@@ -3,13 +3,16 @@
 Plain definitions the assistant must use. Each term says which data field it maps to. Confirmed by the business owner unless marked **to confirm**.
 
 ## Withdrawn lots
-A lot is **withdrawn** when its catalogue Asking Price is exactly 0. Withdrawn lots are not sold, so they are counted separately from sold and unsold lots. Source: the sale catalogue's Asking Price column. (Already in the Auction agent's instructions.)
+A lot is **withdrawn** when its catalogue Asking Price is exactly 0. Withdrawn lots are not sold. They are left out of average prices and quantity averages unless the question asks about them, in which case their count is shown separately. Source: the sale catalogue's Asking Price column. (Already in the Auction agent's instructions.)
 
 ## Category (also called Catalogue)
 The sale catalogue's category column (`SaleCategory`, shown as "Category" or "Catalogue"). Examples: High and Medium, Ex-estate, Leafy, Dust. Use the catalogue's own value; do not rebuild it from the grade name, because grade and category do not always match (see the notes on "High & Medium").
 
 ## Packing
-The packing of a lot is its **net weight**, the weight of tea in the lot (`PackingKg`, per bag). Lot-level packing is the bag weight, and the lot's net weight is the total of its bags. **To confirm:** whether "packing" should always mean total lot net weight, or the per-bag weight when the question says "per bag".
+The packing of a lot is the **weight per bag** (`PackingKg`). A question about packing means this per-bag weight.
+
+## Top price
+The highest **sold** price (the price actually paid), not the catalogue valuation.
 
 ## Grade mix
 A **grade mix** shows how a lot, broker, garden or sale's tea is spread across grades. For each grade it gives:
