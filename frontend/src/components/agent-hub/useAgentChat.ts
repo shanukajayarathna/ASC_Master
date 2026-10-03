@@ -2,12 +2,14 @@
 
 import { useCatalogue } from "@/context/CatalogueContext";
 import { api } from "@/lib/api";
+import { getUiStrings, useUiLang, type UiLang } from "@/lib/i18n";
 import type { ChatMessage, ChatScope, ProviderStatus } from "@/types/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentKey } from "./agents";
 
 /** OpenAI when configured, otherwise the local model first while hosted free tiers are quota-limited. */
 const PREFERRED_PROVIDERS = ["openai", "local", "gemini", "groq"];
+const PROVIDER_STORAGE_KEY = "asc.assistant.provider";
 
 export function pickProvider(statuses: ProviderStatus[]): string | null {
   const configured = statuses.filter((p) => p.configured).map((p) => p.key);
@@ -18,6 +20,7 @@ export function pickProvider(statuses: ProviderStatus[]): string | null {
 interface Options {
   /** The part of the archive to limit answers to; read each time a message is sent. */
   scope?: ChatScope | null;
+  language?: UiLang;
   /** Called with each assistant reply as it arrives (used for optional read-aloud). */
   onReply?: (text: string) => void;
 }
@@ -27,7 +30,9 @@ interface Options {
  * Topbar's active sale attached, and can send a question handed over from the hub (`?send=1&q=`) exactly once,
  * after the provider list and active sale have loaded so the message goes out with the right context.
  */
-export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Options = {}) {
+export function useAgentChat(agent: AgentKey | "auto", { onReply, scope, language }: Options = {}) {
+  const { lang: storedLanguage } = useUiLang();
+  const ui = getUiStrings(language ?? storedLanguage);
   const { activeCatalogueId, loading: catalogueLoading } = useCatalogue();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -40,6 +45,7 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
   const conversationId = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pendingQ = useRef<string | null>(null);
+  const retry = useRef<{ text: string; id: string } | null>(null);
   /** The agent that answered last, so a short follow-up stays with it (universal chat only). */
   const lastAgent = useRef<string | null>(null);
   const onReplyRef = useRef(onReply);
@@ -54,8 +60,10 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
       .getProviderStatuses()
       .then((ps) => {
         setProviders(ps);
-        const best = pickProvider(ps);
-        if (best) setProvider(best);
+        let preferred: string | null = null;
+        try { preferred = window.localStorage.getItem(PROVIDER_STORAGE_KEY); } catch { /* storage can be disabled */ }
+        const configured = preferred && ps.some((p) => p.key === preferred && p.configured) ? preferred : pickProvider(ps);
+        if (configured) setProvider(configured);
       })
       .catch(() => {})
       .finally(() => setProvidersReady(true));
@@ -85,6 +93,17 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
     async (raw: string, override?: AgentKey): Promise<boolean> => {
       const text = raw.trim();
       if (!text || sending) return false;
+      if (!providersReady) {
+        setRestoredText(text);
+        setError(ui.hubProviderLoading);
+        return false;
+      }
+      if (providersReady && !providers.some((p) => p.configured)) {
+        setRestoredText(text);
+        setError(ui.hubNoProvider);
+        return false;
+      }
+      const clientMessageId = retry.current?.text === text ? retry.current.id : crypto.randomUUID();
       const optimistic: ChatMessage = {
         // eslint-disable-next-line react-hooks/purity -- only runs from a handler, never during render
         id: `pending-${Date.now()}`,
@@ -98,10 +117,11 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined), scopeRef.current, new Date().getHours());
+        const res = await api.sendAgentChatMessage(override ?? agent, text, conversationId.current ?? undefined, provider, activeCatalogueId ?? undefined, controller.signal, override ? undefined : (lastAgent.current ?? undefined), scopeRef.current, new Date().getHours(), clientMessageId);
         const answeredBy = override ?? res.agent ?? null;
         if (answeredBy) lastAgent.current = answeredBy;
         conversationId.current = res.conversationId;
+        retry.current = null;
         setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: res.reply, createdAt: new Date().toISOString(), provider: res.provider, sources: res.sources, agent: answeredBy }]);
         onReplyRef.current?.(res.reply);
         return true;
@@ -109,9 +129,10 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
         // A failed send never costs the user what they typed.
         setMessages((m) => m.filter((x) => x.id !== optimistic.id));
         setRestoredText(text);
+        retry.current = { text, id: clientMessageId };
         setError(
           controller.signal.aborted
-            ? "Stopped waiting. The assistant may still finish in the background — check your history in a moment."
+            ? "Stopped waiting. Retry the message to check whether the answer finished."
             : e instanceof Error ? e.message : "Couldn't reach the assistant.",
         );
         return false;
@@ -119,7 +140,7 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
         setSending(false);
       }
     },
-    [agent, provider, activeCatalogueId, sending],
+    [agent, provider, activeCatalogueId, sending, providersReady, providers, ui],
   );
 
   useEffect(() => {
@@ -133,10 +154,33 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
   const reset = useCallback(() => {
     abortRef.current?.abort();
     conversationId.current = null;
+    retry.current = null;
     lastAgent.current = null;
     setMessages([]);
     setError(null);
   }, []);
+
+  const chooseProvider = useCallback((key: string) => {
+    setProvider(key);
+    try { window.localStorage.setItem(PROVIDER_STORAGE_KEY, key); } catch { /* storage can be disabled */ }
+  }, []);
+
+  const openConversation = useCallback(async (id: string) => {
+    if (sending) return false;
+    setError(null);
+    try {
+      const loaded = await api.getConversationMessages(id);
+      conversationId.current = id;
+      retry.current = null;
+      const lastAnswered = [...loaded].reverse().find((m) => m.role === "assistant" && m.provider !== "router");
+      lastAgent.current = lastAnswered?.agent ?? null;
+      setMessages(loaded);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't open that conversation.");
+      return false;
+    }
+  }, [sending]);
 
   return {
     messages,
@@ -144,11 +188,13 @@ export function useAgentChat(agent: AgentKey | "auto", { onReply, scope }: Optio
     slow,
     error,
     providers,
+    providersReady,
     provider,
-    setProvider,
+    setProvider: chooseProvider,
     send,
     stop: () => abortRef.current?.abort(),
     reset,
+    openConversation,
     restoredText,
     clearRestoredText: () => setRestoredText(null),
   };

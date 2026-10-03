@@ -8,8 +8,8 @@ import Popover from "@mui/material/Popover";
 import Select from "@mui/material/Select";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { useState } from "react";
-import { describeScope, scopeProblem, useArchiveSales, type ArchiveSale } from "./scope";
+import { useEffect, useState } from "react";
+import { describeScope, scopeProblem, useArchiveSales, useCatalogueSales, type ArchiveSale } from "./scope";
 
 type Mode = "all" | "sale" | "range" | "year";
 
@@ -35,19 +35,36 @@ interface ScopeControlProps {
 }
 
 /**
- * Which part of the archive the assistant looks at: everything (the default — nothing is limited to a sale), one sale,
- * a range of sales that may cross a year boundary, or whole years. It applies to archive questions (comparisons, trends,
- * reports); questions about the lots in the current catalogue still follow the sale chosen in the top bar.
+ * Chooses MSL archive results or sale catalogue records (OKLO and imported files), then a single sale, range, or year set.
  */
 export default function ScopeControl({ scope, onChange }: ScopeControlProps) {
-  const sales = useArchiveSales();
+  const archiveSales = useArchiveSales();
+  const catalogueSales = useCatalogueSales();
+  const [source, setSource] = useState<"msl" | "catalogue" | "both">(scope?.source ?? "catalogue");
+  const bothSales = [...archiveSales, ...catalogueSales]
+    .reduce<ArchiveSale[]>((all, sale) => {
+      const index = all.findIndex((item) => item.year === sale.year && item.saleNo === sale.saleNo);
+      if (index < 0) all.push(sale);
+      else if (sale.catalogueId) all[index] = sale;
+      return all;
+    }, [])
+    .sort((a, b) => b.year - a.year || b.saleNo - a.saleNo);
+  const sales = source === "msl" ? archiveSales : source === "both" ? bothSales : catalogueSales;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [draft, setDraft] = useState<{ mode: Mode; from: string; to: string }>({ mode: "all", from: "", to: "" });
 
   const years = [...new Set(sales.map((s) => s.year))];
+  useEffect(() => {
+    if (archiveSales.length === 0 || scope?.userSelected) return;
+    const latest = archiveSales[0];
+    if (scope?.source === "msl" && scope.fromYear === latest.year && scope.fromSale === latest.saleNo && scope.toYear === latest.year && scope.toSale === latest.saleNo) return;
+    onChange({ source: "msl", fromYear: latest.year, fromSale: latest.saleNo, toYear: latest.year, toSale: latest.saleNo, userSelected: false });
+  }, [archiveSales, scope, onChange]);
   const open = (el: HTMLElement) => {
     const from = scope ? `${scope.fromYear}-${scope.fromSale ?? ""}` : "";
     const to = scope ? `${scope.toYear}-${scope.toSale ?? ""}` : "";
+    const nextSource = scope?.source ?? "catalogue";
+    setSource(nextSource);
     setDraft({ mode: modeOf(scope), from, to });
     setAnchor(el);
   };
@@ -60,19 +77,24 @@ export default function ScopeControl({ scope, onChange }: ScopeControlProps) {
 
   /** The scope the draft describes, or null when it is not complete yet. */
   const built = (): ChatScope | null | undefined => {
-    if (draft.mode === "all") return null;
+    if (draft.mode === "all") {
+      if (source === "msl") return null;
+      if (!sales.length) return undefined;
+      const years = sales.map((s) => s.year);
+      return { source, fromYear: Math.min(...years), fromSale: null, toYear: Math.max(...years), toSale: null };
+    }
     const from = parse(draft.from);
     const to = draft.mode === "range" || draft.mode === "year" ? parse(draft.to) : from;
     if (!from || !to) return undefined;
     return draft.mode === "year"
-      ? { fromYear: from.year, toYear: to.year, fromSale: null, toSale: null }
-      : { fromYear: from.year, fromSale: from.sale, toYear: to.year, toSale: to.sale };
+      ? { source, fromYear: from.year, toYear: to.year, fromSale: null, toSale: null }
+      : { source, fromYear: from.year, fromSale: from.sale, toYear: to.year, toSale: to.sale };
   };
   const next = built();
   const problem = next ? scopeProblem(next) : null;
   const apply = () => {
     if (next === undefined || problem) return;
-    onChange(next);
+    onChange(next ? { ...next, userSelected: true } : null);
     setAnchor(null);
   };
 
@@ -92,7 +114,10 @@ export default function ScopeControl({ scope, onChange }: ScopeControlProps) {
       </Button>
       <Popover open={anchor !== null} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "top", horizontal: "left" }} transformOrigin={{ vertical: "bottom", horizontal: "left" }}>
         <div className="ws-scope" role="dialog" aria-label="Scope">
-          <p className="ws-scope-intro">Limit archive questions to…</p>
+          <p className="ws-scope-intro">Choose the data source and sale period</p>
+          <label className="ws-scope-field"><span>Data source</span><Select size="small" value={source} onChange={(e) => { const v = e.target.value as "msl" | "catalogue" | "both"; setSource(v); setDraft({ mode: "all", from: "", to: "" }); }} inputProps={{ "aria-label": "Data source" }} sx={{ minWidth: 220 }}>
+            <MenuItem value="msl">MSL archive results</MenuItem><MenuItem value="catalogue">Sale catalogues (OKLO / imported files)</MenuItem><MenuItem value="both">Both data sources</MenuItem>
+          </Select></label>
           <ToggleButtonGroup exclusive size="small" value={draft.mode} onChange={(_, m: Mode | null) => m && setDraft((d) => ({ ...d, mode: m, ...(m === "all" ? { from: "", to: "" } : {}) }))} aria-label="Scope type" sx={{ flexWrap: "wrap" }}>
             {MODES.map((m) => (
               <ToggleButton key={m.key} value={m.key} sx={{ textTransform: "none", minHeight: 40, minWidth: 44, px: 1.5 }}>
@@ -119,8 +144,8 @@ export default function ScopeControl({ scope, onChange }: ScopeControlProps) {
 
           <p className="ws-scope-note">
             {draft.mode === "all"
-              ? "Nothing is limited: the assistant picks the period that fits each question."
-              : "Archive figures only cover sales up to the newest one imported. Lots in the current catalogue still follow the sale chosen in the top bar."}
+              ? source === "msl" ? "Nothing is limited: the assistant picks the period that fits each archive question." : source === "catalogue" ? "Includes every sale currently available in OKLO or imported sale files." : "Includes matching MSL results and sale catalogue records."
+              : source === "msl" ? "Uses settled results stored in the MSL archive." : source === "catalogue" ? "Uses the selected sale catalogue records from OKLO or imported/downloaded files." : "Combines MSL archive results with matching OKLO/imported sale records."}
           </p>
           {problem && <p className="ws-lots-note ws-lots-error" role="alert">{problem}</p>}
           <div className="ws-scope-actions">

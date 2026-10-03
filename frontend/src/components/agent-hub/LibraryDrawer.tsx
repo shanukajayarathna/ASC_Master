@@ -28,20 +28,21 @@ interface LibraryDrawerProps {
   busy: boolean;
   /** Called after a settings change or clearing history, so the empty screen can refresh. */
   onPersonalisationChanged?: () => void;
+  onHistoryCleared?: () => void;
 }
 
 const BROKERS = ["ASC", "BC", "CT", "EB", "FW", "JK", "LC", "MPB"];
 
 /** What you have kept: pinned insights, weekly scheduled reports, and the way to Saved Reports. Out of the way until asked for. */
-export default function LibraryDrawer({ open, onClose, pins, onUnpin, onAsk, busy, onPersonalisationChanged }: LibraryDrawerProps) {
+export default function LibraryDrawer({ open, onClose, pins, onUnpin, onAsk, busy, onPersonalisationChanged, onHistoryCleared }: LibraryDrawerProps) {
   return (
     <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "min(100vw, 440px)", maxWidth: "100vw" } }} slotProps={{ paper: { "aria-label": "Library" } }}>
-      {open && <LibraryBody onClose={onClose} pins={pins} onUnpin={onUnpin} onAsk={(q) => { onAsk(q); onClose(); }} busy={busy} onPersonalisationChanged={onPersonalisationChanged} />}
+      {open && <LibraryBody onClose={onClose} pins={pins} onUnpin={onUnpin} onAsk={(q) => { onAsk(q); onClose(); }} busy={busy} onPersonalisationChanged={onPersonalisationChanged} onHistoryCleared={onHistoryCleared} />}
     </Drawer>
   );
 }
 
-function LibraryBody({ onClose, pins, onUnpin, onAsk, busy, onPersonalisationChanged }: Omit<LibraryDrawerProps, "open">) {
+function LibraryBody({ onClose, pins, onUnpin, onAsk, busy, onPersonalisationChanged, onHistoryCleared }: Omit<LibraryDrawerProps, "open">) {
   const [specs, setSpecs] = useState<ReportSpec[] | null>(null);
   const [prefs, setPrefs] = useState<AssistantPreferences | null>(null);
   const [prefNote, setPrefNote] = useState<{ text: string; error?: boolean } | null>(null);
@@ -55,12 +56,14 @@ function LibraryBody({ onClose, pins, onUnpin, onAsk, busy, onPersonalisationCha
   }, []);
 
   const savePrefs = async (next: AssistantPreferences) => {
+    const previous = prefs;
     setPrefs(next);
     setPrefNote(null);
     try {
       setPrefs(await api.putAssistantPreferences(next));
       onPersonalisationChanged?.();
     } catch (e) {
+      if (previous) setPrefs(previous);
       setPrefNote({ text: e instanceof Error ? e.message : "Couldn't save that.", error: true });
     }
   };
@@ -72,6 +75,7 @@ function LibraryBody({ onClose, pins, onUnpin, onAsk, busy, onPersonalisationCha
       await api.clearAssistantHistory();
       setPrefNote({ text: "Your conversation history was deleted." });
       onPersonalisationChanged?.();
+      onHistoryCleared?.();
     } catch (e) {
       setPrefNote({ text: e instanceof Error ? e.message : "Couldn't delete your history.", error: true });
     }

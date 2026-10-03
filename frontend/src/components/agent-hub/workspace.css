@@ -381,7 +381,51 @@
 }
 
 /* Universal assistant */
-.universal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; width: min(960px, 100%); margin: 0 auto; }
+.universal { position: relative; isolation: isolate; }
+.universal > .app-pageheader-fixed + div[aria-hidden] { flex: 0 0 auto; }
+.universal::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  right: max(1rem, calc((100vw - 1200px) / 2));
+  bottom: 2vh;
+  width: clamp(210px, 27vw, 360px);
+  height: min(72vh, 680px);
+  background: url("/assistant-tea-leaves.png") center / contain no-repeat;
+  opacity: 0.075;
+  filter: saturate(0.75);
+}
+.universal-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: none; margin: 0; }
+.universal .chat-panel-scroll {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.universal .chat-panel-scroll > [role="log"] { width: min(100%, 960px); margin-inline: auto; }
+.universal .chat-message-bubble { border-radius: 18px; }
+.universal .chat-message-assistant {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-alt) 92%, transparent);
+  box-shadow: 0 2px 10px color-mix(in srgb, #1d281b 5%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom-left-radius: 5px;
+}
+.universal .chat-message-user {
+  border: 1px solid color-mix(in srgb, var(--brass) 28%, transparent);
+  border-bottom-right-radius: 5px;
+}
+.assistant-file-card { transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.assistant-file-card:hover { border-color: color-mix(in srgb, var(--brass) 60%, var(--border)); box-shadow: var(--shadow-md); }
+.assistant-file-name { min-height: 44px; }
+.assistant-file-name:hover .text-text-strong { color: var(--brand-gold-deep); text-decoration: underline; }
+.assistant-file-name:focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; border-radius: 6px; }
+.assistant-preview-table { border-collapse: collapse; min-width: 100%; font-size: 12px; }
+.assistant-preview-table td { max-width: 320px; padding: 7px 10px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.assistant-preview-table tr:first-child { background: color-mix(in srgb, var(--brass) 14%, var(--surface)); font-weight: 700; }
+.assistant-preview-table tr:hover { background: color-mix(in srgb, var(--surface-alt) 75%, var(--brass) 8%); }
 .ws-mini-orb { display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; }
 .ws-mini-orb .voice-orb { width: 40px; margin: 0; }
 .ws-mini-orb .voice-eq { display: none; }
@@ -391,6 +435,10 @@
 /* Scope bar, starters, scope popover */
 .ws-scopebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 10px 0 0; }
 .ws-scopebar-note { font-size: 12px; color: var(--text-muted); }
+.ws-scopebar-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ws-scopebar-label { font-size: 11px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.ws-assistant-sale-picker { display: flex; gap: 6px; width: min(100%, 320px); min-width: 0; }
+.ws-assistant-sale-picker > .MuiInputBase-root:last-child { flex: 1; width: auto; min-width: 110px; }
 .ws-starters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: min(640px, 100%); margin-top: 6px; }
 .ws-starter {
   min-height: 56px;
@@ -409,6 +457,47 @@
 .ws-starter:hover { border-color: var(--ws-accent); box-shadow: var(--shadow-md); }
 .ws-starter:focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; }
 @media (max-width: 599px) { .ws-starters { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 700px) {
+  .universal::before { right: -22px; bottom: 5vh; width: 190px; height: 48vh; opacity: 0.055; }
+  .assistant-file-card > div:first-child { gap: 8px; padding: 10px; }
+  .assistant-file-card .text-text-muted { font-size: 10px; }
+  .assistant-file-card > div:first-child > button:last-child { padding: 7px 9px; }
+}
+@media (max-width: 767px) {
+  .universal .app-pageheader-fixed { align-items: flex-start; gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+  .universal .app-pageheader-fixed > div:first-child { flex: 1 1 100%; min-width: 0; }
+  .universal .app-pageheader-fixed > div:first-child > div:first-child { margin-bottom: 4px; }
+  .universal .app-pageheader-fixed h1 { font-size: 1.3rem; line-height: 1.2; }
+  .universal .app-pageheader-fixed > div:nth-child(2) { width: 100%; gap: 6px; justify-content: flex-start; }
+  .universal .app-pageheader-fixed > div:nth-child(2) > * { flex: 0 0 auto; }
+  .universal .app-pageheader-fixed .MuiButton-root { min-height: 40px; padding-inline: 10px; }
+  .universal .app-pageheader-fixed .MuiIconButton-root,
+  .universal .ws-mini-orb { width: 40px; height: 40px; }
+  .universal .universal-body { width: 100%; }
+  .universal .chat-panel-scroll { padding-inline: 12px; }
+  .universal .ws-scopebar { margin-top: 6px; }
+}
+@media (max-width: 420px) {
+  .universal .app-pageheader-fixed { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+  .universal .app-pageheader-fixed > div:nth-child(2) { gap: 4px; }
+  .universal .app-pageheader-fixed > div:nth-child(2) .MuiSelect-select { padding: 8px 25px 8px 9px; }
+  .universal .ws-scopebar-control { width: 100%; align-items: flex-start; }
+  .universal .ws-assistant-sale-picker { width: min(100%, 320px); }
+  .universal .assistant-file-card { max-width: 100%; }
+}
+.universal .ws-scopebar-control { min-width: 0; }
+.universal .ws-scopebar-control .MuiButton-root { max-width: min(100%, 380px); white-space: normal; text-align: left; line-height: 1.25; }
+@media (max-width: 600px) {
+  .universal .ws-mini-orb { display: none; }
+  .universal .app-pageheader-fixed > div:nth-child(2) { row-gap: 5px; }
+  .universal .app-pageheader-fixed > div:nth-child(2) > .MuiButton-root { width: 40px; min-width: 40px; height: 40px; padding: 0; }
+  .universal .app-pageheader-fixed > div:nth-child(2) > .MuiButton-root .MuiButton-startIcon { margin: 0; }
+  .universal .app-pageheader-fixed > div:nth-child(2) > .MuiButton-root .assistant-header-action-label { display: none; }
+  .universal .app-pageheader-fixed > div:nth-child(2) > .MuiButton-root .MuiButton-startIcon svg { font-size: 19px; }
+  .universal .app-pageheader-fixed .MuiSelect-select { max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .universal .ws-scopebar-control { width: 100%; }
+  .universal .ws-scopebar-control .MuiButton-root { max-width: 100%; }
+}
 .ws-scope { display: flex; flex-direction: column; gap: 12px; padding: 16px; width: min(92vw, 360px); }
 .ws-scope-intro { margin: 0; font-weight: 600; color: var(--text-strong); }
 .ws-scope-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }

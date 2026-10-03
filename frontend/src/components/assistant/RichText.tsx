@@ -1,9 +1,17 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Fragment } from "react";
 import ChartBlock, { parseChartSpec, type ChartSpec } from "./ChartBlock";
+import CloseIcon from "@mui/icons-material/Close";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
 
 /** Structured clarifying question parsed from a CLARIFY: line (Claude-style options) —
  *  shared parsing so both AnalyticsChat and the main /assistant page recognize it the
@@ -113,20 +121,62 @@ const EXPORT_KINDS: Record<string, { badge: string; color: string; kind: string 
  *  unmistakable Download action with busy/done/error states. */
 function ExportFileCard({ url, filename }: { url: string; filename: string }) {
   const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const [preview, setPreview] = useState<{ type: "pdf"; url: string } | { type: "xlsx"; sheet: string; rows: string[][] } | null>(null);
   const dot = filename.lastIndexOf(".");
   const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
   const info = EXPORT_KINDS[ext] ?? { badge: ext ? ext.toUpperCase().slice(0, 4) : "FILE", color: "#5B7A57", kind: "File" };
+  const path = url.startsWith("http") ? new URL(url).pathname : url;
+  useEffect(() => () => { if (preview?.type === "pdf") URL.revokeObjectURL(preview.url); }, [preview]);
   const download = async () => {
     setState("busy");
     try {
-      await api.downloadAuthedFile(url.startsWith("http") ? new URL(url).pathname : url, filename);
+      await api.downloadAuthedFile(path, filename);
       setState("done");
     } catch {
       setState("error");
     }
   };
+  const openFile = async () => {
+    if (ext === "pptx" || !["pdf", "xlsx"].includes(ext)) { await download(); return; }
+    setState("busy");
+    try {
+      const blob = await api.fetchAuthedFile(path);
+      if (ext === "pdf") setPreview({ type: "pdf", url: URL.createObjectURL(blob) });
+      else {
+        const ExcelJS = (await import("exceljs")).default;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(await blob.arrayBuffer());
+        const sheet = workbook.worksheets[0];
+        if (!sheet) throw new Error("This workbook has no sheets.");
+        const rows: string[][] = [];
+        const displayCell = (value: unknown): string => {
+          if (value == null) return "";
+          if (value instanceof Date) return value.toLocaleDateString();
+          if (typeof value === "object") {
+            const record = value as Record<string, unknown>;
+            if (typeof record.text === "string") return record.text;
+            if (Array.isArray(record.richText)) return record.richText.map((part: unknown) => typeof part === "object" && part !== null && "text" in part ? String((part as { text: unknown }).text) : "").join("");
+            if ("result" in record) return String(record.result ?? "");
+            return "";
+          }
+          return String(value);
+        };
+        sheet.eachRow({ includeEmpty: false }, (row) => {
+          if (rows.length >= 80) return;
+          const cells = Array.from({ length: 12 }, () => "");
+          row.eachCell({ includeEmpty: true }, (cell, column) => { if (column <= 12) cells[column - 1] = displayCell(cell.value); });
+          rows.push(cells);
+        });
+        setPreview({ type: "xlsx", sheet: sheet.name, rows });
+      }
+    } catch {
+      setState("error");
+    } finally {
+      setState((current) => current === "busy" ? "idle" : current);
+    }
+  };
   return (
-    <div className="my-1.5 w-full border border-border rounded-lg bg-surface shadow-sm overflow-hidden">
+    <div className="assistant-file-card my-2 w-full border border-border rounded-xl bg-surface shadow-sm overflow-hidden">
       <div className="flex items-center gap-2.5 px-3 py-2.5">
         <span
           className="flex items-center justify-center w-9 h-9 rounded-md text-white text-[10px] font-bold tracking-wide shrink-0"
@@ -134,10 +184,10 @@ function ExportFileCard({ url, filename }: { url: string; filename: string }) {
         >
           {info.badge}
         </span>
-        <span className="flex flex-col min-w-0 flex-1">
-          <span className="text-[12.5px] font-semibold text-text-strong truncate">{filename}</span>
-          <span className="text-[10.5px] text-text-muted">{info.kind} · link expires in ~20 min</span>
-        </span>
+        <button type="button" className="assistant-file-name flex flex-col min-w-0 flex-1 text-left bg-transparent border-0 cursor-pointer" onClick={() => void openFile()} disabled={state === "busy"}>
+          <span className="text-[13px] font-semibold text-text-strong truncate">{filename}</span>
+          <span className="text-[11px] text-text-muted">{info.kind} · click {ext === "pdf" || ext === "xlsx" ? "to preview" : "to download"}</span>
+        </button>
         <button
           onClick={download}
           disabled={state === "busy"}
@@ -155,6 +205,25 @@ function ExportFileCard({ url, filename }: { url: string; filename: string }) {
           Download failed — the link may have expired. Ask me to generate it again.
         </div>
       )}
+      <Dialog open={preview !== null} onClose={() => setPreview(null)} fullWidth maxWidth={preview?.type === "pdf" ? "xl" : "lg"} slotProps={{ paper: { sx: { height: { xs: "100dvh", sm: preview?.type === "pdf" ? "90vh" : "80vh" }, maxHeight: { xs: "100dvh" }, width: { xs: "100vw", sm: "auto" }, maxWidth: { xs: "100vw" }, m: { xs: 0 }, borderRadius: { xs: 0, sm: 3 }, overflow: "hidden" } } }}>
+        <DialogTitle className="assistant-preview-title" sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 1.5, borderBottom: "1px solid var(--border)" }}>
+          <DescriptionOutlinedIcon sx={{ color: "var(--brand-gold-deep)" }} />
+          <span className="min-w-0 flex-1 truncate text-[14px]">{filename}{preview?.type === "xlsx" ? ` · ${preview.sheet}` : ""}</span>
+          <Button size="small" startIcon={<DownloadOutlinedIcon />} onClick={() => void download()}>Download</Button>
+          <IconButton onClick={() => setPreview(null)} aria-label="Close preview" size="small"><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, background: "var(--surface-alt)" }}>
+          {preview?.type === "pdf" && <iframe title={`Preview of ${filename}`} src={preview.url} className="w-full h-full border-0 bg-white" />}
+          {preview?.type === "xlsx" && (
+            <div className="h-full overflow-auto p-4">
+              <p className="m-0 mb-3 text-[12px] text-text-muted">Showing the first 80 rows and 12 columns from this sheet.</p>
+              <div className="overflow-auto rounded-xl border border-border bg-surface">
+                <table className="assistant-preview-table"><tbody>{preview.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{cell}</td>)}</tr>)}</tbody></table>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

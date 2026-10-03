@@ -1,11 +1,12 @@
 "use client";
 
 import PageHeader from "@/components/shared/PageHeader";
-import { useCatalogue } from "@/context/CatalogueContext";
 import type { ChartSpec } from "@/components/assistant/ChartBlock";
 import { api } from "@/lib/api";
+import { useUiLang } from "@/lib/i18n";
 import type { ChatScope, ForYou, Lot } from "@/types/api";
 import AddCommentOutlinedIcon from "@mui/icons-material/AddCommentOutlined";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
 import InsertChartOutlinedIcon from "@mui/icons-material/InsertChartOutlined";
 import VolumeOffOutlinedIcon from "@mui/icons-material/VolumeOffOutlined";
@@ -14,19 +15,21 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import { useEffect, useRef, useState } from "react";
 import AgentTag from "./AgentTag";
 import AgentUsageBadge from "./AgentUsageBadge";
 import ChartActions from "./ChartActions";
 import ChatPanel from "./ChatPanel";
 import LibraryDrawer from "./LibraryDrawer";
+import HistoryDrawer from "./HistoryDrawer";
 import LotCards, { lotNumberIn, useLotsFor } from "./LotCards";
 import { drillPrompt, explainChartPrompt } from "./PinnedBoard";
 import ProviderSelect from "./ProviderSelect";
 import ReportCanvas from "./ReportCanvas";
 import ScopeControl from "./ScopeControl";
 import { readScope, saveScope } from "./scope";
-import { archiveGap, parseSaleName, useLatestArchivedSale } from "./archive";
 import { answerTitle, pinId, usePins } from "./pins";
 import { DEFAULT_STATE, type BuilderState } from "./reportBuilder";
 import Link from "next/link";
@@ -82,11 +85,9 @@ function LotsUnder({ question, onAsk, busy }: { question: string; onAsk: (q: str
  * opens beside the chat (the report canvas) or in the library, so the screen stays a single conversation.
  */
 export default function UniversalAssistant() {
+  const { lang, t: ui, setLang } = useUiLang();
   const reduced = useReducedMotion();
   const speech = useSpeech();
-  const { activeCatalogue } = useCatalogue();
-  const latestArchived = useLatestArchivedSale();
-  const gap = archiveGap(latestArchived, parseSaleName(activeCatalogue?.sourceName));
 
   const [voiceReplies, setVoiceReplies] = useState(false);
   const voiceRepliesRef = useRef(false);
@@ -105,6 +106,7 @@ export default function UniversalAssistant() {
   };
   const chat = useAgentChat("auto", {
     scope,
+    language: lang,
     onReply: (text) => {
       if (voiceRepliesRef.current) speech.speak(text);
     },
@@ -128,6 +130,7 @@ export default function UniversalAssistant() {
 
   const [listening, setListening] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [canvas, setCanvas] = useState<{ open: boolean; initial: BuilderState }>({ open: false, initial: DEFAULT_STATE });
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -154,11 +157,16 @@ export default function UniversalAssistant() {
   return (
     <div className="chat-vh flex flex-col workspace universal" data-agent="general">
       <PageHeader
-        title="AI Assistant"
-        subtitle="Ask in plain words. The right specialist answers, and I'll ask if I need to know more."
+        title={ui.assistantTitle}
+        subtitle={ui.hubSub}
         actions={
           <>
             <AgentUsageBadge agent="all" />
+            <Select size="small" value={lang} onChange={(e) => setLang(e.target.value as "en" | "si" | "ta")} inputProps={{ "aria-label": ui.hubLangLabel }} sx={{ minWidth: 112, fontSize: 13 }}>
+              <MenuItem value="en">English</MenuItem>
+              <MenuItem value="si">සිංහල</MenuItem>
+              <MenuItem value="ta">தமிழ்</MenuItem>
+            </Select>
             <ProviderSelect chat={chat} />
             <span className="ws-mini-orb" title={orb}>
               <VoiceOrb state={orb} getLevel={getLevel} reduced={reduced} />
@@ -171,12 +179,21 @@ export default function UniversalAssistant() {
                 </IconButton>
               </Tooltip>
             )}
-            <Button size="small" variant="outlined" startIcon={<InsertChartOutlinedIcon fontSize="small" />} onClick={() => setCanvas({ open: true, initial: canvasStateFor("", scope) })} sx={{ minHeight: 44 }}>
-              Report canvas
-            </Button>
-            <Button size="small" variant="outlined" startIcon={<BookmarkBorderOutlinedIcon fontSize="small" />} onClick={() => setLibraryOpen(true)} sx={{ minHeight: 44 }}>
-              Library
-            </Button>
+            <Tooltip title="Report canvas">
+              <Button size="small" variant="outlined" aria-label="Report canvas" startIcon={<InsertChartOutlinedIcon fontSize="small" />} onClick={() => setCanvas({ open: true, initial: canvasStateFor("", scope) })} sx={{ minHeight: 44 }}>
+                <span className="assistant-header-action-label">Report canvas</span>
+              </Button>
+            </Tooltip>
+            <Tooltip title="Library">
+              <Button size="small" variant="outlined" aria-label="Library" startIcon={<BookmarkBorderOutlinedIcon fontSize="small" />} onClick={() => setLibraryOpen(true)} sx={{ minHeight: 44 }}>
+                <span className="assistant-header-action-label">Library</span>
+              </Button>
+            </Tooltip>
+            <Tooltip title="Conversation history">
+              <IconButton size="small" onClick={() => setHistoryOpen(true)} aria-label="Conversation history" sx={{ width: 44, height: 44 }}>
+                <HistoryOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="New chat">
               <IconButton size="small" onClick={() => { speech.cancel(); chat.reset(); }} aria-label="New chat" sx={{ width: 44, height: 44 }}>
                 <AddCommentOutlinedIcon fontSize="small" />
@@ -191,19 +208,17 @@ export default function UniversalAssistant() {
           chat={chat}
           speech={speech}
           prompts={starters}
-          emptyTitle={personal ? `${salutation(new Date().getHours())}, ${forYou?.firstName}` : "What would you like to know?"}
+          emptyTitle={personal ? `${salutation(new Date().getHours())}, ${forYou?.firstName}` : ui.hubAskTitle}
           emptyHint={hint}
           aboveComposer={
             <div className="ws-scopebar">
-              <ScopeControl scope={scope} onChange={setScope} />
-              {gap && (
-                <span className="ws-scopebar-note" role="note">
-                  Archive figures run to sale {gap.archived}; the active sale ({gap.active}) comes from its catalogue.
-                </span>
-              )}
+              <div className="ws-scopebar-control">
+                <span className="ws-scopebar-label">{ui.hubArchiveScope}</span>
+                <ScopeControl scope={scope} onChange={setScope} />
+              </div>
             </div>
           }
-          placeholder="Ask anything — English, සිංහල, தமிழ், or Singlish"
+          placeholder={ui.hubAskPlaceholder}
           onListeningChange={setListening}
           chartExtra={(spec: ChartSpec, ctx) => (
             <ChartActions
@@ -266,7 +281,8 @@ export default function UniversalAssistant() {
         <p className="ws-lots-note m-0" role="status" aria-live="polite">{notice}</p>
       </div>
 
-      <LibraryDrawer open={libraryOpen} onClose={() => setLibraryOpen(false)} pins={pins} onUnpin={unpin} onAsk={ask} busy={chat.sending} onPersonalisationChanged={refreshForYou} />
+      <LibraryDrawer open={libraryOpen} onClose={() => setLibraryOpen(false)} pins={pins} onUnpin={unpin} onAsk={ask} busy={chat.sending} onPersonalisationChanged={refreshForYou} onHistoryCleared={() => { speech.cancel(); chat.reset(); setLibraryOpen(false); }} />
+      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} onOpenConversation={chat.openConversation} disabled={chat.sending} lang={lang} />
       <ReportCanvas open={canvas.open} initial={canvas.initial} onClose={() => setCanvas((c) => ({ ...c, open: false }))} />
     </div>
   );

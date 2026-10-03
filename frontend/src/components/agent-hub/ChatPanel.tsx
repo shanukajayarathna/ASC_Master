@@ -132,7 +132,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
 
   return (
     <section className="min-w-0 min-h-0 flex flex-col" aria-label="Conversation">
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto border border-border rounded-[var(--radius-lg)] bg-surface p-4 flex flex-col gap-4">
+      <div ref={scrollRef} className="chat-panel-scroll flex-1 min-h-0 overflow-y-auto border border-border rounded-[var(--radius-lg)] bg-surface p-4 flex flex-col gap-4">
         {isEmpty && !chat.sending && (
           <div className="flex flex-col items-center gap-3 my-auto py-2 text-center">
             <h2 className="font-display text-[22px] font-semibold m-0 text-text-strong">{emptyTitle}</h2>
@@ -158,7 +158,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
             return (
               <div key={m.id} className={`flex flex-col ${isUser ? "items-end" : "items-start"} gap-1`}>
                 <div
-                  className={`${hasChart ? "w-full" : "max-w-[88%] sm:max-w-[80%]"} rounded-lg px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap break-words ${
+                  className={`chat-message-bubble ${isUser ? "chat-message-user" : "chat-message-assistant"} ${hasChart ? "w-full" : "max-w-[88%] sm:max-w-[80%]"} rounded-lg px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap break-words ${
                     isUser ? "bg-brass/15 text-text-strong" : "bg-surface-alt text-text"
                   }`}
                 >
@@ -241,7 +241,7 @@ export default function ChatPanel({ chat, speech, prompts, emptyTitle, emptyHint
                 <span className="typing-dot" />
               </span>
               <span className="text-[12px] text-text-muted">
-                {chat.slow ? "Still working — local models can take a few minutes." : "Thinking…"}
+                {chat.slow ? "Still working — this request is taking longer than usual." : "Thinking…"}
               </span>
               {chat.slow && (
                 <Button size="small" onClick={chat.stop} sx={{ ml: 1 }}>
