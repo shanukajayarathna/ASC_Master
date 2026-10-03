@@ -29,6 +29,7 @@ import { readScope, saveScope } from "./scope";
 import { archiveGap, parseSaleName, useLatestArchivedSale } from "./archive";
 import { answerTitle, pinId, usePins } from "./pins";
 import { DEFAULT_STATE, type BuilderState } from "./reportBuilder";
+import { downloadTableXlsx, openTablePdf, parseMarkdownTable } from "./tableExports";
 import { useAgentChat } from "./useAgentChat";
 import { useReducedMotion } from "./useHubEnv";
 import VoiceOrb, { type OrbState } from "./VoiceOrb";
@@ -233,6 +234,18 @@ export default function UniversalAssistant() {
                     sx={{ height: 24, fontSize: 11 }}
                   />
                 )}
+                {!fromRouter && !text.includes("```asc-chart") && (() => {
+                  const table = parseMarkdownTable(plain);
+                  if (!table) return null;
+                  const title = answerTitle(plain);
+                  const fail = () => setNotice("That export didn't work — try again.");
+                  return (
+                    <>
+                      <Chip size="small" variant="outlined" clickable label="Excel" onClick={() => void downloadTableXlsx(table, title).catch(fail)} sx={{ height: 24, fontSize: 11 }} />
+                      <Chip size="small" variant="outlined" clickable label="PDF" onClick={() => void openTablePdf(table, title).catch(fail)} sx={{ height: 24, fontSize: 11 }} />
+                    </>
+                  );
+                })()}
                 {(agent === "reports" || agent === "analytics") && !text.includes("```asc-chart") && !fromRouter && (
                   <Chip size="small" variant="outlined" clickable label="Open in report canvas" onClick={() => openCanvas(question)} sx={{ height: 24, fontSize: 11 }} />
                 )}
