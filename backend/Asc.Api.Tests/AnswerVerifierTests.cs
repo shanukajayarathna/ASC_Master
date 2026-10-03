@@ -55,3 +55,19 @@ public class AnswerVerifierTests
         Assert.Same(reply, AnswerVerifier.Annotate(reply, [Tool]));
     }
 }
+
+public class NarratedToolCallTests
+{
+    [Theory]
+    [InlineData("I will call list_catalogues to get the catalogue id.")]
+    [InlineData("Please call list_catalogues to get a real catalogue id.")]
+    [InlineData("Let me run get_factory_codes first.")]
+    public void APlanToCallATool_WithNoToolResult_IsCaught(string reply) => Assert.True(AnswerVerifier.IsNarratedToolCall(reply, []));
+
+    [Fact]
+    public void AToolThatRan_OrAnOrdinaryAnswer_IsNotCaught()
+    {
+        Assert.False(AnswerVerifier.IsNarratedToolCall("Call list_catalogues to get the id.", ["{\"ok\":true}"]));
+        Assert.False(AnswerVerifier.IsNarratedToolCall("The MF code is 0412.", []));
+    }
+}

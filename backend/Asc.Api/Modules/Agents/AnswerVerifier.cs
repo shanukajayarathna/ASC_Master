@@ -48,6 +48,14 @@ public static class AnswerVerifier
         return flagged;
     }
 
+    private static readonly Regex NarratedCall = new(@"\b(call|invoke|use|run)\s+(the\s+)?(list_[a-z_]+|get_[a-z_]+|search_[a-z_]+|query_data|make_chart|generate_[a-z_]+|scan_[a-z_]+|compare_sales|mark_[a-z_]+)\b|\b(list_catalogues|list_sales|query_data|search_lots|get_[a-z]+_[a-z_]+)\b\s*(\(|with\b|returned\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>True when the reply tells the reader to call a tool (or names one) with no tool result behind it: a plan, not an answer.</summary>
+    public static bool IsNarratedToolCall(string reply, IReadOnlyList<string> toolOutputs) =>
+        toolOutputs.Count == 0 && NarratedCall.IsMatch(reply ?? "");
+
+    public const string CouldNotLookUp = "I couldn't look that up just now, so there is no figure to give you. Please ask again; if it keeps happening, name the sale and the factory's full name.";
+
     /// <summary>The reply with a caution added (above any tappable CLARIFY line) when it holds figures the data doesn't back.</summary>
     public static string Annotate(string reply, IReadOnlyList<string> toolOutputs)
     {

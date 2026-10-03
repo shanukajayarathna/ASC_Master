@@ -42,3 +42,16 @@ public class NameIndexTests
         Assert.Equal("Aruna Tea Factory", m[0].Name);
     }
 }
+
+public class FactoryCodeTests
+{
+    [Fact]
+    public void TheFactoryCodeIsFoundWithItsFactory()
+    {
+        var index = NameIndex.From([new Asc.Api.Models.Lot { FactoryName = "New Baddegama", Factory = "MFA0300" }]);
+        var m = index.Find("what is the mf code for New Baddegama").Single();
+        Assert.Equal("New Baddegama", m.Name);
+        Assert.Equal("MFA0300", m.Code);
+        Assert.Equal("New Baddegama", index.Find("MFA0300").Single().Name);
+    }
+}
