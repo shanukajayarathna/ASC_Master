@@ -32,11 +32,38 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
     {
         if (string.IsNullOrWhiteSpace(dto.Message)) return BadRequest("Message is required.");
         if (dto.Message.Length > MaxMessageLength) return BadRequest($"Message is too long (max {MaxMessageLength} characters).");
+        var catalogueOnly = string.Equals(dto.Scope?.Source, "catalogue", StringComparison.OrdinalIgnoreCase);
+        var bothScoped = string.Equals(dto.Scope?.Source, "both", StringComparison.OrdinalIgnoreCase);
+        var catalogueScoped = catalogueOnly || bothScoped;
+        var scope = dto.Scope?.ToScope();
+        if (scope?.Validate(enforceMaxYears: !catalogueOnly) is { } scopeProblem) return BadRequest(new { error = scopeProblem });
+        IReadOnlyList<Guid>? catalogueScopeIds = null;
+        if (catalogueScoped && scope is not null)
+        {
+            catalogueScopeIds = catalogueSource.ListCatalogues()
+                .Select(c => (Catalogue: c, SaleNo: SalePicker.SaleNoOf(c.SourceName)))
+                .Where(x => x.SaleNo is { } no && scope.Contains(x.Catalogue.Year, no))
+                .Select(x => x.Catalogue.Id).ToList();
+            if (catalogueOnly && catalogueScopeIds.Count == 0) return BadRequest(new { error = "No OKLO or imported sale catalogues match this Archive Scope." });
+        }
 
         var userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid) ? uid : Guid.Empty;
 
         Conversation conversation;
-        if (dto.ConversationId is { } convId)
+        var retryMessage = dto.ClientMessageId is { } clientMessageId
+            ? await db.ConversationMessages.Find(m => m.Id == clientMessageId && m.Role == "user").FirstOrDefaultAsync(ct)
+            : null;
+        if (retryMessage is not null)
+        {
+            var retryConversation = await db.Conversations.Find(c => c.Id == retryMessage.ConversationId).FirstOrDefaultAsync(ct);
+            if (retryConversation is null || retryConversation.UserId != userId) return NotFound();
+            if (!string.Equals(retryMessage.Content, dto.Message, StringComparison.Ordinal)) return Conflict(new { error = "This retry id was already used for a different message." });
+            var completedRetry = await db.ConversationMessages.Find(m => m.ReplyToClientMessageId == retryMessage.Id).FirstOrDefaultAsync(ct);
+            if (completedRetry is not null)
+                return Ok(new ChatResponseDto(retryConversation.Id, completedRetry.Content, completedRetry.Provider ?? "router", completedRetry.Sources, completedRetry.Agent));
+            conversation = retryConversation;
+        }
+        else if (dto.ConversationId is { } convId)
         {
             var existing = await db.Conversations.Find(c => c.Id == convId).FirstOrDefaultAsync(ct);
             if (existing is null || existing.UserId != userId) return NotFound();
@@ -50,14 +77,14 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
         var priorMessages = await db.ConversationMessages.Find(m => m.ConversationId == conversation.Id)
             .SortBy(m => m.CreatedAt).ToListAsync(ct);
+        if (retryMessage is not null) priorMessages = priorMessages.Where(m => m.Id != retryMessage.Id).ToList();
 
-        var userMessage = new ConversationMessage { ConversationId = conversation.Id, Role = "user", Content = dto.Message };
-        await db.ConversationMessages.InsertOneAsync(userMessage, cancellationToken: ct);
+        var userMessage = retryMessage ?? new ConversationMessage { Id = dto.ClientMessageId ?? Guid.NewGuid(), ConversationId = conversation.Id, Role = "user", Content = dto.Message };
+        if (retryMessage is null) await db.ConversationMessages.InsertOneAsync(userMessage, cancellationToken: ct);
 
         var history = priorMessages.Select(m => (m.Role, m.Content)).Append((userMessage.Role, userMessage.Content)).ToList();
 
         var isAdmin = (await authorizationService.AuthorizeAsync(User, Policies.UseAdminAiTools)).Succeeded;
-        var scope = dto.Scope?.ToScope();
 
         // Who is asking — only when the user has personalisation on (the default). Everything below uses just this user's own data.
         var prefs = await PersonalisationController.LoadAsync(db, userId, ct);
@@ -74,13 +101,12 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                 : ((IReadOnlyList<string>)[], 0);
             var talkReply = new ConversationMessage
             {
-                ConversationId = conversation.Id, Role = "assistant", Provider = "router",
+                ConversationId = conversation.Id, Role = "assistant", Provider = "router", ReplyToClientMessageId = userMessage.Id,
                 Content = SmallTalk.Reply(talk, prefs.Personalise ? firstName : null, dto.LocalHour, recent, pinCount),
             };
             await db.ConversationMessages.InsertOneAsync(talkReply, cancellationToken: ct);
             return Ok(new ChatResponseDto(conversation.Id, talkReply.Content, "router", null, dto.PreviousAgent));
         }
-        if (scope?.Validate() is { } scopeProblem) return BadRequest(new { error = scopeProblem });
         AgentResponse response;
         Guid? lotSale = null;
         ResolvedRequest? resolved = null;
@@ -99,7 +125,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
                 // The guided dialogue: an open-ended request is narrowed with buttons built from data that exists, then answered exactly as chosen.
                 var openTurns = GuidedIntake.OpenTurns([.. priorMessages.Select(m => (m.Role, m.Content, (string?)m.Provider))], dto.Message);
-                if (GuidedIntake.Involved(openTurns))
+                if (!catalogueScoped && GuidedIntake.Involved(openTurns))
                 {
                     var (intakeData, catalogueIds) = await LoadIntakeDataAsync(prefs.MyBroker, ct);
                     if (GuidedIntake.Next(openTurns, intakeData, hasScope: scope is not null) is { } outcome)
@@ -107,7 +133,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                         if (outcome.Ask is { } intakeQuestion || outcome.Lead is not null)
                         {
                             var text = outcome.Ask is { } q2 ? IntentRouter.ClarifyReply(q2, outcome.Lead) : outcome.Lead!;
-                            var intakeAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = text, Provider = "router" };
+                            var intakeAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = text, Provider = "router", Agent = "analytics", ReplyToClientMessageId = userMessage.Id };
                             await db.ConversationMessages.InsertOneAsync(intakeAsk, cancellationToken: ct);
                             return Ok(new ChatResponseDto(conversation.Id, text, "router", null, "analytics"));
                         }
@@ -126,16 +152,17 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                                 var (preview, _) = await customTools.PreviewAsync(DirectAnswer.ToArgs(done, scope!), ct);
                                 if (preview is not null && DirectAnswer.Reply(done, preview) is { } direct)
                                 {
-                                    var directMessage = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = direct, Provider = "direct" };
+                                    var directSources = (IReadOnlyList<ChatSource>)[new ChatSource("archive", "MSL auction archive")];
+                                    var directMessage = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = direct, Provider = "direct", Agent = "analytics", Sources = directSources.ToList(), ReplyToClientMessageId = userMessage.Id };
                                     await db.ConversationMessages.InsertOneAsync(directMessage, cancellationToken: ct);
-                                    return Ok(new ChatResponseDto(conversation.Id, direct, "direct", [new ChatSource("archive", "MSL auction archive")], "analytics"));
+                                    return Ok(new ChatResponseDto(conversation.Id, direct, "direct", directSources, "analytics"));
                                 }
                             }
                         }
                     }
                 }
 
-                if (resolved is null && scope is null && SalePicker.Involved(dto.Message, lastReply))
+                if (!catalogueScoped && resolved is null && scope is null && SalePicker.Involved(dto.Message, lastReply))
                 {
                     // Sales that exist = the archive plus the sale catalogues (which run ahead of the archive, e.g. the current sale).
                     var available = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0).Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
@@ -148,7 +175,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                     {
                         if (pick.Ask is { } pickQuestion)
                         {
-                            var pickAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(pickQuestion), Provider = "router" };
+                            var pickAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(pickQuestion), Provider = "router", Agent = "analytics", ReplyToClientMessageId = userMessage.Id };
                             await db.ConversationMessages.InsertOneAsync(pickAsk, cancellationToken: ct);
                             return Ok(new ChatResponseDto(conversation.Id, pickAsk.Content, "router", null, "analytics"));
                         }
@@ -161,14 +188,14 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                 }
 
                 // A lot question with no sale on screen: ask which sale's catalogue (only ones that exist), then answer from that one.
-                if (resolved is null && dto.CatalogueId is null && scope is null && LotSalePicker.Involved(dto.Message, lastReply))
+                if (!catalogueScoped && resolved is null && dto.CatalogueId is null && scope is null && LotSalePicker.Involved(dto.Message, lastReply))
                 {
                     var known = catalogueSource.ListCatalogues().Select(x => (x.Id, x.SourceName)).ToList();
                     if (LotSalePicker.Next(dto.Message, lastReply, known) is { } lotPick)
                     {
                         if (lotPick.Ask is { } lotQuestion)
                         {
-                            var lotAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(lotQuestion), Provider = "router" };
+                            var lotAsk = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(lotQuestion), Provider = "router", Agent = "auction", ReplyToClientMessageId = userMessage.Id };
                             await db.ConversationMessages.InsertOneAsync(lotAsk, cancellationToken: ct);
                             return Ok(new ChatResponseDto(conversation.Id, lotAsk.Content, "router", null, "auction"));
                         }
@@ -184,19 +211,60 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
                     : scope is not null && SaleScopeChosenThisTurn(lastReply)
                     ? new RouteDecision("analytics", null, "sale chosen in the dialogue")
                     : IntentRouter.Decide(dto.Message, dto.PreviousAgent, replies, lastUser, hasScope: scope is not null);
+                if (bothScoped) decision = new RouteDecision("analytics", null, "both sale data sources selected");
+                else if (catalogueScoped) decision = new RouteDecision("auction", null, "sale catalogue scope selected");
                 answeredBy = decision.Agent;
                 if (decision.Clarify is { } question)
                 {
-                    var ask = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(question), Provider = "router" };
+                    var ask = new ConversationMessage { ConversationId = conversation.Id, Role = "assistant", Content = IntentRouter.ClarifyReply(question), Provider = "router", Agent = decision.Agent, ReplyToClientMessageId = userMessage.Id };
                     await db.ConversationMessages.InsertOneAsync(ask, cancellationToken: ct);
                     return Ok(new ChatResponseDto(conversation.Id, ask.Content, "router", null, decision.Agent));
                 }
                 requested = decision.Agent;
             }
 
-            var agent = agentRouter.Resolve(requested);
-            using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
-            response = await agent.HandleAsync(new AgentRequest(dto.Message, effectiveHistory, dto.Provider, isAdmin, lotSale ?? dto.CatalogueId, scope, profile, resolved), ct);
+            if (catalogueScoped && !bothScoped) answeredBy = requested = "auction";
+            if (bothScoped)
+            {
+                var archivedSales = await db.MslSaleStats.Find(x => x.Dimension == "total" && x.SaleNo > 0)
+                    .Project(x => new { x.Year, x.SaleNo }).ToListAsync(ct);
+                var includeArchive = archivedSales.Any(x => scope is null || scope.Contains(x.Year, x.SaleNo));
+                var parts = new List<string>();
+                var combinedSources = new List<ChatSource>();
+                var combinedToolOutputs = new List<string>();
+                var providers = new List<string>();
+                if (includeArchive)
+                {
+                    var analytics = agentRouter.Resolve("analytics");
+                    AgentResponse archiveResponse;
+                    using (AiUsageScope.Begin(analytics.Key))
+                        archiveResponse = await analytics.HandleAsync(new AgentRequest(dto.Message, ContextBudget.Compact(effectiveHistory), dto.Provider, isAdmin, Scope: scope, User: profile, Resolved: resolved), ct);
+                    parts.Add("**MSL archive results**\n" + archiveResponse.Reply);
+                    if (archiveResponse.Sources is not null) combinedSources.AddRange(archiveResponse.Sources);
+                    if (archiveResponse.ToolOutputs is not null) combinedToolOutputs.AddRange(archiveResponse.ToolOutputs);
+                    providers.Add(archiveResponse.ProviderKey);
+                }
+                if (catalogueScopeIds is { Count: > 0 })
+                {
+                    var auction = agentRouter.Resolve("auction");
+                    AgentResponse catalogueResponse;
+                    using (AiUsageScope.Begin(auction.Key))
+                        catalogueResponse = await auction.HandleAsync(new AgentRequest(dto.Message, ContextBudget.Compact(effectiveHistory), dto.Provider, isAdmin, Scope: scope, User: profile, CatalogueScopeIds: catalogueScopeIds), ct);
+                    parts.Add("**OKLO / imported sale catalogues**\n" + catalogueResponse.Reply);
+                    if (catalogueResponse.Sources is not null) combinedSources.AddRange(catalogueResponse.Sources);
+                    if (catalogueResponse.ToolOutputs is not null) combinedToolOutputs.AddRange(catalogueResponse.ToolOutputs);
+                    providers.Add(catalogueResponse.ProviderKey);
+                }
+                if (parts.Count == 0) return BadRequest(new { error = "No MSL results or sale catalogues match this Archive Scope." });
+                response = new AgentResponse(string.Join("\n\n", parts), string.Join("+", providers), combinedSources, combinedToolOutputs);
+                answeredBy = parts.Count > 1 ? "analytics" : includeArchive ? "analytics" : "auction";
+            }
+            else
+            {
+                var agent = agentRouter.Resolve(requested);
+                using var usage = AiUsageScope.Begin(agent.Key); // so each AI call is logged against this agent
+                response = await agent.HandleAsync(new AgentRequest(dto.Message, ContextBudget.Compact(effectiveHistory), dto.Provider, isAdmin, lotSale ?? dto.CatalogueId, scope, profile, resolved, catalogueScopeIds), ct);
+            }
         }
         catch (UnknownAgentException ex)
         {
@@ -219,6 +287,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
         var assistantMessage = new ConversationMessage
         {
             ConversationId = conversation.Id, Role = "assistant", Content = response.Reply, Provider = response.ProviderKey,
+            Sources = response.Sources?.ToList(), Agent = answeredBy, ReplyToClientMessageId = userMessage.Id,
         };
         await db.ConversationMessages.InsertOneAsync(assistantMessage, cancellationToken: ct);
 
@@ -309,7 +378,7 @@ public class AssistantController(MongoContext db, AgentRouter agentRouter, AiGat
 
         var messages = await db.ConversationMessages.Find(m => m.ConversationId == id)
             .SortBy(m => m.CreatedAt).ToListAsync(ct);
-        return Ok(messages.Select(m => new MessageDto(m.Id, m.Role, m.Content, m.CreatedAt, m.Provider)).ToList());
+        return Ok(messages.Select(m => new MessageDto(m.Id, m.Role, m.Content, m.CreatedAt, m.Provider, m.Sources, m.Agent)).ToList());
     }
 
     [HttpDelete("conversations/{id:guid}")]
