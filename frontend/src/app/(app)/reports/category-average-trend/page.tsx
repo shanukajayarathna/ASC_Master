@@ -179,7 +179,7 @@ export default function CategoryAverageTrendPage() {
         </div>
       )}
 
-      {sales.length === 0 && <div className="text-center py-16 text-text-muted">No sales loaded yet — import a sale from Catalogue Manager first.</div>}
+      {sales.length === 0 && <div className="text-center py-16 text-text-muted">No sales loaded yet — import a sale from Catalogue Reports first.</div>}
 
       {data && !data.hasResults && (
         <div className="text-center py-12 text-text-muted">

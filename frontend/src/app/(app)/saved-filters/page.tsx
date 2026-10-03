@@ -62,7 +62,7 @@ export default function SavedFiltersPage() {
     <div>
       <PageHeader
         title="Saved Filters"
-        subtitle="Filter combinations you've saved from Catalogue Manager — apply one to jump straight back to it."
+        subtitle="Filter combinations you've saved from Catalogue Reports — apply one to jump straight back to it."
       />
 
       {loading ? (
@@ -71,7 +71,7 @@ export default function SavedFiltersPage() {
         </div>
       ) : presets.length === 0 ? (
         <div className="text-center py-12 text-text-muted border border-dashed border-border rounded-[var(--radius-lg)]">
-          <p className="m-0">No saved filters yet — set some filters in Catalogue Manager and click &quot;Save as Preset&quot;.</p>
+          <p className="m-0">No saved filters yet — set some filters in Catalogue Reports and click &quot;Save as Preset&quot;.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">

@@ -224,7 +224,7 @@ function AdminSectionCard({
  *  CatalogueContext (mounted for every (app) page) rather than a separate fetch, so this
  *  list is never out of sync with what the rest of the app sees. Uploading with `select:
  *  false` deliberately doesn't switch anyone's active sale — an admin replacing sale 12 from
- *  here shouldn't yank another tab's Catalogue Manager over to it. */
+ *  here shouldn't yank another tab's Catalogue Reports over to it. */
 function SalesDataSection() {
   const { catalogues, importFile, importing, error: importError } = useCatalogue();
   const [error, setError] = useState<string | null>(null);
@@ -310,7 +310,7 @@ function SalesDataSection() {
 /** Secondary entry point for the standalone Data Import page (nav.ts's "Data Import" tile
  *  is off the primary dashboard grid — see its own comment) — this app is admin-provisioned
  *  and its real upload paths already live in the Sales Data / MSL Archive sections above and
- *  in Catalogue Manager itself, so this is a link, not a re-embedded upload form. */
+ *  in Catalogue Reports itself, so this is a link, not a re-embedded upload form. */
 function DataImportSection() {
   return (
     <AdminSectionCard
@@ -322,7 +322,7 @@ function DataImportSection() {
     >
       <p className="text-[13px] text-text-muted mb-4 leading-relaxed">
         Sale catalogue files and the MSL archive are uploaded from the sections above. Single-file
-        catalogue import (with automatic column/type detection) happens in Catalogue Manager, and
+        catalogue import (with automatic column/type detection) happens in Catalogue Reports, and
         actual post-sale prices are imported from Market Intelligence.
       </p>
       <Button component={Link} href="/data-import" variant="outlined" size="small" startIcon={<CloudUploadOutlinedIcon fontSize="small" />}>

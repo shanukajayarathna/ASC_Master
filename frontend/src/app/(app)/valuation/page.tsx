@@ -77,7 +77,7 @@ export default function ValuationCentrePage() {
   // For the Sharings panel's previous-sale comparison — `catalogues` is already ordered
   // newest-first (ListCatalogues on the backend), so the previous sale is just the next
   // entry after the active one. Loaded through the same saleCache as everything else, so a
-  // sale already visited elsewhere in the app (Catalogue Manager, an earlier valuation
+  // sale already visited elsewhere in the app (Catalogue Reports, an earlier valuation
   // session) is instant here too, and a sale nobody has opened yet is one lazy fetch.
   const [previousSaleLots, setPreviousSaleLots] = useState<Lot[]>([]);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
@@ -96,7 +96,7 @@ export default function ValuationCentrePage() {
   // Row whose valuation input has focus — that row shows its grade's previous-sale band strip.
   const [activeValLotId, setActiveValLotId] = useState<string | null>(null);
   // List filters — focus-mode navigation walks the filtered list too. Column filters,
-  // ticket status and classification use the exact same engine as Catalogue Manager.
+  // ticket status and classification use the exact same engine as Catalogue Reports.
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
@@ -628,7 +628,7 @@ export default function ValuationCentrePage() {
   const viewLotLive = viewLot ? (lots.find((l) => l.id === viewLot.id) ?? viewLot) : null;
 
   if (!activeCatalogueId) {
-    return <PageHeader title="Valuation Centre" subtitle="Load a catalogue from Catalogue Manager first." />;
+    return <PageHeader title="Valuation Centre" subtitle="Load a catalogue from Catalogue Reports first." />;
   }
 
   return (
@@ -673,7 +673,7 @@ export default function ValuationCentrePage() {
               startIcon={<AddCircleOutlineIcon fontSize="small" />}
               onClick={() => router.push("/catalogue")}
             >
-              Catalogue Manager
+              Catalogue Reports
             </Button>
           </>
         }
@@ -684,14 +684,14 @@ export default function ValuationCentrePage() {
       {!loading && displayedLots.length === 0 && (
         <div className="text-center py-16 text-text-muted">
           <h3 className="font-display text-xl text-text mb-1">This sale has no lots</h3>
-          <p className="mb-4">Pick a different sale in Catalogue Manager — every lot of the selected sale shows here automatically.</p>
+          <p className="mb-4">Pick a different sale in Catalogue Reports — every lot of the selected sale shows here automatically.</p>
           <Button
             variant="contained"
             color="primary"
             startIcon={<AddCircleOutlineIcon fontSize="small" />}
             onClick={() => router.push("/catalogue")}
           >
-            Go to Catalogue Manager
+            Go to Catalogue Reports
           </Button>
         </div>
       )}

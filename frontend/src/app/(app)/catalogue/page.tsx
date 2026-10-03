@@ -585,7 +585,7 @@ export default function CataloguePage() {
     if (c) setYearFilter(String(c.year));
   };
 
-  // Opening the Catalogue Manager starts on the latest year's latest sale, not on whichever sale
+  // Opening the Catalogue Reports starts on the latest year's latest sale, not on whichever sale
   // happened to be open last time. (A saved preset opened via ?presetId= picks its own sale.)
   const latestAppliedRef = useRef(false);
   useEffect(() => {
@@ -852,7 +852,7 @@ export default function CataloguePage() {
       // them to do here but wait for an administrator to bring the data in.
       return (
         <div>
-          <PageHeader title="Catalogue Manager" />
+          <PageHeader title="Catalogue Reports" />
           <div className="max-w-2xl mx-auto border-2 border-dashed border-brass rounded-[var(--radius-lg)] bg-surface p-8 text-center">
             <h2 className="font-display text-2xl text-text-strong mb-2">No sales loaded yet</h2>
             <p className="text-[13px] text-text-muted m-0">
@@ -867,7 +867,7 @@ export default function CataloguePage() {
       <div>
         {catalogueLoading && <BusyOverlay message="Importing sale file…" />}
         <PageHeader
-          title="Catalogue Manager"
+          title="Catalogue Reports"
           subtitle="Upload a lot catalogue to begin — search, filter, value and dictate remarks for every lot."
         />
 
@@ -941,7 +941,7 @@ export default function CataloguePage() {
   return (
     <div>
       <PageHeader
-        title="Catalogue Manager"
+        title="Catalogue Reports"
         subtitle={`${reportTitle} · ${saleTotal.toLocaleString()} lots · ${headers.length} columns`}
         actions={
           <>

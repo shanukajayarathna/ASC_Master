@@ -50,7 +50,7 @@ export default function ExportShareMenu({
   availableColumns: ExportColumn[];
   defaultColumnIds: string[];
   dark?: boolean;
-  /** Button text ("Download" on the Catalogue Manager). */
+  /** Button text ("Download" on the Catalogue Reports). */
   label?: string;
   /** Offer only the Excel / PDF downloads, no Share entry. */
   hideShare?: boolean;

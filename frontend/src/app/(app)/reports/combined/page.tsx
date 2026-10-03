@@ -274,7 +274,7 @@ export default function CombinedReportPage() {
       )}
 
       {!loading && source === "catalogue" && !activeCatalogueId && (
-        <div className="text-center py-16 text-text-muted">No catalogue loaded — import one from Catalogue Manager first.</div>
+        <div className="text-center py-16 text-text-muted">No catalogue loaded — import one from Catalogue Reports first.</div>
       )}
 
       {!loading && source === "upload" && !combined && !uploading && (

@@ -218,7 +218,7 @@ export default function FilterPanel({
    *  call site, which auto-expands the working set). */
   allYears?: number[];
   /**
-   * Catalogue Manager only: a Sale dropdown right after Year. Lists the sales of the chosen year
+   * Catalogue Reports only: a Sale dropdown right after Year. Lists the sales of the chosen year
    * (every sale when Year is "All"), newest first - the first one is tagged "latest". Picking a Year
    * lands on that year's latest sale; this lets the user step to another sale of the same year.
    * Omit to hide it (the Valuation pages use this panel without it).
@@ -229,7 +229,7 @@ export default function FilterPanel({
   saleMultiLabel?: string | null;
   onSaleChange?: (id: string) => void;
   /**
-   * Catalogue Manager search mode: the dropdown option lists, computed on the server (the browser holds no lots
+   * Catalogue Reports search mode: the dropdown option lists, computed on the server (the browser holds no lots
    * to derive them from). When given, `lots` is not used for options and the lists don't narrow as other filters
    * change — the user sets the filters, then presses Search.
    */
@@ -240,7 +240,7 @@ export default function FilterPanel({
   toolbar?: ReactNode;
   /** Cap the filter fields' height (CSS length); they scroll inside it so the results grid keeps its room. The header row stays visible. */
   bodyMaxHeight?: string;
-  /** Show an "All" entry in the Year dropdown. The Catalogue Manager turns it off: there Year picks which sales are listed. */
+  /** Show an "All" entry in the Year dropdown. The Catalogue Reports turns it off: there Year picks which sales are listed. */
   allowAllYears?: boolean;
   /** Filters were changed since the last search — highlights the Search button. */
   searchPending?: boolean;

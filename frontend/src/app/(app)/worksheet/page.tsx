@@ -108,7 +108,7 @@ export default function WorksheetPage() {
     };
   }, [activeCatalogueId]);
 
-  // Consume a one-shot handoff from the Catalogue Manager's "Work on selection…" menu — the
+  // Consume a one-shot handoff from the Catalogue Reports grid's "Work on selection…" menu — the
   // chosen section and the selected lots arrive together.
   useEffect(() => {
     if (!activeCatalogueId || lots.length === 0) return;
@@ -129,7 +129,7 @@ export default function WorksheetPage() {
   }, [activeCatalogueId, lots]);
 
   // The working set is everything that already has this field filled, plus anything just
-  // handed off from the Catalogue Manager — in the catalogue's natural (lot) order.
+  // handed off from the Catalogue Reports — in the catalogue's natural (lot) order.
   const displayedLots = useMemo(
     () => lots.filter((l) => hasField(l, field) || handoffIds.has(l.id)),
     [lots, field, handoffIds]
@@ -200,7 +200,7 @@ export default function WorksheetPage() {
   const filledCount = displayedLots.filter((l) => hasField(l, field)).length;
 
   if (!activeCatalogueId) {
-    return <PageHeader title="Lot Worksheet" subtitle="Load a catalogue from Catalogue Manager first." />;
+    return <PageHeader title="Lot Worksheet" subtitle="Load a catalogue from Catalogue Reports first." />;
   }
 
   return (
@@ -253,7 +253,7 @@ export default function WorksheetPage() {
         <div className="text-center py-16 text-text-muted">
           <h3 className="font-display text-xl text-text mb-1">No lots in this worksheet yet</h3>
           <p className="mb-4">
-            Go to Catalogue Manager, select the lots you want, then choose &ldquo;{fieldDef.label}&rdquo; from its
+            Go to Catalogue Reports, select the lots you want, then choose &ldquo;{fieldDef.label}&rdquo; from its
             &ldquo;Work on selection&rdquo; menu.
           </p>
           <Button
@@ -262,7 +262,7 @@ export default function WorksheetPage() {
             startIcon={<AddCircleOutlineIcon fontSize="small" />}
             onClick={() => router.push("/catalogue")}
           >
-            Go to Catalogue Manager
+            Go to Catalogue Reports
           </Button>
         </div>
       )}

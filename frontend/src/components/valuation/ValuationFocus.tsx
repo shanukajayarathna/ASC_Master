@@ -77,7 +77,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const VoiceRecorder = dynamic(() => import("@/components/valuation/VoiceRecorder"), { ssr: false });
 
 /** Filter state lifted from the Valuation Centre page — the focus view edits the very
- *  same filters the list uses (identical to Catalogue Manager's per-column engine),
+ *  same filters the list uses (identical to the Catalogue Reports grid's per-column engine),
  *  and navigation walks the filtered list. */
 export interface FocusFilters {
   search: string;
@@ -879,7 +879,7 @@ export default function ValuationFocus({
         </button>
       )}
 
-      {/* ---- collapsible per-column filter panel (same engine as Catalogue Manager) ---- */}
+      {/* ---- collapsible per-column filter panel (same engine as Catalogue Reports) ---- */}
       {filtersOpen && (
         <div
           className="max-h-[42vh] overflow-y-auto px-3 md:px-5 pt-3 border-b border-border shrink-0"

@@ -21,9 +21,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { auctionFloorGridTheme } from "./auctionFloorTheme";
 
-// Registered directly here (not via the Catalogue Manager's shared agGridSetup.ts) so this grid's own module
+// Registered directly here (not via the Catalogue Reports grid's shared agGridSetup.ts) so this grid's own module
 // registration lives in the same bundle chunk as the component that needs it - this page is its own route, not a
-// Catalogue Manager sub-page, and relying on a side-effect import from another route's chunk did not reliably run
+// Catalogue Reports sub-page, and relying on a side-effect import from another route's chunk did not reliably run
 // before this grid rendered (AG Grid's "error #200: module not registered" even though the shared file also lists
 // these). Community-only, no Enterprise.
 ModuleRegistry.registerModules([
@@ -120,7 +120,7 @@ function mostRecentlyChanged(prev: Map<string, Row> | null, next: Row[]): Row | 
  * The bidding-relevant columns of one sale, live: asking price, current highest bid ("Registered Bid" - the field the
  * OKLO export names it), status and the settled buyer once a lot closes. `enableCellChangeFlash` gives each of those a
  * brief highlight when a poll brings back a changed value, so a real bid landing is visible at a glance, not just a
- * silently-updated number - the point of a "watch" view over the ordinary Catalogue Manager grid.
+ * silently-updated number - the point of a "watch" view over the ordinary Catalogue Reports grid.
  */
 export default function LiveAuctionGrid({ lots }: { lots: Lot[] }) {
   const gridRef = useRef<AgGridReact>(null);
