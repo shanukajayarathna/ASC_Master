@@ -15,7 +15,7 @@ public static class LandingPageContentSeed
     {
         Hero = new HeroContent
         {
-            Headline = "ASIS: The Intelligence Hub for Asia Siyaka's Tea Auction",
+            Headline = "Intelligence Hub for Smart Asia Siyaka",
             Subhead = "One AI-powered layer over cataloguing, valuation, market intelligence and reporting — replacing a manual, paper-and-spreadsheet workflow with a fast, connected one.",
             CtaPrimaryLabel = "Sign In",
             CtaSecondaryLabel = "See how it works",

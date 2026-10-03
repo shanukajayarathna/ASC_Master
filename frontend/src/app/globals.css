@@ -854,3 +854,17 @@ body {
    from React state in LandingNav.tsx). */
 .landing-nav-scrolled { transition: box-shadow 200ms ease; }
 @media (prefers-reduced-motion: reduce) { .landing-nav-scrolled { transition: none; } }
+
+/* ---- Lite mode (low-end PCs) — see lib/liteMode.tsx. Strips GPU-heavy effects only; layout,
+   colours and content are untouched. ---- */
+html[data-lite] *,
+html[data-lite] *::before,
+html[data-lite] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html[data-lite] [style*="blur("] { display: none !important; }

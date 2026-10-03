@@ -13,6 +13,8 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import Menu from "@mui/material/Menu";
+import Popover from "@mui/material/Popover";
+import { AccountSection, AppearanceSection, LanguageSection } from "@/components/settings/SettingsSections";
 import MenuItem from "@mui/material/MenuItem";
 import SalePicker from "@/components/shared/SalePicker";
 import ListItemText from "@mui/material/ListItemText";
@@ -85,20 +87,34 @@ function UserMenu() {
         </span>
         <ExpandMoreIcon sx={{ fontSize: 18, color: "var(--text-muted)" }} className="hidden md:block" />
       </button>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={close} anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
-        <MenuItem disabled sx={{ opacity: "1 !important" }}>
-          <ListItemText primary={user.displayName} secondary={user.email} />
-        </MenuItem>
-        <Divider />
-        <MenuItem
+      <Popover
+        anchorEl={anchor}
+        open={!!anchor}
+        onClose={close}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { width: 440, maxWidth: "calc(100vw - 24px)", maxHeight: "calc(100dvh - 90px)", p: 2 } } }}
+      >
+        <div className="mb-3 px-1">
+          <div className="text-[14px] font-semibold" style={{ color: "var(--text-strong)" }}>{user.displayName}</div>
+          <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>{user.email} · {roleLabel(user.roles)}</div>
+        </div>
+        <AppearanceSection />
+        <LanguageSection />
+        <AccountSection />
+        <Divider sx={{ my: 1.5 }} />
+        <Button
+          fullWidth
+          variant="outlined"
+          color="inherit"
           onClick={() => {
             close();
             logout();
           }}
         >
           Log out
-        </MenuItem>
-      </Menu>
+        </Button>
+      </Popover>
     </>
   );
 }

@@ -8,11 +8,11 @@ $ErrorActionPreference = "Stop"
 
 foreach ($port in 3000, 5058) {
     $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    foreach ($pid in ($conns.OwningProcess | Select-Object -Unique)) {
+    foreach ($ownerPid in ($conns.OwningProcess | Select-Object -Unique)) {
         try {
-            $proc = Get-Process -Id $pid -ErrorAction Stop
-            Write-Host "Freeing port $port (killing $($proc.ProcessName) pid $pid)."
-            Stop-Process -Id $pid -Force
+            $proc = Get-Process -Id $ownerPid -ErrorAction Stop
+            Write-Host "Freeing port $port (killing $($proc.ProcessName) pid $ownerPid)."
+            Stop-Process -Id $ownerPid -Force
         } catch {}
     }
 }

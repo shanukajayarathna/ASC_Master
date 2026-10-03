@@ -327,12 +327,13 @@ function UserDashboard() {
       <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-2xl font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
-            {greeting()}{user ? `, ${user.displayName.split(" ")[0]}` : ""}
+            Intelligence Hub for Smart Asia Siyaka
           </h1>
           <p className="text-[13px] m-0" style={{ color: "var(--text-muted)" }}>
+            {greeting()}{user ? `, ${user.displayName.split(" ")[0]}` : ""}.{" "}
             {activeCatalogue
               ? `${activeCatalogue.sourceName} is the active sale — ${activeCatalogue.rowCount.toLocaleString()} lots.`
-              : "Here's what's happening with your tea auctions today."}
+              : "Here's what's happening today."}
           </p>
         </div>
         <AmbientStrip />

@@ -253,6 +253,9 @@ export const NAV_ITEMS: NavItem[] = [
     icon: TuneOutlinedIcon,
     gradient: 8,
     image: "https://images.unsplash.com/photo-1563641749712-028dfeab14b3",
+    // Settings now live in the top-bar avatar menu — off the dashboard grid, still reachable
+    // directly and from the command palette.
+    hiddenFromGrid: true,
   },
   {
     href: "/admin",

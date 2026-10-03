@@ -1,3 +1,4 @@
+import { LITE_MODE_SCRIPT, LiteMotion } from "@/lib/liteMode";
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -39,8 +40,8 @@ const plexMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "ASC — Tea Auction Valuation & Business Intelligence Platform",
-  description: "Asia Siyaka Commodities — Tea Auction Lot Management, Valuation & Business Intelligence",
+  title: "Intelligence Hub for Smart Asia Siyaka",
+  description: "Asia Siyaka Commodities — Intelligence Hub for lot management, valuation & business intelligence",
   appleWebApp: {
     capable: true,
     title: "ASC Hub",
@@ -72,6 +73,9 @@ export default function RootLayout({
       className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LITE_MODE_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <PwaRegister />
         <ThemeRegistry>
@@ -81,7 +85,9 @@ export default function RootLayout({
           {/* Every real page lives under the (app) route group, which gates on this and
               adds CatalogueProvider/Shell itself — /login stays outside both so a signed-out
               visitor never renders (or fetches) any of the app's data. */}
-          <AuthProvider>{children}</AuthProvider>
+          <LiteMotion>
+            <AuthProvider>{children}</AuthProvider>
+          </LiteMotion>
         </ThemeRegistry>
       </body>
     </html>

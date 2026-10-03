@@ -194,10 +194,10 @@ export default function AdminDashboard({ user }: { user: AuthUser }) {
             Administrator
           </div>
           <h1 className="font-display text-2xl font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
-            {greeting()}, {user.displayName.split(" ")[0]}
+            Intelligence Hub for Smart Asia Siyaka
           </h1>
           <p className="text-[13px] m-0" style={{ color: "var(--text-muted)" }}>
-            Users, data and the system&apos;s shared files — everything below links into the Admin Panel.
+            {greeting()}, {user.displayName.split(" ")[0]}. Users, data and the system&apos;s shared files — everything below links into the Admin Panel.
           </p>
         </div>
         <Link
