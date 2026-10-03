@@ -884,3 +884,35 @@ html[data-lite] *::after {
   -webkit-backdrop-filter: none !important;
 }
 html[data-lite] [style*="blur("] { display: none !important; }
+
+/* Catalogue filter actions stay in one compact line alongside the final filter row. */
+.catalogue-filter-actions > .MuiButton-root {
+  min-width: 0 !important;
+  padding-inline: clamp(3px, 0.55vw, 10px) !important;
+  font-size: clamp(9px, 0.85vw, 12px) !important;
+}
+.catalogue-filter-actions > .MuiButton-root .MuiButton-startIcon {
+  margin-right: clamp(2px, 0.35vw, 6px);
+}
+
+@media (min-width: 2100px) {
+  .catalogue-report-filter .catalogue-filter-grid {
+    --catalogue-filter-column-width: 160px;
+    justify-content: space-between;
+  }
+}
+
+/* Display scaling reduces CSS viewport height even on a 2K monitor. Give the
+   results area more room before the filters begin to dominate the screen. */
+@media (max-height: 1050px) {
+  .catalogue-filter-grid {
+    padding-top: 5px;
+    padding-bottom: 5px;
+    row-gap: 3px !important;
+  }
+  .catalogue-filter-grid > div > label:first-child { margin-bottom: 2px; }
+  .catalogue-filter-panel .MuiInputBase-root { height: 32px; min-height: 32px; }
+  .catalogue-filter-panel .MuiAutocomplete-inputRoot { min-height: 32px !important; }
+  .catalogue-filter-actions { padding-top: 14px; }
+  .catalogue-filter-actions > .MuiButton-root { height: 32px !important; }
+}

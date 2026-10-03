@@ -2,7 +2,7 @@
 
 import { useFillHeight } from "@/components/shared/useFillHeight";
 import BusyOverlay from "@/components/shared/BusyOverlay";
-import CatalogueGrid from "@/components/catalogue/CatalogueGrid";
+import CatalogueGrid, { CATALOGUE_MIN_GRID_HEIGHT } from "@/components/catalogue/CatalogueGrid";
 import FilterPanel from "@/components/catalogue/FilterPanel";
 import LotViewDialog from "@/components/catalogue/LotViewDialog";
 import ValuationDrawer from "@/components/catalogue/ValuationDrawer";
@@ -24,23 +24,16 @@ import {
 import { combineSales, SALE_COLUMN_HEADER, type CombinedCatalogue, type SaleEntry } from "@/lib/multiSale";
 import { invalidateSale, patchCachedLot, type SaleStatus } from "@/lib/saleCache";
 import type { CatalogueDetail, LiveLoad, Lot } from "@/types/api";
-import { CURATED_FILTERS, resolveHeader } from "@/lib/filterConfig";
-import SearchIcon from "@mui/icons-material/Search";
+import { CURATED_FILTERS, REPORT_FILTER_HEADERS, TICK_FILTERS, resolveHeader } from "@/lib/filterConfig";
 import Button from "@mui/material/Button";
-import TextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
 import LinearProgress from "@mui/material/LinearProgress";
-import Dialog from "@mui/material/Dialog";
-import DialogTitle from "@mui/material/DialogTitle";
-import DialogContent from "@mui/material/DialogContent";
-import DialogActions from "@mui/material/DialogActions";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
 import ListItemText from "@mui/material/ListItemText";
 import Tooltip from "@mui/material/Tooltip";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
-import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -106,15 +99,14 @@ interface SaleResult {
  * Search ONE sale on the server. The sale itself never comes to the browser - only the matching rows do. In a pooled
  * multi-sale view the "Sale" column filter picks which sales are searched (it isn't a real column on the server).
  */
-async function searchSale(id: string, spec: SearchSpec, offset: number, limit: number): Promise<SaleResult> {
-  const detail = await api.getCatalogue(id);
+async function searchSale(id: string, detail: CatalogueDetail, spec: SearchSpec, offset: number, limit: number, signal: AbortSignal): Promise<SaleResult> {
   const saleFilter = spec.columnFilters[SALE_COLUMN_HEADER];
   if (saleFilter?.kind === "categorical" && saleFilter.values.length > 0 && !saleFilter.values.includes(detail.sourceName)) {
     return { detail, rows: [], total: 0, live: null };
   }
   const columnFilters = { ...spec.columnFilters };
   delete columnFilters[SALE_COLUMN_HEADER];
-  const res = await api.searchLots(id, { ...spec, columnFilters, offset, limit });
+  const res = await api.searchLots(id, { ...spec, columnFilters, offset, limit }, signal);
   return { detail, rows: res.rows, total: res.total, live: res.live ?? null };
 }
 
@@ -140,6 +132,17 @@ function optionHeadersFor(headers: string[]): string[] {
     .filter((h): h is string => h !== null);
 }
 
+/** Keep a draft filter attached to the same field when two sale files spell its header differently. */
+function mapFiltersToHeaders(filters: Record<string, ColumnFilterState>, headers: string[]): Record<string, ColumnFilterState> {
+  const mapped: Record<string, ColumnFilterState> = {};
+  for (const [header, value] of Object.entries(filters)) {
+    const definition = [...CURATED_FILTERS, ...TICK_FILTERS].find((item) => item.patterns.some((pattern) => pattern.test(header)));
+    const target = definition ? resolveHeader(headers, definition.patterns) : headers.find((candidate) => candidate === header);
+    mapped[target ?? header] = value;
+  }
+  return mapped;
+}
+
 /** "just now" / "3m ago" - for the live-data freshness pill. */
 function timeAgo(iso: string): string {
   const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -159,6 +162,7 @@ export default function CataloguePage() {
     catalogues,
     activeCatalogueId,
     selectCatalogue,
+    cancelPendingRequests,
     importFile,
     importing: catalogueLoading,
     error: catalogueError,
@@ -188,6 +192,8 @@ export default function CataloguePage() {
   };
 
   const [combined, setCombined] = useState<CombinedCatalogue>(EMPTY_COMBINED);
+  const [loadedSelectionKey, setLoadedSelectionKey] = useState("");
+  const [saleLoadError, setSaleLoadError] = useState<string | null>(null);
   // Search mode: the grid shows the rows of the last search, not the whole sale.
   const [saleStatuses, setSaleStatuses] = useState<SaleStatus[]>([]);
   const [matchTotal, setMatchTotal] = useState(0); // lots matching the applied search, across the pooled sales
@@ -196,7 +202,6 @@ export default function CataloguePage() {
   const [searching, setSearching] = useState(false);
   const [loadingLots, setLoadingLots] = useState(false);
 
-  const [search, setSearch] = useState("");
   const [drawerLot, setDrawerLot] = useState<Lot | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [viewLot, setViewLot] = useState<Lot | null>(null);
@@ -210,42 +215,60 @@ export default function CataloguePage() {
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "">("");
   const [classificationFilter, setClassificationFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
-  const [presetDialogOpen, setPresetDialogOpen] = useState(false);
-  const [presetName, setPresetName] = useState("");
-  const [savingPreset, setSavingPreset] = useState(false);
-  const [presetNotice, setPresetNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Guards against a slow sale load overwriting a newer one when the selection changes fast.
   const loadSeq = useRef(0);
+  const saleLoadAbortRef = useRef<AbortController | null>(null);
   // Set by the ?presetId= mount effect when applying a preset requires switching sales first —
   // loadCombined's resetView branch (which would otherwise blank every filter on that switch)
   // checks this and restores these values instead, so applying never races its own reset.
   const pendingPresetFilters = useRef<StoredFilterState | null>(null);
 
   const multiSale = selectedSaleIds.length > 1;
+  const selectionKey = selectedSaleIds.join("|");
+  const isSelectionReady = selectionKey === loadedSelectionKey;
+  const filterHeaders = useMemo(() => {
+    const available = isSelectionReady ? combined.headers :
+      selectedSaleIds.flatMap((id) => catalogues.find((c) => c.id === id)?.headers ?? []);
+    return Array.from(new Set([...available, ...REPORT_FILTER_HEADERS, ...(multiSale ? [SALE_COLUMN_HEADER] : [])]));
+  }, [isSelectionReady, combined.headers, selectedSaleIds, catalogues, multiSale]);
+  const displayOptions = useMemo(() => {
+    const options = { ...serverOptions };
+    for (const definition of CURATED_FILTERS) {
+      const target = resolveHeader(filterHeaders, definition.patterns);
+      if (!target) continue;
+      const values = Object.entries(serverOptions)
+        .filter(([header]) => definition.patterns.some((pattern) => pattern.test(header)))
+        .flatMap(([, choices]) => choices);
+      if (values.length > 0) options[target] = Array.from(new Set(values));
+    }
+    return options;
+  }, [serverOptions, filterHeaders]);
   // The "choose your filters" box fills the rest of the window, like the results grid that replaces it.
-  const { ref: emptyBoxRef, height: emptyBoxHeight } = useFillHeight<HTMLDivElement>(240);
+  const { ref: emptyBoxRef, height: emptyBoxHeight } = useFillHeight<HTMLDivElement>(CATALOGUE_MIN_GRID_HEIGHT);
   const { lots, headers, columnMeta, catalogueIdByLot, saleNames } = combined;
 
   // ---- Search mode ----------------------------------------------------------------------------------
-  // NOTHING is loaded when the page opens. Choosing a sale only fetches its column list and the dropdown option lists;
-  // the lots stay on the server. The filter panel edits a DRAFT (the state above); Search (or Enter) sends it up and the
-  // matching rows come back - that is all this page ever holds. `applied` is what the grid is currently showing.
+  // Year and Sale only change the draft selection. Search fetches the selected sale's columns and matching rows;
+  // option lists are cached after that, so every filter stays available before the next Search.
   const resultsRef = useRef(new Map<string, SaleResult>());
   const detailsRef = useRef(new Map<string, CatalogueDetail>());
   const appliedRef = useRef<SearchSpec>(EMPTY_SPEC);
   const statusesRef = useRef<SaleStatus[]>([]);
+  const optionProgressRef = useRef(new Map<string, string>());
   const hasSearchedRef = useRef(false);
   const watchId = useRef(0);
   const rerunTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const foregroundBusyRef = useRef(false);
+  const backgroundSearchWatchRef = useRef<number | null>(null);
   const loadCombinedRef = useRef<(resetView: boolean) => Promise<void>>(async () => undefined);
   const [applied, setApplied] = useState<SearchSpec>(EMPTY_SPEC);
   const [hasSearched, setHasSearched] = useState(false);
 
   // The Year dropdown is a sale picker, not a filter, so it is never part of a search.
   const draft = useMemo<SearchSpec>(
-    () => ({ search, columnFilters, status: statusFilter, classification: classificationFilter, year: "" }),
-    [search, columnFilters, statusFilter, classificationFilter]
+    () => ({ search: "", columnFilters, status: statusFilter, classification: classificationFilter, year: "" }),
+    [columnFilters, statusFilter, classificationFilter]
   );
   const draftRef = useRef(draft);
   useEffect(() => {
@@ -258,9 +281,9 @@ export default function CataloguePage() {
     setHasSearched(true);
   };
 
-  // Dropdown option lists and the sale's OKLO load state come from the server (the browser holds no lots). Returns true
-  // while any sale is still arriving from OKLO.
-  const refreshOptions = useCallback(async (ids: string[]): Promise<boolean> => {
+  // Dropdown option lists and the sale's OKLO load state come from the server (the browser holds no lots).
+  // Also reports whether the loaded data changed since the previous option snapshot.
+  const refreshOptions = useCallback(async (ids: string[], watch: number, signal: AbortSignal): Promise<{ incomplete: boolean; dataChanged: boolean }> => {
     const merged: Record<string, string[]> = {};
     const statuses: (SaleStatus | undefined)[] = [];
     let total = 0;
@@ -269,7 +292,7 @@ export default function CataloguePage() {
         const detail = detailsRef.current.get(id);
         if (!detail) return;
         try {
-          const r = await api.getFilterOptions(id, optionHeadersFor(detail.headers));
+          const r = await api.getFilterOptions(id, optionHeadersFor(detail.headers), signal);
           for (const [header, values] of Object.entries(r.options)) {
             merged[header] = merged[header] ? Array.from(new Set([...merged[header], ...values])) : values;
           }
@@ -281,25 +304,59 @@ export default function CataloguePage() {
         }
       })
     );
+    if (signal.aborted || watch !== watchId.current) return { incomplete: false, dataChanged: false };
     if (ids.length > 1) merged[SALE_COLUMN_HEADER] = ids.map((id) => detailsRef.current.get(id)?.sourceName ?? "");
-    setServerOptions(merged);
+    setServerOptions((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const [header, values] of Object.entries(merged)) {
+        const known = previous[header] ?? [];
+        const knownValues = new Set(known);
+        const additions = values.filter((value) => !knownValues.has(value));
+        if (additions.length > 0) {
+          next[header] = [...known, ...additions];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
     const list = statuses.filter((x): x is SaleStatus => !!x);
+    // Compare option snapshots with option snapshots. Search responses can lag behind
+    // the option endpoint, so comparing against search statuses would report a false
+    // change on every poll and rerun the same search forever.
+    let dataChanged = false;
+    ids.forEach((id, index) => {
+      const status = statuses[index];
+      if (!status) return;
+      const version = `${status.loaded}|${status.total}|${status.complete}|${status.fetchedAtUtc ?? ""}`;
+      if (optionProgressRef.current.get(id) !== version) dataChanged = true;
+      optionProgressRef.current.set(id, version);
+    });
+    const statusChanged = list.length !== statusesRef.current.length || list.some((status, index) => {
+      const previous = statusesRef.current[index];
+      return !previous || status.live !== previous.live || status.loaded !== previous.loaded ||
+        status.total !== previous.total || status.complete !== previous.complete ||
+        status.fetchedAtUtc !== previous.fetchedAtUtc || status.refreshing !== previous.refreshing ||
+        status.error !== previous.error;
+    });
     statusesRef.current = list;
-    setSaleStatuses(list);
+    if (statusChanged) setSaleStatuses(list);
     setSaleTotal(total);
-    return list.some((x) => x.live && !x.complete);
+    return { incomplete: list.some((x) => x.live && !x.complete), dataChanged };
   }, []);
 
   // Runs the search on every selected sale and shows the result. Returns the pooled table, or null when a newer
   // search superseded this one.
-  const executeSearch = useCallback(async (ids: string[], spec: SearchSpec, seq: number): Promise<CombinedCatalogue | null> => {
+  const executeSearch = useCallback(async (ids: string[], spec: SearchSpec, seq: number, signal: AbortSignal): Promise<CombinedCatalogue | null> => {
     const results = new Map<string, SaleResult>();
     await Promise.all(
       ids.map(async (id) => {
-        results.set(id, await searchSale(id, spec, 0, SEARCH_LIMIT));
+        const detail = detailsRef.current.get(id);
+        if (!detail) throw new Error("The selected sale has not finished loading.");
+        results.set(id, await searchSale(id, detail, spec, 0, SEARCH_LIMIT, signal));
       })
     );
-    if (seq !== loadSeq.current) return null;
+    if (signal.aborted || seq !== loadSeq.current) return null;
     resultsRef.current = results;
     const entries: SaleEntry[] = ids.map((id) => {
       const r = results.get(id) as SaleResult;
@@ -317,22 +374,38 @@ export default function CataloguePage() {
     return c;
   }, []);
 
-  // While a sale is still arriving from OKLO, keep the dropdown lists (and, once a search has been made, its results)
-  // in step every few seconds until it is all here. A newer sale selection cancels the watch.
+  // Live refreshes use the current request number without advancing it. Only a user's
+  // sale change or Search can supersede another foreground request. Otherwise a live
+  // tick can leave the foreground "Updating" state stranded.
+  const refreshAppliedSearch = useCallback(async (ids: string[], selectionSignal: AbortSignal) => {
+    const watch = watchId.current;
+    if (selectionSignal.aborted || !hasSearchedRef.current || foregroundBusyRef.current || backgroundSearchWatchRef.current === watch) return;
+    backgroundSearchWatchRef.current = watch;
+    try {
+      await executeSearch(ids, appliedRef.current, loadSeq.current, selectionSignal);
+    } catch {
+      // Keep the existing results; the next live refresh can try again.
+    } finally {
+      if (backgroundSearchWatchRef.current === watch) backgroundSearchWatchRef.current = null;
+    }
+  }, [executeSearch]);
+
+  // While a sale is still arriving from OKLO, keep its option lists and results current.
+  // The watcher belongs to one sale selection and cannot update a later selection.
   const watchSale = useCallback(
-    async (ids: string[]) => {
-      const mine = ++watchId.current;
-      let incomplete = await refreshOptions(ids);
-      while (incomplete && mine === watchId.current) {
+    async (ids: string[], mine: number, signal: AbortSignal) => {
+      let { incomplete } = await refreshOptions(ids, mine, signal);
+      while (incomplete && mine === watchId.current && !signal.aborted) {
         await new Promise<void>((resolve) => {
           rerunTimer.current = setTimeout(resolve, 3000);
         });
-        if (mine !== watchId.current) return;
-        incomplete = await refreshOptions(ids);
-        if (hasSearchedRef.current) await executeSearch(ids, appliedRef.current, ++loadSeq.current);
+        if (mine !== watchId.current || signal.aborted) return;
+        const refreshed = await refreshOptions(ids, mine, signal);
+        incomplete = refreshed.incomplete;
+        if (mine === watchId.current && refreshed.dataChanged) await refreshAppliedSearch(ids, signal);
       }
     },
-    [refreshOptions, executeSearch]
+    [refreshOptions, refreshAppliedSearch]
   );
 
   // The sale selection changed (or the page just opened): fetch each sale's columns and dropdown lists - NOT its lots.
@@ -340,21 +413,42 @@ export default function CataloguePage() {
   const loadCombined = useCallback(
     async (resetView: boolean) => {
       if (selectedSaleIds.length === 0) {
+        saleLoadAbortRef.current?.abort();
+        saleLoadAbortRef.current = null;
+        watchId.current++;
+        loadSeq.current++;
+        optionProgressRef.current.clear();
+        foregroundBusyRef.current = false;
+        setSearching(false);
+        setLoadingLots(false);
         setCombined(EMPTY_COMBINED);
+        setLoadedSelectionKey("");
+        setSaleLoadError(null);
         setSaleStatuses([]);
         return;
       }
       const ids = selectedSaleIds;
-      const seq = ++loadSeq.current;
-      setLoadingLots(true);
+      const watch = resetView ? ++watchId.current : watchId.current;
+      const seq = resetView ? ++loadSeq.current : loadSeq.current;
+      const controller = resetView ? new AbortController() : null;
+      if (resetView) {
+        saleLoadAbortRef.current?.abort();
+        saleLoadAbortRef.current = controller;
+        foregroundBusyRef.current = true;
+        setSaleLoadError(null);
+        setSearching(false);
+        setLoadingLots(true);
+      }
       try {
         if (resetView) {
           const pending = pendingPresetFilters.current;
           pendingPresetFilters.current = null;
           // The previous sale's numbers must not linger while the new one loads.
+          optionProgressRef.current.clear();
+          statusesRef.current = [];
           setSaleStatuses([]);
           setSaleTotal(0);
-          const details = await Promise.all(ids.map((id) => api.getCatalogue(id)));
+          const details = await Promise.all(ids.map((id) => api.getCatalogue(id, controller?.signal)));
           if (seq !== loadSeq.current) return; // a newer selection superseded this one
           detailsRef.current = new Map(ids.map((id, i) => [id, details[i]]));
           resultsRef.current = new Map();
@@ -364,25 +458,26 @@ export default function CataloguePage() {
           // A saved preset explicitly replaces it; a normal sale change should not
           // silently clear the work already done in the filter panel.
           const spec: SearchSpec = pending
-            ? { search: pending.search, columnFilters: pending.columnFilters, status: pending.status, classification: pending.classification, year: "" }
+            ? { search: "", columnFilters: pending.columnFilters, status: pending.status, classification: pending.classification, year: "" }
             : draftRef.current;
           setCombined(c);
+          setLoadedSelectionKey(ids.join("|"));
           setHiddenColumns(new Set(c.headers.filter((h) => !DEFAULT_SHOWN_COLUMNS.some((re) => re.test(h)))));
           setColumnFilters(spec.columnFilters);
           setStatusFilter(spec.status);
           setClassificationFilter(spec.classification);
-          setSearch(spec.search);
           setYearFilter(yearOfSelection(ids));
           setSaleTotal(details.reduce((n, d) => n + d.rowCount, 0));
+          if (ids.length === 1) void selectCatalogue(ids[0], { detail: details[0] });
           setSaleStatuses([]);
           appliedRef.current = EMPTY_SPEC;
           setApplied(EMPTY_SPEC);
           hasSearchedRef.current = false;
           setHasSearched(false);
-          void watchSale(ids);
+          void watchSale(ids, watch, controller!.signal);
           if (pending) {
             // A saved filter set was opened on purpose: run it straight away.
-            const r = await executeSearch(ids, spec, seq);
+            const r = await executeSearch(ids, spec, seq, controller!.signal);
             if (r) {
               appliedRef.current = spec;
               setApplied(spec);
@@ -392,14 +487,24 @@ export default function CataloguePage() {
         } else {
           // A newer pull of the sale arrived: repeat the applied search (if one was made) and refresh the dropdown lists,
           // which may now offer new values (a new buyer, a new mark).
-          if (hasSearchedRef.current) await executeSearch(ids, appliedRef.current, seq);
-          void refreshOptions(ids);
+          if (foregroundBusyRef.current) return;
+          const signal = saleLoadAbortRef.current?.signal;
+          if (!signal) return;
+          await refreshAppliedSearch(ids, signal);
+          void refreshOptions(ids, watch, signal);
+        }
+      } catch (e) {
+        if (resetView && seq === loadSeq.current) {
+          setSaleLoadError(e instanceof Error ? e.message : "Could not load the selected sale");
         }
       } finally {
-        if (seq === loadSeq.current) setLoadingLots(false);
+        if (resetView && seq === loadSeq.current) {
+          foregroundBusyRef.current = false;
+          setLoadingLots(false);
+        }
       }
     },
-    [selectedSaleIds, executeSearch, watchSale, refreshOptions]
+    [selectedSaleIds, executeSearch, watchSale, refreshOptions, refreshAppliedSearch, selectCatalogue]
   );
   useEffect(() => {
     loadCombinedRef.current = loadCombined;
@@ -409,21 +514,58 @@ export default function CataloguePage() {
   const runSpec = useCallback(
     async (spec: SearchSpec) => {
       if (selectedSaleIds.length === 0) return;
+      // Search supersedes any option refresh, freshness probe, or prior search for this sale.
+      saleLoadAbortRef.current?.abort();
+      const selectionController = new AbortController();
+      saleLoadAbortRef.current = selectionController;
+      const selectionSignal = selectionController.signal;
+      const watch = ++watchId.current;
       const seq = ++loadSeq.current;
+      const needsDetails = !isSelectionReady;
+      let metadataReady = !needsDetails;
+      let searchSpec = spec;
+      foregroundBusyRef.current = true;
       setSearching(true);
+      setSaleLoadError(null);
+      if (needsDetails) setLoadingLots(true);
       try {
-        const c = await executeSearch(selectedSaleIds, spec, seq);
+        if (needsDetails) {
+          const details = await Promise.all(selectedSaleIds.map((id) => api.getCatalogue(id, selectionSignal)));
+          if (selectionSignal.aborted || seq !== loadSeq.current) return;
+          detailsRef.current = new Map(selectedSaleIds.map((id, index) => [id, details[index]]));
+          const empty = combineSales(selectedSaleIds.map((id, index) => ({
+            id, sourceName: details[index].sourceName, detail: details[index], lots: [],
+          })), selectedSaleIds.length > 1);
+          searchSpec = { ...spec, columnFilters: mapFiltersToHeaders(spec.columnFilters, empty.headers) };
+          setColumnFilters(searchSpec.columnFilters);
+          setCombined(empty);
+          setLoadedSelectionKey(selectedSaleIds.join("|"));
+          setHiddenColumns(new Set(empty.headers.filter((h) => !DEFAULT_SHOWN_COLUMNS.some((re) => re.test(h)))));
+          setSaleTotal(details.reduce((total, detail) => total + detail.rowCount, 0));
+          if (selectedSaleIds.length === 1) void selectCatalogue(selectedSaleIds[0], { detail: details[0] });
+          metadataReady = true;
+        }
+        const c = await executeSearch(selectedSaleIds, searchSpec, seq, selectionSignal);
         if (!c) return;
-        appliedRef.current = spec;
-        setApplied(spec);
+        appliedRef.current = searchSpec;
+        setApplied(searchSpec);
         markSearched();
       } catch (e) {
-        setImportError(e instanceof Error ? e.message : "Search failed");
+        if (!selectionSignal.aborted && seq === loadSeq.current) {
+          const message = e instanceof Error ? e.message : "Search failed";
+          if (needsDetails && !metadataReady) setSaleLoadError(message);
+          else setImportError(message);
+        }
       } finally {
-        if (seq === loadSeq.current) setSearching(false);
+        if (seq === loadSeq.current) {
+          foregroundBusyRef.current = false;
+          setSearching(false);
+          setLoadingLots(false);
+          if (!selectionSignal.aborted && metadataReady) void watchSale(selectedSaleIds, watch, selectionSignal);
+        }
       }
     },
-    [selectedSaleIds, executeSearch]
+    [selectedSaleIds, isSelectionReady, executeSearch, watchSale, selectCatalogue]
   );
   const handleSearch = () => void runSpec(draft);
 
@@ -436,23 +578,22 @@ export default function CataloguePage() {
     const startedAt = Date.now();
     let tick = 0;
     const timer = setInterval(async () => {
+      const signal = saleLoadAbortRef.current?.signal;
+      if (!signal || signal.aborted || foregroundBusyRef.current) return;
       tick++;
       if (Date.now() - startedAt > 180_000 && tick % 4 !== 0) return;
-      if (document.visibilityState !== "visible") return;
+      if (signal.aborted || document.visibilityState !== "visible") return;
       for (let i = 0; i < selectedSaleIds.length; i++) {
         const st = statusesRef.current[i];
         if (!st?.live) continue;
         // Still arriving from OKLO: a search made while the sale was 0% (or partly) loaded would otherwise stay stuck at
         // whatever it found back then (an old search response has no version to compare against) - keep re-running it as
         // more rows land, the same as the "a newer pull arrived" case below does once the sale finishes.
-        if (!st.complete) {
-          void loadCombinedRef.current(false);
-          return;
-        }
+        if (!st.complete) return; // watchSale already refreshes incomplete sales every 3 seconds.
         if (!st.fetchedAtUtc) continue;
         try {
-          const probe = await api.getLots(selectedSaleIds[i], { pageSize: 1, knownVersion: st.fetchedAtUtc });
-          if (probe.live && !probe.live.unchanged) {
+          const probe = await api.getLots(selectedSaleIds[i], { pageSize: 1, knownVersion: st.fetchedAtUtc }, signal);
+          if (!signal.aborted && probe.live && !probe.live.unchanged) {
             void loadCombinedRef.current(false);
             return;
           }
@@ -465,23 +606,60 @@ export default function CataloguePage() {
   }, [selectedSaleIds]);
   useEffect(
     () => () => {
+      saleLoadAbortRef.current?.abort();
       watchId.current++;
       if (rerunTimer.current) clearTimeout(rerunTimer.current);
     },
     []
   );
 
-  // Reload from scratch (reset view) whenever the pooled sale selection changes.
+  // Changing the picker only changes the draft selection. Search starts the sale request.
+  const previousSelectionKey = useRef("");
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadCombined(true);
-  }, [loadCombined]);
+    if (selectionKey === previousSelectionKey.current) return;
+    previousSelectionKey.current = selectionKey;
+    saleLoadAbortRef.current?.abort();
+    ++loadSeq.current;
+    ++watchId.current;
+    foregroundBusyRef.current = false;
+    setSearching(false);
+    setLoadingLots(false);
+    setSaleLoadError(null);
+    setCombined(EMPTY_COMBINED);
+    setLoadedSelectionKey("");
+    detailsRef.current = new Map();
+    resultsRef.current = new Map();
+    statusesRef.current = [];
+    optionProgressRef.current.clear();
+    setSaleStatuses([]);
+    setSaleTotal(0);
+    setColumnFilters((current) => mapFiltersToHeaders(current, filterHeaders));
+    hasSearchedRef.current = false;
+    setHasSearched(false);
+    appliedRef.current = EMPTY_SPEC;
+    setApplied(EMPTY_SPEC);
+  }, [selectionKey, filterHeaders]);
+
+  useEffect(() => {
+    if (selectedSaleIds.length > 0 && pendingPresetFilters.current) void loadCombined(true);
+  }, [selectionKey, loadCombined, selectedSaleIds.length]);
 
   // Picking a sale in the Topbar resets the page to that single sale — the in-page picker
   // then grows the pool from there. Keeps the Topbar behaving exactly as before.
+  const initialActiveSaleSeen = useRef(false);
   useEffect(() => {
+    if (activeCatalogueId && !initialActiveSaleSeen.current) {
+      initialActiveSaleSeen.current = true;
+      if (latestAppliedRef.current) return;
+    }
+    const activeSummary = cataloguesRef.current.find((c) => c.id === activeCatalogueId);
+    if (activeSummary) setYearFilter(String(activeSummary.year));
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSelectedSaleIds(activeCatalogueId ? [activeCatalogueId] : []);
+    setSelectedSaleIds((current) =>
+      activeCatalogueId
+        ? current.length === 1 && current[0] === activeCatalogueId ? current : [activeCatalogueId]
+        : current.length === 0 ? current : []
+    );
   }, [activeCatalogueId]);
 
   // A "?presetId=" from Saved Filters' Apply button (mirrors Reports' "?catalogueId=" reopen).
@@ -500,8 +678,8 @@ export default function CataloguePage() {
       .then((preset) => {
         const filters = JSON.parse(preset.filtersJson) as StoredFilterState;
         pendingPresetFilters.current = filters;
-        if (preset.catalogueId !== activeCatalogueId) {
-          selectCatalogue(preset.catalogueId); // switching sales triggers its own loadCombined(true)
+        if (selectedSaleIds.length !== 1 || selectedSaleIds[0] !== preset.catalogueId) {
+          setSelectedSaleIds([preset.catalogueId]); // applying a preset starts its search through the preset effect
         } else {
           loadCombined(true); // already on the right sale — nothing else will reload, so do it here
         }
@@ -510,11 +688,20 @@ export default function CataloguePage() {
         // Preset may have been deleted since the link was created — the page just loads
         // with no filters applied, same as visiting /catalogue directly.
       });
-  }, [searchParams, activeCatalogueId, loadCombined, selectCatalogue]);
+  }, [searchParams, selectedSaleIds, loadCombined]);
 
   const reload = useCallback(() => loadCombined(false), [loadCombined]);
 
+  const cancelSelectedSaleWork = () => {
+    saleLoadAbortRef.current?.abort();
+    cancelPendingRequests();
+    ++loadSeq.current;
+    ++watchId.current;
+  };
+
   const toggleSale = (id: string) => {
+    if (selectedSaleIds.length === 1 && selectedSaleIds[0] === id) return;
+    cancelSelectedSaleWork();
     setSelectedSaleIds((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
       if (next.length === 0) return prev; // keep at least one sale in the pool
@@ -537,15 +724,16 @@ export default function CataloguePage() {
     const latest = catalogues.find((c) => c.year === year);
     if (!latest) return;
     if (selectedSaleIds.length === 1 && selectedSaleIds[0] === latest.id) return;
-    void selectCatalogue(latest.id);
+    cancelSelectedSaleWork();
     setSelectedSaleIds([latest.id]);
   };
 
   // Picking a sale in the Sale dropdown: show just that sale, and keep the Topbar's active sale and the
   // Year filter in step with it.
   const handleSaleSelect = (id: string) => {
+    if (selectedSaleIds.length === 1 && selectedSaleIds[0] === id) return;
     const c = catalogues.find((x) => x.id === id);
-    void selectCatalogue(id);
+    cancelSelectedSaleWork();
     setSelectedSaleIds([id]);
     if (c) setYearFilter(String(c.year));
   };
@@ -563,8 +751,7 @@ export default function CataloguePage() {
     setYearFilter(String(newest.year));
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedSaleIds([newest.id]);
-    if (newest.id !== activeCatalogueId) void selectCatalogue(newest.id);
-  }, [catalogues, activeCatalogueId, searchParams, selectCatalogue]);
+  }, [catalogues, searchParams]);
 
   // Sales offered by the Sale dropdown: the chosen year's (all when Year is "All"), newest first.
   const saleOptions = useMemo(
@@ -598,7 +785,6 @@ export default function CataloguePage() {
     setColumnFilters({});
     setStatusFilter("");
     setClassificationFilter("");
-    setSearch("");
     // If lots are showing, they go back to the unfiltered set; before the first search there is nothing to redo.
     if (hasSearchedRef.current) void runSpec(EMPTY_SPEC);
   };
@@ -608,7 +794,7 @@ export default function CataloguePage() {
   const filtering = searching;
 
   // Where the OKLO-served sales in the pool stand: still arriving, or complete and how fresh.
-  const liveStatuses = saleStatuses.filter((s) => s.live);
+  const liveStatuses = isSelectionReady ? saleStatuses.filter((s) => s.live) : [];
   const arriving = liveStatuses.filter((s) => !s.complete);
   const liveLoading = arriving.length > 0;
   const liveLoaded = arriving.reduce((n, s) => n + s.loaded, 0);
@@ -652,8 +838,6 @@ export default function CataloguePage() {
     return chips;
   }, [columnFilters, statusFilter, classificationFilter, columnMeta]);
 
-  const activeFilterCount = activeFilterChips.length;
-
   // Export plumbing — the picker's available columns, and which are ticked by default (the
   // grid's shown columns + valuation/classification, plus Sale when spanning sales).
   const availableExportColumns = useMemo(() => buildExportColumns(headers, multiSale), [headers, multiSale]);
@@ -665,7 +849,10 @@ export default function CataloguePage() {
     (l: Lot) => catalogueIdByLot.get(l.id) ?? activeCatalogueId ?? "",
     [catalogueIdByLot, activeCatalogueId]
   );
-  const reportTitle = saleNames.length === 1 ? saleNames[0] : `${saleNames.length} sales`;
+  const selectedSummary = catalogues.find((c) => c.id === selectedSaleIds[0]);
+  const reportTitle = selectedSaleIds.length === 1
+    ? selectedSummary?.sourceName ?? saleNames[0] ?? "Selected sale"
+    : `${selectedSaleIds.length} sales`;
 
 
   // The first import (from the empty-state dropzone) — bring the file in and switch to it.
@@ -690,32 +877,6 @@ export default function CataloguePage() {
       setImportNotice(`Imported ${detail.sourceName} — added to your selected sales.`);
     } catch (e) {
       setImportError(e instanceof Error ? e.message : "Import failed");
-    }
-  };
-
-  // Saves the page's real filter state (this — not AG Grid's own per-column filters, which
-  // are a separate, redundant layer on top of the already-filtered rows this page hands the
-  // grid). Only meaningful for a single sale, so it's saved against activeCatalogueId even
-  // when several are currently pooled.
-  const savePreset = async () => {
-    if (!activeCatalogueId || !presetName.trim()) return;
-    setSavingPreset(true);
-    try {
-      const filters: StoredFilterState = {
-        search,
-        columnFilters,
-        status: statusFilter,
-        classification: classificationFilter,
-        year: yearFilter,
-      };
-      await api.saveFilterPreset(activeCatalogueId, presetName.trim(), JSON.stringify(filters));
-      setPresetDialogOpen(false);
-      setPresetName("");
-      setPresetNotice(`Saved filter preset "${presetName.trim()}".`);
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : "Could not save the preset");
-    } finally {
-      setSavingPreset(false);
     }
   };
 
@@ -832,7 +993,8 @@ export default function CataloguePage() {
     <div>
       <PageHeader
         title="Catalogue Reports"
-        subtitle={`${reportTitle} · ${saleTotal.toLocaleString()} lots · ${headers.length} columns`}
+        actionsAtTitleLevel
+        contentGap={-16}
         actions={
           <>
             {canManageDataFiles && (
@@ -846,6 +1008,27 @@ export default function CataloguePage() {
               >
                 {catalogueLoading ? "Importing…" : "Import file"}
               </Button>
+            )}
+            <span className="text-[13px] text-text-muted text-right whitespace-nowrap">
+              {reportTitle}
+              {isSelectionReady
+                ? ` · ${saleTotal.toLocaleString()} lots · ${headers.length} columns`
+                : ` · ${loadingLots ? "Loading sale…" : "Press Search to load"}`}
+              {isSelectionReady && hasSearched && ` · ${lots.length.toLocaleString()} found`}
+            </span>
+            {liveSyncedAt && !liveLoading && !liveError && (
+              <Tooltip title="Sale data is pulled live from OKLO SmartAuction and re-checked while this page is open.">
+                <span className="inline-flex items-center gap-1 text-[11px] text-sage-dark whitespace-nowrap">
+                  <span className={`w-1.5 h-1.5 rounded-full bg-sage ${liveRefreshing ? "animate-pulse" : ""}`} />
+                  Live · updated {timeAgo(liveSyncedAt)}
+                </span>
+              </Tooltip>
+            )}
+            {searching && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-brass whitespace-nowrap">
+                <span className="w-1.5 h-1.5 rounded-full bg-brass animate-pulse" />
+                Updating…
+              </span>
             )}
           </>
         }
@@ -874,60 +1057,6 @@ export default function CataloguePage() {
         </Menu>
       </div>
 
-      <div className="flex items-center gap-2 -mt-2 mb-2 flex-wrap">
-        <TextField
-          placeholder="Search across every column…"
-          size="small"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch();
-          }}
-          // Full width on phones (it gets its own wrapped row), fixed on larger screens.
-          sx={{ width: { xs: "100%", sm: 340 } }}
-        />
-        <Button
-          variant={searchPending ? "contained" : "outlined"}
-          size="small"
-          startIcon={<SearchIcon fontSize="small" />}
-          onClick={handleSearch}
-          disabled={searching || selectedSaleIds.length === 0}
-        >
-          {searching ? "Searching…" : "Search"}
-        </Button>
-        {activeFilterCount > 0 && (
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<BookmarkAddOutlinedIcon fontSize="small" />}
-            onClick={() => setPresetDialogOpen(true)}
-          >
-            Save as Preset
-          </Button>
-        )}
-        <span className="text-[12px] text-text-muted font-mono ml-auto flex items-center gap-2">
-          {liveSyncedAt && !liveLoading && (
-            <Tooltip title="Sale data is pulled live from OKLO SmartAuction and re-checked while this page is open.">
-              <span className="inline-flex items-center gap-1 text-sage-dark">
-                <span className={`w-1.5 h-1.5 rounded-full bg-sage ${liveRefreshing ? "animate-pulse" : ""}`} />
-                Live · updated {timeAgo(liveSyncedAt)}
-              </span>
-            </Tooltip>
-          )}
-          {((loadingLots && lots.length > 0) || filtering) && (
-            <span className="inline-flex items-center gap-1 text-brass">
-              <span className="w-1.5 h-1.5 rounded-full bg-brass animate-pulse" />
-              Updating…
-            </span>
-          )}
-          {hasSearched
-            ? `${lots.length.toLocaleString()} lot${lots.length === 1 ? "" : "s"} found`
-            : loadingLots && saleTotal === 0
-              ? "Loading sale…"
-              : `${saleTotal.toLocaleString()} lots in this sale`}
-        </span>
-      </div>
-
       {liveLoading && (
         <div className="mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-brass bg-surface text-[13px]" role="status" aria-live="polite">
           <div className="flex items-center gap-2 mb-1.5" style={{ color: "var(--text-strong)" }}>
@@ -948,9 +1077,9 @@ export default function CataloguePage() {
         </div>
       )}
 
-      {headers.length > 0 && (
+      {selectedSaleIds.length > 0 && (
         <FilterPanel
-          headers={headers}
+          headers={filterHeaders}
           columnMeta={columnMeta}
           lots={lots}
           columnFilters={columnFilters}
@@ -966,12 +1095,13 @@ export default function CataloguePage() {
           saleValue={selectedSaleIds.length === 1 ? selectedSaleIds[0] : ""}
           saleMultiLabel={selectedSaleIds.length > 1 ? `${selectedSaleIds.length} sales pooled` : null}
           onSaleChange={handleSaleSelect}
-          serverOptions={serverOptions}
+          serverOptions={displayOptions}
           onSearch={handleSearch}
+          searchDisabled={selectedSaleIds.length === 0}
           toolbar={
             <>
               <ExportShareMenu
-                lots={filteredLots}
+                lots={isSelectionReady ? filteredLots : []}
                 reportTitle={reportTitle}
                 catalogueIdForLot={catalogueIdForLot}
                 availableColumns={availableExportColumns}
@@ -984,6 +1114,7 @@ export default function CataloguePage() {
                 variant="outlined"
                 startIcon={<ViewColumnIcon fontSize="small" />}
                 onClick={(e) => setColumnsMenuAnchor(e.currentTarget)}
+                disabled={!isSelectionReady}
                 sx={{ height: 40 }}
               >
                 Columns
@@ -997,7 +1128,7 @@ export default function CataloguePage() {
         />
       )}
 
-      <div className="flex flex-nowrap items-center gap-1.5 mb-2 h-6 overflow-x-auto overflow-y-hidden" aria-label="Active filters">
+      <div className="flex flex-wrap items-center gap-1.5 mb-2 min-h-6" aria-label="Active filters">
         {activeFilterChips.map((chip) => (
           <Chip key={chip.key} label={chip.label} size="small" onDelete={chip.onRemove} sx={{ flexShrink: 0, maxWidth: 320 }} />
         ))}
@@ -1031,39 +1162,50 @@ export default function CataloguePage() {
         </div>
       )}
 
-      {presetNotice && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-[var(--radius-lg)] border border-sage bg-sage-light text-[13px]" style={{ color: "var(--sage-dark)" }}>
-          {presetNotice}
-          <button
-            type="button"
-            onClick={() => setPresetNotice(null)}
-            className="ml-auto bg-transparent border-none cursor-pointer underline text-[12px]"
-            style={{ color: "var(--sage-dark)" }}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
       {/* Keep the current grid on screen while a newer selection loads — only the true cold
           start (no lots yet) shows the full loading state, so switching sales never blanks.
           A grid-shaped skeleton reads as "the table is about to appear here" far better than
           a bare loading line — same SkeletonRows primitive other pages already reach for
           (components/shared/SkeletonBlock.tsx), just with enough rows to fill the grid's own
-          64vh height so nothing reflows when the real grid mounts underneath it. */}
-      {headers.length > 0 && !hasSearched && !searching ? (
+          available viewport height so nothing reflows when the real grid mounts underneath it. */}
+      {!isSelectionReady && selectedSaleIds.length > 0 ? (
+        <div
+          ref={emptyBoxRef}
+          className="border border-dashed border-border rounded-[var(--radius-lg)] bg-surface flex flex-col items-center justify-center gap-3 text-center px-6"
+          style={{ height: emptyBoxHeight ?? 240 }}
+          role="status"
+          aria-busy={loadingLots}
+        >
+          <p className="text-[13.5px] text-text-muted m-0 max-w-md">
+            {saleLoadError ?? (loadingLots ? `Loading ${reportTitle}…` : `Press Search to load ${reportTitle}.`)}
+          </p>
+          {saleLoadError && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                void runSpec(draft);
+              }}
+            >
+              Retry sale
+            </Button>
+          )}
+        </div>
+      ) : headers.length > 0 && !hasSearched && !searching ? (
         // Nothing is loaded until a search is made: the box below is where the lots appear.
         <div
           ref={emptyBoxRef}
           className="border border-dashed border-border rounded-[var(--radius-lg)] bg-surface flex items-center justify-center text-center px-6"
-          style={{ height: emptyBoxHeight ?? "42vh" }}
+          style={{ height: emptyBoxHeight ?? 240 }}
         >
           <p className="text-[13.5px] text-text-muted m-0 max-w-md">
             Choose your filters, then press <strong>Search</strong> (or Enter). Only the lots that match are loaded.
           </p>
         </div>
       ) : (loadingLots || searching) && lots.length === 0 ? (
-        <SkeletonRows rows={12} />
+        <div ref={emptyBoxRef} style={{ height: emptyBoxHeight ?? 240, overflow: "hidden" }}>
+          <SkeletonRows rows={8} />
+        </div>
       ) : headers.length > 0 ? (
         <div className={loadingLots || filtering ? "opacity-60 transition-opacity pointer-events-none" : "transition-opacity"}>
           <CatalogueGrid
@@ -1089,34 +1231,6 @@ export default function CataloguePage() {
           if (viewLot) editLot(viewLot);
         }}
       />
-
-      <Dialog open={presetDialogOpen} onClose={() => (savingPreset ? null : setPresetDialogOpen(false))} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ pb: 0.5 }}>Save Filter Preset</DialogTitle>
-        <DialogContent>
-          <p className="text-[12px] text-text-muted mt-0 mb-3">
-            Saves the {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"} for {reportTitle} — apply it again anytime from Saved Filters.
-          </p>
-          <TextField
-            autoFocus
-            fullWidth
-            size="small"
-            label="Preset name"
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && presetName.trim()) savePreset();
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPresetDialogOpen(false)} disabled={savingPreset}>
-            Cancel
-          </Button>
-          <Button variant="contained" onClick={savePreset} disabled={savingPreset || !presetName.trim()}>
-            {savingPreset ? "Saving…" : "Save"}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
     </div>
   );

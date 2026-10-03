@@ -77,7 +77,7 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
     /// sweeps put eight sales in flight together, all sharing the same four OKLO request slots - so none of them finished.</summary>
     /// <summary>How many sales a person opened may be actively loading (queued for their turn at OKLO, see
     /// OkloClient's Gate) at once - one, so opening a second sale waits for the first rather than both racing OKLO
-    /// side by side.</summary>
+    /// side by side. A newly opened sale can pause the previous sale after its first rows are available.</summary>
     private readonly SemaphoreSlim _userLoads = new(1);
     private readonly SemaphoreSlim _backgroundLoads = new(1);
     /// <summary>The two newest active sales have a slot of their own: their refresh must never queue behind housekeeping
@@ -445,9 +445,13 @@ public class OkloLiveSales(IOkloFeed feed, SaleFileStore builder, IOptions<OkloO
                 ? AllLoaded().Where(v => v != wanted && v.Running && !v.InUserLane)
                     .OrderBy(v => Interlocked.Read(ref v.TouchedTicks)).FirstOrDefault()
                 : null)
-            ?? (holdsOwnLane ? null : AllLoaded().Where(v => v != wanted && v.Running && v.InUserLane && !v.IsHot && Idle(v)
-                    && v.State.Catalogue is null   // nothing has arrived yet: pausing loses nothing
-                    && DateTime.UtcNow.Ticks - Interlocked.Read(ref v.StartedTicks) > TimeSpan.FromSeconds(Math.Max(0, _o.PreemptMinRunSeconds)).Ticks)
+            ?? (holdsOwnLane ? null : AllLoaded().Where(v => v != wanted && v.Running && v.InUserLane
+                    // The first sale can take minutes to finish its remaining pages. Its published rows
+                    // remain usable after cancellation, so let the new sale reach its first page now.
+                    // For a sale with no rows, retain the idle/minimum-run guard to avoid starvation.
+                    && (v.State.Catalogue is not null ||
+                        (Idle(v) && DateTime.UtcNow.Ticks - Interlocked.Read(ref v.StartedTicks) >
+                            TimeSpan.FromSeconds(Math.Max(0, _o.PreemptMinRunSeconds)).Ticks)))
                 .OrderBy(v => Interlocked.Read(ref v.TouchedTicks)).FirstOrDefault());
         if (victim is null) return;
         log.LogInformation("OKLO sale {Sale}/{Year} paused so {Wanted}/{WantedYear}, which someone is waiting on, can load",

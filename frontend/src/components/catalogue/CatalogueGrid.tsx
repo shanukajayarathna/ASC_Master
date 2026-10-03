@@ -29,9 +29,11 @@ const CLASSIFICATION_STYLE: Record<string, { label: string; bg: string; fg: stri
  *  Parsing it to a real number here fixes sort, the built-in number filter, and any
  *  min/max comparison in one place; commas are stripped the same way the server's own
  *  decimal parsing does. */
-/** The grid never gets shorter than this, however little room is left below the filters. */
-const MIN_GRID_HEIGHT = 180;
-/** Space kept between the grid's bottom edge (its scrollbar) and the bottom of the window. */
+// The grid fills the viewport below the filters. A fixed minimum height makes the
+// entire page scroll as soon as the browser is zoomed or the display is shorter.
+export const CATALOGUE_MIN_GRID_HEIGHT = 0;
+const GRID_HEADER_HEIGHT = 42;
+const TARGET_VISIBLE_ROWS = 8;
 const GRID_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function compareGridValues(valueA: unknown, valueB: unknown): number {
@@ -81,6 +83,11 @@ function CatalogueGrid({
   onEditLot: (lot: Lot) => void;
 }) {
   const gridRef = useRef<AgGridReact>(null);
+  const { ref: wrapRef, height } = useFillHeight<HTMLDivElement>(CATALOGUE_MIN_GRID_HEIGHT);
+  const gridHeight = height ?? 240;
+  // Keep eight rows in view where space permits, without making short viewports
+  // taller than the available space. The reserve covers the header and scrollbar.
+  const rowHeight = Math.min(38, Math.max(22, Math.floor((gridHeight - GRID_HEADER_HEIGHT - 18) / TARGET_VISIBLE_ROWS)));
 
   const rowData = useMemo(
     () => lots.map((lot) => ({ ...lot.rawData, __lot: lot })),
@@ -106,8 +113,8 @@ function CatalogueGrid({
       comparator: compareGridValues,
       filter: false,
       resizable: true,
-      wrapHeaderText: true,
-      autoHeaderHeight: true,
+      wrapHeaderText: false,
+      autoHeaderHeight: false,
     }),
     []
   );
@@ -125,6 +132,7 @@ function CatalogueGrid({
         // The raw "Valuation" column is whichever broker's own published valuation for that lot (from OKLO) -
         // labeled to tell it apart from the app's own pinned Valuation column (ASC's own assessment) further right.
         headerName: h === "Valuation" ? "Broker Valuation" : h,
+        headerTooltip: h === "Valuation" ? "Broker Valuation" : h,
         hide: hiddenColumns.has(h),
         // agSetColumnFilter is AG Grid Enterprise-only — Community-only here, so
         // categorical columns fall back to the text filter (the app's own FilterPanel is
@@ -201,16 +209,16 @@ function CatalogueGrid({
             <button
               title="View lot details"
               onClick={() => onViewLot(lot)}
-              className="w-7 h-7 flex items-center justify-center rounded-full border border-border text-text-muted hover:border-liquor hover:text-liquor bg-surface"
+              className="w-5 h-5 flex items-center justify-center rounded-full border border-border text-text-muted hover:border-liquor hover:text-liquor bg-surface"
             >
-              <VisibilityOutlinedIcon sx={{ fontSize: 16 }} />
+              <VisibilityOutlinedIcon sx={{ fontSize: 14 }} />
             </button>
             <button
               title="Edit valuation"
               onClick={() => onEditLot(lot)}
-              className="w-7 h-7 flex items-center justify-center rounded-full border border-border text-text-muted hover:border-brass hover:text-liquor bg-surface"
+              className="w-5 h-5 flex items-center justify-center rounded-full border border-border text-text-muted hover:border-brass hover:text-liquor bg-surface"
             >
-              <EditOutlinedIcon sx={{ fontSize: 16 }} />
+              <EditOutlinedIcon sx={{ fontSize: 14 }} />
             </button>
           </div>
         );
@@ -247,14 +255,13 @@ function CatalogueGrid({
 
   useEffect(fitColumns, [columnDefs]);
 
-  // Fill exactly the rest of the window, so the grid's own scrollbars are on screen and the page never scrolls.
-  const { ref: wrapRef, height } = useFillHeight<HTMLDivElement>(MIN_GRID_HEIGHT);
-
   return (
-    <div ref={wrapRef} style={{ height: height ?? "64vh", width: "100%" }}>
+    <div ref={wrapRef} style={{ height: gridHeight, width: "100%" }}>
       <AgGridReact
         ref={gridRef}
         theme={ascGridTheme}
+        headerHeight={GRID_HEADER_HEIGHT}
+        rowHeight={rowHeight}
         rowData={rowData}
         getRowId={getRowId}
         columnDefs={columnDefs}

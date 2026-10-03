@@ -41,6 +41,14 @@ export const TICK_FILTERS: { label: string; patterns: RegExp[]; options: string[
   { label: "Rainforest", patterns: [/^ra$/i, /rainforest/i], options: ["Yes", "No"] },
 ];
 
+/** OKLO's known report columns, used to keep every report filter visible before Search loads a sale. */
+export const REPORT_FILTER_HEADERS = [
+  "Lot No", "Sale Code", "Category", "Buyer Name", "Broker", "Invoice No",
+  "Standard/Adjective", "Factory Name", "Grade", "Certifications", "Sub Elevation",
+  "Transaction Type", "Producer Country", "Producer", "Trade Mark", "Selling Mark",
+  "Status", "RP", "RA",
+];
+
 /** First header matching any of the patterns, or null when the catalogue lacks the column. */
 export function resolveHeader(headers: string[], patterns: RegExp[]): string | null {
   for (const p of patterns) {

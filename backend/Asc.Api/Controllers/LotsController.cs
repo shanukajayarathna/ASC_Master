@@ -38,6 +38,7 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
         [FromQuery] string? knownVersion = null)
     {
         var (lots, snap) = await ResolveLotsAsync(catalogueId);
+        HttpContext.RequestAborted.ThrowIfCancellationRequested();
         if (lots is null) return await liveSource.IsLiveAsync(catalogueId) ? SaleLoading() : NotFound();
 
         // Cheap freshness poll: the client says which version it holds; if the sale hasn't been
@@ -45,7 +46,7 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
         if (snap is { Complete: true, FetchedAtUtc: { } fetched } && knownVersion == fetched.ToString("O"))
             return Ok(new PagedLotsDto([], 0, page, pageSize, LiveDto(snap) with { Unchanged = true }));
 
-        var overrides = await OverridesFor(catalogueId);
+        var overrides = await OverridesFor(catalogueId, HttpContext.RequestAborted);
 
         // Progressive load: a partial sale only ever grows at the end, so the client asks for just the
         // rows past what it already has (raw order — no filtering or sorting).
@@ -91,9 +92,14 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
     /// synced file as the fallback. Anything else comes from the source as before.</summary>
     private async Task<(IReadOnlyList<Lot>? Lots, LiveSnapshot? Snap)> ResolveLotsAsync(Guid catalogueId)
     {
-        LiveSnapshot? snap = null;
-        if (await liveSource.IsLiveAsync(catalogueId)) snap = await liveSource.GetSnapshotAsync(catalogueId, HttpContext.RequestAborted);
-        return (snap?.Lots ?? source.GetLots(catalogueId), snap);
+        if (await liveSource.IsLiveAsync(catalogueId))
+        {
+            // The live source already falls back to the synced file. If neither has rows yet,
+            // let the UI retry; source.GetLots would synchronously wait for the entire OKLO sale.
+            var snap = await liveSource.GetSnapshotAsync(catalogueId, HttpContext.RequestAborted);
+            return (snap?.Lots, snap);
+        }
+        return (source.GetLots(catalogueId), null);
     }
 
     /// <summary>
@@ -107,14 +113,16 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
     {
         if (!LotSearch.IsReasonable(request)) return BadRequest("The search is too large.");
         var (lots, snap) = await ResolveLotsAsync(catalogueId);
+        HttpContext.RequestAborted.ThrowIfCancellationRequested();
         if (lots is null) return await liveSource.IsLiveAsync(catalogueId) ? SaleLoading() : NotFound();
-        var overrides = await OverridesFor(catalogueId);
+        var overrides = await OverridesFor(catalogueId, HttpContext.RequestAborted);
 
         var limit = Math.Clamp(request.Limit, 1, 20000);
         var offset = Math.Max(0, request.Offset);
         // Same default order as the lot list (by lot number), so a search and a plain listing agree.
         var matched = LotSearch.Filter(lots.Select(l => (l, Merged(l, overrides))), request)
             .OrderBy(x => x.Lot.LotNumber).ToList();
+        HttpContext.RequestAborted.ThrowIfCancellationRequested();
         var rows = matched.Skip(offset).Take(limit).Select(x => ToDto(x.Lot, x.Val)).ToList();
         return Ok(new PagedLotsDto(rows, matched.Count, offset / limit + 1, limit, snap is null ? null : LiveDto(snap)));
     }
@@ -127,6 +135,7 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
     {
         if ((request.Headers?.Count ?? 0) > 100) return BadRequest("Too many columns requested.");
         var (lots, snap) = await ResolveLotsAsync(catalogueId);
+        HttpContext.RequestAborted.ThrowIfCancellationRequested();
         if (lots is null) return await liveSource.IsLiveAsync(catalogueId) ? SaleLoading() : NotFound();
         var options = LotSearch.BuildOptions(lots, request.Headers ?? []);
         return Ok(new FilterOptionsDto(options, snap?.Total ?? lots.Count, snap is null ? null : LiveDto(snap)));
@@ -283,8 +292,8 @@ public class LotsController(ICatalogueSource source, ILiveCatalogueSource liveSo
             new StoredValuation { LotId = lot.Id, CatalogueId = catalogueId, RowKey = lot.RowKey, Valuation = val },
             new ReplaceOptions { IsUpsert = true });
 
-    private async Task<Dictionary<Guid, Valuation>> OverridesFor(Guid catalogueId) =>
-        (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync())
+    private async Task<Dictionary<Guid, Valuation>> OverridesFor(Guid catalogueId, CancellationToken ct) =>
+        (await db.Valuations.Find(v => v.CatalogueId == catalogueId).ToListAsync(ct))
             .ToDictionary(v => v.LotId, v => v.Valuation);
 
     /// <summary>A lot's user-entered override always wins over its file-derived valuation.

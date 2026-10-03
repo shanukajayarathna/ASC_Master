@@ -231,14 +231,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-/** Re-run a request while the API answers 503 "still loading" (an OKLO sale whose first rows have not arrived), every 4 s for up to ~2 minutes. */
-async function retryWhileLoading<T>(run: () => Promise<T>, attempts = 30): Promise<T> {
+/** Re-run a request while the API answers 503 "still loading" (an OKLO sale whose first rows have not arrived).
+ * Bound elapsed time as well as attempts: a single server request can itself wait several seconds. */
+async function retryWhileLoading<T>(run: () => Promise<T>, attempts = 30, signal?: AbortSignal): Promise<T> {
+  const deadline = Date.now() + 120_000;
   for (let i = 0; ; i++) {
+    if (signal?.aborted) throw signal.reason;
     try {
       return await run();
     } catch (e) {
-      if (!(e instanceof ApiError) || e.status !== 503 || i >= attempts) throw e;
-      await new Promise((resolve) => setTimeout(resolve, 4000));
+      if (!(e instanceof ApiError) || e.status !== 503 || i >= attempts || Date.now() + 4000 >= deadline) throw e;
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", onAbort);
+          reject(signal?.reason);
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, 4000);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
     }
   }
 }
@@ -868,20 +883,20 @@ export const api = {
    * Search ONE sale on the server: the filter panel's state goes up and only the matching rows (a window of `limit`
    * from `offset`) come back, with the total number of matches. The browser never downloads the whole sale.
    */
-  searchLots: (catalogueId: string, body: LotSearchBody) =>
-    retryWhileLoading(() => request<PagedLots>(`/api/catalogues/${catalogueId}/lots/search`, { method: "POST", body: JSON.stringify(body) })),
+  searchLots: (catalogueId: string, body: LotSearchBody, signal?: AbortSignal) =>
+    retryWhileLoading(() => request<PagedLots>(`/api/catalogues/${catalogueId}/lots/search`, { method: "POST", body: JSON.stringify(body), signal }), 30, signal),
 
   /** The sale open for bidding on OKLO right now, if any - for the "watch the live auction" page. */
   getLiveSale: () => retryWhileLoading(() => request<LiveSaleInfo>("/api/oklo/live-sale")),
 
   /** Dropdown option lists (distinct values, most frequent first) for the given columns of a sale. */
-  getFilterOptions: (catalogueId: string, headers: string[]) =>
+  getFilterOptions: (catalogueId: string, headers: string[], signal?: AbortSignal) =>
     retryWhileLoading(() =>
       request<FilterOptionsResponse>(`/api/catalogues/${catalogueId}/filter-options`, {
         method: "POST",
         body: JSON.stringify({ headers }),
-      })
-    ),
+        signal,
+      }), 30, signal),
 
   /**
    * A page was (re)loaded: re-pull the sales in use from OKLO right now instead of waiting for the refresh window. The
@@ -896,7 +911,24 @@ export const api = {
   getOkloFreshness: () => request<{ enabled: boolean; newestCheckedUtc: string | null }>("/api/oklo/freshness"),
 
   // A sale still loading from OKLO answers 503 ("try again"): wait and retry quietly (up to ~2 minutes) instead of surfacing an error.
-  getCatalogue: (id: string) => retryWhileLoading(() => request<CatalogueDetail>(`/api/catalogues/${id}`)),
+  getCatalogue: (id: string, signal?: AbortSignal) => retryWhileLoading(async () => {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    if (signal?.aborted) onAbort();
+    try {
+      return await request<CatalogueDetail>(`/api/catalogues/${id}`, { signal: controller.signal });
+    } catch (e) {
+      if (controller.signal.aborted && !signal?.aborted) {
+        throw new ApiError("This sale is still loading from OKLO.", 503);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    }
+  }, 30, signal),
 
   deleteCatalogue: (id: string) =>
     request<void>(`/api/catalogues/${id}`, { method: "DELETE" }),
@@ -934,7 +966,8 @@ export const api = {
       after?: number;
       /** Live sales only: the `live.fetchedAtUtc` the caller holds — the reply is empty + `unchanged` if still current. */
       knownVersion?: string;
-    } = {}
+    } = {},
+    signal?: AbortSignal
   ) => {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -942,12 +975,13 @@ export const api = {
     });
     const query = qs.toString();
     return request<PagedLots>(
-      `/api/catalogues/${catalogueId}/lots${query ? `?${query}` : ""}`
+      `/api/catalogues/${catalogueId}/lots${query ? `?${query}` : ""}`,
+      { signal }
     );
   },
 
-  getDashboardStats: (catalogueId: string) =>
-    request<DashboardStats>(`/api/catalogues/${catalogueId}/dashboard`),
+  getDashboardStats: (catalogueId: string, signal?: AbortSignal) =>
+    request<DashboardStats>(`/api/catalogues/${catalogueId}/dashboard`, { signal }),
 
   getPreviousGradeStats: (catalogueId: string) =>
     request<PreviousGradeStats>(`/api/catalogues/${catalogueId}/previous-grade-stats`),

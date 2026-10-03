@@ -302,12 +302,12 @@ export default function LiveAuctionPage() {
       {!initializing && pickedId && !loadingLots && lots && selectedCategory && (
         <>
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <Button size="small" variant="outlined" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setSelectedCategory(null)}>
-              All catalogues
-            </Button>
             <span className="text-[13px] font-semibold" style={{ color: "var(--text-strong)" }}>
               {picked?.sourceName} - {selectedCategory}
             </span>
+            <Button size="small" variant="outlined" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setSelectedCategory(null)}>
+              All catalogues
+            </Button>
             <span className="text-[12.5px] font-mono px-2.5 py-1 rounded-full border border-border bg-surface">
               {visibleLots.length.toLocaleString()} lots
             </span>

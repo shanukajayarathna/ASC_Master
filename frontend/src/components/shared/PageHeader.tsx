@@ -12,6 +12,10 @@ interface PageHeaderProps {
   subtitle?: ReactNode;
   /** Right-aligned slot for page-specific controls (pickers, buttons, …). */
   actions?: ReactNode;
+  /** Align the actions with the title row. */
+  actionsAtTitleLevel?: boolean;
+  /** Space below the fixed header before the page content begins. */
+  contentGap?: number;
   /** Extra "back to <section>" pill shown next to Home, for pages nested under a launchpad
    *  sub-section (e.g. Reports' tile pages) where Home alone skips a step. */
   backTo?: { href: string; label: string };
@@ -76,7 +80,7 @@ function ScrollToTopButton() {
  * in sync via ResizeObserver, since actions can wrap to extra rows on narrow viewports) holds
  * its place in the document flow so content doesn't slide underneath it.
  */
-export default function PageHeader({ title, subtitle, actions, backTo }: PageHeaderProps) {
+export default function PageHeader({ title, subtitle, actions, actionsAtTitleLevel, contentGap = 20, backTo }: PageHeaderProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
 
@@ -90,21 +94,25 @@ export default function PageHeader({ title, subtitle, actions, backTo }: PageHea
 
   const content = (
     <>
-      <div>
-        <div className="flex items-center gap-2 mb-2">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="font-display text-2xl font-bold m-0" style={{ color: "var(--text-strong)" }}>
+            {title}
+          </h1>
           {backTo && <BackPill href={backTo.href} label={backTo.label} />}
           <BackPill href="/dashboard" label="Home" />
         </div>
-        <h1 className="font-display text-2xl font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
-          {title}
-        </h1>
         {subtitle && (
-          <p className="text-[13px] m-0 max-w-xl" style={{ color: "var(--text-muted)" }}>
+          <p className="text-[13px] mt-1 mb-0 max-w-xl" style={{ color: "var(--text-muted)" }}>
             {subtitle}
           </p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
+      {actions && (
+        <div className={`flex items-center gap-2 flex-wrap ${actionsAtTitleLevel ? "self-start ml-auto" : ""}`}>
+          {actions}
+        </div>
+      )}
       <ScrollToTopButton />
     </>
   );
@@ -120,7 +128,7 @@ export default function PageHeader({ title, subtitle, actions, backTo }: PageHea
       </div>
       {/* Reserves the fixed bar's real height in the document flow, replacing the mb-5 the
           sticky version got for free from being an in-flow element. */}
-      <div aria-hidden style={{ height, marginBottom: height ? 20 : 0 }} />
+      <div aria-hidden style={{ height, marginBottom: height ? contentGap : 0 }} />
     </>
   );
 }

@@ -47,8 +47,8 @@ public class OkloOptions
     /// <summary>A sale a person opened earlier and has since left (nobody has asked for it for this many seconds) yields its
     /// load slot to a sale someone is waiting on now, instead of holding it for minutes. It restarts if it is opened again.</summary>
     public int PreemptAfterIdleSeconds { get; set; } = 15;
-    /// <summary>A pull is never paused before it has run this long, and never once its first rows have arrived - so a slow OKLO
-    /// cannot leave sales endlessly paused and restarted with none finishing. Deliberately short: this only guards against
+    /// <summary>A pull with no published rows is not paused before it has run this long, so a slow OKLO
+    /// cannot leave sales endlessly paused and restarted with none becoming usable. Deliberately short: this only guards against
     /// pausing something a second into its very first request: the idle check above (nobody has touched it in
     /// PreemptAfterIdleSeconds) is what actually establishes "abandoned", and someone clicking through sales in the
     /// Catalogue Manager expects switching away from one to free it up in seconds, not minutes.</summary>

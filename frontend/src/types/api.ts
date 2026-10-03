@@ -707,6 +707,7 @@ export interface CatalogueSummary {
   sourceName: string;
   rowCount: number;
   columnCount: number;
+  headers?: string[];
   importedAt: string;
   year: number;
   /** Real per-lot min/max of this sale's own "Selling End Time" column — a sale that genuinely

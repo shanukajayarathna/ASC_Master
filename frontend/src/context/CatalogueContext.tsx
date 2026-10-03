@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -26,7 +27,8 @@ interface CatalogueCtx {
   importing: boolean;
   error: string | null;
   refreshList: () => Promise<void>;
-  selectCatalogue: (id: string | null) => Promise<void>;
+  cancelPendingRequests: () => void;
+  selectCatalogue: (id: string | null, options?: { detail?: CatalogueDetail }) => Promise<void>;
   /** Import a sale file. Returns the new catalogue; pass `{ select: false }` to add it to the
    *  list without switching the active sale (e.g. to fold it into a multi-sale selection).
    *  `year` defaults to the legacy 2026 namespace when omitted, matching the API. */
@@ -41,9 +43,25 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
   const [activeCatalogue, setActiveCatalogue] = useState<CatalogueDetail | null>(null);
   const [activeCatalogueId, setActiveCatalogueId] = useState<string | null>(null);
   const [activeStats, setActiveStats] = useState<DashboardStats | null>(null);
+  const [statsRefreshToken, setStatsRefreshToken] = useState(0);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectionRequest = useRef(0);
+  const selectionAbort = useRef<AbortController | null>(null);
+  const statsAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    selectionAbort.current?.abort();
+    statsAbort.current?.abort();
+  }, []);
+
+  const cancelPendingRequests = useCallback(() => {
+    ++selectionRequest.current;
+    selectionAbort.current?.abort();
+    statsAbort.current?.abort();
+    setLoading(false);
+    setActiveStats(null);
+  }, []);
 
   // Fetched independently of selectCatalogue (not awaited there) so the stats call runs in
   // parallel with the catalogue-detail fetch rather than after it.
@@ -53,19 +71,21 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
       setActiveStats(null);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
+    statsAbort.current = controller;
     api
-      .getDashboardStats(activeCatalogueId)
+      .getDashboardStats(activeCatalogueId, controller.signal)
       .then((s) => {
-        if (!cancelled) setActiveStats(s);
+        if (!controller.signal.aborted) setActiveStats(s);
       })
       .catch(() => {
-        if (!cancelled) setActiveStats(null);
+        if (!controller.signal.aborted) setActiveStats(null);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
+      if (statsAbort.current === controller) statsAbort.current = null;
     };
-  }, [activeCatalogueId]);
+  }, [activeCatalogueId, statsRefreshToken]);
 
   const refreshList = useCallback(async () => {
     try {
@@ -79,23 +99,40 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const selectCatalogue = useCallback(async (id: string | null) => {
+  const selectCatalogue = useCallback(async (id: string | null, options?: { detail?: CatalogueDetail }) => {
+    const requestId = ++selectionRequest.current;
+    selectionAbort.current?.abort();
+    const controller = id && !options?.detail ? new AbortController() : null;
+    selectionAbort.current = controller;
     setActiveCatalogueId(id);
+    setStatsRefreshToken((value) => value + 1);
     window.localStorage.setItem("asc_active_catalogue", id ?? "");
     if (!id) {
       setActiveCatalogue(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    if (options?.detail) {
+      setActiveCatalogue(options.detail);
+      setLoading(false);
+      setError(null);
       return;
     }
     setLoading(true);
+    setActiveCatalogue(null);
     try {
       setError(null);
-      const detail = await api.getCatalogue(id);
-      setActiveCatalogue(detail);
+      const detail = await api.getCatalogue(id, controller?.signal);
+      if (requestId === selectionRequest.current) setActiveCatalogue(detail);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load catalogue");
-      setActiveCatalogue(null);
+      if (requestId === selectionRequest.current) {
+        setError(e instanceof Error ? e.message : "Could not load catalogue");
+        setActiveCatalogue(null);
+      }
     } finally {
-      setLoading(false);
+      if (selectionAbort.current === controller) selectionAbort.current = null;
+      if (requestId === selectionRequest.current) setLoading(false);
     }
   }, []);
 
@@ -151,11 +188,12 @@ export function CatalogueProvider({ children }: { children: React.ReactNode }) {
       refreshList: async () => {
         await refreshList();
       },
+      cancelPendingRequests,
       selectCatalogue,
       importFile,
       removeCatalogue,
     }),
-    [catalogues, activeCatalogue, activeCatalogueId, activeStats, loading, importing, error, refreshList, selectCatalogue, importFile, removeCatalogue]
+    [catalogues, activeCatalogue, activeCatalogueId, activeStats, loading, importing, error, refreshList, cancelPendingRequests, selectCatalogue, importFile, removeCatalogue]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -33,7 +33,7 @@ public class CataloguesController(ICatalogueSource source, ILiveCatalogueSource 
         var items = source.ListCatalogues();
         return Ok(
             items
-                .Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt, c.Year, c.SaleDateStart, c.SaleDateEnd))
+                .Select(c => new CatalogueSummaryDto(c.Id, c.SourceName, c.RowCount, c.Headers.Count, c.ImportedAt, c.Year, c.SaleDateStart, c.SaleDateEnd, c.Headers))
                 .ToList()
         );
     }

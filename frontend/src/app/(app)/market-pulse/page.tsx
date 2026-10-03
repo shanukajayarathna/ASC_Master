@@ -197,24 +197,25 @@ export default function MarketPulsePage() {
 
   return (
     <div>
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-1 px-2.5 py-1.5 mb-3 rounded-full border border-border text-[12.5px] font-semibold no-underline transition-colors hover:border-[var(--tea-liquor)] hover:text-[var(--tea-liquor)]"
-        style={{ color: "var(--text)", background: "var(--surface)" }}
-      >
-        <ArrowBackIcon sx={{ fontSize: 15 }} />
-        Home
-      </Link>
-
       <div className="mb-6 rounded-[var(--radius-md)] overflow-hidden" style={{ boxShadow: "var(--shadow-md)" }}>
         <MarketPulseTicker variant="masthead" />
       </div>
 
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div>
-          <h1 className="font-display text-2xl font-bold m-0 mb-1" style={{ color: "var(--text-strong)" }}>
-            {categoryLabel}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3 mb-1">
+            <h1 className="font-display text-2xl font-bold m-0" style={{ color: "var(--text-strong)" }}>
+              {categoryLabel}
+            </h1>
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-border text-[12.5px] font-semibold no-underline transition-colors hover:border-[var(--tea-liquor)] hover:text-[var(--tea-liquor)]"
+              style={{ color: "var(--text)", background: "var(--surface)" }}
+            >
+              <ArrowBackIcon sx={{ fontSize: 15 }} />
+              Home
+            </Link>
+          </div>
           <p className="text-[13px] m-0" style={{ color: "var(--text-muted)" }}>
             AI-scored tea, shipping and trade news — every story links back to its real source.
           </p>

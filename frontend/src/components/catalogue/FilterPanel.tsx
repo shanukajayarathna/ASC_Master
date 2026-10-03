@@ -12,7 +12,7 @@ import FormControl from "@mui/material/FormControl";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDeferredValue, useMemo, useRef, useState, type ReactNode } from "react";
 
 const STATUS_OPTIONS: { value: TicketStatus | ""; label: string }[] = [
   { value: "", label: "All" },
@@ -32,7 +32,11 @@ const CLASSIFICATION_OPTIONS = [
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="block text-[10px] uppercase tracking-wide text-text-muted font-mono mb-1 truncate" title={typeof children === "string" ? children : undefined}>
+    <label
+      className="block font-semibold tracking-wide text-text-strong mb-1 truncate"
+      title={typeof children === "string" ? children : undefined}
+      style={{ fontSize: "clamp(9px, 0.85vw, 12px)", lineHeight: 1.2 }}
+    >
       {children}
     </label>
   );
@@ -45,11 +49,13 @@ function PickAutocomplete({
   selected,
   onChange,
   placeholder = "Type to search",
+  allowCustom = false,
 }: {
   options: string[];
   selected: string[];
   onChange: (values: string[]) => void;
   placeholder?: string;
+  allowCustom?: boolean;
 }) {
   // Controlled so a pick made with the KEYBOARD can close the list: the next Enter then runs the search (a mouse tick
   // leaves it open, for picking several values in a row).
@@ -64,7 +70,33 @@ function PickAutocomplete({
     <VirtualScrollContext.Provider value={scrollRef}>
       <Autocomplete
         multiple
+        freeSolo={allowCustom}
+        autoSelect={allowCustom}
         size="small"
+        sx={{
+          // Keep the selected chip, input and MUI's clear/dropdown controls on one
+          // line. Without this, a long selection wraps the controls below the chip
+          // and makes the filter field grow vertically.
+          "& .MuiAutocomplete-inputRoot": {
+            flexWrap: "nowrap",
+            overflow: "hidden",
+            minHeight: 40,
+            pr: "64px !important",
+          },
+          "& .MuiAutocomplete-tag": {
+            flex: "0 1 auto",
+            minWidth: 0,
+            maxWidth: "calc(100% - 8px)",
+          },
+          "& .MuiAutocomplete-tag .MuiChip-label": {
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "clamp(9px, 0.85vw, 12px)",
+          },
+          "& .MuiAutocomplete-input": { minWidth: "0 !important", width: 0, flexGrow: 1, fontSize: "clamp(9px, 0.85vw, 12px)" },
+          "& .MuiAutocomplete-endAdornment": { right: 8 },
+        }}
         options={options}
         value={selected}
         disableCloseOnSelect
@@ -141,6 +173,7 @@ function TypedLotInput({
       freeSolo
       autoSelect
       size="small"
+      sx={{ "& .MuiInputBase-input": { fontSize: "clamp(9px, 0.85vw, 12px)" } }}
       options={[]}
       value={selected}
       inputValue={input}
@@ -187,8 +220,8 @@ export default function FilterPanel({
   onSaleChange,
   serverOptions,
   onSearch,
+  searchDisabled = false,
   toolbar,
-  bodyMaxHeight,
   searchPending,
   allowAllYears = true,
   onClearAll,
@@ -214,13 +247,12 @@ export default function FilterPanel({
   onYearChange: (v: string) => void;
   /** Every year known to the system (from all catalogues, not just currently-loaded
    *  lots) — merged into the Year dropdown's options so a year with no sale loaded yet
-   *  is still pickable; picking one is expected to load its sales (see onYearChange's
-   *  call site, which auto-expands the working set). */
+   *  is still pickable; the Catalogue Reports page loads the chosen sale on Search. */
   allYears?: number[];
   /**
    * Catalogue Reports only: a Sale dropdown right after Year. Lists the sales of the chosen year
    * (every sale when Year is "All"), newest first - the first one is tagged "latest". Picking a Year
-   * lands on that year's latest sale; this lets the user step to another sale of the same year.
+   * selects that year's latest sale; Search loads it after the user finishes choosing filters.
    * Omit to hide it (the Valuation pages use this panel without it).
    */
   saleOptions?: { id: string; label: string }[];
@@ -236,20 +268,19 @@ export default function FilterPanel({
   serverOptions?: Record<string, string[]>;
   /** Shows a Search button in the panel header (and Enter in a text field runs it). */
   onSearch?: () => void;
+  /** Disable applying filters while the selected sale or another search is loading. */
+  searchDisabled?: boolean;
   /** Extra buttons (Download, Columns) shown in the Search button's cell, to its left. */
   toolbar?: ReactNode;
-  /** Cap the filter fields' height (CSS length); they scroll inside it so the results grid keeps its room. The header row stays visible. */
-  bodyMaxHeight?: string;
   /** Show an "All" entry in the Year dropdown. The Catalogue Reports turns it off: there Year picks which sales are listed. */
   allowAllYears?: boolean;
   /** Filters were changed since the last search — highlights the Search button. */
   searchPending?: boolean;
   onClearAll: () => void;
   /**
-   * "valuation" tailors the panel to the Valuation Centre: the auction-outcome tick
-   * groups (Sale Status / Reprint / Rainforest) don't apply while valuing and are
-   * hidden, and the Invoice No dropdown becomes a free-text search. (Lot Number always
-   * gets its own range + pick-any-lot controls, in every variant — see lotNoHeader.)
+   * "valuation" tailors the panel to the Valuation Centre: the Invoice No dropdown
+   * becomes a free-text search. (Lot Number always gets its own range + pick-any-lot
+   * controls, in every variant — see lotNoHeader.)
    */
   variant?: "default" | "valuation";
   /**
@@ -314,10 +345,12 @@ export default function FilterPanel({
       // filters pop in one at a time as the sale loaded, reflowing the whole panel. The column list itself (`headers`)
       // already reflects the real sale, so a header that resolved at all is shown from the start; its own dropdown just
       // grows richer as more of the sale arrives, same as any of the others.
-      .filter((x): x is NonNullable<typeof x> => x !== null && (serverOptions ? true : x.options.length > 0));
+      .filter((x): x is NonNullable<typeof x> => x !== null && (x.options.length > 0 || serverOptions !== undefined));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headers, lots, isValuation, dColumnFilters, dStatus, dClassification, dYear, serverOptions]);
 
+  // Tick groups (Sale Status, Reprint, Rainforest) — rendered right after the curated
+  // dropdowns, i.e. after Selling Mark. Not offered while valuing.
   const ticks = useMemo(
     () =>
       isValuation
@@ -327,6 +360,12 @@ export default function FilterPanel({
           ),
     [headers, isValuation]
   );
+
+  const toggleTick = (header: string, option: string) => {
+    const selected = selectedOf(header);
+    const values = selected.includes(option) ? selected.filter((v) => v !== option) : [...selected, option];
+    onColumnFilterChange(header, { kind: "categorical", values });
+  };
 
   // Range and hand-picked lot numbers live in one combined filter, so setting one
   // never wipes the other — a lot shows when it's in the range OR among the picks.
@@ -350,6 +389,10 @@ export default function FilterPanel({
   })();
 
   const years = useMemo(() => {
+    // Catalogue Reports gets the complete year list from the catalogue index. Its
+    // lots can contain tens of thousands of rows, so don't rescan them whenever a
+    // draft filter changes just to populate a year menu that already has its data.
+    if (serverOptions && allYears) return [...new Set(allYears.map(String))].sort().reverse();
     const relevant =
       Object.keys(dColumnFilters).length === 0 && !dStatus && !dClassification
         ? lots
@@ -360,95 +403,57 @@ export default function FilterPanel({
     const known = (allYears ?? []).map(String);
     // Newest year first, so the year to pick most often is at the top.
     return [...new Set([...loaded, ...known])].sort().reverse();
-  }, [lots, dColumnFilters, dStatus, dClassification, allYears]);
+  }, [lots, dColumnFilters, dStatus, dClassification, allYears, serverOptions]);
 
   const selectedOf = (header: string): string[] => {
     const f = columnFilters[header];
     return f?.kind === "categorical" ? f.values : [];
   };
 
-  // The buttons sit in the last cells of the dropdown grid, level with the final filter row. Whether they fit there depends on
-  // how many columns the panel's width gives: pick the narrowest-acceptable column width (200 down to 150px) that leaves at
-  // least three free cells after the last dropdown, so they never spill onto a line of their own.
-  const dropdownGridRef = useRef<HTMLDivElement>(null);
-  const [gridMin, setGridMin] = useState(200);
-  const dropdownCount = curated.length + (extraCategoricalHeaders?.length ?? 0);
-  useEffect(() => {
-    const el = dropdownGridRef.current;
-    if (!el) return;
-    const fit = () => {
-      const width = el.clientWidth - 32; // the grid's own side padding
-      let chosen = 200;
-      for (let m = 200; m >= 150; m -= 5) {
-        const cols = Math.max(1, Math.floor((width + 14) / (m + 14)));
-        const free = cols - (dropdownCount % cols || cols);
-        if (cols >= 4 && free >= 3) {
-          chosen = m;
-          break;
-        }
-      }
-      setGridMin(chosen);
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [dropdownCount]);
-
-  const toggleTick = (header: string, option: string) => {
-    const selected = selectedOf(header);
-    const values = selected.includes(option) ? selected.filter((v) => v !== option) : [...selected, option];
-    onColumnFilterChange(header, { kind: "categorical", values });
-  };
+  const filterFieldCount =
+    ticks.length +
+    (lotNoHeader ? 2 : 0) +
+    (invoiceHeader ? 1 : 0) +
+    1 + // Year
+    (saleOptions && onSaleChange ? 1 : 0) +
+    2 + // Ticket Status and Classification
+    (extraCategoricalHeaders?.length ?? 0) +
+    curated.length;
+  // The three tick groups each use two cells on the final row. The actions use
+  // the last three cells, spreading both groups across the available width.
+  const actionSlots = onSearch ? 3 : 0;
+  const gridColumns = Math.max(onSearch ? 3 : 1, Math.ceil((filterFieldCount + ticks.length + actionSlots) / 3));
 
   return (
     <div
-      className="border border-border rounded-md bg-surface-sunken mb-3"
+      className={`catalogue-filter-panel border border-border rounded-md bg-surface-sunken mb-2 ${onSearch ? "catalogue-report-filter" : ""}`}
       onKeyDown={(e) => {
         // Enter in any filter box runs the search - unless the key was already used: a type-ahead with its list open and
         // a row highlighted takes Enter to PICK that row (and calls preventDefault), so it never reaches here as a search.
         const t = e.target as HTMLElement;
-        if (onSearch && e.key === "Enter" && t.tagName === "INPUT" && !e.isDefaultPrevented()) onSearch();
+        if (e.key === "Enter" && t.closest(".MuiAutocomplete-root") && (t as HTMLInputElement).value?.trim()) return;
+        if (onSearch && !searchDisabled && e.key === "Enter" && t.tagName === "INPUT" && !e.isDefaultPrevented()) onSearch();
       }}
     >
-      <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
-        <h4 className="font-display text-[14px] font-semibold text-text m-0">Filters</h4>
-      </div>
-
-      <div style={{ maxHeight: bodyMaxHeight, overflowY: bodyMaxHeight ? "auto" : undefined }}>
-      {/* Tick groups: auction outcome and the two yes/no flags, plus the app's own
-          ticket-status/classification selectors. */}
-      <div className="flex items-end gap-x-6 gap-y-3 flex-wrap px-4 pb-3">
-        {ticks.map(({ def, header }) => {
-          const selected = selectedOf(header);
-          return (
-            <div key={def.label}>
-              <FieldLabel>{def.label}</FieldLabel>
-              <div className="flex gap-x-3 items-center">
-                {def.options.map((opt) => (
-                  <label key={opt} className="flex items-center gap-1 text-[12.5px] text-text cursor-pointer select-none">
-                    <Checkbox
-                      size="small"
-                      sx={{ p: 0.25 }}
-                      checked={selected.includes(opt)}
-                      onChange={() => toggleTick(header, opt)}
-                    />
-                    {opt}
-                  </label>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+      {/* Every control shares one responsive grid so columns stay aligned as the
+          available width changes. */}
+      <div
+        className="catalogue-filter-grid grid items-start gap-x-3 gap-y-2.5 px-3.5 pt-2.5 pb-3"
+        style={{
+          gridTemplateColumns: `repeat(${gridColumns}, minmax(0, var(--catalogue-filter-column-width, 1fr)))`,
+          columnGap: "clamp(3px, 0.8vw, 12px)",
+          rowGap: "clamp(5px, 0.65vw, 10px)",
+        }}
+      >
         {lotNoHeader && (
-          <div>
+          <div className="min-w-0">
             <FieldLabel>Lot No Range</FieldLabel>
-            <div className="flex items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
               <TextField
                 size="small"
                 placeholder="From"
                 value={lotFilter.min}
-                sx={{ width: 90 }}
+                sx={{ flex: 1, minWidth: 0, "& .MuiInputBase-input": { fontSize: "clamp(9px, 0.85vw, 12px)" } }}
                 slotProps={{ htmlInput: { inputMode: "numeric" } }}
                 onChange={(e) =>
                   onColumnFilterChange(lotNoHeader, { ...lotFilter, min: e.target.value.replace(/\D/g, "") })
@@ -459,7 +464,7 @@ export default function FilterPanel({
                 size="small"
                 placeholder="To"
                 value={lotFilter.max}
-                sx={{ width: 90 }}
+                sx={{ flex: 1, minWidth: 0, "& .MuiInputBase-input": { fontSize: "clamp(9px, 0.85vw, 12px)" } }}
                 slotProps={{ htmlInput: { inputMode: "numeric" } }}
                 onChange={(e) =>
                   onColumnFilterChange(lotNoHeader, { ...lotFilter, max: e.target.value.replace(/\D/g, "") })
@@ -469,7 +474,7 @@ export default function FilterPanel({
           </div>
         )}
         {lotNoHeader && (
-          <div className="min-w-[190px]">
+          <div className="min-w-0">
             <FieldLabel>{serverOptions ? "Specific Lots (type numbers)" : "Specific Lots (added to range)"}</FieldLabel>
             {serverOptions ? (
               <TypedLotInput
@@ -488,21 +493,22 @@ export default function FilterPanel({
           </div>
         )}
         {invoiceHeader && (
-          <div className="min-w-[150px]">
+          <div className="min-w-0">
             <FieldLabel>Invoice No</FieldLabel>
             <TextField
               size="small"
               fullWidth
+              sx={{ "& .MuiInputBase-input": { fontSize: "clamp(9px, 0.85vw, 12px)" } }}
               placeholder="Type to match"
               value={invoiceValue}
               onChange={(e) => onColumnFilterChange(invoiceHeader, { kind: "text", value: e.target.value })}
             />
           </div>
         )}
-        <div className="min-w-[110px]">
+        <div className="min-w-0">
           <FieldLabel>Year</FieldLabel>
           <FormControl size="small" fullWidth>
-            <Select value={year} displayEmpty onChange={(e) => onYearChange(e.target.value)}>
+            <Select value={year} displayEmpty onChange={(e) => onYearChange(e.target.value)} sx={{ fontSize: "clamp(9px, 0.85vw, 12px)" }}>
               {allowAllYears && <MenuItem value="">All</MenuItem>}
               {years.map((y) => (
                 <MenuItem key={y} value={y}>
@@ -513,13 +519,13 @@ export default function FilterPanel({
           </FormControl>
         </div>
         {saleOptions && onSaleChange && (
-          <div className="min-w-[200px]">
+          <div className="min-w-0">
             <FieldLabel>Sale</FieldLabel>
             <FormControl size="small" fullWidth>
               <Select
                 value={saleValue ?? ""}
                 displayEmpty
-               
+                sx={{ fontSize: "clamp(9px, 0.85vw, 12px)" }}
                 onChange={(e) => onSaleChange(e.target.value)}
                 renderValue={(v) =>
                   v ? (saleOptions.find((o) => o.id === v)?.label ?? "") : (saleMultiLabel ?? "Select a sale")
@@ -535,10 +541,10 @@ export default function FilterPanel({
             </FormControl>
           </div>
         )}
-        <div className="min-w-[150px]">
+        <div className="min-w-0">
           <FieldLabel>Ticket Status</FieldLabel>
           <FormControl size="small" fullWidth>
-            <Select value={status} onChange={(e) => onStatusChange(e.target.value as TicketStatus | "")}>
+            <Select value={status} onChange={(e) => onStatusChange(e.target.value as TicketStatus | "")} sx={{ fontSize: "clamp(9px, 0.85vw, 12px)" }}>
               {STATUS_OPTIONS.map((o) => (
                 <MenuItem key={o.value} value={o.value}>
                   {o.label}
@@ -547,10 +553,10 @@ export default function FilterPanel({
             </Select>
           </FormControl>
         </div>
-        <div className="min-w-[150px]">
+        <div className="min-w-0">
           <FieldLabel>Classification</FieldLabel>
           <FormControl size="small" fullWidth>
-            <Select value={classification} onChange={(e) => onClassificationChange(e.target.value)}>
+            <Select value={classification} onChange={(e) => onClassificationChange(e.target.value)} sx={{ fontSize: "clamp(9px, 0.85vw, 12px)" }}>
               {CLASSIFICATION_OPTIONS.map((o) => (
                 <MenuItem key={o.value} value={o.value}>
                   {o.label}
@@ -559,57 +565,74 @@ export default function FilterPanel({
             </Select>
           </FormControl>
         </div>
-      </div>
-
-      {/* The curated dropdowns: type-ahead comboboxes that show a handful of options
-          and narrow letter by letter as the user types. */}
-      <div
-        ref={dropdownGridRef}
-        className="grid gap-x-3.5 gap-y-3 px-4 pb-4"
-        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}
-      >
+        {/* Curated type-ahead dropdowns. */}
         {(extraCategoricalHeaders ?? []).map((header) => (
-          <div key={`extra-${header}`}>
+          <div key={`extra-${header}`} className="min-w-0">
             <FieldLabel>{header}</FieldLabel>
             <PickAutocomplete
               options={serverOptions ? (serverOptions[header] ?? []) : columnOptions(lotsFor(header), header)}
               selected={selectedOf(header)}
               onChange={(values) => onColumnFilterChange(header, { kind: "categorical", values })}
+              allowCustom={serverOptions !== undefined}
             />
           </div>
         ))}
         {curated.map(({ def, header, options }) => (
-          <div key={def.label}>
+          <div key={def.label} className="min-w-0">
             <FieldLabel>{def.label}</FieldLabel>
             <PickAutocomplete
               options={options}
               selected={selectedOf(header)}
               onChange={(values) => onColumnFilterChange(header, { kind: "categorical", values })}
+              allowCustom={serverOptions !== undefined}
             />
           </div>
         ))}
+        {ticks.map(({ def, header }) => {
+          const selected = selectedOf(header);
+          return (
+            <div key={def.label} className="min-w-0" style={{ gridColumn: "span 2" }}>
+              <FieldLabel>{def.label}</FieldLabel>
+              <div className="flex whitespace-nowrap gap-x-1 items-center">
+                {def.options.map((opt) => (
+                  <label key={opt} className="flex items-center gap-0.5 text-[clamp(9px,0.85vw,12px)] text-text cursor-pointer select-none">
+                    <Checkbox
+                      size="small"
+                      sx={{ p: 0, "& .MuiSvgIcon-root": { fontSize: "clamp(14px, 1.1vw, 18px)" } }}
+                      checked={selected.includes(opt)}
+                      onChange={() => toggleTick(header, opt)}
+                    />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
         {onSearch && (
-          // Level with the last filter row (Selling Mark), bottom right: the last cells of the grid, so it costs no extra line.
-          <div className="flex items-end justify-end gap-2" style={{ gridColumn: "-4 / -1" }}>
+          <div
+            className="catalogue-filter-actions flex flex-nowrap min-w-0 items-center justify-end gap-1 pt-5 text-[clamp(9px,0.85vw,12px)]"
+            style={{ gridColumn: `${gridColumns - 2} / -1`, gridRow: 3 }}
+          >
             {toolbar}
             <Button
               variant={searchPending ? "contained" : "outlined"}
               startIcon={<SearchIcon />}
               onClick={onSearch}
-              sx={{ px: 3, height: 40, fontSize: 15 }}
+              disabled={searchDisabled}
+              sx={{ px: 1.5, height: 40, fontSize: "clamp(11px, 0.95vw, 14px)" }}
             >
               Search
             </Button>
             <button
               type="button"
               onClick={onClearAll}
-              className="text-[13px] text-text-muted underline hover:text-liquor bg-transparent border-none cursor-pointer pb-2.5"
+              className="text-[13px] text-text-muted underline hover:text-liquor bg-transparent border-none cursor-pointer"
             >
               Clear all
             </button>
           </div>
         )}
-      </div>
       </div>
     </div>
   );

@@ -10,8 +10,8 @@ public interface ILiveCatalogueSource
     /// <summary>True when the catalogue is an OKLO sale served live (so a snapshot can be taken).</summary>
     Task<bool> IsLiveAsync(Guid catalogueId);
 
-    /// <summary>The sale as loaded so far — starts the load if needed and waits for the first rows.
-    /// Falls back to the last synced file when OKLO cannot supply it. Null when neither can.</summary>
+    /// <summary>The sale as loaded so far. A saved file is served while OKLO refreshes;
+    /// without one, the request waits briefly for OKLO's first rows. Null when neither can supply it.</summary>
     Task<LiveSnapshot?> GetSnapshotAsync(Guid catalogueId, CancellationToken ct);
 }
 
@@ -35,6 +35,9 @@ public class LiveCatalogueSource(SaleFileStore files, OkloLiveSales live, IHttpC
     private bool PersonWaiting => http is null || http.HttpContext is not null;
 
     private static readonly TimeSpan FirstRowsTimeout = TimeSpan.FromSeconds(90);
+    // UI callers retry 503 while the background OKLO load continues. Return promptly
+    // instead of holding each metadata/options request for up to 90 seconds.
+    private static readonly TimeSpan UiFirstRowsTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan WholeSaleTimeout = TimeSpan.FromMinutes(4);
 
     /// <summary>Old sales with no file that a single request may pull live per window (see the class doc).</summary>
@@ -65,8 +68,31 @@ public class LiveCatalogueSource(SaleFileStore files, OkloLiveSales live, IHttpC
 
     public async Task<LiveSnapshot?> GetSnapshotAsync(Guid catalogueId, CancellationToken ct)
     {
-        var snap = await live.GetSnapshotAsync(catalogueId, needComplete: false, FirstRowsTimeout, ct);
+        // A synced workbook is already a complete, usable sale. Start (or observe) the OKLO
+        // refresh, but serve that copy while it runs; showing a partial live page instead
+        // would make searches lose rows until every OKLO page had arrived.
+        if (files.HasFile(catalogueId))
+        {
+            var current = await live.GetSnapshotAsync(catalogueId, needComplete: false, TimeSpan.FromMilliseconds(250), ct);
+            if (current is { Complete: true }) return current;
+            ct.ThrowIfCancellationRequested();
+            var savedCatalogue = files.GetCatalogue(catalogueId);
+            var savedLots = files.GetLots(catalogueId);
+            ct.ThrowIfCancellationRequested();
+            if (savedCatalogue is not null && savedLots is not null)
+            {
+                var state = live.Loaded(catalogueId);
+                var message = state?.Error is not null
+                    ? "OKLO is unavailable — showing the saved sale."
+                    : "Showing the saved sale while OKLO updates it.";
+                return new LiveSnapshot(savedCatalogue, savedLots, savedLots.Count, true,
+                    DateTime.SpecifyKind(savedCatalogue.ImportedAt, DateTimeKind.Utc), state?.Loading == true, message);
+            }
+            if (current is not null) return current;
+        }
+        var snap = await live.GetSnapshotAsync(catalogueId, needComplete: false, UiFirstRowsTimeout, ct);
         if (snap is not null) return snap;
+        ct.ThrowIfCancellationRequested();
         var catalogue = files.GetCatalogue(catalogueId);
         var lots = files.GetLots(catalogueId);
         return catalogue is null || lots is null
@@ -96,7 +122,7 @@ public class LiveCatalogueSource(SaleFileStore files, OkloLiveSales live, IHttpC
                 Id = r.CatalogueId,
                 Year = r.Year,
                 SourceName = $"Sale {r.SaleNo} - {r.Year}",
-                Headers = file?.Headers ?? new(),
+                Headers = file?.Headers ?? OkloSaleMapper.ImporterHeaders.ToList(),
                 RowCount = live.KnownCount(r) ?? file?.RowCount ?? 0,
                 ImportedAt = file?.ImportedAt ?? SaleFileStore.LiveSaleDate(r.Year, r.SaleNo, r.Catalog.AuctionDate),
                 SaleDateStart = file?.SaleDateStart,

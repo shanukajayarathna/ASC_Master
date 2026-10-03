@@ -10,7 +10,8 @@ public record CatalogueSummaryDto(
     DateTime ImportedAt,
     int Year,
     DateTime? SaleDateStart = null,
-    DateTime? SaleDateEnd = null
+    DateTime? SaleDateEnd = null,
+    List<string>? Headers = null
 );
 
 public record CatalogueDetailDto(
