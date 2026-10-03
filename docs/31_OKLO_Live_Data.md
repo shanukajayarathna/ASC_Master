@@ -46,7 +46,7 @@ same keys as `Oklo__…` environment variables.
   load; the (app) layout stays mounted across in-app navigation). The backend then re-pulls the sales in use from OKLO
   immediately (`OkloLiveSales.RefreshNow`): the named sale (the user's active one) plus the two newest active sales, skipping the
   normal refresh window. Rate-limited to one forced pull per sale per `Oklo:ForceRefreshMinSeconds` (60), never applied to
-  finished sales, and a sale already pulling is left to finish. The Catalogue Manager then checks every 8s (for 3 minutes) and
+  finished sales, and a sale already pulling is left to finish. The Catalogue Reports page then checks every 8s (for 3 minutes) and
   updates itself the moment the new copy lands.
 - `GET /api/oklo/freshness` (all users) for an "as of" stamp; `GET /api/oklo/status` and
   `POST /api/oklo/sync/{year}/{saleNo}` are Admin-only (`ManageDataFiles`).
@@ -89,9 +89,9 @@ re-link finishes, so an interrupted run resumes.
 - Settings: `Oklo:SnapshotBackfill` (default true), `Oklo:BackfillPauseSeconds` (20), `Oklo:LiveView` (true),
   `Oklo:MaxLiveSales` (8), `Oklo:ViewTtlLiveMinutes` / `ViewTtlRecentMinutes` / `ViewTtlArchiveHours` (2 / 10 / 6).
 
-## Catalogue Manager search (no whole-sale download)
+## Catalogue Reports search (no whole-sale download)
 
-The Catalogue Manager no longer downloads a sale to the browser to filter it. The filter panel edits a *draft*;
+The Catalogue Reports page no longer downloads a sale to the browser to filter it. The filter panel edits a *draft*;
 **Search** (or Enter in a text field) sends it to the server, which filters the sale where it already lives (memory /
 stored snapshot) and returns only the matching rows.
 

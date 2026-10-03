@@ -12,7 +12,7 @@ The old vanilla-JS build (`index.html`, `css/`, `js/`) is left in place, untouch
 
 - Catalogues are **file-backed**, not database-backed: the weekly-sale Excel files under `data/sales` (named `01.xlsx` … `30.xlsx`) ARE the store (`SaleFileStore`), auto-discovered on every listing. "Import" through the app just saves the uploaded file into that folder — a filename numbered like the weekly files slots into that exact sale (re-uploading a number replaces it), any other name gets the next free sale number. Parses are cached to `data/.cache` (gzipped JSON keyed by file size+mtime) so reloads after the first parse are fast. MongoDB holds only user-entered state layered on top — valuations, users, saved reports/filters, API keys, webhooks, etc. — never the catalogue/lot data itself.
 - **Dashboard** — KPI tiles computed from the current sale's lots
-- **Catalogue Manager** — AG Grid Enterprise grid bound to the imported lots, with the Enterprise column/filter side panel, row selection, and CSV/Excel export built into the grid itself
+- **Catalogue Reports** — AG Grid Enterprise grid bound to the imported lots, with the Enterprise column/filter side panel, row selection, and CSV/Excel export built into the grid itself
 - **Valuation drawer** — open a ticket, enter a From/To range or single value, pick a classification (Best/Below Best/Poor), add remarks, save — persisted to MongoDB via `PATCH /api/lots/{id}/valuation` and merged back onto the file-backed lot on read
 - **Bulk operations** — select multiple rows, bulk-classify or bulk-clear-notes via the API
 - Light/dark theme toggle, matching the original brand palette, applied consistently across Tailwind and the MUI theme and the AG Grid theme (AG Grid's v36 Theming API reads the same CSS custom properties, so it follows the toggle automatically)
@@ -21,7 +21,7 @@ Verified by hand against a real local MongoDB: import → list → paged/filtere
 
 ## Current status
 
-All modules listed in the app's navigation (Dashboard, Catalogue Manager, Valuation Centre, Analysis, Reports, Broker Comparison, Market Intelligence, Saved Reports, Saved Filters, Data Import, Exports, Knowledge Base, AI Assistant, Settings, Help) are real, working features — not placeholders. The sidebar-era "Coming soon" framing that used to live in this section is gone; the redesign in commit `f85b306` replaced the sidebar with a dashboard-first launchpad, and every tile there is `status: "live"`. See [`/docs`](docs/README.md) for the current, maintained module-by-module reference — treat that directory, not this section, as the source of truth for what's built.
+All modules listed in the app's navigation (Dashboard, Catalogue Reports, Valuation Centre, Analysis, Reports, Broker Comparison, Market Intelligence, Saved Reports, Saved Filters, Data Import, Exports, Knowledge Base, AI Assistant, Settings, Help) are real, working features — not placeholders. The sidebar-era "Coming soon" framing that used to live in this section is gone; the redesign in commit `f85b306` replaced the sidebar with a dashboard-first launchpad, and every tile there is `status: "live"`. See [`/docs`](docs/README.md) for the current, maintained module-by-module reference — treat that directory, not this section, as the source of truth for what's built.
 
 Authentication now protects the whole API, not just `api/v1/auth`: every controller and module carries `[Authorize]` (Admin-only where appropriate — user/role management, API keys, webhooks, dev seeding). See [`docs/18_Security.md`](docs/18_Security.md) for the full policy.
 

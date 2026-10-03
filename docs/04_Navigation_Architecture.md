@@ -51,7 +51,7 @@ Flat: `Topbar` (always visible) â†’ `Dashboard/Launchpad` or `CommandPalette` â†
 
 | Section | Modules |
 |---|---|
-| Workspace | Dashboard, Catalogue Manager, Valuation Centre |
+| Workspace | Dashboard, Catalogue Reports, Valuation Centre |
 | Intelligence | Knowledge Base, AI Assistant, Analysis, Reports, Broker Comparison, Market Intelligence |
 | Library | Saved Reports, Saved Filters, Data Import, Exports |
 | System | Settings, Help |

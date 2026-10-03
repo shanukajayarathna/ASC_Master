@@ -6,7 +6,7 @@ window.ASC = window.ASC || {};
 ASC.router = (function(){
   const PAGE_TITLES = {
     dashboard: 'Executive Dashboard',
-    catalogue: 'Catalogue Manager',
+    catalogue: 'Catalogue Reports',
     valuation: 'Valuation Centre',
     analysis: 'Analysis',
     reports: 'Reports',
@@ -20,7 +20,7 @@ ASC.router = (function(){
     help: 'Help'
   };
 
-  // Valuation Centre reuses the Catalogue Manager grid (same table/filter engine)
+  // Valuation Centre reuses the Catalogue Reports grid (same table/filter engine)
   // pre-scoped to lots that still need attention, rather than duplicating the whole grid.
   const PAGE_ELEMENT_ID = { valuation: 'catalogue' };
 

@@ -35,7 +35,7 @@ Replace the spreadsheet- and paper-driven workflow of a tea auction house's cata
 - **External automation** (via API keys) — systems like n8n reading platform data through the API-key auth scheme, not the interactive UI.
 
 ### Primary workflows
-1. **Import** a weekly sale catalogue (Excel/CSV) → lots appear in the Catalogue Manager.
+1. **Import** a weekly sale catalogue (Excel/CSV) → lots appear in Catalogue Reports.
 2. **Value** each lot (range or single value, classification, remarks) in the Valuation Centre, individually or in bulk.
 3. **Analyse** the sale — dashboard KPIs, Analysis breakdowns, Broker Comparison, Market Intelligence (estimate vs. actual price).
 4. **Report** — generate and save report types, export to Excel.

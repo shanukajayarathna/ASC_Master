@@ -16,7 +16,7 @@ Front end: `frontend/src/app/(app)/assistant/**` and `frontend/src/components/ag
 | `/assistant/<agent>` | Retired: redirects to `/assistant`. |
 
 ## How it works for the user
-- **Ask anything.** No agent to choose. The header shows the sale in context, the provider picker, a small voice orb, *Report canvas*, *Library* and *New chat*.
+- **Ask anything.** No agent to choose. The header shows the sale in context, the interface-language and provider pickers, a small voice orb, *Report canvas*, *Library*, *History* and *New chat*. History can be searched and reopened in the universal chat.
 - **A small tag on each answer** ("Answered by Analytics") says which specialist wrote it; tapping it offers *Ask Auction instead* etc., which re-asks the same question with that agent.
 - **Short clarifying questions.** When an analysis or report request is too open ("Compare performance"), the assistant first asks one question with tap-to-answer buttons ("What should I compare?" → Brokers / Grades / Sales over time; "Over which period?"). At most two in a row, and never for questions it can answer.
 - **Results are cards in the conversation.**
@@ -46,7 +46,7 @@ The response carries `agent` (the specialist that answered, or will answer once 
 | `ChartActions.tsx` (Explain · Pin · Export ▾ · Edit in report canvas), `chartExports.ts`, `PinnedBoard.tsx`, `pins.ts` | Chart actions, chart → table/snapshot/deck/preview, prompts, server-side pins. |
 | `LotCards.tsx` | Lot cards, price ladder, lot-number detection. |
 | `ReportCanvas.tsx`, `ReportBuilderPanel.tsx`, `ReportPreview.tsx`, `ReportOutputs.tsx`, `DeckCard.tsx`, `ScheduleCard.tsx`, `reportBuilder.ts`, `reportTemplates.ts`, `useReportPreview.ts`, `voiceCommand.ts` | The canvas and everything in it. |
-| `LibraryDrawer.tsx`, `BylawsClauseDialog.tsx`, `AgentUsageBadge.tsx`, `archive.ts` | Library, clause viewer, admin usage chip, archive notice. |
+| `LibraryDrawer.tsx`, `HistoryDrawer.tsx`, `BylawsClauseDialog.tsx`, `AgentUsageBadge.tsx`, `archive.ts` | Library, searchable conversation history, clause viewer, admin usage chip, archive notice. |
 | `VoiceOrb.tsx`, `voice.ts`, `voice-orb.css`, `workspace.css` | Orb, microphone level, speech synthesis; styles. |
 
 ## Back-end additions
@@ -86,8 +86,8 @@ Any signed-in user can use every agent and Reports generation (tools are read-on
 - **Archive gap.** The archive can stop before the active sale; analytics and reports stop there and the notice says so. The Reports builder has no "13 years" period (it would run a query per sale across the whole archive).
 - **Price ladder** compares valuations, not sale results.
 - **Voice** works in Chromium browsers; elsewhere the mic is disabled and typing works. Voice-style commands are parsed in English only.
-- **The assistant screen is English only** (the earlier hub strings in `lib/i18n.ts` and `docs/assistant-hub-i18n-review.md` are no longer used by the page; translating the new screen is a follow-up).
-- **Source chips** appear on live replies and are not stored with history. The agent tag likewise.
+- The assistant header, composer placeholder and history drawer follow the English/Sinhala/Tamil interface preference. Some report, chart and chat action labels remain English; translations should be reviewed by native speakers before expanding coverage.
+- Older conversation messages predate stored source and agent metadata; new answers retain both when reopened from history.
 
 ## Testing
 Frontend (Vitest + Testing Library): `universal-assistant.test.tsx` (routing calls, scope, follow-ups, tag re-ask, clarifying buttons, chart actions, canvas, lot cards, sources, library, usage, axe-core structural accessibility), `report-canvas.test.tsx` (builder logic, canvas, deck), `voice-command.test.ts`, `assistant-logic.test.ts`. Backend (xUnit, no Mongo): `IntentRouterTests`, `PersonalisationTests`, `ArchiveScopeTests`, `GuidedIntakeTests` (scripted dialogues: the sale-37 question, menu, filters, reports, Tea Board, "you choose", what must be left alone), `CustomReport*Tests`, `CustomDeckGeneratorTests` (OpenXml schema validation and exact chart values), `SourceTrackerTests`, `AnalyticsPinsTests`. Colour contrast and layout need a real browser; a browser pass of the universal screen has **not** been done yet. Run archive queries one at a time — a cold archive query can exhaust RAM on a small machine.

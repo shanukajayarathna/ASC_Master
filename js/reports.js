@@ -99,7 +99,7 @@ ASC.reports = (function(){
           const val = getValuationValue(rowKeyFor(row));
           return `<tr><td class="mono">${escapeHtml(idCol?row[idCol]:'—')}</td>${gradeCol?`<td>${escapeHtml(row[gradeCol])}</td>`:''}<td class="num mono">${val!==null?formatCurrency(val,{decimals:2}):'—'}</td></tr>`;
         }).join('')}
-        </tbody></table>${rows.length>200?`<p style="font-size:11.5px; color:var(--text-muted);">Showing first 200 of ${rows.length.toLocaleString()} rows — export CSV/Excel from Catalogue Manager for the full set.</p>`:''}`;
+        </tbody></table>${rows.length>200?`<p style="font-size:11.5px; color:var(--text-muted);">Showing first 200 of ${rows.length.toLocaleString()} rows — export CSV/Excel from Catalogue Reports for the full set.</p>`:''}`;
     } else {
       html = reportHeader(REPORT_TYPES[type]||'Report', 'This catalogue does not contain the column this report needs.') +
         `<p style="color:var(--text-muted); font-size:13px;">Try a different report type, or check Column Chooser to confirm the relevant column is present.</p>`;

@@ -156,7 +156,7 @@ ASC.analysis = (function(){
     const gardenCol = findHeader(/garden/i);
     let list = lotValuations().sort((a,b)=> currentTopMode==='top' ? b.val-a.val : a.val-b.val).slice(0,currentTopN);
     if(list.length===0){
-      wrap.innerHTML = `<p style="color:var(--text-muted); font-size:12.5px; padding:14px;">No valued lots yet — save some tickets in Catalogue Manager to populate this table.</p>`;
+      wrap.innerHTML = `<p style="color:var(--text-muted); font-size:12.5px; padding:14px;">No valued lots yet — save some tickets in Catalogue Reports to populate this table.</p>`;
       return;
     }
     wrap.innerHTML = `<table class="mini-table"><thead><tr>

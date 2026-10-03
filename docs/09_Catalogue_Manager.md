@@ -1,7 +1,7 @@
-# 09 — Catalogue Manager
+# 09 — Catalogue Reports
 
 ## Purpose
-Define the Catalogue Manager as the platform's system of record for browsing a sale's lots, since almost every other module reads lot data that ultimately flows through this one.
+Define Catalogue Reports as the platform's system of record for browsing a sale's lots, since almost every other module reads lot data that ultimately flows through this one.
 
 ## Scope
 The `/catalogue` route, `CataloguesController`/`LotsController`, and the AG Grid-based grid experience. Not valuation entry itself (see [10_Valuation_Centre.md](10_Valuation_Centre.md)) or import mechanics (see [14_Data_Import.md](14_Data_Import.md)).

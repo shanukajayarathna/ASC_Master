@@ -26,7 +26,7 @@ Not present today. Target: backend service-layer logic (`CatalogueImportService`
 Not present today. Target: import → valuation → analytics round-trip (the same flow the root README describes verifying "by hand against a real local MongoDB") is the platform's core happy path and the best candidate for an automated integration test.
 
 ### UI testing
-Not present today. Target: Valuation Centre's tablet focus mode (highest business-criticality UI path) and the Catalogue Manager grid (most complex UI component) are the best first candidates if UI testing is introduced.
+Not present today. Target: Valuation Centre's tablet focus mode (highest business-criticality UI path) and the Catalogue Reports grid (most complex UI component) are the best first candidates if UI testing is introduced.
 
 ### Accessibility testing
 Not present today. No automated accessibility audit tooling confirmed. See [02_UI_UX_Design_System.md](02_UI_UX_Design_System.md)'s accessibility section for baseline expectations that should eventually be checked automatically (contrast, keyboard operability).

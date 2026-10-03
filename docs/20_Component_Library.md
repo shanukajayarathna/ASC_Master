@@ -45,7 +45,7 @@ Not applicable — components are presentation, not business logic; they should 
 
 **ValuationDrawer** (`components/catalogue/`, reused by `valuation/`)
 - Purpose: the value/classify/remarks form, usable both from the grid (drawer) and the Valuation Centre's own flows.
-- Note: this dual-use is intentional — don't fork it into two separate implementations when the Valuation Centre and Catalogue Manager need the same form.
+- Note: this dual-use is intentional — don't fork it into two separate implementations when the Valuation Centre and Catalogue Reports need the same form.
 
 **KpiTile / KpiSection** (`components/dashboard/`)
 - Purpose: single-metric display tile and a grouping of them.

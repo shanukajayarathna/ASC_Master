@@ -62,7 +62,7 @@ Best/Below Best/Poor classification breakdowns — part of Analysis's quality en
 Not implemented. Explicitly future-facing — see [27_Future_Roadmap.md](27_Future_Roadmap.md) ("Advanced forecasting", "Forecast Accuracy" as an example future metric in [07_Metrics_Registry.md](07_Metrics_Registry.md)).
 
 ### Custom analysis
-No user-defined/ad hoc analysis builder exists today. Saved Filters ([09_Catalogue_Manager.md](09_Catalogue_Manager.md)) is the closest thing — named filter sets on the Catalogue Manager grid, not a BI query builder.
+No user-defined/ad hoc analysis builder exists today. Saved Filters ([09_Catalogue_Manager.md](09_Catalogue_Manager.md)) is the closest thing — named filter sets on the Catalogue Reports grid, not a BI query builder.
 
 ### Charts
 Charting is implemented per-module (Analysis breakdowns, Broker Comparison rankings, Market Intelligence comparisons) rather than through a shared charting component library today — see [20_Component_Library.md](20_Component_Library.md) for where a shared chart component should be extracted to if duplication grows.

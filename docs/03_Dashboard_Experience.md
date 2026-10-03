@@ -54,7 +54,7 @@ Not implemented — the dashboard layout is fixed, not user-configurable. If cus
 [06_Shared_Analytics_Engine.md](06_Shared_Analytics_Engine.md), [07_Metrics_Registry.md](07_Metrics_Registry.md), [08_AI_Assistant.md](08_AI_Assistant.md), [04_Navigation_Architecture.md](04_Navigation_Architecture.md), [28_Loading_And_Interaction_States.md](28_Loading_And_Interaction_States.md).
 
 ## Future expansion
-Notification centre, system-health widget, per-user dashboard customisation, drill-down from a KPI tile straight into the filtered Catalogue Manager view.
+Notification centre, system-health widget, per-user dashboard customisation, drill-down from a KPI tile straight into the filtered Catalogue Reports view.
 
 ## Implementation notes
 `frontend/src/app/(app)/dashboard/` is the route; `frontend/src/components/home/` and `frontend/src/components/dashboard/` hold the widgets.

@@ -12,7 +12,7 @@ The `/valuation` route (list view and tablet-friendly focus mode), `ValuationDra
 - Persist valuations reliably and make them immediately visible to every other module.
 
 ## Architecture
-Frontend: `frontend/src/components/valuation/`, `ValuationDrawer` (also used from the Catalogue Manager grid). Backend: `LotsController`'s `PATCH /api/lots/{id}/valuation`. Valuations persist to MongoDB (`valuations` collection), joined back onto file-store lot data by lot key wherever lots are displayed — see [01_System_Architecture.md](01_System_Architecture.md).
+Frontend: `frontend/src/components/valuation/`, `ValuationDrawer` (also used from the Catalogue Reports grid). Backend: `LotsController`'s `PATCH /api/lots/{id}/valuation`. Valuations persist to MongoDB (`valuations` collection), joined back onto file-store lot data by lot key wherever lots are displayed — see [01_System_Architecture.md](01_System_Architecture.md).
 
 ## UI behaviour
 Two modes: a list view (open a ticket from the grid, value, save, move to next) and a "focus mode" designed for tablet use at the sale floor — larger touch targets, minimal chrome, one-lot-at-a-time flow. Fields: value (From/To range or single value), classification, remarks. Per-lot photos and voice notes are also supported (`LotMediaController`, disk-backed under `/data/media`).

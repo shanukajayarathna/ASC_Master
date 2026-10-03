@@ -4,7 +4,7 @@
 Define the module for building a custom Excel export from an arbitrary lot selection, distinct from Reports' fixed report types.
 
 ## Scope
-The `/exports` route and `ExportController` (`api/export/excel`). Not fixed-format reports (see [13_Reports.md](13_Reports.md)) and not the Catalogue Manager grid's own built-in AG Grid CSV/Excel export (a separate, grid-native mechanism — see [09_Catalogue_Manager.md](09_Catalogue_Manager.md)).
+The `/exports` route and `ExportController` (`api/export/excel`). Not fixed-format reports (see [13_Reports.md](13_Reports.md)) and not the Catalogue Reports grid's own built-in AG Grid CSV/Excel export (a separate, grid-native mechanism — see [09_Catalogue_Manager.md](09_Catalogue_Manager.md)).
 
 ## Responsibilities
 - Let a user select an arbitrary set of lots (any filter/selection) and export them to Excel with chosen columns.
@@ -14,7 +14,7 @@ The `/exports` route and `ExportController` (`api/export/excel`). Not fixed-form
 Frontend: `frontend/src/app/(app)/exports/`. Backend: `ExportController` (`api/export/excel`) — note this is on the legacy `Controllers/` surface, not a `Modules/` feature module (see [01_System_Architecture.md](01_System_Architecture.md) for the distinction and its implications for where new export logic should live).
 
 ## UI behaviour
-Select lots (likely via filters similar to the Catalogue Manager) and choose which columns/fields to include, then download an `.xlsx` file.
+Select lots (likely via filters similar to the Catalogue Reports) and choose which columns/fields to include, then download an `.xlsx` file.
 
 ## Business rules
 Exports should reflect current data at export time — no caching of a stale export result across requests with different filters/selections.
